@@ -1,0 +1,28 @@
+services:
+  cortex:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: cortex:devnet
+    restart: unless-stopped
+    command: ["-config", "/etc/cortex/config.yaml"]
+    env_file:
+      - path: runtime.env
+        required: false
+    volumes:
+      - ${CORTEX_CONFIG_PATH:-./generated/cortex.yaml}:/etc/cortex/config.yaml:ro
+      - ${NEXUS_TOKEN_FILE}:/run/secrets/nexus.token:ro
+      - cortex-state:/var/lib/cortex
+      - cortex-run:/var/run/cortex
+    ports:
+      - ${CORTEX_HEALTH_PORT:-8081}:8081
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  cortex-state:
+  cortex-run:

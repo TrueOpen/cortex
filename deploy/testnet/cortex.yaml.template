@@ -1,0 +1,112 @@
+mode: @@MODE@@
+chain_id: @@CHAIN_ID@@
+admin:
+  uds_path: @@NODE_ROOT@@/cortexd.sock
+model_management:
+  endpoint: @@MODEL_ENDPOINT@@
+  transport: grpc
+  # A model service on another host must use TLS (deployment security baseline items 4
+  # and 5); only a loopback endpoint may be plaintext.
+  # pubkey_hash = the 64 lowercase hex chars of sha256(certificate SubjectPublicKeyInfo DER).
+  tls:
+    pubkey_hash: "@@MODEL_TLS_PUBKEY_HASH@@"
+node:
+  rpc_endpoint: @@NODE_RPC@@
+  rest_endpoint: @@NODE_REST@@
+keeper:
+  api_url: @@KEEPER_API@@
+  poll_interval_ms: 1000
+  max_lag_blocks: 20
+task_execution:
+  retry_delay_ms: 30000
+  # grpc model transport: Workers resolve the receiving Builder's descriptor,
+  # authenticate with the current Cortex service key, then fetch metadata and
+  # ranged FetchTaskData over verified TLS. `fixture` is only legal with fake
+  # model transport and is not a testnet shape.
+  input_resolver: nexus
+nexus:
+  ingress_url: @@NEXUS_INGRESS@@
+  nats_url: @@NEXUS_NATS@@
+  # In real mode a remote NATS must be tls:// and validated against the distributed
+  # certificate file (ADR-0016); loopback may leave this empty.
+  nats_ca_file: "@@NEXUS_NATS_CA_FILE@@"
+  # ADR-0016 decision three: a remote NATS is joined with the on-chain identity only and
+  # the creds file is retired; loopback may leave this empty.
+  nats_user_key_file: "@@NEXUS_NATS_USER_KEY_FILE@@"
+  auth_token_file: @@NEXUS_TOKEN_PATH@@
+  # JetStream stream Nexus publishes task frames to. Cortex creates and binds
+  # its own durable consumer on this stream, so a stop unbinds instead of
+  # deleting the consumer and the ack position survives a restart.
+  jetstream_stream: @@NEXUS_JETSTREAM_STREAM@@
+  # OPTIONAL: the Builder operator that owns NEXUS_INGRESS. Strict envelope
+  # authentication authorizes senders from the chain's current BuilderSet, so an
+  # empty value admits every current member and this setting only narrows the
+  # node to one Builder. It never widens: a Builder the chain has removed stays
+  # refused even when named here. Setting it also turns on descriptor
+  # verification, which makes builder_descriptor readiness depend on that Builder
+  # being in the current BuilderSet and having published a descriptor that commits
+  # this ingress endpoint.
+  builder_operator_address: "@@NEXUS_BUILDER_OPERATOR@@"
+  allow_insecure_descriptor: @@NEXUS_ALLOW_INSECURE_DESCRIPTOR@@
+  # Explicit rather than inherited so the posture is visible. strict signs every
+  # outbound envelope with this node's current service key and requires a valid
+  # signature on every inbound one. The Nexus that ships today emits unsigned
+  # BusEnvelopes (upstream gap, SingaXYZ/nexus#45), so a strict node rejects
+  # every Builder message and takes no work. trusted_nats_dev relaxes the
+  # signature layer only, never the wire shape: DecodeBusEnvelope refuses any
+  # frame that is not the full 20-field envelope
+  # (internal/builderclient/envelope.go:553-567 -- DisallowUnknownFields plus
+  # validateWireShape), and the coordinator still publishes the 14-field
+  # msgbus.BusEnvelope. So trusted_nats_dev runs a task loop for the synthetic
+  # 20-field smoke order, not for a real Builder frame. Switch to it, once the
+  # dedicated NATS account and its publish/subscribe ACL are in place, to
+  # exercise that path.
+  envelope_auth_mode: @@NEXUS_ENVELOPE_AUTH_MODE@@
+  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
+  # inbound one. Deployment config, not a chain parameter: keep it equal to the
+  # value the deployed Nexus uses (Nexus stamps 30000 today).
+  envelope_ttl_ms: 30000
+  # Tolerated clock skew when judging inbound issued_at/expires_at. Keep it
+  # small and run NTP on every host.
+  envelope_clock_skew_ms: 2000
+  subscribe_models: [@@MODEL_ID@@]
+tx:
+  # Required on every non-fake node. A selected Verifier's commit has no relay
+  # to travel on -- the bus registers no VERIFY_COMMIT kind and Nexus's ingress
+  # refuses to relay verify submissions -- so the node submits its own
+  # MsgSubmitVerifyCommit and needs a Cosmos-capable service signer to do it.
+  # Without this the workload stays down rather than verifying and losing the
+  # commit.
+  enabled: true
+  max_fee_amount: 1000000
+  fee_denom: uusdc
+  max_attempts: 5
+  poll_attempts: 30
+  gas_limit: 250000
+artifacts:
+  root: @@NODE_ROOT@@/data/evidence
+  retention_policy_version: @@RETENTION_POLICY_VERSION@@
+  minimum_retention_blocks: @@MINIMUM_RETENTION_BLOCKS@@
+store:
+  path: @@NODE_ROOT@@/data/store
+signer:
+  uri: file://@@NODE_ROOT@@/keystore
+  password_file: @@KEYSTORE_PASSWORD_PATH@@
+  readiness_proof_interval_ms: 30000
+local_identity:
+  operator_address: @@OPERATOR_ADDRESS@@
+  service_key_ref: service.json
+  supported_model_profiles: [@@MODEL_PROFILES@@]
+  model_service_id: @@MODEL_SERVICE_ID@@
+# This gates the DEADLINE-RISK trigger only; its durable scheduling is not
+# wired yet (Cortex issue #108). It does NOT gate the verifier commit exit,
+# which runs every round -- see the tx block above.
+self_rescue:
+  enabled: false
+  # Per-transaction bound for that commit exit as well. It may only narrow
+  # tx.max_fee_amount, never widen it.
+  max_fee_amount: 1000000
+challenge_verifier:
+  enabled: false
+health:
+  bind: 0.0.0.0:@@HEALTH_PORT@@

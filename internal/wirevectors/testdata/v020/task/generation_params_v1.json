@@ -1,0 +1,40 @@
+{
+  "canonical_json": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"\u003c/s\u003e\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"qwen3-8b-test\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+  "digest_hex": "a14131bce65829b3d1082910773aad2232519705cd23866164e3cae54edf4a4c",
+  "limits": {
+    "max_output_tokens": 8388607,
+    "stop_sequence_max_bytes_each": 128,
+    "stop_sequence_max_items": 16,
+    "stop_sequence_max_total_bytes": 1024,
+    "stop_token_max_items": 64,
+    "top_k_max": 1000
+  },
+  "model_id": "qwen3-8b-test",
+  "output_budget_bucket": 4,
+  "params": {
+    "decoding_params": {
+      "frequency_penalty_milli": 200,
+      "presence_penalty_milli": -100,
+      "repetition_penalty_ppm": 1100000,
+      "sampling_enabled": true,
+      "seed": 42,
+      "stop_sequences": [
+        "\n\n",
+        "\u003c/s\u003e"
+      ],
+      "stop_token_ids": [
+        2,
+        128001
+      ],
+      "temperature_milli": 800,
+      "top_k": 40,
+      "top_p_ppm": 950000
+    },
+    "generation_params_schema_version": 1,
+    "max_output_duration": 30000,
+    "max_output_tokens": 256
+  },
+  "profile_version": 1,
+  "schema": "trueopen-task-generation-params-v1",
+  "task_type": "CHAT"
+}

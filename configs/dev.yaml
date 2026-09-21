@@ -1,0 +1,24 @@
+mode: fake
+chain_id: trueopen-devnet-1
+admin:
+  uds_path: /tmp/cortexd.sock
+model_management:
+  endpoint: 127.0.0.1:9090
+  transport: fake
+  # A model service on another host must use TLS (deployment security baseline): either
+  # ca_file or pubkey_hash; a loopback address may be plaintext.
+  # tls:
+  #   ca_file: ""
+  #   pubkey_hash: ""
+node:
+  rpc_endpoint: http://127.0.0.1:26657   # use https:// once node enables TLS; real mode requires https for non-loopback
+artifacts:
+  root: /tmp/cortex/evidence
+store:
+  path: /tmp/cortex/store
+signer:
+  uri: file:///tmp/cortex/signer.key
+challenge_verifier:
+  enabled: false
+health:
+  bind: 127.0.0.1:8081

@@ -1,0 +1,121 @@
+{
+  "cases": [
+    {
+      "leaf_count": 0,
+      "peaks": [],
+      "root_hex": "3c16dfdfb27ee4ced6c1b13b9a50ed851bb5920197cbc4860e2cebfef120e1cb"
+    },
+    {
+      "leaf_count": 1,
+      "peaks": [
+        {
+          "hash_hex": "dbc7d3e5c3605543519d154eb0a305ee58b8139f73430235efea8aa599b6093d",
+          "height": 0
+        }
+      ],
+      "root_hex": "dbc7d3e5c3605543519d154eb0a305ee58b8139f73430235efea8aa599b6093d"
+    },
+    {
+      "leaf_count": 2,
+      "peaks": [
+        {
+          "hash_hex": "9862fe9d7ba78edad8ca4cb4b03a30a2be04c5d6ac8db82f4e4253f2286d302d",
+          "height": 1
+        }
+      ],
+      "root_hex": "9862fe9d7ba78edad8ca4cb4b03a30a2be04c5d6ac8db82f4e4253f2286d302d"
+    },
+    {
+      "leaf_count": 3,
+      "peaks": [
+        {
+          "hash_hex": "9862fe9d7ba78edad8ca4cb4b03a30a2be04c5d6ac8db82f4e4253f2286d302d",
+          "height": 1
+        },
+        {
+          "hash_hex": "07886768c375a879d63ea64242caaf98d2b4d734be2a52b92e4c9e5c9fd20d12",
+          "height": 0
+        }
+      ],
+      "root_hex": "1ae71241b47a2e87318b726529eacb9d18e3f44d6f4f1426acc3a3e010a4c199"
+    },
+    {
+      "leaf_count": 7,
+      "peaks": [
+        {
+          "hash_hex": "650b6e585f9b2d3357385cfb7e5943fb9f2c0284feb9b6c23c92a123d4f7cb95",
+          "height": 2
+        },
+        {
+          "hash_hex": "f4555b4f56afe1c8bea51912bda1f1cb20e18ad4309c62217dd09dc837c22c3b",
+          "height": 1
+        },
+        {
+          "hash_hex": "e84e98ddb1479f3a1c41dedc15f8e8f699290c5fe719317f18668434d7e9d8a0",
+          "height": 0
+        }
+      ],
+      "root_hex": "fa774b62e96d1dc3b5348e049842a9cadc2145baa9ac68d5a91eb9f36150b381"
+    }
+  ],
+  "domain": "TRUEOPEN_TEST_MMR_V1",
+  "framing_preimages": [
+    {
+      "digest_hex": "dbc7d3e5c3605543519d154eb0a305ee58b8139f73430235efea8aa599b6093d",
+      "name": "leaf index 0",
+      "note": "Also the root at leaf_count 1.",
+      "preimage_hex": "545255454f50454e5f4d4d525f4c4541465f563100000014545255454f50454e5f544553545f4d4d525f56310000000000000000000000000000000161"
+    },
+    {
+      "digest_hex": "0e526b36a088b5a6d96f3ba287e9f0bb251bb6a5db531937bee7b292ad44c1af",
+      "name": "leaf index 1",
+      "preimage_hex": "545255454f50454e5f4d4d525f4c4541465f563100000014545255454f50454e5f544553545f4d4d525f5631000000000000000100000000000000026262"
+    },
+    {
+      "digest_hex": "9862fe9d7ba78edad8ca4cb4b03a30a2be04c5d6ac8db82f4e4253f2286d302d",
+      "name": "node over leaves 0 and 1",
+      "note": "Also the root at leaf_count 2 and the height-1 peak at leaf_count 3. Pins the left and right argument order.",
+      "preimage_hex": "545255454f50454e5f4d4d525f4e4f44455f563100000014545255454f50454e5f544553545f4d4d525f5631dbc7d3e5c3605543519d154eb0a305ee58b8139f73430235efea8aa599b6093d0e526b36a088b5a6d96f3ba287e9f0bb251bb6a5db531937bee7b292ad44c1af"
+    },
+    {
+      "digest_hex": "3c16dfdfb27ee4ced6c1b13b9a50ed851bb5920197cbc4860e2cebfef120e1cb",
+      "name": "empty tree",
+      "preimage_hex": "545255454f50454e5f4d4d525f454d5054595f563100000014545255454f50454e5f544553545f4d4d525f5631"
+    }
+  ],
+  "leaves_utf8": [
+    "a",
+    "bb",
+    "ccc",
+    "dddd",
+    "eeeee",
+    "ffffff",
+    "ggggggg"
+  ],
+  "negative": [
+    {
+      "leaf_count": 7,
+      "name": "left_to_right_fold",
+      "reason": "Produced by acc = leftmost peak then acc = MmrNodeV1(domain, acc, peak) over the remaining peaks left to right. §9 rule 4 fixes the direction to right to left, so this value must be rejected.",
+      "root_hex": "e295ae79a9d65352bb7f66ea5c55c7736c230d194206c1f334c0f8281a3ea88b"
+    },
+    {
+      "leaf_count": 7,
+      "name": "leaf_index_omitted",
+      "reason": "Produced by leaving u64_be(index) out of the leaf preimage. Order and repetition are then no longer locked by the tree, so this value must be rejected.",
+      "root_hex": "1ce161f6d73b6f84e0fb22409af939c3305f93e55b7c10f2d606a4457ff052c5"
+    }
+  ],
+  "notes": [
+    "MmrLeafV1(domain, index, leaf) = SHA256(ascii(\"TRUEOPEN_MMR_LEAF_V1\") || u32_be(len(domain)) || domain || u64_be(index) || u64_be(len(leaf)) || leaf). The domain length is u32_be and the leaf length u64_be; the two widths differ on purpose (§9).",
+    "MmrNodeV1(domain, left, right) = SHA256(ascii(\"TRUEOPEN_MMR_NODE_V1\") || u32_be(len(domain)) || domain || left || right). MmrEmptyV1(domain) = SHA256(ascii(\"TRUEOPEN_MMR_EMPTY_V1\") || u32_be(len(domain)) || domain).",
+    "Leaves are variable-length bytes, not Hash32, and index enters the leaf preimage, so the same bytes at a different position are a different leaf. The primitive never sorts, deduplicates or pads.",
+    "The peak list is determined by leaf_count alone: one peak per set bit of its binary form, highest on the left. peaks[] below is left to right, so an implementation can compare shape before it compares the root.",
+    "Folding is right to left: acc = rightmost peak, then acc = MmrNodeV1(domain, peak, acc) over the remaining peaks from right to left. leaf_count 1 roots to the leaf itself with no extra node layer.",
+    "leaf_count 0 roots to MmrEmptyV1(domain), never 32 zero bytes. A business protocol may exclude the empty list from its legal values, but it must not redefine this root.",
+    "root_hex at leaf_count 2 equals the height-1 peak at leaf_count 3: the minimal case of §9 rule 6, where the peaks of a k-leaf prefix are still nodes of the final tree. root_hex at leaf_count 3 is not in the 7-leaf tree, which is why a prefix proof verifies the peaks and recomputes the prefix root instead of searching for it.",
+    "negative left_to_right_fold is the only case that separates the two fold directions: leaf counts 1 through 6 agree byte for byte and 7 is the first that does not. An implementation that folds the other way passes every positive vector above, then diverges at any leaf count whose popcount is 3 or more."
+  ],
+  "schema": "trueopen.shared.mmr_primitive.v1",
+  "source": "§9 defines MMR_ROOT_V1 and §11.5 publishes these vectors byte for byte. Authored in this repository because the primitive has no upstream node fixture: streaming OUTPUT delivery introduced it and no chain type uses it until TRUEOPEN_INFER_RECEIPT_V2."
+}

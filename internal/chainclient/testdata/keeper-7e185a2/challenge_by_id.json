@@ -1,0 +1,20 @@
+{
+  "challenge": {
+    "challenge_id": "challenge-1",
+    "session_id": "session-1",
+    "task_id": "task-1",
+    "challenger_address": "trueopen1challenger",
+    "challenge_kind": "USER_REVALIDATION",
+    "status": "VERIFYING",
+    "opened_height": "400",
+    "challenge_deadline_height": "460",
+    "bond_amount": "1000",
+    "evidence_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "settlement_id": "settlement-1",
+    "challenge_close_height_snapshot": "420",
+    "resolve_deadline_height": "470",
+    "bond_locked_amount": "1000",
+    "bond_source": "CHALLENGER",
+    "bond_status": "LOCKED"
+  }
+}

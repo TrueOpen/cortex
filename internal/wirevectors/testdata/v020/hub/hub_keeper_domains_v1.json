@@ -1,0 +1,352 @@
+{
+  "notes": [
+    "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage).",
+    "Field encoding (§1.2): string = strict UTF-8 bytes; bytes = raw bytes; uint32/uint64 = 4/8-byte big-endian; enum = uint32 big-endian.",
+    "\"producer\" names the unexported keeper function the vector is executed against. The digest below is what that function returns when fed this vector's own inputs, not only what re-framing fields[] reproduces; a field swap inside the producer therefore fails here even when the swapped fields share an encoder.",
+    "Regenerate with TRUEOPEN_REGEN_FIXTURES=1; the run rewrites the expectations and then fails on purpose so the consensus diff must be reviewed before it is committed.",
+    "TRUEOPEN_UNBONDING_ID_V1 has no vector here on purpose. Its golden lives in x/hub/types/testdata/hub_domains_v1.json and stays the single copy; the executable binding to keeper.serviceUnbondingID reads that file rather than restating its seven fields, because two copies of one frozen preimage can disagree.",
+    "Vectors for domains removed in Wire v0.3.0 were deleted from this file in the same revision that removed the domains, so it is no longer a byte copy of the upstream node fixture; source_path still records where the retained vectors came from."
+  ],
+  "schema": "trueopen.hub.keeper-domains.v1",
+  "source": "§1.4 registry rows for the listed domains; producers live in x/hub/keeper and are unexported, so the binding test is an internal (package keeper) test",
+  "vectors": [
+    {
+      "contract_section": "§1.4 formula block",
+      "digest_hex": "9197f6b31d08c0d7e8356c1d8a9efee891cb299117119eea585cc0b538a307bb",
+      "domain": "TRUEOPEN_BUILDER_SET_MEMBERS_V1",
+      "fields": [
+        {
+          "name": "active_builder_count",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 3
+            },
+            {
+              "fields": [
+                {
+                  "name": "member_0_rank_index",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+                  "name": "member_0_builder_operator_address",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_0",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "member_1_rank_index",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "member_1_builder_operator_address",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_1",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "member_2_rank_index",
+                  "type": "uint32",
+                  "value": 2
+                },
+                {
+                  "hex": "e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3",
+                  "name": "member_2_builder_operator_address",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_2",
+              "type": "frame"
+            }
+          ],
+          "name": "members",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "builder_set_members_v1",
+      "preimage_hex": "000000000000001f545255454f50454e5f4255494c4445525f5345545f4d454d424552535f5631000000000000000400000003000000000000009c00000000000000040000000300000000000000280000000000000004000000000000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000280000000000000004000000010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d300000000000000280000000000000004000000020000000000000014e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3",
+      "producer": "BuilderSetMembersHash"
+    },
+    {
+      "contract_section": "§1.4 aggregate formula",
+      "digest_hex": "9bf9dd864a90dab49879219653d410cd1d83298c0425ad339f31f66602091e26",
+      "domain": "TRUEOPEN_BEACON_AGGREGATE_V1",
+      "fields": [
+        {
+          "name": "start_height",
+          "type": "uint64",
+          "value": 900123
+        },
+        {
+          "name": "beacon_count",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 3
+            },
+            {
+              "hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "name": "randomness_0",
+              "type": "bytes"
+            },
+            {
+              "hex": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+              "name": "randomness_1",
+              "type": "bytes"
+            },
+            {
+              "hex": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+              "name": "randomness_2",
+              "type": "bytes"
+            }
+          ],
+          "name": "randomness_values",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "beacon_aggregate_v1",
+      "preimage_hex": "000000000000001c545255454f50454e5f424541434f4e5f4147475245474154455f5631000000000000000800000000000dbc1b00000000000000040000000300000000000000840000000000000004000000030000000000000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000000000020b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b20000000000000020c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "producer": "beaconAggregateDigest"
+    },
+    {
+      "contract_section": "§9.6b defines batch_digest but not this object_id",
+      "digest_hex": "b62b9a4647ae93d1b3c477417200eaee915c95cf5527ad24dcbf8eb7ba6f7c39",
+      "domain": "TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "name": "epoch_index",
+          "type": "uint64",
+          "value": 4211
+        },
+        {
+          "hex": "6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+          "name": "operator_address",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "daily_support_confirmation_id_v1",
+      "preimage_hex": "0000000000000029545255454f50454e5f4441494c595f535550504f52545f434f4e4649524d4154494f4e5f49445f56310000000000000012747275656f70656e2d666978747572652d310000000000000008000000000000107300000000000000146c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c",
+      "producer": "dailySupportConfirmationID"
+    },
+    {
+      "contract_section": "§1.4, §10.0a",
+      "digest_hex": "87ef0e34138ff15b5f479d46083a007506bc43373a285dda79cefb64349b9689",
+      "domain": "TRUEOPEN_FREEZE_FAILURE_REFS_V1",
+      "fields": [
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "previous_root",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "settlement_id_or_empty",
+          "type": "bytes"
+        },
+        {
+          "name": "task_finality_height",
+          "type": "uint64",
+          "value": 880077
+        },
+        {
+          "name": "failure_class",
+          "type": "enum",
+          "value": 4
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "evidence_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "freeze_failure_refs_v1",
+      "preimage_hex": "000000000000001f545255454f50454e5f465245455a455f4641494c5552455f524546535f5631000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000800000000000d6dcd00000000000000040000000400000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "producer": "freezeFailureRefsRoot"
+    },
+    {
+      "contract_section": "§1.4, §10.0a",
+      "digest_hex": "699254472e1ef394a7af1ea78cc934b26a949d9fe1b5e0f265939cf6c5ad5fd9",
+      "domain": "TRUEOPEN_FREEZE_SIGNAL_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "name": "model_id",
+          "type": "string",
+          "utf8": "trueopen/model-fixture"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 5
+        },
+        {
+          "name": "risk_window_id",
+          "type": "uint64",
+          "value": 41
+        },
+        {
+          "name": "risk_window_start_height",
+          "type": "uint64",
+          "value": 880000
+        },
+        {
+          "name": "risk_window_end_height",
+          "type": "uint64",
+          "value": 880600
+        },
+        {
+          "name": "included_failure_task_ref_count",
+          "type": "uint32",
+          "value": 7
+        },
+        {
+          "hex": "9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e",
+          "name": "included_failure_task_refs_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "freeze_signal_v1",
+      "preimage_hex": "0000000000000019545255454f50454e5f465245455a455f5349474e414c5f56310000000000000012747275656f70656e2d666978747572652d310000000000000016747275656f70656e2f6d6f64656c2d6669787475726500000000000000040000000500000000000000080000000000000029000000000000000800000000000d6d80000000000000000800000000000d6fd800000000000000040000000700000000000000209e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e",
+      "producer": "freezeSignalID"
+    },
+    {
+      "contract_section": "§1.4; §6.7",
+      "digest_hex": "6cdab7c029a9c3bcabc4f8de23e0a18e59febf3689b6c50ece3d4fb079aacd6e",
+      "domain": "TRUEOPEN_ROLE_FAULT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "hex": "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+          "name": "operator_address",
+          "type": "bytes"
+        },
+        {
+          "name": "duty",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "name": "fault_class",
+          "type": "enum",
+          "value": 4
+        },
+        {
+          "hex": "8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b",
+          "name": "evidence_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "role_fault_v1",
+      "preimage_hex": "0000000000000016545255454f50454e5f524f4c455f4641554c545f56310000000000000012747275656f70656e2d666978747572652d3100000000000000207a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a00000000000000143f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f00000000000000040000000200000000000000040000000400000000000000208b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b",
+      "producer": "roleFaultID"
+    },
+    {
+      "contract_section": "§1.4, §9.6c",
+      "digest_hex": "a8780a9f2a8f6d9df923b971af6f17f60442b5078a1b7830daadde81acf036af",
+      "domain": "TRUEOPEN_TREASURY_SPEND_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "name": "proposal_id",
+          "type": "uint64",
+          "value": 90210
+        },
+        {
+          "name": "item_index",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "hex": "2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d",
+          "name": "recipient",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "123456789"
+            }
+          ],
+          "name": "amount",
+          "type": "frame"
+        },
+        {
+          "name": "purpose_code",
+          "type": "enum",
+          "value": 3
+        },
+        {
+          "name": "not_before_height",
+          "type": "uint64",
+          "value": 700100
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 700900
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "treasury_spend_v1",
+      "preimage_hex": "000000000000001a545255454f50454e5f54524541535552595f5350454e445f56310000000000000012747275656f70656e2d666978747572652d310000000000000008000000000001606200000000000000040000000200000000000000142d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d00000000000000110000000000000009313233343536373839000000000000000400000003000000000000000800000000000aaec4000000000000000800000000000ab1e4",
+      "producer": "treasurySpendActionDigest"
+    }
+  ]
+}

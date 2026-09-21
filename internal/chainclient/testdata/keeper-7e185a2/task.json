@@ -1,0 +1,59 @@
+{
+  "status": "VERIFYING",
+  "updated_height": "390",
+  "assignment": {
+    "session_id": "session-1",
+    "task_id": "task-1",
+    "order_sequence": "7",
+    "order_digest": "abababababababababababababababababababababababababababababababab",
+    "selected_worker": "trueopen1worker",
+    "infer_deadline_height": "350",
+    "winner_confirm_height": "320",
+    "model_id": "llama",
+    "profile_version": 1,
+    "accepted_order_payload_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "infer_receipt": {
+    "session_id": "session-1",
+    "task_id": "task-1",
+    "winner_worker": "trueopen1worker",
+    "infer_receipt_commit_hash": "0101010101010101010101010101010101010101010101010101010101010101",
+    "infer_receipt_hash": "0202020202020202020202020202020202020202020202020202020202020202",
+    "output_hash": "0303030303030303030303030303030303030303030303030303030303030303",
+    "trace_commit_root": "0404040404040404040404040404040404040404040404040404040404040404",
+    "checkpoint_commit_root": "0505050505050505050505050505050505050505050505050505050505050505",
+    "batch_log_root": "0606060606060606060606060606060606060606060606060606060606060606",
+    "token_count": "13",
+    "work_unit": "21",
+    "worker_signature": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+    "canonical_output_package_hash": "0707070707070707070707070707070707070707070707070707070707070707",
+    "output_delivery_commitment": "0808080808080808080808080808080808080808080808080808080808080808",
+    "open_verify_height": "355",
+    "receipt_mode": "COMMIT_ONLY",
+    "receipt_height": "351",
+    "verify_open_deadline_height": "360"
+  },
+  "verifier_assignment": {
+    "session_id": "session-1",
+    "task_id": "task-1",
+    "formal_verifier_set": "trueopen1v1,trueopen1v2,trueopen1v3",
+    "verification_sample_seed": "0909090909090909090909090909090909090909090909090909090909090909",
+    "commit_deadline_height": "370",
+    "worker_reveal_deadline_height": "375",
+    "reveal_deadline_height": "380",
+    "verify_deadline_height": "390",
+    "open_verify_height": "355",
+    "sample_seed_ready_height": "356",
+    "sample_seed_status": "READY",
+    "verifier_candidate_window_hash": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "param_version": "task-params-v7",
+    "sample_randomness_aggregation_blocks": "2",
+    "worker_reveal_window_blocks": "5",
+    "reveal_window_blocks": "5",
+    "stage3_builder_grace_blocks": "10"
+  },
+  "settlement": {
+    "task_verdict": "",
+    "settlement_height": "0"
+  }
+}

@@ -1,0 +1,26 @@
+mode: fake
+chain_id: cortex-local
+admin:
+  uds_path: /tmp/cortex/admin.sock
+model_management:
+  transport: fake
+node:
+  rpc_endpoint: http://127.0.0.1:26657
+  rest_endpoint: http://127.0.0.1:1317
+artifacts:
+  root: /tmp/cortex/artifacts
+store:
+  path: /tmp/cortex/cortex.kv
+signer:
+  uri: file:///tmp/cortex/keys.json
+local_identity:
+  operator_address: trueopen1abc123
+keeper:
+  poll_interval_ms: 1000
+  max_lag_blocks: 100
+task_execution:
+  retry_delay_ms: 1000
+  max_retry_attempts: 10
+nexus:
+  ingress_url: http://127.0.0.1:8080
+  nats_url: nats://127.0.0.1:4222

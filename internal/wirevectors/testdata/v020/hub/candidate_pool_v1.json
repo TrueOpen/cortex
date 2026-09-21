@@ -1,0 +1,380 @@
+{
+  "notes": [
+    "All preimages use H_FIELDS_V1: each top-level field is uint64_be(length) followed by raw field bytes.",
+    "Repeated member and segment elements are nested FieldFrameV1 values without an inner domain; operator addresses are raw address-codec bytes.",
+    "Integers are fixed-width big-endian, hashes are raw Hash32 bytes, and bitmap bits are little-bit ordered within each byte.",
+    "Regenerate with TRUEOPEN_REGEN_FIXTURES=1; the test rewrites expectations and fails so the diff must be reviewed."
+  ],
+  "schema": "trueopen.candidate_pool.v1",
+  "source": {
+    "bitmap_hex": "0a00",
+    "chain_id": "trueopen-candidate-golden-1",
+    "effective_height": 901,
+    "epoch": 9,
+    "expires_height": 1000,
+    "members": [
+      {
+        "allocated_epoch": 8,
+        "operator_bytes_hex": "1111111111111111111111111111111111111111",
+        "slot": 1,
+        "slot_version": 2
+      },
+      {
+        "allocated_epoch": 8,
+        "operator_bytes_hex": "2222222222222222222222222222222222222222",
+        "slot": 3,
+        "slot_version": 5
+      }
+    ],
+    "segment_index": 0,
+    "slot_capacity": 15
+  },
+  "vectors": [
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "447c059d558d817bb79c9d76e26f2b0b80d0c808d8d94518109c31efd8cf3d6e",
+      "domain": "TRUEOPEN_CANDIDATE_SLOT_BINDING_V1",
+      "fields": [
+        {
+          "name": "slot",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "slot_version",
+          "type": "uint64",
+          "value": 2
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111",
+          "name": "operator_address",
+          "type": "bytes"
+        },
+        {
+          "name": "allocated_epoch",
+          "type": "uint64",
+          "value": 8
+        }
+      ],
+      "name": "candidate_slot_binding_v1",
+      "preimage_hex": "0000000000000022545255454f50454e5f43414e4449444154455f534c4f545f42494e44494e475f5631000000000000000400000001000000000000000800000000000000020000000000000014111111111111111111111111111111111111111100000000000000080000000000000008"
+    },
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "83abcab678b7155f55c455b88624b2b3b8cd94f6a7952a2a4f81f8451e15fc5f",
+      "domain": "TRUEOPEN_CANDIDATE_POOL_SEGMENT_V1",
+      "fields": [
+        {
+          "name": "target_epoch",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "segment_index",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "hex": "0a00",
+          "name": "segment_bitmap_bytes",
+          "type": "bytes"
+        },
+        {
+          "name": "active_member_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 2
+                },
+                {
+                  "hex": "447c059d558d817bb79c9d76e26f2b0b80d0c808d8d94518109c31efd8cf3d6e",
+                  "name": "binding_hash",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_0",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 3
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 5
+                },
+                {
+                  "hex": "56b8861109b9eda04c537c79bcb86d3814179f68b2265749951c453d73044fc1",
+                  "name": "binding_hash",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_1",
+              "type": "frame"
+            }
+          ],
+          "name": "members",
+          "type": "frame"
+        }
+      ],
+      "name": "candidate_pool_segment_v1",
+      "preimage_hex": "0000000000000022545255454f50454e5f43414e4449444154455f504f4f4c5f5345474d454e545f56310000000000000008000000000000000900000000000000040000000000000000000000020a0000000000000000040000000200000000000000a40000000000000004000000020000000000000044000000000000000400000001000000000000000800000000000000020000000000000020447c059d558d817bb79c9d76e26f2b0b80d0c808d8d94518109c31efd8cf3d6e000000000000004400000000000000040000000300000000000000080000000000000005000000000000002056b8861109b9eda04c537c79bcb86d3814179f68b2265749951c453d73044fc1"
+    },
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "bb7c075e40a979808416c9f5e4c3e7577fd20a571aebf0f96c0c31f299e6891f",
+      "domain": "TRUEOPEN_CANDIDATE_ACTIVE_BITMAP_V1",
+      "fields": [
+        {
+          "name": "slot_capacity",
+          "type": "uint32",
+          "value": 15
+        },
+        {
+          "name": "segment_count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "name": "segment_index",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "hex": "0a00",
+                  "name": "segment_bitmap_bytes",
+                  "type": "bytes"
+                }
+              ],
+              "name": "segment_0",
+              "type": "frame"
+            }
+          ],
+          "name": "segments",
+          "type": "frame"
+        }
+      ],
+      "name": "candidate_active_bitmap_v1",
+      "preimage_hex": "0000000000000023545255454f50454e5f43414e4449444154455f4143544956455f4249544d41505f563100000000000000040000000f000000000000000400000001000000000000002a000000000000000400000001000000000000001600000000000000040000000000000000000000020a00"
+    },
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "d167188ca6d4b08f5491361c752267cd4a4fb6f5bec926ea30e21dd60123708a",
+      "domain": "TRUEOPEN_CANDIDATE_MEMBER_SET_V1",
+      "fields": [
+        {
+          "name": "active_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 2
+                },
+                {
+                  "hex": "1111111111111111111111111111111111111111",
+                  "name": "operator_address",
+                  "type": "bytes"
+                },
+                {
+                  "hex": "447c059d558d817bb79c9d76e26f2b0b80d0c808d8d94518109c31efd8cf3d6e",
+                  "name": "binding_hash",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_0",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 3
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 5
+                },
+                {
+                  "hex": "2222222222222222222222222222222222222222",
+                  "name": "operator_address",
+                  "type": "bytes"
+                },
+                {
+                  "hex": "56b8861109b9eda04c537c79bcb86d3814179f68b2265749951c453d73044fc1",
+                  "name": "binding_hash",
+                  "type": "bytes"
+                }
+              ],
+              "name": "member_1",
+              "type": "frame"
+            }
+          ],
+          "name": "members",
+          "type": "frame"
+        }
+      ],
+      "name": "candidate_member_set_v1",
+      "preimage_hex": "0000000000000020545255454f50454e5f43414e4449444154455f4d454d4245525f5345545f563100000000000000040000000200000000000000dc000000000000000400000002000000000000006000000000000000040000000100000000000000080000000000000002000000000000001411111111111111111111111111111111111111110000000000000020447c059d558d817bb79c9d76e26f2b0b80d0c808d8d94518109c31efd8cf3d6e00000000000000600000000000000004000000030000000000000008000000000000000500000000000000142222222222222222222222222222222222222222000000000000002056b8861109b9eda04c537c79bcb86d3814179f68b2265749951c453d73044fc1"
+    },
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "2cac15cf506109f2632844f7d31dac8931c1910b73496104ebe07a4f75106693",
+      "domain": "TRUEOPEN_GLOBAL_CANDIDATE_POOL_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-candidate-golden-1"
+        },
+        {
+          "name": "epoch",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "slot_capacity",
+          "type": "uint32",
+          "value": 15
+        },
+        {
+          "name": "effective_height",
+          "type": "uint64",
+          "value": 901
+        },
+        {
+          "name": "expires_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "active_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "hex": "bb7c075e40a979808416c9f5e4c3e7577fd20a571aebf0f96c0c31f299e6891f",
+          "name": "active_bitmap_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "d167188ca6d4b08f5491361c752267cd4a4fb6f5bec926ea30e21dd60123708a",
+          "name": "member_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "name": "global_candidate_pool_v1",
+      "preimage_hex": "0000000000000021545255454f50454e5f474c4f42414c5f43414e4449444154455f504f4f4c5f5631000000000000001b747275656f70656e2d63616e6469646174652d676f6c64656e2d310000000000000008000000000000000900000000000000040000000f00000000000000080000000000000385000000000000000800000000000003e80000000000000004000000020000000000000020bb7c075e40a979808416c9f5e4c3e7577fd20a571aebf0f96c0c31f299e6891f0000000000000020d167188ca6d4b08f5491361c752267cd4a4fb6f5bec926ea30e21dd60123708a"
+    },
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "79e6035c4cc378e896925c272c4ade868502f288716583dd13a902976fcdd4fd",
+      "domain": "TRUEOPEN_GLOBAL_CANDIDATE_POOL_SNAPSHOT_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-candidate-golden-1"
+        },
+        {
+          "name": "epoch",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "hex": "2cac15cf506109f2632844f7d31dac8931c1910b73496104ebe07a4f75106693",
+          "name": "candidate_pool_hash",
+          "type": "bytes"
+        }
+      ],
+      "name": "global_candidate_pool_snapshot_id_v1",
+      "preimage_hex": "000000000000002d545255454f50454e5f474c4f42414c5f43414e4449444154455f504f4f4c5f534e415053484f545f49445f5631000000000000001b747275656f70656e2d63616e6469646174652d676f6c64656e2d310000000000000008000000000000000900000000000000202cac15cf506109f2632844f7d31dac8931c1910b73496104ebe07a4f75106693"
+    },
+    {
+      "contract_section": "keeper interface contract section 3.5",
+      "digest_hex": "bbf3aecff8518606d16dae151a3a2be4fb1e5a0013cd151fe6d38bd49cbc1728",
+      "domain": "TRUEOPEN_CANDIDATE_MEMBERSHIP_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-candidate-golden-1"
+        },
+        {
+          "hex": "79e6035c4cc378e896925c272c4ade868502f288716583dd13a902976fcdd4fd",
+          "name": "candidate_pool_snapshot_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2cac15cf506109f2632844f7d31dac8931c1910b73496104ebe07a4f75106693",
+          "name": "candidate_pool_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "slot",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "slot_version",
+          "type": "uint64",
+          "value": 2
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111",
+          "name": "operator_address",
+          "type": "bytes"
+        }
+      ],
+      "name": "candidate_membership_v1",
+      "preimage_hex": "0000000000000020545255454f50454e5f43414e4449444154455f4d454d424552534849505f5631000000000000001b747275656f70656e2d63616e6469646174652d676f6c64656e2d31000000000000002079e6035c4cc378e896925c272c4ade868502f288716583dd13a902976fcdd4fd00000000000000202cac15cf506109f2632844f7d31dac8931c1910b73496104ebe07a4f751066930000000000000004000000010000000000000008000000000000000200000000000000141111111111111111111111111111111111111111"
+    }
+  ]
+}

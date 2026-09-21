@@ -1,0 +1,2324 @@
+{
+  "notes": [
+    "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage).",
+    "Amount is a required nested FRAME_V1 over the ascii decimal atomic units, never a bare u64_be. An unset Amount is still a present frame.",
+    "optional encodes presence in-band: absent is the single byte 0x00, present is 0x01 followed by the framed value. A repeated field is one frame holding u32_be element_count followed by each element's own frame, and the domain's explicit count field must equal that element_count.",
+    "Cross-vector references are real, not placeholders: round_effect_plan_v1's digest is round_effect_root_v1's round_effect_plan_root, round_effect_root_v1's digest is task_round_summary_v1's round_effect_root, and settlement_plan_v1 embeds the digests of gas_reimbursements_v1, task_round_summary_v1 and settlement_bill_v1. Regenerating one vector without its dependents will break the chain.",
+    "settlement_bill_v1 is the one domain here that does not open with chain_id; the bill is scoped by infer_receipt_ref, which already binds the chain through the receipt.",
+    "Each vector carries mutations[]: one per encodable leaf plus the semantic cases §10.1 names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here.",
+    "Each vector carries mutations[]: one per encodable leaf plus the semantic cases §10.1 names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here.",
+    "Each vector carries mutations[]: one per encodable leaf plus the semantic cases §10.1 names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here."
+  ],
+  "schema": "trueopen.task.round_settlement.v1",
+  "source": "§10.1 publishes these vectors byte for byte; §1.4 registers each domain's producer and ordered preimage. Authored in this repository because no upstream node fixture covers the round 2 economics, settlement plan or gas reimbursement domains.",
+  "vectors": [
+    {
+      "contract_section": "§1.4, §10.15",
+      "digest_hex": "691f9242783f749535efd3ef37240ab64c1bf6ad3f7c3b747f0fe7ba7f3f0f67",
+      "domain": "TRUEOPEN_VERIFY_ROUND_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "60cfb0bcc4f9b97ccbba6bee9d3db3ad39c6fddf00bfc4b38844db55da821dd5",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "7ca04018660a2c9a304cc6b4f8b731116ed48ddb2a6decce8d267db665399754",
+          "expect": "digest_changes",
+          "field_path": "task_hash",
+          "name": "field.task_hash"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "91e2a31d5a3573f0e2299d1c084a50e0495f9cbd91d679c6db3e3e5e7085a0bd",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        }
+      ],
+      "name": "verify_round_id_v1",
+      "preimage_hex": "000000000000001b545255454f50454e5f5645524946595f524f554e445f49445f56310000000000000011747275656f70656e2d676f6c64656e2d3100000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000000400000002",
+      "producer": "VerifyRoundID"
+    },
+    {
+      "contract_section": "§1.4, §10.15",
+      "digest_hex": "d4f612dee64b57ecd38b0df29142a3b27e577f124b27a5e90e176dc2168edf6d",
+      "domain": "TRUEOPEN_VERIFY_ROUND_FACTS_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "round_open_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "round_close_deadline_height",
+          "type": "uint64",
+          "value": 1100
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "infer_receipt_ref",
+          "type": "bytes"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "result_receipt_refs_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "consensus_cluster_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "generated_token_count",
+          "type": "uint64",
+          "value": 321
+        },
+        {
+          "enum": "TASK_VERDICT_PASS",
+          "name": "verdict",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "enum": "TASK_FAILURE_CLASS_NONE",
+          "name": "failure_class",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+          "name": "profile_execution_snapshot_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "7777777777777777777777777777777777777777777777777777777777777777",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "60941913519da41f5bf2bbee072a48e06060632649af399a0af88c0be7539ecd",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "f9006fd429161d9cfa31b8e1c5ba4431f16ce79b5094a059e3d0df5526ae02fe",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "ad86f1964bac683f6023365be7ee74a0323ae38d7f822d2c046ac4ffba84d5a2",
+          "expect": "digest_changes",
+          "field_path": "task_hash",
+          "name": "field.task_hash"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "43d83c88d3c00e84a1dc6e1c1f8f259c8cf1cc1fe160aa04c4587208af546725",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "1000 -\u003e 1001",
+          "digest_hex": "231d1d1ec0b9dc434e25a92abfa2c29e3bbc95e602cfc423f4a16ad0d1ec9856",
+          "expect": "digest_changes",
+          "field_path": "round_open_height",
+          "name": "field.round_open_height"
+        },
+        {
+          "change": "1100 -\u003e 1101",
+          "digest_hex": "6fe3fc62293dd00e6fa52874bbb2505ef57501ecd20ee3d461a7101e81ccdb3a",
+          "expect": "digest_changes",
+          "field_path": "round_close_deadline_height",
+          "name": "field.round_close_deadline_height"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "fb4aaf632c29f3a44b0c90f23a347347c11a37e321877fe2f83017abcdfffe15",
+          "expect": "digest_changes",
+          "field_path": "infer_receipt_ref",
+          "name": "field.infer_receipt_ref"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "5c549aecab740dcc84ac5c74f49c1a093f45a19320a2d5209ffc629714d96457",
+          "expect": "digest_changes",
+          "field_path": "result_receipt_refs_hash",
+          "name": "field.result_receipt_refs_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "3f09e14b137299003b04ab12aa9c4e0466f938f05c4b4012e254af0dbb806505",
+          "expect": "digest_changes",
+          "field_path": "consensus_cluster_hash",
+          "name": "field.consensus_cluster_hash"
+        },
+        {
+          "change": "321 -\u003e 322",
+          "digest_hex": "652ec54158be4a37fce2b5a5d1b24880f522d8ca2f3151478371db5e07a8eb0c",
+          "expect": "digest_changes",
+          "field_path": "generated_token_count",
+          "name": "field.generated_token_count"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "a91c1f3de525711d0503c30344820b7c0305ae3af896d27d9b4e80a16178d47b",
+          "expect": "digest_changes",
+          "field_path": "verdict",
+          "name": "field.verdict"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "35ba72ce366306697314db967d566e7e84c6a4efc25ad50bccebf60084796aa0",
+          "expect": "digest_changes",
+          "field_path": "failure_class",
+          "name": "field.failure_class"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "64ff6c56aa8b223a98b4499a1dd8156678f4251e73b1895c9c5490625a0f1e83",
+          "expect": "digest_changes",
+          "field_path": "profile_execution_snapshot_hash",
+          "name": "field.profile_execution_snapshot_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "14e30ccf4f91f7399ccad6ea8933a6392b05fcf8947d48b530c5a0962006e5fb",
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        }
+      ],
+      "name": "verify_round_facts_v1",
+      "preimage_hex": "000000000000001e545255454f50454e5f5645524946595f524f554e445f46414354535f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000000400000002000000000000000800000000000003e80000000000000008000000000000044c000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020444444444444444444444444444444444444444444444444444444444444444400000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000800000000000001410000000000000004000000010000000000000004000000010000000000000020666666666666666666666666666666666666666666666666666666666666666600000000000000207777777777777777777777777777777777777777777777777777777777777777",
+      "producer": "VerifyRoundFactsHash"
+    },
+    {
+      "contract_section": "§1.4, §10.15, §10.14b",
+      "digest_hex": "dce75d04ddc83f79c001448876d9588dd77dd3c922d1c53b3df4af5ecaa32004",
+      "domain": "TRUEOPEN_TASK_ROUND_SUMMARY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "max_closed_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "open_round_count",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "name": "effective_verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "value",
+              "type": "uint64",
+              "value": 1100
+            }
+          ],
+          "name": "challenge_open_height",
+          "present": true,
+          "type": "optional"
+        },
+        {
+          "fields": [
+            {
+              "name": "value",
+              "type": "uint64",
+              "value": 1200
+            }
+          ],
+          "name": "challenge_close_height",
+          "present": true,
+          "type": "optional"
+        },
+        {
+          "name": "rounds_closed_height",
+          "type": "uint64",
+          "value": 1300
+        },
+        {
+          "hex": "8888888888888888888888888888888888888888888888888888888888888888",
+          "name": "round1_facts_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "hex": "9999999999999999999999999999999999999999999999999999999999999999",
+          "name": "round2_facts_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "enum": "ROUND_OUTCOME_V1_DIVERGED",
+          "name": "round2_outcome_or_unspecified",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "4c07728341d3a5476ca27f2c89f6646b87041b21ead97ef96f0aa785c2c93dbe",
+          "name": "round2_effect_root_or_zero32",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "challenge_open_height present -\u003e absent",
+          "digest_hex": "4b305165858901a0f9748515b314cb8b108a4d238a468aec7cac2e079604929c",
+          "expect": "digest_changes",
+          "name": "optional.challenge_open_height_absent"
+        },
+        {
+          "change": "challenge_close_height present -\u003e absent",
+          "digest_hex": "9d7b969f44291aba34256cc04743c1e2dda39ace0453795e6db07cd77f62fda6",
+          "expect": "digest_changes",
+          "name": "optional.challenge_close_height_absent"
+        },
+        {
+          "change": "a task that never opened round 2: round2_facts_hash_or_zero32 is ZERO32, round_outcome is UNSPECIFIED and both round numbers fall back to 1",
+          "digest_hex": "2ebba19ac7bb2fe637338069bd8641c57112319241a3f37a3e3643f6bcc595df",
+          "expect": "digest_changes",
+          "name": "no_round_2"
+        },
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "5c9bdb2f1858a677be2eed8d1775ce186e5685012f090b53c7cef2c4c387c69e",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "7d11e4626cb7ac9626e13db9c49ca1e50bbe64819e59df8d953e32497a5f11e3",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "8f25c6c1659cc002e3203a0cf5a7f97473f2b72e4a843487cbda6b83c5d465bb",
+          "expect": "digest_changes",
+          "field_path": "max_closed_round",
+          "name": "field.max_closed_round"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "8c7d2b4db8653d38a56154a368bc3271057aba51faa14a4ccc4a693eb9932e42",
+          "expect": "digest_changes",
+          "field_path": "open_round_count",
+          "name": "field.open_round_count"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "a7b181dcb3a2bc79357afbc732e0dfc86f15e625326fb05a196828f552f8fad0",
+          "expect": "digest_changes",
+          "field_path": "effective_verify_round",
+          "name": "field.effective_verify_round"
+        },
+        {
+          "change": "1100 -\u003e 1101",
+          "digest_hex": "17391360d890ee6e405094a6cac88a8e6943592aa221ae037e59cc5196bfd94e",
+          "expect": "digest_changes",
+          "field_path": "challenge_open_height/value",
+          "name": "field.challenge_open_height.value"
+        },
+        {
+          "change": "1200 -\u003e 1201",
+          "digest_hex": "52c2fc5f12f62fe45173de0a1d83ebbcd88df047893eabba38ebb01c69212316",
+          "expect": "digest_changes",
+          "field_path": "challenge_close_height/value",
+          "name": "field.challenge_close_height.value"
+        },
+        {
+          "change": "1300 -\u003e 1301",
+          "digest_hex": "bdc16468e93dd543d0b26ce6cdfc69319992d4b1544038f8538fea2c796a496e",
+          "expect": "digest_changes",
+          "field_path": "rounds_closed_height",
+          "name": "field.rounds_closed_height"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "f5ef08272db164a0e0aa4250f17e69895f30fd7450d8a77debdf78ffe7462dde",
+          "expect": "digest_changes",
+          "field_path": "round1_facts_hash_or_zero32",
+          "name": "field.round1_facts_hash_or_zero32"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "6937376652008f757a4881c1a5304119003084bcbea912438c52a2860ac14a11",
+          "expect": "digest_changes",
+          "field_path": "round2_facts_hash_or_zero32",
+          "name": "field.round2_facts_hash_or_zero32"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "fba408d27bcba8e2e9161b48720ce6d2c74488904c9952d496e2269db0e13b49",
+          "expect": "digest_changes",
+          "field_path": "round2_outcome_or_unspecified",
+          "name": "field.round2_outcome_or_unspecified"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "9d428ffdbfb79220ff176c51bf451405406df501124b46704bfa43a03e500043",
+          "expect": "digest_changes",
+          "field_path": "round2_effect_root_or_zero32",
+          "name": "field.round2_effect_root_or_zero32"
+        }
+      ],
+      "name": "task_round_summary_v1",
+      "preimage_hex": "000000000000001e545255454f50454e5f5441534b5f524f554e445f53554d4d4152595f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000004000000020000000000000004000000000000000000000004000000020000000000000011010000000000000008000000000000044c000000000000001101000000000000000800000000000004b000000000000000080000000000000514000000000000002088888888888888888888888888888888888888888888888888888888888888880000000000000020999999999999999999999999999999999999999999999999999999999999999900000000000000040000000200000000000000204c07728341d3a5476ca27f2c89f6646b87041b21ead97ef96f0aa785c2c93dbe",
+      "producer": "TaskRoundSummaryHash"
+    },
+    {
+      "contract_section": "§1.4 supplementary table, §10.15",
+      "digest_hex": "432c3bd33cc774dad808b83c8cef8501b69b2df21bbf6b9808defa0ce5e207e7",
+      "domain": "TRUEOPEN_ROUND_FUNDING_LOCK_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "opener",
+          "type": "address"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "100"
+            }
+          ],
+          "name": "challenge_open_bond",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "50"
+            }
+          ],
+          "name": "verifier_budget",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "cc4edfc26d9196e9082b4eba34fc344b5807161b1ae705e06241e446cf78ee00",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "5348a72931d1becae4af3b35c90a64727834f692444c13efb52eedf90286aa08",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "613341da9022401bf89105b6cab368d473be8e38d33c051eda227283a6940948",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "c341d083d97f04540eb51837c2feec5c4ba731102d37bede00ca4e5222b3783a",
+          "expect": "digest_changes",
+          "field_path": "opener",
+          "name": "field.opener"
+        },
+        {
+          "change": "utf8 '100' -\u003e '101'",
+          "digest_hex": "724ae246699d23c1554f9a3faaa367daecf2c1203e226133365bb91e9ec53cce",
+          "expect": "digest_changes",
+          "field_path": "challenge_open_bond/atomic_units",
+          "name": "field.challenge_open_bond.atomic_units"
+        },
+        {
+          "change": "utf8 '50' -\u003e '51'",
+          "digest_hex": "f908d6c8ec4172e5db3753d5426a2971d1dfdc3c2b1beaf8bd90660a7b235097",
+          "expect": "digest_changes",
+          "field_path": "verifier_budget/atomic_units",
+          "name": "field.verifier_budget.atomic_units"
+        }
+      ],
+      "name": "round_funding_lock_v1",
+      "preimage_hex": "000000000000001e545255454f50454e5f524f554e445f46554e44494e475f4c4f434b5f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000b0000000000000003313030000000000000000a00000000000000023530",
+      "producer": "RoundFundingLockHash"
+    },
+    {
+      "contract_section": "§1.4 supplementary table, §10.15",
+      "digest_hex": "9e126f6762ba4a07e087f1f611035593ce4a9fd8ef263fe99498d8f7597cc3c0",
+      "domain": "TRUEOPEN_ROUND_FUNDING_RESOLUTION_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "enum": "ROUND_OUTCOME_V1_DIVERGED",
+          "name": "outcome",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "45"
+            }
+          ],
+          "name": "verifier_paid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "100"
+            }
+          ],
+          "name": "bond_refund",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0"
+            }
+          ],
+          "name": "bond_slash",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "5"
+            }
+          ],
+          "name": "opener_recovery",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0"
+            }
+          ],
+          "name": "treasury_residual",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "08da7b19da6c24b7483a8ecc11ea97151f0d5f641b3a6e7a2d4910cc71157ae2",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "0361f040852cead8b70143bcdea6029e3c84b1a655c77624630e75c16a936e96",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "db6fa7e6c670b1de7d9a759ac120af9eed2d0d984df8a859bf0795f3549d409c",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "d65d9ccb35a9097b35d517e6eccc32b2d8f11acae12d16b31d9f24e4a4921c3a",
+          "expect": "digest_changes",
+          "field_path": "outcome",
+          "name": "field.outcome"
+        },
+        {
+          "change": "utf8 '45' -\u003e '40'",
+          "digest_hex": "86f92c86f0eebdc8c3aa0ff99ad4e227bcc96030fc190b205a2081d2bc9cf6e0",
+          "expect": "digest_changes",
+          "field_path": "verifier_paid/atomic_units",
+          "name": "field.verifier_paid.atomic_units"
+        },
+        {
+          "change": "utf8 '100' -\u003e '101'",
+          "digest_hex": "3b41cfb506c16d7b62a52100e10340337271aa6992dcb183e37fe3e2c9979785",
+          "expect": "digest_changes",
+          "field_path": "bond_refund/atomic_units",
+          "name": "field.bond_refund.atomic_units"
+        },
+        {
+          "change": "utf8 '0' -\u003e '1'",
+          "digest_hex": "87a6e82a317f32d38d33b8f9535411a54886db91971186dbe80cd42b2be0ab47",
+          "expect": "digest_changes",
+          "field_path": "bond_slash/atomic_units",
+          "name": "field.bond_slash.atomic_units"
+        },
+        {
+          "change": "utf8 '5' -\u003e '0'",
+          "digest_hex": "02724cca9d150b648b9125262761a398210d8c81a7d33b34e6355e74e2215999",
+          "expect": "digest_changes",
+          "field_path": "opener_recovery/atomic_units",
+          "name": "field.opener_recovery.atomic_units"
+        },
+        {
+          "change": "utf8 '0' -\u003e '1'",
+          "digest_hex": "c350a1370753b5c07ff8059c7218c819e78148693efe690f917bcb1cb6920d12",
+          "expect": "digest_changes",
+          "field_path": "treasury_residual/atomic_units",
+          "name": "field.treasury_residual.atomic_units"
+        }
+      ],
+      "name": "round_funding_resolution_v1",
+      "preimage_hex": "0000000000000024545255454f50454e5f524f554e445f46554e44494e475f5245534f4c5554494f4e5f56310000000000000011747275656f70656e2d676f6c64656e2d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000000400000002000000000000000400000002000000000000000a00000000000000023435000000000000000b0000000000000003313030000000000000000900000000000000013000000000000000090000000000000001350000000000000009000000000000000130",
+      "producer": "RoundFundingResolutionHash"
+    },
+    {
+      "contract_section": "§1.4, §10.14a",
+      "digest_hex": "1a97b94a4d02b9ad04483085f29fb5bd96663a6401b79813fa468f0910c4dbe2",
+      "domain": "TRUEOPEN_ROUND_EFFECT_PLAN_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "effect_count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "name": "effect_index",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "enum": "ROUND_ECONOMIC_EFFECT_KIND_V1_VERIFIER_FEE",
+                  "name": "effect_kind",
+                  "type": "enum",
+                  "value": 6
+                },
+                {
+                  "fields": [
+                    {
+                      "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                      "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                      "name": "value",
+                      "type": "address"
+                    }
+                  ],
+                  "name": "source_address",
+                  "present": true,
+                  "type": "optional"
+                },
+                {
+                  "fields": [
+                    {
+                      "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                      "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                      "name": "value",
+                      "type": "address"
+                    }
+                  ],
+                  "name": "destination_address",
+                  "present": true,
+                  "type": "optional"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "atomic_units",
+                      "type": "string",
+                      "utf8": "101"
+                    }
+                  ],
+                  "name": "requested_amount",
+                  "type": "frame"
+                }
+              ],
+              "name": "effect_0",
+              "type": "frame"
+            }
+          ],
+          "name": "effects",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "the domain's explicit effect_count says 2 while the repeated frame still holds one element",
+          "digest_hex": "737a6f08519d6b6c4d695caf59c66ee252d99238188e2786767d1c966af1a21d",
+          "expect": "digest_changes",
+          "name": "count.explicit_mismatch"
+        },
+        {
+          "change": "the repeated frame's element_count says 2 while one element is present",
+          "digest_hex": "bb7cd8c374323813926a1bb3477f3960637a2fd03d9b018d46125e04690e6d0b",
+          "expect": "digest_changes",
+          "name": "count.repeated_mismatch"
+        },
+        {
+          "change": "the single effect is renumbered to index 1, so the indexes no longer start at 0 and ascend contiguously",
+          "digest_hex": "2de9f83c82349f0ddd048d404c43efe6ace3f887d77a7fb2c40513866d3a73d8",
+          "expect": "digest_changes",
+          "name": "order.effect_index_not_contiguous"
+        },
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "1cf003ebdace563cac4aacb21fb2fbcc40bdf0a2a834b4d060bdf43e0e0080ef",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "25f5251532ac79b68ae2eb8adf10db72b64e40dff63c291fdeceec73b6a3ad8c",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "64d26983651498b71050f9136b086004046d514e65c7910468c7aea62e56606a",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "6 -\u003e 7",
+          "digest_hex": "9e155f585c620ba198efe3c70b98d679f88dccb06b670a6e7602ae892b97e0e1",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/effect_kind",
+          "name": "field.effects.effect_0.effect_kind"
+        },
+        {
+          "change": "present -\u003e absent",
+          "digest_hex": "5d51b578a8452c09b5c3cd5935f97d14c45756201af6c7667755b94c8cfa9f53",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/source_address",
+          "name": "field.effects.effect_0.source_address"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "b96830f5d36533ee053da42e6ed6ea1f784b842116a61c41cc00d755349cf0d7",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/source_address/value",
+          "name": "field.effects.effect_0.source_address.value"
+        },
+        {
+          "change": "present -\u003e absent",
+          "digest_hex": "7e8085549ba6372b4191ef89e0a7220853e435a5b9fbbd1591638fef3fbd35f9",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/destination_address",
+          "name": "field.effects.effect_0.destination_address"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "47ecfbfb0d0a90b6f1139d88a19f9434faa4792af1180248433d02032a032563",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/destination_address/value",
+          "name": "field.effects.effect_0.destination_address.value"
+        },
+        {
+          "change": "utf8 '101' -\u003e '100'",
+          "digest_hex": "bb605b147cc8c21c329e1a964dd8df89ae251de2bc16e7123c0bb51472de8314",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/requested_amount/atomic_units",
+          "name": "field.effects.effect_0.requested_amount.atomic_units"
+        }
+      ],
+      "name": "round_effect_plan_v1",
+      "preimage_hex": "000000000000001d545255454f50454e5f524f554e445f4546464543545f504c414e5f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000200000000000000040000000100000000000000890000000000000004000000010000000000000075000000000000000400000000000000000000000400000006000000000000001d0100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000001d010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000b0000000000000003313031",
+      "producer": "RoundEffectPlanRoot"
+    },
+    {
+      "contract_section": "§1.4, §10.14a",
+      "digest_hex": "4c07728341d3a5476ca27f2c89f6646b87041b21ead97ef96f0aa785c2c93dbe",
+      "domain": "TRUEOPEN_ROUND_EFFECT_ROOT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "hex": "1a97b94a4d02b9ad04483085f29fb5bd96663a6401b79813fa468f0910c4dbe2",
+          "name": "round_effect_plan_root",
+          "type": "bytes"
+        },
+        {
+          "name": "effect_count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "name": "effect_index",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "atomic_units",
+                      "type": "string",
+                      "utf8": "101"
+                    }
+                  ],
+                  "name": "applied_amount",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "atomic_units",
+                      "type": "string",
+                      "utf8": "0"
+                    }
+                  ],
+                  "name": "unfilled_amount",
+                  "type": "frame"
+                },
+                {
+                  "enum": "ROUND_ECONOMIC_EFFECT_STATUS_V1_APPLIED",
+                  "name": "status",
+                  "type": "enum",
+                  "value": 2
+                }
+              ],
+              "name": "effect_0",
+              "type": "frame"
+            }
+          ],
+          "name": "effects",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "the domain's explicit effect_count says 2 while the repeated frame still holds one element",
+          "digest_hex": "c1767b0b3c29e31e4333ca109bbc8ecd5d3d175f311da8041d1a7d09e05d898a",
+          "expect": "digest_changes",
+          "name": "count.explicit_mismatch"
+        },
+        {
+          "change": "the repeated frame's element_count says 2 while one element is present",
+          "digest_hex": "80724552f2f157b494071856f162f5a366f09b00173e66c17a8607079c709420",
+          "expect": "digest_changes",
+          "name": "count.repeated_mismatch"
+        },
+        {
+          "change": "the single effect is renumbered to index 1, so the indexes no longer start at 0 and ascend contiguously",
+          "digest_hex": "df600aa388a01cd0a9557bfd133299aaec37e881eb82665850685de3b2e43786",
+          "expect": "digest_changes",
+          "name": "order.effect_index_not_contiguous"
+        },
+        {
+          "change": "an effect is still PENDING while the terminal root is being computed, which the executor must never do",
+          "digest_hex": "866e1aa5fe9f1fbabdab92ad1bf5a96c9820758edda61e739a1c6a2220e17783",
+          "expect": "digest_changes",
+          "name": "status.pending_in_terminal_root"
+        },
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "2b191d9a2dd51c0bb4b63b2f21ce402f512fd7177b292e806109c81b6639a7a9",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "795470979972aed9953bc88ca588b0906064b4dfd7cd1294b56c50b534d3161c",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "e9dd5e0aa1d7a60896775bc92db1a9f4a6a4991abdc712fcac87ce5f75c72258",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "174bdcf0ac575526552ac8ee8816cf4fd8ce3ac1690120062a57fb2b78fa1f1a",
+          "expect": "digest_changes",
+          "field_path": "round_effect_plan_root",
+          "name": "field.round_effect_plan_root"
+        },
+        {
+          "change": "utf8 '101' -\u003e '100'",
+          "digest_hex": "5e82e7563b393d05672351f9c4d19bf8d59d3c7c98791b426ba6377ba8d026a6",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/applied_amount/atomic_units",
+          "name": "field.effects.effect_0.applied_amount.atomic_units"
+        },
+        {
+          "change": "utf8 '0' -\u003e '1'",
+          "digest_hex": "892a81043fd5a81e0ea38764181179bc1b190048ea1e6ddcce18d8e3e4dfb1cf",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/unfilled_amount/atomic_units",
+          "name": "field.effects.effect_0.unfilled_amount.atomic_units"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "f5673579b89501c931a47f2cbc07a59b03298858f1be55138786d3156753a996",
+          "expect": "digest_changes",
+          "field_path": "effects/effect_0/status",
+          "name": "field.effects.effect_0.status"
+        }
+      ],
+      "name": "round_effect_root_v1",
+      "preimage_hex": "000000000000001d545255454f50454e5f524f554e445f4546464543545f524f4f545f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000200000000000000201a97b94a4d02b9ad04483085f29fb5bd96663a6401b79813fa468f0910c4dbe20000000000000004000000010000000000000050000000000000000400000001000000000000003c000000000000000400000000000000000000000b00000000000000033130310000000000000009000000000000000130000000000000000400000002",
+      "producer": "RoundEffectRoot"
+    },
+    {
+      "contract_section": "§1.4 supplementary table, §10.10a",
+      "digest_hex": "dd272ba6d02cdbcabf4e1655b8c9af03396d84603370b1d405e8f76ac5a04ce0",
+      "domain": "TRUEOPEN_SETTLEMENT_BILL_V1",
+      "fields": [
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "worker_operator_address",
+          "type": "address"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "infer_receipt_ref",
+          "type": "bytes"
+        },
+        {
+          "name": "fee_rule_version",
+          "type": "uint64",
+          "value": 2
+        },
+        {
+          "name": "generated_token_count",
+          "type": "uint64",
+          "value": 321
+        },
+        {
+          "name": "work_unit",
+          "type": "uint64",
+          "value": 321
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "0857cbc5f038713ad731549f767ebcd216600485768715751c3afbcac80e743c",
+          "expect": "digest_changes",
+          "field_path": "worker_operator_address",
+          "name": "field.worker_operator_address"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "61961fbc5fa85a911b4c6cacc4c07735b24512ea4c7c43772cede1d71c85b64f",
+          "expect": "digest_changes",
+          "field_path": "infer_receipt_ref",
+          "name": "field.infer_receipt_ref"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "7ba2031565f567a551982af71b4dd874b3aabc9e88b59a4d86525b7cdc48e614",
+          "expect": "digest_changes",
+          "field_path": "fee_rule_version",
+          "name": "field.fee_rule_version"
+        },
+        {
+          "change": "321 -\u003e 322",
+          "digest_hex": "39b8591f06a97982e90fc58137a2fc91ac68d11585cfa75f78cdd96a0d254a01",
+          "expect": "digest_changes",
+          "field_path": "generated_token_count",
+          "name": "field.generated_token_count"
+        },
+        {
+          "change": "321 -\u003e 322",
+          "digest_hex": "e422ae38e8e08a82ddd60b2befd157f566cc6ff92a851759bcdbdbc11fb1cb36",
+          "expect": "digest_changes",
+          "field_path": "work_unit",
+          "name": "field.work_unit"
+        }
+      ],
+      "name": "settlement_bill_v1",
+      "preimage_hex": "000000000000001b545255454f50454e5f534554544c454d454e545f42494c4c5f563100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000800000000000000020000000000000008000000000000014100000000000000080000000000000141",
+      "producer": "SettlementBillHash"
+    },
+    {
+      "contract_section": "§1.4, §5.10, §10.10b",
+      "digest_hex": "b67cef436db68adc49f4f14834e8747a58d63b49b836f40779eaed1480745f26",
+      "domain": "TRUEOPEN_GAS_REIMBURSEMENT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "fields": [
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "name": "tx_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "item_index",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "enum": "TASK_REIMBURSEMENT_KIND_V1_VERIFY_RESULT",
+              "name": "reimbursement_kind",
+              "type": "enum",
+              "value": 6
+            },
+            {
+              "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+              "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+              "name": "fee_payer",
+              "type": "address"
+            },
+            {
+              "name": "gas_basis",
+              "type": "uint64",
+              "value": 21000
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "30"
+                }
+              ],
+              "name": "actual_fee_paid",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "20"
+                }
+              ],
+              "name": "necessary_fee",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "20"
+                }
+              ],
+              "name": "reimbursed_amount",
+              "type": "frame"
+            },
+            {
+              "name": "fee_policy_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "name": "accepted_height",
+              "type": "uint64",
+              "value": 1200
+            }
+          ],
+          "name": "gas_reimbursement",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "6cd95559594797eb4f3ffc5558d121a60beb99d370081b6ab6e4affe57fd8287",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "275c89b4012c8ed2988607caa8f2f75e38769d6311b0a5437331e02b69a934ad",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/task_id",
+          "name": "field.gas_reimbursement.task_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "9a237ddc4dba243afe276d3bf365335677e7e98aaad93eebaf977f311c43991c",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/tx_hash",
+          "name": "field.gas_reimbursement.tx_hash"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "d381fce47fd9635a1d281ca7d76b4b064da1761ed3328af1b19e34eb29a65b4c",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/item_index",
+          "name": "field.gas_reimbursement.item_index"
+        },
+        {
+          "change": "6 -\u003e 7",
+          "digest_hex": "73a703d61375475a2d45f4ff38f70e2dc20c2642e78d626ac59de5bb3cde0e18",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/reimbursement_kind",
+          "name": "field.gas_reimbursement.reimbursement_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "405ea4c08775274727cca995d90170c738502d320e39ee429683915e109a4f72",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/fee_payer",
+          "name": "field.gas_reimbursement.fee_payer"
+        },
+        {
+          "change": "21000 -\u003e 21001",
+          "digest_hex": "e28d5169130a12a8b81d53a2f4121eca2598e20214fa347ddd726615f6f995dc",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/gas_basis",
+          "name": "field.gas_reimbursement.gas_basis"
+        },
+        {
+          "change": "utf8 '30' -\u003e '31'",
+          "digest_hex": "bdbb228de157b7c7d81cf4d2247b63694def898d1f38f99125aece7abd965714",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/actual_fee_paid/atomic_units",
+          "name": "field.gas_reimbursement.actual_fee_paid.atomic_units"
+        },
+        {
+          "change": "utf8 '20' -\u003e '21'",
+          "digest_hex": "1683343759b8a42aebd087b7a935bd0fef482c4783ce64feefbb309275fd8320",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/necessary_fee/atomic_units",
+          "name": "field.gas_reimbursement.necessary_fee.atomic_units"
+        },
+        {
+          "change": "utf8 '20' -\u003e '21'",
+          "digest_hex": "baa186e3dce963b53feb8cde40f6a938f0e9e0c35b271c27af6ef086c75bbf47",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/reimbursed_amount/atomic_units",
+          "name": "field.gas_reimbursement.reimbursed_amount.atomic_units"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "ba06c615b7495851f3eda7f9634386116a9c82c838c1bb76054d81dc63c1d909",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/fee_policy_version",
+          "name": "field.gas_reimbursement.fee_policy_version"
+        },
+        {
+          "change": "1200 -\u003e 1201",
+          "digest_hex": "aa7b49f77f5e326745fc27b9d84a76e3d4da2a4f6b9ef617b09a1974a6164507",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursement/accepted_height",
+          "name": "field.gas_reimbursement.accepted_height"
+        }
+      ],
+      "name": "gas_reimbursement_v1",
+      "preimage_hex": "000000000000001d545255454f50454e5f4741535f5245494d42555253454d454e545f56310000000000000011747275656f70656e2d676f6c64656e2d3100000000000000ea000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc0000000000000004000000000000000000000004000000060000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d300000000000000080000000000005208000000000000000a00000000000000023330000000000000000a00000000000000023230000000000000000a0000000000000002323000000000000000080000000000000001000000000000000800000000000004b0",
+      "producer": "GasReimbursementHash"
+    },
+    {
+      "contract_section": "§1.4, §10.10b",
+      "digest_hex": "2b0307c665550120236cb703ef2acc083eb30573d886fed71eba267e00f5b1e3",
+      "domain": "TRUEOPEN_GAS_REIMBURSEMENTS_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "name": "task_id",
+                  "type": "bytes"
+                },
+                {
+                  "hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "name": "tx_hash",
+                  "type": "bytes"
+                },
+                {
+                  "name": "item_index",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "enum": "TASK_REIMBURSEMENT_KIND_V1_VERIFY_RESULT",
+                  "name": "reimbursement_kind",
+                  "type": "enum",
+                  "value": 6
+                },
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "fee_payer",
+                  "type": "address"
+                },
+                {
+                  "name": "gas_basis",
+                  "type": "uint64",
+                  "value": 21000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "atomic_units",
+                      "type": "string",
+                      "utf8": "30"
+                    }
+                  ],
+                  "name": "actual_fee_paid",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "atomic_units",
+                      "type": "string",
+                      "utf8": "20"
+                    }
+                  ],
+                  "name": "necessary_fee",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "atomic_units",
+                      "type": "string",
+                      "utf8": "20"
+                    }
+                  ],
+                  "name": "reimbursed_amount",
+                  "type": "frame"
+                },
+                {
+                  "name": "fee_policy_version",
+                  "type": "uint64",
+                  "value": 1
+                },
+                {
+                  "name": "accepted_height",
+                  "type": "uint64",
+                  "value": 1200
+                }
+              ],
+              "name": "item_0",
+              "type": "frame"
+            }
+          ],
+          "name": "gas_reimbursements",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "8f878030b66e0db433ffeca63acee488918414536d1402b679314d2d1bbe9b6c",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "f3e981e96de74c3a9f93260b240e3198bffa52b241fa088ae7a24be7e15f7da4",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "310c8daeec3c35a34347be774d751ca79176288ffa90c4bdedbec85f5bf76d0d",
+          "expect": "digest_changes",
+          "field_path": "count",
+          "name": "field.count"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "da0e79894fdd1f3154243e827939ae2a9dd78112c3ebc0b8e407d95aa4583b3b",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/element_count",
+          "name": "field.gas_reimbursements.element_count"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "ef81b52cad8b83b3b6cab7aecc034ba0e6b5f7940fc4d2b26d9f752d7932ed86",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/task_id",
+          "name": "field.gas_reimbursements.item_0.task_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "0f89123e752119ff0a3cfe1159b7eb91f917958ba30a664f51a19b0816c205c1",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/tx_hash",
+          "name": "field.gas_reimbursements.item_0.tx_hash"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "848da59b71e058fd9570ce4b199393675050c21b1e653978ea620acfee23a4c7",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/item_index",
+          "name": "field.gas_reimbursements.item_0.item_index"
+        },
+        {
+          "change": "6 -\u003e 7",
+          "digest_hex": "1cc9d2270bcc780cf26b810671606aacd32755ff4f22913e9009dc6f5ea8c762",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/reimbursement_kind",
+          "name": "field.gas_reimbursements.item_0.reimbursement_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "9cf15067c0d75d807d5c0ae01092058180266af38e5fcda76cacaa89cb99909d",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/fee_payer",
+          "name": "field.gas_reimbursements.item_0.fee_payer"
+        },
+        {
+          "change": "21000 -\u003e 21001",
+          "digest_hex": "a39d08aab4964fdc79a750c6bb1e8471adaf8167026ac09270fc1a69ef994216",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/gas_basis",
+          "name": "field.gas_reimbursements.item_0.gas_basis"
+        },
+        {
+          "change": "utf8 '30' -\u003e '31'",
+          "digest_hex": "28e42537667853b2ed2a928520f597327013768b564b111c303823bbef2a06e7",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/actual_fee_paid/atomic_units",
+          "name": "field.gas_reimbursements.item_0.actual_fee_paid.atomic_units"
+        },
+        {
+          "change": "utf8 '20' -\u003e '21'",
+          "digest_hex": "5243b62369f1ed46cfcbd8997d70065e67c02292b1d9db144cc2861982c31da3",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/necessary_fee/atomic_units",
+          "name": "field.gas_reimbursements.item_0.necessary_fee.atomic_units"
+        },
+        {
+          "change": "utf8 '20' -\u003e '21'",
+          "digest_hex": "93cbc193803dc25102299d522b5a0395f054eecdf2b04cf251b5317a0ee15701",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/reimbursed_amount/atomic_units",
+          "name": "field.gas_reimbursements.item_0.reimbursed_amount.atomic_units"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "6a5479f3c34e38ff7ad62c71d05f28eeff4772cd0f440d92db29109295b30c28",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/fee_policy_version",
+          "name": "field.gas_reimbursements.item_0.fee_policy_version"
+        },
+        {
+          "change": "1200 -\u003e 1201",
+          "digest_hex": "784e6ff340b84d077e2cf7e97ce0b5ae9e277c623d2ff7060447c926b204cf0b",
+          "expect": "digest_changes",
+          "field_path": "gas_reimbursements/item_0/accepted_height",
+          "name": "field.gas_reimbursements.item_0.accepted_height"
+        }
+      ],
+      "name": "gas_reimbursements_v1",
+      "preimage_hex": "000000000000001e545255454f50454e5f4741535f5245494d42555253454d454e54535f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000100000000000000fe00000000000000040000000100000000000000ea000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc0000000000000004000000000000000000000004000000060000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d300000000000000080000000000005208000000000000000a00000000000000023330000000000000000a00000000000000023230000000000000000a0000000000000002323000000000000000080000000000000001000000000000000800000000000004b0",
+      "producer": "GasReimbursementsHash"
+    },
+    {
+      "contract_section": "§1.4, §10.10a",
+      "digest_hex": "2163fa9b158fd1c8f133866ffc3328f7519976db77701f4820678ad4f461a144",
+      "domain": "TRUEOPEN_SETTLEMENT_PLAN_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "settlement_id",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "name": "settlement_id",
+              "type": "bytes"
+            },
+            {
+              "name": "fee_rule_version",
+              "type": "uint64",
+              "value": 2
+            },
+            {
+              "name": "effective_verify_round",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "generated_token_count",
+              "type": "uint64",
+              "value": 321
+            },
+            {
+              "name": "work_unit",
+              "type": "uint64",
+              "value": 321
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "100"
+                }
+              ],
+              "name": "worker_gross",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "10"
+                }
+              ],
+              "name": "worker_maintenance",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "90"
+                }
+              ],
+              "name": "worker_net",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "12"
+                }
+              ],
+              "name": "verifier_slot_gross",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "element_count",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "fields": [
+                    {
+                      "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                      "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                      "name": "operator_address",
+                      "type": "address"
+                    },
+                    {
+                      "name": "selected_verifier_index",
+                      "type": "uint32",
+                      "value": 0
+                    },
+                    {
+                      "fields": [
+                        {
+                          "name": "atomic_units",
+                          "type": "string",
+                          "utf8": "12"
+                        }
+                      ],
+                      "name": "gross",
+                      "type": "frame"
+                    },
+                    {
+                      "fields": [
+                        {
+                          "name": "atomic_units",
+                          "type": "string",
+                          "utf8": "2"
+                        }
+                      ],
+                      "name": "maintenance",
+                      "type": "frame"
+                    },
+                    {
+                      "fields": [
+                        {
+                          "name": "atomic_units",
+                          "type": "string",
+                          "utf8": "10"
+                        }
+                      ],
+                      "name": "net",
+                      "type": "frame"
+                    }
+                  ],
+                  "name": "payout_0",
+                  "type": "frame"
+                }
+              ],
+              "name": "verifier_payouts",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "element_count",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "fields": [
+                    {
+                      "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+                      "name": "task_id",
+                      "type": "bytes"
+                    },
+                    {
+                      "hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                      "name": "tx_hash",
+                      "type": "bytes"
+                    },
+                    {
+                      "name": "item_index",
+                      "type": "uint32",
+                      "value": 0
+                    },
+                    {
+                      "enum": "TASK_REIMBURSEMENT_KIND_V1_VERIFY_RESULT",
+                      "name": "reimbursement_kind",
+                      "type": "enum",
+                      "value": 6
+                    },
+                    {
+                      "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                      "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                      "name": "fee_payer",
+                      "type": "address"
+                    },
+                    {
+                      "name": "gas_basis",
+                      "type": "uint64",
+                      "value": 21000
+                    },
+                    {
+                      "fields": [
+                        {
+                          "name": "atomic_units",
+                          "type": "string",
+                          "utf8": "30"
+                        }
+                      ],
+                      "name": "actual_fee_paid",
+                      "type": "frame"
+                    },
+                    {
+                      "fields": [
+                        {
+                          "name": "atomic_units",
+                          "type": "string",
+                          "utf8": "20"
+                        }
+                      ],
+                      "name": "necessary_fee",
+                      "type": "frame"
+                    },
+                    {
+                      "fields": [
+                        {
+                          "name": "atomic_units",
+                          "type": "string",
+                          "utf8": "20"
+                        }
+                      ],
+                      "name": "reimbursed_amount",
+                      "type": "frame"
+                    },
+                    {
+                      "name": "fee_policy_version",
+                      "type": "uint64",
+                      "value": 1
+                    },
+                    {
+                      "name": "accepted_height",
+                      "type": "uint64",
+                      "value": 1200
+                    }
+                  ],
+                  "name": "item_0",
+                  "type": "frame"
+                }
+              ],
+              "name": "gas_reimbursements",
+              "type": "frame"
+            },
+            {
+              "hex": "2b0307c665550120236cb703ef2acc083eb30573d886fed71eba267e00f5b1e3",
+              "name": "gas_reimbursements_hash",
+              "type": "bytes"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "12"
+                }
+              ],
+              "name": "maintenance_fee",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "50"
+                }
+              ],
+              "name": "refund_amount",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "atomic_units",
+                  "type": "string",
+                  "utf8": "182"
+                }
+              ],
+              "name": "original_reserved_amount",
+              "type": "frame"
+            },
+            {
+              "hex": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "name": "settlement_facts_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "dce75d04ddc83f79c001448876d9588dd77dd3c922d1c53b3df4af5ecaa32004",
+              "name": "task_round_summary_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "dd272ba6d02cdbcabf4e1655b8c9af03396d84603370b1d405e8f76ac5a04ce0",
+              "name": "settlement_bill_hash",
+              "type": "bytes"
+            }
+          ],
+          "name": "settlement_plan",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "original_reserved_amount drops from 182 to 181 so worker_net + worker_maintenance + reimbursed + verifier_gross + refund no longer sums to the reserve",
+          "digest_hex": "b77bcdf7fb1a122056eadd417d80a2c2f8030fcd070f5d74ba5a766f85d9aedf",
+          "expect": "digest_changes",
+          "name": "conservation.short_by_one"
+        },
+        {
+          "change": "gas_reimbursements_hash no longer equals the digest of the inline gas array it is supposed to commit",
+          "digest_hex": "0a77482e4b2b258182ffcc6f6897d22b04d8d574e00bc55c0a03177f1b42a899",
+          "expect": "digest_changes",
+          "name": "gas_reimbursements_hash.mismatch"
+        },
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "5062048925bbc498457c2045ab260ed4aff84dcc03a11bff337f3ec342f013c0",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "bbd77f097021f55ddf92f4742d3cf99c348bf3845961ade4f0f883cad1d315e9",
+          "expect": "digest_changes",
+          "field_path": "settlement_id",
+          "name": "field.settlement_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "a90e7925d259a6cce9c9ec1beca61c3ab10d2501e9e8b80c8e63436ff4ad9628",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/task_id",
+          "name": "field.settlement_plan.task_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "d76ac421e35a7286ae4dfa313d984c3ac82ca77d9f6524ece5ccca42fcd23fd6",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/settlement_id",
+          "name": "field.settlement_plan.settlement_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "0386e7ec6138373f631867883455e46c7312d489307e99acf164428ad43c6f6f",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/fee_rule_version",
+          "name": "field.settlement_plan.fee_rule_version"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "655eec2b104adf77aa4c400b5e564bfb70c97f76da5e1a5da88524b3f3e68026",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/effective_verify_round",
+          "name": "field.settlement_plan.effective_verify_round"
+        },
+        {
+          "change": "321 -\u003e 322",
+          "digest_hex": "e720c7f994f3e1fd2c18214bfbd4b194b4a97ceb45c8e8ad6e79a419357ffb69",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/generated_token_count",
+          "name": "field.settlement_plan.generated_token_count"
+        },
+        {
+          "change": "321 -\u003e 322",
+          "digest_hex": "2e4473a869b721e2c386d0e4f73ab604e5c154f9ac9d274153800ef999a996f6",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/work_unit",
+          "name": "field.settlement_plan.work_unit"
+        },
+        {
+          "change": "utf8 '100' -\u003e '101'",
+          "digest_hex": "8ac681574926c21737f753cd4a00a8bdb0290380273a0698e9db3d3b5dd0b086",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/worker_gross/atomic_units",
+          "name": "field.settlement_plan.worker_gross.atomic_units"
+        },
+        {
+          "change": "utf8 '10' -\u003e '11'",
+          "digest_hex": "edc47cda587914046f8fe3c205ea56976b0193d2e2077534ba7cccc7a7845481",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/worker_maintenance/atomic_units",
+          "name": "field.settlement_plan.worker_maintenance.atomic_units"
+        },
+        {
+          "change": "utf8 '90' -\u003e '91'",
+          "digest_hex": "cd73762fd71ece040e237f34e75eaa6e8efdd63dd3b9bd2903809ec69f5a84a4",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/worker_net/atomic_units",
+          "name": "field.settlement_plan.worker_net.atomic_units"
+        },
+        {
+          "change": "utf8 '12' -\u003e '10'",
+          "digest_hex": "1a2bd50ca98e9e6f969a4c9d0681edc4ac6f4921d7f6af307ee2c5ad35bf4c43",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_slot_gross/atomic_units",
+          "name": "field.settlement_plan.verifier_slot_gross.atomic_units"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "fa267430e79d7c2ecfd93bd7ce7c47dbe36ae7d14d3bc759595d079edb5c0118",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_payouts/element_count",
+          "name": "field.settlement_plan.verifier_payouts.element_count"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "f94642126427da9968801bfe0b68b91f76bcff5a4636139ee6fb44a3407add5b",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_payouts/payout_0/operator_address",
+          "name": "field.settlement_plan.verifier_payouts.payout_0.operator_address"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "1032622d3b7301e853aec3b56fe7eeb3aa96cfb4f7c62257f22e81fd0b6c541c",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_payouts/payout_0/selected_verifier_index",
+          "name": "field.settlement_plan.verifier_payouts.payout_0.selected_verifier_index"
+        },
+        {
+          "change": "utf8 '12' -\u003e '10'",
+          "digest_hex": "187ae7749154c7c1741af4a13e5b7b00366c4105651606bbf66c8147f0ac89ac",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_payouts/payout_0/gross/atomic_units",
+          "name": "field.settlement_plan.verifier_payouts.payout_0.gross.atomic_units"
+        },
+        {
+          "change": "utf8 '2' -\u003e '0'",
+          "digest_hex": "87f90b211c424b426addded780fbe223d27a5256cab3d3fc138e1e481a54bcad",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_payouts/payout_0/maintenance/atomic_units",
+          "name": "field.settlement_plan.verifier_payouts.payout_0.maintenance.atomic_units"
+        },
+        {
+          "change": "utf8 '10' -\u003e '11'",
+          "digest_hex": "b44aa2cad56f7570dc54af5d0d3e78acbbc938e18f328be23960af6b539688a2",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/verifier_payouts/payout_0/net/atomic_units",
+          "name": "field.settlement_plan.verifier_payouts.payout_0.net.atomic_units"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "cf4180a1b6c57597ff2bd6bfeffe1dde4bbf1b0dc8ebe7e26c3f040900b55d70",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/element_count",
+          "name": "field.settlement_plan.gas_reimbursements.element_count"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "32ca8696e484120a92f09491d7c0ba53d5f7e1c1f90365653bde161cea446e99",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/task_id",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.task_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "3bca1058947364b90ed47fbba91ba659cdec747932fe445e6fa1176b81aeb958",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/tx_hash",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.tx_hash"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "c82ec4f8e956b3487312a980a61ad6bad069ea00d94db0a791d99792c9525c1e",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/item_index",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.item_index"
+        },
+        {
+          "change": "6 -\u003e 7",
+          "digest_hex": "c168c7fd39a8d38c7f66d738aa879a04112ce3b8cc128e8bb4b77099a2636edf",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/reimbursement_kind",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.reimbursement_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "3ca1749651a2bb592bd17ff7607123163e5af56f3f8911c4f35dc8eb6aa7fa2b",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/fee_payer",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.fee_payer"
+        },
+        {
+          "change": "21000 -\u003e 21001",
+          "digest_hex": "91ce26bb1a2940ed322622ea14988bef67ce12f04cc1539ed0ab618ed78d647f",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/gas_basis",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.gas_basis"
+        },
+        {
+          "change": "utf8 '30' -\u003e '31'",
+          "digest_hex": "9b41ee407f24430deb6bbffaca920af77e8f6cc003255ab1c150bc835a6871c6",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/actual_fee_paid/atomic_units",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.actual_fee_paid.atomic_units"
+        },
+        {
+          "change": "utf8 '20' -\u003e '21'",
+          "digest_hex": "30652a220f556df16b8e880b4d22eddba3fde4e93cc269c4cb81fa9d58fbf478",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/necessary_fee/atomic_units",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.necessary_fee.atomic_units"
+        },
+        {
+          "change": "utf8 '20' -\u003e '21'",
+          "digest_hex": "6dabbd5fb7b2fee7a21b52acca8735df18b72118c7e65dd3f2791d6a5e424a90",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/reimbursed_amount/atomic_units",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.reimbursed_amount.atomic_units"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "e57a977ef3b662b8c21583353813ef34448414310e5b8693b7a1809baa959660",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/fee_policy_version",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.fee_policy_version"
+        },
+        {
+          "change": "1200 -\u003e 1201",
+          "digest_hex": "5981e63c6beb6c6aa87800feb615f17c8e9dc49cf17cc6e0c4a44ebd62fdddf7",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/gas_reimbursements/item_0/accepted_height",
+          "name": "field.settlement_plan.gas_reimbursements.item_0.accepted_height"
+        },
+        {
+          "change": "utf8 '12' -\u003e '10'",
+          "digest_hex": "0a3d88f9be1805c10bd1cc63420a83880a7bed6c691391521ee284f36bf93627",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/maintenance_fee/atomic_units",
+          "name": "field.settlement_plan.maintenance_fee.atomic_units"
+        },
+        {
+          "change": "utf8 '50' -\u003e '51'",
+          "digest_hex": "32367154abff401d0ae06ede93228d75df6a7d1582168dba573d8ca1aee8808a",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/refund_amount/atomic_units",
+          "name": "field.settlement_plan.refund_amount.atomic_units"
+        },
+        {
+          "change": "utf8 '182' -\u003e '180'",
+          "digest_hex": "8ae474eb077237e4a7378c8b70e7ec4f7fc6725e81281aa968f609fa38336077",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/original_reserved_amount/atomic_units",
+          "name": "field.settlement_plan.original_reserved_amount.atomic_units"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "90d74b3c26def79dac8ca6696219e4bf37e289cf251235a7ea677e00f6c257e0",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/settlement_facts_hash",
+          "name": "field.settlement_plan.settlement_facts_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "6e5af256d0d6c21938fcd3d92b6f8d80ac549499ea9adaeebb3e0ec5fb94c36c",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/task_round_summary_hash",
+          "name": "field.settlement_plan.task_round_summary_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "dc42485d307d6dfc9b646e58c0ca8c238e3fb12217376487a2b1ffd88edb9fb0",
+          "expect": "digest_changes",
+          "field_path": "settlement_plan/settlement_bill_hash",
+          "name": "field.settlement_plan.settlement_bill_hash"
+        }
+      ],
+      "name": "settlement_plan_v1",
+      "preimage_hex": "000000000000001b545255454f50454e5f534554544c454d454e545f504c414e5f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb000000000000032b000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb000000000000000800000000000000020000000000000004000000020000000000000008000000000000014100000000000000080000000000000141000000000000000b0000000000000003313030000000000000000a00000000000000023130000000000000000a00000000000000023930000000000000000a000000000000000231320000000000000071000000000000000400000001000000000000005d00000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000000000000000000000a000000000000000231320000000000000009000000000000000132000000000000000a0000000000000002313000000000000000fe00000000000000040000000100000000000000ea000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc0000000000000004000000000000000000000004000000060000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d300000000000000080000000000005208000000000000000a00000000000000023330000000000000000a00000000000000023230000000000000000a0000000000000002323000000000000000080000000000000001000000000000000800000000000004b000000000000000202b0307c665550120236cb703ef2acc083eb30573d886fed71eba267e00f5b1e3000000000000000a00000000000000023132000000000000000a00000000000000023530000000000000000b00000000000000033138320000000000000020dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd0000000000000020dce75d04ddc83f79c001448876d9588dd77dd3c922d1c53b3df4af5ecaa320040000000000000020dd272ba6d02cdbcabf4e1655b8c9af03396d84603370b1d405e8f76ac5a04ce0",
+      "producer": "SettlementPlanHash"
+    },
+    {
+      "contract_section": "§1.4, §10.10a; 04-task/§10.1",
+      "digest_hex": "b13c77a066d4642682a7ff8e6e3fc0446586648a0a8ec54adb6b164d1e614aec",
+      "domain": "TRUEOPEN_SETTLEMENT_FACTS_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "settlement_id",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "settlement_height",
+              "type": "uint64",
+              "value": 1400
+            },
+            {
+              "name": "settlement_facts_cutoff_height",
+              "type": "uint64",
+              "value": 1300
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "settlement_duty_builder_operator",
+              "type": "address"
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "consensus_cluster_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_VERDICT_PASS",
+              "name": "verdict",
+              "type": "enum",
+              "value": 1
+            },
+            {
+              "enum": "TASK_FAILURE_CLASS_NONE",
+              "name": "failure_class",
+              "type": "enum",
+              "value": 1
+            },
+            {
+              "hex": "8888888888888888888888888888888888888888888888888888888888888888",
+              "name": "fault_summary_hash",
+              "type": "bytes"
+            },
+            {
+              "fields": [
+                {
+                  "name": "element_count",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "fields": [
+                    {
+                      "enum": "DUTY_VERIFIER",
+                      "name": "duty",
+                      "type": "enum",
+                      "value": 2
+                    },
+                    {
+                      "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                      "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                      "name": "operator_address",
+                      "type": "address"
+                    }
+                  ],
+                  "name": "paid_role_0",
+                  "type": "frame"
+                }
+              ],
+              "name": "paid_roles",
+              "type": "frame"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "infer_receipt_ref",
+              "type": "bytes"
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "result_receipt_refs_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "challenge_close_height",
+              "type": "uint64",
+              "value": 1200
+            }
+          ],
+          "name": "settlement_facts",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "9551f0907b88639316ae703a9d927b78db8b7e658b3a1ac65f7d4a9d1ff1c58d",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "749ec0de9a2b17db1179fbf376eaac627e2e4e159f5deaa3ae34a64aefbbed7c",
+          "expect": "digest_changes",
+          "field_path": "settlement_id",
+          "name": "field.settlement_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "dddbcb4065ac27303f1a4bdbf42f9464e7ae772fe03685af23933b42083880f2",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/task_id",
+          "name": "field.settlement_facts.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "2fef7cf9269be8e73de9cbfa37919c4ee731500c66f603191cff67a370623a35",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/verify_round",
+          "name": "field.settlement_facts.verify_round"
+        },
+        {
+          "change": "1400 -\u003e 1401",
+          "digest_hex": "5464870c697560a5af1771052e03050b322ab300a27231a81fba8b6197d3e3a0",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/settlement_height",
+          "name": "field.settlement_facts.settlement_height"
+        },
+        {
+          "change": "1300 -\u003e 1301",
+          "digest_hex": "24a6353c33f9ba2c22da6e354c7e40474e7affe8ee424558adedc41821dc0067",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/settlement_facts_cutoff_height",
+          "name": "field.settlement_facts.settlement_facts_cutoff_height"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "572f58a8f5e66a7e38c8a7a8a1ab358a1cd305cf860c36d9470f3f57d8583589",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/settlement_duty_builder_operator",
+          "name": "field.settlement_facts.settlement_duty_builder_operator"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "765c74af19538d0ad3e40d80d02b0e146f89883a2bd40d9e49f063bc325a909e",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/consensus_cluster_hash",
+          "name": "field.settlement_facts.consensus_cluster_hash"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "b3b3b3c7afeb07bd0c9e14d85929a5c933f7bb1b4449bed1225de8967c48c9c2",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/verdict",
+          "name": "field.settlement_facts.verdict"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "4d16553e8b8cdb1bf20be815088dcd849b744986272becb636379c884fd9a67d",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/failure_class",
+          "name": "field.settlement_facts.failure_class"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "b6e859f9f3bf5fe878a25e21a885adf597b1bf94cf3fcba4d17eafcf0c6bbe25",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/fault_summary_hash",
+          "name": "field.settlement_facts.fault_summary_hash"
+        },
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "ef7bc9c0f207d837af50db7e7f67cc79a57a8d2c69737c2adac5758e9ddc9cbb",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/paid_roles/element_count",
+          "name": "field.settlement_facts.paid_roles.element_count"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "6a0a1f843e3413111846fbb5f6a072678b8c5ab225fe6829c717c93263f5ab46",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/paid_roles/paid_role_0/duty",
+          "name": "field.settlement_facts.paid_roles.paid_role_0.duty"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "2b104270423546acba82818b080c5636f8166ba5aa409eee4da76646c0dcee5c",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/paid_roles/paid_role_0/operator_address",
+          "name": "field.settlement_facts.paid_roles.paid_role_0.operator_address"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "0932df8b181f46452089e400b4338e745b3ba08e723f8662399707312293b396",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/infer_receipt_ref",
+          "name": "field.settlement_facts.infer_receipt_ref"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "12c5f56220a37cfd8c9a2d485a3d4c0e78ac03d2465d6f3e8f4db927e2438c36",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/result_receipt_refs_hash",
+          "name": "field.settlement_facts.result_receipt_refs_hash"
+        },
+        {
+          "change": "1200 -\u003e 1201",
+          "digest_hex": "b4b4ce8f2bd164604ae75ff7a6293f200f2106bde2936b5d553eb95b05a74dec",
+          "expect": "digest_changes",
+          "field_path": "settlement_facts/challenge_close_height",
+          "name": "field.settlement_facts.challenge_close_height"
+        }
+      ],
+      "name": "settlement_facts_v1",
+      "note": "settlement_facts is the required nested 13-field frame. The outer chain_id and settlement_id must not be omitted or swapped with the nested body; §10.10a is now the single statement of this preimage.",
+      "preimage_hex": "000000000000001c545255454f50454e5f534554544c454d454e545f46414354535f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb000000000000017c00000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000000400000002000000000000000800000000000005780000000000000008000000000000051400000000000000141a642f0e3c3af545e7acbd38b07251b3990914f10000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000100000000000000040000000100000000000000208888888888888888888888888888888888888888888888888888888888888888000000000000003c00000000000000040000000100000000000000280000000000000004000000020000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d30000000000000020333333333333333333333333333333333333333333333333333333333333333300000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000800000000000004b0",
+      "producer": "SettlementFactsHash"
+    }
+  ]
+}

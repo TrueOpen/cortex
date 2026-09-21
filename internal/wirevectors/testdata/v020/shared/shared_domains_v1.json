@@ -1,0 +1,82 @@
+{
+  "schema": "trueopen.shared.domains.v1",
+  "source": "§1.4 registry rows for the listed domains; producers live in x/shared/types and are shared by the Hub and Task modules, so the vectors are owned here rather than by either caller",
+  "notes": [
+    "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage).",
+    "Field encoding (§1.2): string = strict UTF-8 bytes; bytes = raw bytes; uint32/uint64 = 4/8-byte big-endian; enum = uint32 big-endian.",
+    "\"producer\" names the exported function the vector is executed against. The digest below is what that function returns when fed this vector's own inputs, not only what re-framing fields[] reproduces; a field swap inside the producer therefore fails even when the swapped fields share an encoder.",
+    "Batch items occupy one REPEATED_V1 field: FRAME_V1(u32_be(item_count), FRAME_V1(object_id, status)...). The outer item_count is retained as the domain's explicit count and must equal the repeated frame's inner element_count.",
+    "Regenerate with TRUEOPEN_REGEN_FIXTURES=1; the run rewrites the expectations and then fails on purpose so the consensus diff must be reviewed before it is committed."
+  ],
+  "vectors": [
+    {
+      "name": "batch_result_v1_model_support",
+      "domain": "TRUEOPEN_BATCH_RESULT_V1",
+      "framing": "H_FIELDS_V1",
+      "contract_section": "§1.4, §9.6b",
+      "producer": "BatchResultDigestV1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "name": "batch_kind",
+          "type": "string",
+          "utf8": "MODEL_SUPPORT"
+        },
+        {
+          "name": "item_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "items",
+          "type": "frame",
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "item_0",
+              "type": "frame",
+              "fields": [
+                {
+                  "name": "item_0_object_id",
+                  "type": "bytes",
+                  "hex": "3131313131313131313131313131313131313131313131313131313131313131"
+                },
+                {
+                  "name": "item_0_status",
+                  "type": "enum",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "name": "item_1",
+              "type": "frame",
+              "fields": [
+                {
+                  "name": "item_1_object_id",
+                  "type": "bytes",
+                  "hex": "3232323232323232323232323232323232323232323232323232323232323232"
+                },
+                {
+                  "name": "item_1_status",
+                  "type": "enum",
+                  "value": 2
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "preimage_hex": "0000000000000018545255454f50454e5f42415443485f524553554c545f56310000000000000012747275656f70656e2d666978747572652d31000000000000000d4d4f44454c5f535550504f52540000000000000004000000020000000000000084000000000000000400000002000000000000003400000000000000203131313131313131313131313131313131313131313131313131313131313131000000000000000400000001000000000000003400000000000000203232323232323232323232323232323232323232323232323232323232323232000000000000000400000002",
+      "digest_hex": "9d2a2e5bf2dc600fd1189c96d89873ae74c1672f8e5727cca6c12399f96dc9f0"
+    }
+  ]
+}

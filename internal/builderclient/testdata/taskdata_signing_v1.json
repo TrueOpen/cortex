@@ -1,0 +1,118 @@
+{
+  "nexus_source_commit": "b201a98bd0f0fd87ac2f39a64e7629fa23e88b85",
+  "node_source_commit": "wire@v0.1.1 testdata/v1/task/task_domains_v1.json",
+  "request": {
+    "method": "GetTaskDataMetadata",
+    "chain_id": "trueopen-task-1",
+    "builder_address": "trueopen1builder",
+    "session_id": "session-1",
+    "task_id": "task-1",
+    "data_kind": "INPUT",
+    "requester": "trueopen1requester",
+    "requester_pubkey_hex": "020000000000000000000000000000000000000000000000000000000000000000",
+    "request_nonce_hex": "000102030405060708090a0b0c0d0e0f",
+    "expires_at_height": 1234,
+    "body_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "expected_signing_bytes_hex": "0000001a53494e47415f5441534b5f444154415f524551554553545f56310000000c73696e67612d7461736b2d310000000d73696e6761316275696c646572000000134765745461736b446174614d657461646174610000000973657373696f6e2d31000000067461736b2d3100000005494e5055540000002000000000000000000000000000000000000000000000000000000000000000000000000f73696e67613172657175657374657200000010000102030405060708090a0b0c0d0e0f0000000800000000000004d2000000200000000000000000000000000000000000000000000000000000000000000000",
+    "expected_digest_hex": "6ebfcd4faf7c66c41ad83539672b4c0df33a0c653dbc719900059a26b0ac447c"
+  },
+  "range": {
+    "method": "FetchTaskData",
+    "chain_id": "trueopen-task-1",
+    "builder_address": "trueopen1builder",
+    "session_id": "session-1",
+    "task_id": "task-1",
+    "data_kind": "INPUT",
+    "recipient": "trueopen1requester",
+    "recipient_pubkey_hex": "020000000000000000000000000000000000000000000000000000000000000000",
+    "offset": 256,
+    "length": 1024,
+    "request_nonce_hex": "101112131415161718191a1b1c1d1e1f",
+    "expires_at_height": 150,
+    "expected_signing_bytes_hex": "0000001853494e47415f5441534b5f444154415f52414e47455f56310000000c73696e67612d7461736b2d310000000d73696e6761316275696c6465720000000973657373696f6e2d31000000067461736b2d3100000005494e5055540000002000000000000000000000000000000000000000000000000000000000000000000000000f73696e67613172657175657374657200000008000000000000010000000008000000000000040000000010101112131415161718191a1b1c1d1e1f000000080000000000000096",
+    "expected_digest_hex": "3ee6db259baa3f41185f78b10d7b69c08030cdde2d944687e02bcdf43e423103"
+  },
+  "receipt": {
+    "provenance": "nexus b201a98 internal/nodecontract.InferReceiptSigningDigestFromSubmission",
+    "schema_version": 1,
+    "chain_id": "trueopen-task-1",
+    "task_id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "task_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+    "worker_operator_address": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+    "service_authorization_nonce": 7,
+    "generation_params_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "output_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "output_size_bytes": 4096,
+    "required_evidence_commitments": [
+      {
+        "evidence_kind": 1,
+        "evidence_hash_or_root": "4444444444444444444444444444444444444444444444444444444444444444",
+        "encoded_size_bytes": 7
+      },
+      {
+        "evidence_kind": 3,
+        "evidence_hash_or_root": "5555555555555555555555555555555555555555555555555555555555555555",
+        "encoded_size_bytes": 9
+      }
+    ],
+    "expiry_height": 1200,
+    "service_signature": "77777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777",
+    "expected_signing_digest_hex": "9aebb597d8936c1c167db9f7ab3557d8f16eb3580f53b04418d6f12347ced628"
+  },
+  "upload_body": {
+    "provenance": "nexus b201a98 internal/taskdata.UploadBodyDigest",
+    "method": "UploadTaskResultData",
+    "session_id": "session-1",
+    "task_id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "data_kind": "OUTPUT",
+    "size_bytes": 4096,
+    "semantic_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "media_type": "application/octet-stream",
+    "expected_digest_hex": "9e66537351cef720001d4ec82554c7f94785c27dd6f42979013c219b941e0398"
+  },
+  "receipt_relay_body": {
+    "provenance": "nexus b201a98 internal/ingress.inferReceiptSignBytes",
+    "domain": "TRUEOPEN_SUBMIT_INFER_RECEIPT_V1",
+    "session_id": "session-1",
+    "expected_digest_hex": "8cbcab3997a90d4add007ec050a7fa7547991350198c5dc8e0ea286abbb0eb15"
+  },
+  "storage_confirmation": {
+    "domain": "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1",
+    "chain_id": "trueopen-task-1",
+    "task_id": "task-1",
+    "data_kind": "OUTPUT",
+    "output_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size_bytes": 4096,
+    "builder_operator": "trueopen1builder",
+    "retention_until_height": 200,
+    "expected_signing_bytes_hex": "0000002553494e47415f4255494c4445525f53544f524147455f434f4e4649524d4154494f4e5f56310000000c73696e67612d7461736b2d31000000067461736b2d31000000064f5554505554000000406161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616100000000000000000000000800000000000010000000000d73696e6761316275696c6465720000000800000000000000c8",
+    "expected_digest_hex": "17e1ba0abfde778dc632b2b14a197da9b3af5236d517bc8a3f6e08dceb829e6d"
+  },
+  "node_frozen_receipt_golden": {
+    "provenance": "github.com/TrueOpen/wire v0.1.1 testdata/v1/task/task_domains_v1.json, vector infer_receipt_v1",
+    "schema_version": 1,
+    "chain_id": "trueopen-unblock-1",
+    "task_id": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+    "task_hash": "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+    "worker_operator_address": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+    "service_authorization_nonce": 7,
+    "generation_params_digest": "505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f",
+    "output_hash": "707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f",
+    "output_size_bytes": 4096,
+    "required_evidence_commitments": [
+      {
+        "evidence_kind": 1,
+        "evidence_hash_or_root": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+        "encoded_size_bytes": 4096
+      },
+      {
+        "evidence_kind": 3,
+        "evidence_hash_or_root": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "encoded_size_bytes": 8192
+      }
+    ],
+    "expiry_height": 1200,
+    "expected_digest_hex": "d600deaca603a3d06a15f0ad38eee24e32912f4295a8fb561832214f5d1ceb49",
+    "empty_evidence_commitments_digest_hex": "f029302b7f33dd77ad8e5217897a4e8386bf321dde9a510c1c6a287e408b9873"
+  }
+}

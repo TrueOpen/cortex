@@ -1,0 +1,65 @@
+mode: real
+chain_id: trueopen-devnet-1
+admin:
+  uds_path: /tmp/cortex-verifier.sock
+model_management:
+  transport: fake
+node:
+  rpc_endpoint: http://127.0.0.1:26657
+  rest_endpoint: http://127.0.0.1:1317
+keeper:
+  poll_interval_ms: 1000
+  max_lag_blocks: 20
+task_execution:
+  retry_delay_ms: 1000
+  # fake model transport: input comes from the shared local fixture root, not
+  # from Nexus. Real deployments use `nexus`.
+  input_resolver: fixture
+  fixture_root: /tmp/cortex-integration-fixtures
+nexus:
+  # Every node can be drawn as the Worker for a task, so both nodes in this
+  # pair subscribe to the open-task subjects for the models they support.
+  # Duty selection is retired; the two files differ only in local endpoints,
+  # store paths and operator identity.
+  subscribe_models: [llama-dev]
+  ingress_url: http://127.0.0.1:8080
+  nats_url: nats://127.0.0.1:4222
+  # Seed file of this node's NATS user key (ed25519 nkey, generated on first
+  # start). Real mode requires it for a remote NATS; nats_creds_file is
+  # retired and refused in real mode (ADR-0016 P5).
+  nats_user_key_file: /tmp/cortex-integration/verifier-nats-user.nk
+  auth_token_file: /tmp/cortex-integration/nexus.token
+  # JetStream stream Nexus publishes task frames to; devnet ships TRUEOPEN_TASK.
+  jetstream_stream: TRUEOPEN_TASK
+  # Integration shape stays strict like production. trusted_nats_dev is unsafe
+  # and rejected in real mode.
+  envelope_auth_mode: strict
+  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
+  # inbound one; must match the Nexus this node talks to.
+  envelope_ttl_ms: 30000
+  # Tolerated clock skew when judging inbound issued_at/expires_at.
+  envelope_clock_skew_ms: 2000
+tx:
+  enabled: true
+  max_fee_amount: 1000000
+  fee_denom: uusdc
+  max_attempts: 5
+  poll_attempts: 30
+  gas_limit: 250000
+artifacts:
+  root: /tmp/cortex-integration/verifier-evidence
+store:
+  path: /tmp/cortex-integration/verifier-store
+signer:
+  uri: http://127.0.0.1:9082
+local_identity:
+  operator_address: trueopen1verifieroperator
+  service_key_ref: verifier-service
+  supported_model_profiles: [llama-dev@1=llm_text_v1]
+  model_service_id: fake-model-service
+self_rescue:
+  enabled: false
+challenge_verifier:
+  enabled: false
+health:
+  bind: 127.0.0.1:8083

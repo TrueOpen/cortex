@@ -1,0 +1,109 @@
+{
+  "mutations": [
+    {
+      "change": "proof[0].final_inclusion_path = []",
+      "evidence_digest_hex": "81b47b8e15bf8207e1dc5735f9119fe6edd4f14d10da1ce80d518e23a94177df",
+      "expect": "reject_expected_path_length_1_actual_0",
+      "name": "path_missing"
+    },
+    {
+      "change": "append ee*32 to proof[0].final_inclusion_path",
+      "evidence_digest_hex": "b0e073490684fd264483b2406d86ce3fb1626087d71a1785c92e4158d9984709",
+      "expect": "reject_expected_path_length_1_actual_2",
+      "name": "path_extra_node"
+    },
+    {
+      "change": "replace proof[0].final_inclusion_path[0] with ee*32",
+      "evidence_digest_hex": "454fc5b28565839a9014ea33fb7e2e88d668ae6090da24872e57dd22ff5bcdc4",
+      "expect": "reject_final_root_mismatch",
+      "name": "path_wrong_node"
+    },
+    {
+      "change": "streamed_mmr_root = true prefix P01 and sign the resulting chunk digest",
+      "evidence_digest_hex": "7f59a70121a46c779008d524f78ebbfec17139c49a9e863941edf1f6da354831",
+      "expect": "reject_not_equivocation",
+      "name": "equal_prefix_root_validly_resigned"
+    },
+    {
+      "change": "flip the high bit of worker_signature[0]",
+      "evidence_digest_hex": "003fec3b5ee8dbeb7e9ba3f53be2b865dffc42a7a204bc724f4686b29beca51a",
+      "expect": "reject_chunk_signature",
+      "name": "signature_first_bit_flipped"
+    },
+    {
+      "case": "n=3,k=1,path=[leaf1,leaf2] changed to [leaf2,leaf1]",
+      "evidence_digest_hex": "35edd1c5bc393146b6e19237b62e975619d3e96669a412d761b0fc297aee6b48",
+      "expect": "reject_final_root_mismatch",
+      "name": "two_node_path_swapped"
+    },
+    {
+      "change": "root proof_count differs from REPEATED_V1 count",
+      "expect": "reject_before_hash",
+      "name": "proof_count_mismatch"
+    },
+    {
+      "change": "remove proof NESTED_V1 container",
+      "expect": "reject_encoding",
+      "name": "proof_flattened"
+    },
+    {
+      "change": "remove path REPEATED_V1 container",
+      "expect": "reject_encoding",
+      "name": "path_flattened"
+    },
+    {
+      "change": "encode seq as uint32 rather than uint64",
+      "expect": "reject_encoding",
+      "name": "seq_uint32"
+    }
+  ],
+  "notes": [
+    "This positive vector passes receipt, Worker signature and MMR inclusion checks before proving that the signed streamed prefix conflicts with the accepted final tree.",
+    "proof_count is present both as a root field and inside REPEATED_V1. Every proof and path retains its NESTED_V1 or REPEATED_V1 container.",
+    "All mutations are zero-write rejection cases. Their digest is included where the contract publishes it so an implementation can distinguish malformed proof material from an unchanged preimage."
+  ],
+  "positive": {
+    "accepted_infer_receipt_hash_hex": "3e3ba35e0267a39132f78d57d0e7ec20adf3d6a10f65936ac81b4036480cd2d0",
+    "accepted_output_hash_hex": "026e336cd2cd726a193e9bd478d8da4028c219bcb6363848202fba826b26537d",
+    "chain_id": "trueopen-golden-1",
+    "chunk_signing_digest_hex": "cae799ff354d50b77fd0895f7a83501023be18069bba17e7ac37d9d107df7a44",
+    "domain": "TRUEOPEN_OUTPUT_CHUNK_EQUIVOCATION_V1",
+    "evidence_digest_hex": "d93f96d85c8188f21f81d728711ab0412ba25f856150fedb8898ca5cf0dfe19a",
+    "expect": "objective_fault",
+    "framing": "H_FIELDS_V1",
+    "leaf_hashes_hex": [
+      "cd94ff7ecd94e1e9fbb5c601f1dd27e7af60bf3becc1819d6dc003e47f446cd8",
+      "8ed51137349f277e82c2baa74616de3a5bb0e018e11736cb1e7bebd2b70e28de",
+      "e0dcff50605462eb94a556e9f738a6f2ad1996dc47c408c7f7784555dbf2bd09"
+    ],
+    "name": "three_leaf_final_two_leaf_conflicting_prefix",
+    "output_leaf_count": 3,
+    "output_leaves_utf8": [
+      "a",
+      "bb",
+      "ccc"
+    ],
+    "prefix_leaf_count": 2,
+    "preimage_hex": "0000000000000025545255454f50454e5f4f55545055545f4348554e4b5f45515549564f434154494f4e5f56310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000203e3ba35e0267a39132f78d57d0e7ec20adf3d6a10f65936ac81b4036480cd2d00000000000000008000000000000000100000000000000200cd6202e90d2c5bf53fb046d52179c89846823e21d0f95d01dcfd722a50a7ff200000000000000401f84ebe71fe88461fee8847157e7adeda7f8d20dbc350dd551842d40626c5f316a8fdf419904e6cb016381660eb50f619bea6fef7f032ed5e8b0d219cba86ee40000000000000004000000010000000000000078000000000000000400000001000000000000006400000000000000200cd6202e90d2c5bf53fb046d52179c89846823e21d0f95d01dcfd722a50a7ff300000000000000340000000000000004000000010000000000000020e0dcff50605462eb94a556e9f738a6f2ad1996dc47c408c7f7784555dbf2bd09",
+    "preimage_size_bytes": 393,
+    "proof_count": 1,
+    "proofs": [
+      {
+        "final_inclusion_path_hex": [
+          "e0dcff50605462eb94a556e9f738a6f2ad1996dc47c408c7f7784555dbf2bd09"
+        ],
+        "peak_hash_hex": "0cd6202e90d2c5bf53fb046d52179c89846823e21d0f95d01dcfd722a50a7ff3"
+      }
+    ],
+    "seq": 1,
+    "service_authorization_nonce": 7,
+    "service_pubkey_compressed_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "streamed_mmr_root_hex": "0cd6202e90d2c5bf53fb046d52179c89846823e21d0f95d01dcfd722a50a7ff2",
+    "task_hash_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+    "task_id_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+    "true_prefix_peak_hex": "0cd6202e90d2c5bf53fb046d52179c89846823e21d0f95d01dcfd722a50a7ff3",
+    "worker_signature_raw64_hex": "1f84ebe71fe88461fee8847157e7adeda7f8d20dbc350dd551842d40626c5f316a8fdf419904e6cb016381660eb50f619bea6fef7f032ed5e8b0d219cba86ee4"
+  },
+  "schema": "trueopen.task.output_chunk_equivocation.v1",
+  "source": "§6.3"
+}

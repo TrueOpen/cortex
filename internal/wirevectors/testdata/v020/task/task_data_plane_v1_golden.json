@@ -1,0 +1,9 @@
+{
+  "schema_version": "trueopen-task-data-plane-golden-v1",
+  "task_id": {
+    "expected_hex": "0891a5c5704d4dff5671daab9b353f31c86f81ac53cf1b3c4ef5171322c19f50",
+    "order_sequence": "42",
+    "preimage_hex": "0000000000000013545255454f50454e5f5441534b5f49445f56310000000000000020abababababababababababababababababababababababababababababababab0000000000000008000000000000002a",
+    "session_id_raw_hex": "abababababababababababababababababababababababababababababababab"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "assignment": {
+    "challenge_id": "challenge-1",
+    "challenge_verifiers": ["trueopen1v4", "trueopen1v5", "trueopen1v6"],
+    "challenge_sample_seed": "1212121212121212121212121212121212121212121212121212121212121212",
+    "challenge_seed_height": "405",
+    "challenge_sample_seed_status": "READY",
+    "original_checkpoint_ref_hash": "1313131313131313131313131313131313131313131313131313131313131313",
+    "original_verifier_set_hash": "1414141414141414141414141414141414141414141414141414141414141414",
+    "excluded_verifier_set_hash": "1515151515151515151515151515151515151515151515151515151515151515",
+    "commit_deadline_height": "430",
+    "reveal_deadline_height": "440",
+    "param_version": "task-params-v7",
+    "challenge_verifier_count": "3",
+    "seed_retry_delay_blocks": "2",
+    "commit_window_blocks": "10",
+    "reveal_window_blocks": "10"
+  }
+}

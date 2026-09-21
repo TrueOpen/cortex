@@ -1,0 +1,74 @@
+{
+  "notes": [
+    "H_V1 preimage is ascii(\"TRUEOPEN_FRAME_V1\") || u32_be(len(domain)) || domain || u64_be(len(payload)) || payload, then SHA256.",
+    "payload_utf8 is the exact transmitted bytes, not a re-serialisation. Canonical JSON here means: no BOM, no whitespace, no trailing newline, object keys ascending by UTF-8 bytes, uint64 as a decimal string without leading zeros, and Hash32 as 64 lowercase hex.",
+    "payload_bytes is asserted against the length the contract states, so an accidental whitespace edit fails at fixture generation rather than in a consumer.",
+    "Each vector carries mutations[]: one per encodable leaf plus the semantic cases §10.1 names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here."
+  ],
+  "schema": "trueopen.task.canonical_json.v1",
+  "source": "Both payloads are published verbatim by the contract sections named in each vector. Authored here because no upstream node fixture covers either digest.",
+  "vectors": [
+    {
+      "contract_section": "§2, §2.1",
+      "digest_hex": "9b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d341",
+      "domain": "TRUEOPEN_EVIDENCE_BUNDLE_MANIFEST_V1",
+      "framing": "H_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the payload's last byte",
+          "digest_hex": "2821e9cc162298189b7e9a26d2f45c7c21f00ff02c1e30b89aed5eb4ec59595f",
+          "expect": "digest_changes",
+          "name": "payload.last_byte_flipped"
+        },
+        {
+          "change": "drop the payload's last byte, which also changes the framed length",
+          "digest_hex": "ec7816c884d0e8122a80385dd48247acc1cb8fd0d6833ac34e964faf9d2e6c9a",
+          "expect": "digest_changes",
+          "name": "payload.truncated_by_one"
+        },
+        {
+          "change": "flip the low bit of the payload's first byte",
+          "digest_hex": "891243abafad60afde48f9d7177e002a85aec1df15514cff7623d59f86e536d6",
+          "expect": "digest_changes",
+          "name": "payload.first_byte_flipped"
+        }
+      ],
+      "name": "evidence_bundle_manifest_v1",
+      "note": "The payload is the exact manifest bytes as transmitted. A relay must hash what it received and must never parse and re-serialise first. A Verifier manifest must carry exactly one artifact with artifact_id aggregate_proof.",
+      "payload_bytes": 556,
+      "payload_utf8": "{\"artifacts\":[{\"artifact_id\":\"aggregate_proof\",\"content_hash\":\"6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2\",\"size_bytes\":\"487\"}],\"chain_id\":\"trueopen-golden-1\",\"evidence_schema_hash\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"manifest_version\":1,\"producer_kind\":\"VERIFIER\",\"producer_operator\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\",\"task_hash\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"task_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"verify_round\":1}",
+      "producer": "EvidenceBundleHash"
+    },
+    {
+      "contract_section": "§5",
+      "digest_hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+      "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+      "framing": "H_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the payload's last byte",
+          "digest_hex": "b2f2631f7d41afbb1f15c0063b7a79ae6d9cdb6cbb6268cdbb94d7d22f1127d8",
+          "expect": "digest_changes",
+          "name": "payload.last_byte_flipped"
+        },
+        {
+          "change": "drop the payload's last byte, which also changes the framed length",
+          "digest_hex": "bdde367b53bfef59b2ab90366276801d38711200e599060bb18a59ec9b5c95c9",
+          "expect": "digest_changes",
+          "name": "payload.truncated_by_one"
+        },
+        {
+          "change": "flip the low bit of the payload's first byte",
+          "digest_hex": "87910bbbac8b5428e129d7cfce3f2f01ad9be7b88de1c4c43e9b945fe9d5f2ac",
+          "expect": "digest_changes",
+          "name": "payload.first_byte_flipped"
+        }
+      ],
+      "name": "task_generation_params_v1",
+      "note": "canonical_json_v1 of the effective GenerationParamsV1: object keys ascend by UTF-8 bytes, uint64 is a decimal string, and signed millis keep their sign. The digest is what TaskOrderV2 field 13 and the receipt both bind to.",
+      "payload_bytes": 446,
+      "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":125,\"presence_penalty_milli\":-250,\"repetition_penalty_ppm\":1050000,\"sampling_enabled\":true,\"seed\":8675309,\"stop_sequences\":[\"\u003c/s\u003e\",\"STOP\"],\"stop_token_ids\":[11,220],\"temperature_milli\":700,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"qwen3-8b-test\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+      "producer": "GenerationParamsDigest"
+    }
+  ]
+}

@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package cortex.v1;
+
+option go_package = "github.com/SingaXYZ/cortex/proto/cortex/v1;cortexv1";
+
+// ChatInferInput is the structured payload a User places inside
+// InferRequest.input (the `bytes input` field of model_management.proto). The
+// chat capability interprets those bytes as this message instead of as a raw
+// completion prompt string.
+//
+// It mirrors the official OpenAI Chat Completions request body FIELD-FOR-FIELD
+// and FLAT (verified against openai-python v1.107.3): field names match OpenAI
+// exactly, so an OpenAI-compatible client's request body is a valid
+// ChatInferInput as-is (protojson also accepts OpenAI's snake_case keys). No
+// vendor-only extension (top_k, min_p, repetition_penalty, min_tokens, ...) is
+// accepted.
+//
+// Fields are grouped by one question: does the field change what gets committed
+// and verified?
+//
+//   1. CONTENT / INTENT  -- messages, tools, tool_choice, response_format,
+//      parallel_tool_calls. What the model is asked to do. Free to set.
+//
+//   2. GENERATION PARAMS -- temperature, top_p, max_completion_tokens, seed,
+//      presence_penalty, frequency_penalty, stop. These change WHICH tokens are
+//      generated, but NOT whether verification reproduces them: the Verifier
+//      re-derives logprobs by teacher-forcing (prefill) over the exact token
+//      sequence the Worker already produced, and a prefill logprob is a
+//      deterministic function of (weights, prefix) -- independent of the
+//      temperature / seed that sampled those tokens. THIS EXACT SUBSET of
+//      top-level fields is what generation_params_digest binds
+//      (internal/taskfacts); it is a named subset by convention, not a nested
+//      message.
+//
+//   3. DELIVERY PREFERENCE -- stream. A transport hint only; streaming
+//      reassembles byte-for-byte into the same committed result.
+//
+// Parser behaviour on the remaining OpenAI fields:
+//   - REJECT (fail closed) if present -- they would desynchronise Worker and
+//     Verifier or break the single-sample model, and silently dropping them
+//     would answer a different request than the caller sent:
+//       logprobs, top_logprobs  -> the compared logprob COUNT is the profile's
+//                                  required_top_k / compared_top_k
+//       logit_bias              -> perturbs the distribution being compared
+//       n                       -> must be 1; multi-candidate breaks verification
+//   - IGNORE (accept and drop) everything else, so a real OpenAI body still
+//     parses: model (resolved from the chain model_id), stream_options, store,
+//     metadata, user, service_tier, reasoning_effort, modalities, audio,
+//     prediction, web_search_options, prompt_cache_key, safety_identifier, and
+//     the deprecated function_call / functions. (Implement as: raw-scan for the
+//     rejected keys, then protojson-unmarshal with DiscardUnknown for the rest.)
+//
+// Free-form JSON sub-structures (tool parameter schemas, tool-call arguments,
+// response-format schemas) are carried as JSON strings, matching OpenAI's own
+// wire shape (arguments is a stringified JSON) and keeping this schema free of
+// a well-known-types dependency; the request builder parses them into objects.
+message ChatInferInput {
+  // -- CONTENT / INTENT --------------------------------------------------
+
+  // messages is the conversation, oldest first. At least one is required.
+  repeated ChatMessage messages = 1;
+
+  // tools are the function tools the model may call. Empty disables tool use.
+  //
+  // Only OpenAI "function" tools are supported; OpenAI's newer "custom" tool
+  // type is not modelled. A task that both declares tools AND has the model emit
+  // a tool call ends with finish_reason "tool_calls"; the Worker maps that to an
+  // in-set FinishReasonV1 (EOS) because the frozen successful-termination enum
+  // has no tool_calls member and the Verifier recovers finish_reason by
+  // searching that closed set (internal/nodewire, modelservice/finish_reason.go).
+  repeated ToolDefinition tools = 2;
+
+  // tool_choice constrains whether/which tool the model calls. Omitted means
+  // the server default (auto when tools are present).
+  ToolChoice tool_choice = 3;
+
+  // parallel_tool_calls allows more than one tool call in a single turn.
+  // Absent means the server default.
+  optional bool parallel_tool_calls = 4;
+
+  // response_format optionally constrains the output shape (text / json_object
+  // / json_schema).
+  ResponseFormat response_format = 5;
+
+  // -- GENERATION PARAMS (the generation_params_digest subset) -----------
+  // Every field is an OpenAI sampling parameter; absent takes the profile
+  // default. temperature: 0 is greedy, and present-and-zero differs from absent,
+  // hence optional throughout.
+
+  optional double temperature = 6;
+  optional double top_p = 7;
+  // max_completion_tokens is OpenAI's current generation cap. The parser also
+  // accepts the deprecated OpenAI `max_tokens` key and maps it here.
+  optional int32 max_completion_tokens = 8;
+  // seed is a full signed int64 (OpenAI seed is a signed integer), NOT unsigned.
+  optional int64 seed = 9;
+  optional double presence_penalty = 10;
+  optional double frequency_penalty = 11;
+  // stop are stop sequences (OpenAI allows up to 4). NOTE: supplying these makes
+  // the completion finish_reason "stop" ambiguous between EOS and a stop hit,
+  // which the local path currently treats as unambiguous EOS (see
+  // finish_reason.go's ambiguousStop). Leave empty until that ambiguity is
+  // handled.
+  repeated string stop = 12;
+
+  // -- DELIVERY PREFERENCE -----------------------------------------------
+
+  // stream requests incremental delivery of the output to the User. It is a
+  // delivery preference only and never alters the committed output, trace,
+  // token ids or logprobs.
+  bool stream = 13;
+}
+
+// ChatMessage is one turn. `role` is "system" | "developer" | "user" |
+// "assistant" | "tool".
+message ChatMessage {
+  string role = 1;
+
+  // content is the plain-text content of the turn. It may be empty for an
+  // assistant turn that only carried tool_calls.
+  string content = 2;
+
+  // content_parts is the multimodal form of content (text/image parts). When
+  // present it supersedes content. Forward-looking; a text-only first cut may
+  // leave it empty.
+  repeated ChatContentPart content_parts = 3;
+
+  // name optionally distinguishes participants sharing a role.
+  string name = 4;
+
+  // tool_calls records, on an assistant turn, the tool calls the model made.
+  // Carried in the input only to replay multi-turn history.
+  repeated ToolCall tool_calls = 5;
+
+  // tool_call_id, on a "tool" turn, names the tool call this message answers.
+  string tool_call_id = 6;
+}
+
+// ChatContentPart is one element of an OpenAI multimodal content array.
+message ChatContentPart {
+  // type is "text" | "image_url" | ... .
+  string type = 1;
+  // text is set when type == "text".
+  string text = 2;
+  // image_url is set when type == "image_url"; it is the bare URL. OpenAI's wire
+  // shape nests it as {"image_url": {"url": ..., "detail": ...}}, so the request
+  // builder wraps this value into that object. detail carries the optional
+  // OpenAI detail hint ("auto" | "low" | "high"); empty means unset.
+  string image_url = 3;
+  string detail = 4;
+}
+
+// ToolDefinition declares one callable tool. type is "function"
+// (OpenAI ChatCompletionFunctionToolParam).
+message ToolDefinition {
+  string type = 1;
+  FunctionDefinition function = 2;
+}
+
+// FunctionDefinition is a callable function's signature
+// (OpenAI shared_params.FunctionDefinition).
+message FunctionDefinition {
+  string name = 1;
+  string description = 2;
+  // parameters is the argument JSON Schema OBJECT, carried as a JSON string;
+  // the builder parses it back into an object for the outgoing request.
+  string parameters = 3;
+  // strict requests strict schema adherence when the backend supports it.
+  bool strict = 4;
+}
+
+// ToolCall is a model-issued call, replayed from assistant history
+// (OpenAI ChatCompletionMessageFunctionToolCallParam).
+message ToolCall {
+  string id = 1;
+  // type is "function".
+  string type = 2;
+  FunctionCall function = 3;
+}
+
+// FunctionCall names the function and its arguments. arguments is a
+// JSON-encoded string, matching OpenAI's wire shape.
+message FunctionCall {
+  string name = 1;
+  string arguments = 2;
+}
+
+// ToolChoice selects the tool-calling policy
+// (OpenAI ChatCompletionToolChoiceOptionParam).
+message ToolChoice {
+  // mode is "none" | "auto" | "required". Empty means the server default.
+  string mode = 1;
+  // function_name pins a specific function (OpenAI's named form
+  // {type:"function", function:{name}}). When set, mode is ignored.
+  string function_name = 2;
+}
+
+// ResponseFormat constrains the output shape (OpenAI response_format union).
+message ResponseFormat {
+  // type is "text" | "json_object" | "json_schema".
+  string type = 1;
+  // json_schema, when type == "json_schema", is a JSON string carrying OpenAI's
+  // ResponseFormatJSONSchema.json_schema OBJECT -- {"name","description",
+  // "schema","strict"} -- not the bare JSON Schema. The builder passes it
+  // through as response_format.json_schema.
+  string json_schema = 2;
+}

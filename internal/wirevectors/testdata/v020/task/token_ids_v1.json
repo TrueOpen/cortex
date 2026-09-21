@@ -1,0 +1,53 @@
+{
+  "notes": [
+    "token_ids_raw is one H_FIELDS_V1 field: uint32_be(count) followed by the uint32_be token IDs in their original order. The count occurs exactly once.",
+    "The vector is not sorted or deduplicated. Framing individual IDs, wrapping them in REPEATED_V1, omitting the raw count, or adding a second root-level count is invalid."
+  ],
+  "rejected_encodings": [
+    "token IDs sorted or deduplicated before hashing",
+    "each token ID promoted to an H_FIELDS_V1 field",
+    "token vector encoded as REPEATED_V1",
+    "token_ids_raw without its leading uint32_be(count)",
+    "a root-level count in addition to the count inside token_ids_raw",
+    "count greater than 8388607"
+  ],
+  "schema": "trueopen.task.token_ids.v1",
+  "source": "§7 and §7.0",
+  "vectors": [
+    {
+      "contract_section": "§7 and §7.0",
+      "digest_hex": "5ab982d47fc3c3b0a07e401f1c040c7fe2ef79ae93d0e44c50afe7d07a3ae901",
+      "domain": "TRUEOPEN_INPUT_TOKEN_IDS_V1",
+      "framing": "H_FIELDS_V1",
+      "name": "input_token_ids_v1",
+      "preimage_hex": "000000000000001b545255454f50454e5f494e5055545f544f4b454e5f4944535f5631000000000000000c000000020000000100000100",
+      "preimage_size_bytes": 55,
+      "producer": "InputTokenIDsHashV1",
+      "token_count": 2,
+      "token_ids": [
+        1,
+        256
+      ],
+      "token_ids_raw_hex": "000000020000000100000100",
+      "token_ids_raw_size_bytes": 12
+    },
+    {
+      "contract_section": "§7 and §7.0",
+      "digest_hex": "057a76f605b3ba2fa26a92e379b5f0f802d97e379d4efc3a34e287f8e9e05efd",
+      "domain": "TRUEOPEN_GENERATED_TOKEN_IDS_V1",
+      "framing": "H_FIELDS_V1",
+      "name": "generated_token_ids_v1",
+      "preimage_hex": "000000000000001f545255454f50454e5f47454e4552415445445f544f4b454e5f4944535f563100000000000000100000000300000002000001010000ffff",
+      "preimage_size_bytes": 63,
+      "producer": "GeneratedTokenIDsHashV1",
+      "token_count": 3,
+      "token_ids": [
+        2,
+        257,
+        65535
+      ],
+      "token_ids_raw_hex": "0000000300000002000001010000ffff",
+      "token_ids_raw_size_bytes": 16
+    }
+  ]
+}

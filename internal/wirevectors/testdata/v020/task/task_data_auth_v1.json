@@ -1,0 +1,756 @@
+{
+  "notes": [
+    "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage).",
+    "canonical TaskDataObjectRefV1 is the required nested eight-field frame task_hash, session_id, task_id, object_kind, content_hash, evidence_producer_kind, verify_round, optional producer_operator. Nexus transport carries Hash32 as lowercase hex, but the preimage always takes raw32.",
+    "A non-evidence object pins evidence_producer_kind UNSPECIFIED, verify_round 0 and an absent producer_operator; the metadata and fetch vectors below exercise exactly that.",
+    "A whole-object read signs range absent, which is the single byte 0x00, and must not be rewritten as a present range with zero offset and length. The fetch vector here carries a present range so both encodings are pinned.",
+    "The two finalize signature digests are SHA256 over the raw 64-byte service signature, never over its hex text, so another signature cannot be substituted into an already authenticated body.",
+    "task_data_request_v1_cortex_service embeds the digest of task_data_upload_body_v1 as its body_digest; the two are one chain and must be regenerated together. Only CORTEX_SERVICE uses this domain. The USER path signs the same ten values as EIP-712 v4 typed data under the TrueOpen Task Data Request domain and produces a keccak digest, so it is not an H_FIELDS_V1 vector and is not listed here.",
+    "Each vector carries mutations[]: one per encodable leaf plus the semantic cases §10.1 names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here."
+  ],
+  "schema": "trueopen.task.data_auth.v1",
+  "source": "§4.2.1 publishes these vectors byte for byte. Authored in this repository because the Task data plane auth contract has no upstream node fixture: it authenticates Nexus Ingress requests and never enters chain state.",
+  "vectors": [
+    {
+      "contract_section": "§4.2.1",
+      "digest_hex": "34dbf62abb8ccc24737908fe9219be53972942337a71f1a9e1a311ab7ddda32a",
+      "domain": "TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 3
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_VERIFIER",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 2
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "value",
+                  "type": "address"
+                }
+              ],
+              "name": "producer_operator",
+              "present": true,
+              "type": "optional"
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        },
+        {
+          "name": "size_bytes",
+          "type": "uint64",
+          "value": 556
+        },
+        {
+          "name": "media_type",
+          "type": "string",
+          "utf8": "application/json"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "4352d1179031f028f47a6276f9f490c58c2867ccd14168f892405a9cfe42138b",
+          "expect": "digest_changes",
+          "field_path": "object_ref/task_hash",
+          "name": "field.object_ref.task_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "8872605caf3ba6c8374f3c0e47941e751c97385ec18420d66c273f22c60c5088",
+          "expect": "digest_changes",
+          "field_path": "object_ref/session_id",
+          "name": "field.object_ref.session_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "1b59d9229626f60936f1670d4bf2989171f7699144ad7e291b466a9402662735",
+          "expect": "digest_changes",
+          "field_path": "object_ref/task_id",
+          "name": "field.object_ref.task_id"
+        },
+        {
+          "change": "3 -\u003e 4",
+          "digest_hex": "098ef8026373a8ffbb4d551f24f9e8e8aba978f6670173433547cfb84243df55",
+          "expect": "digest_changes",
+          "field_path": "object_ref/object_kind",
+          "name": "field.object_ref.object_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "ad7311c9ad8e7827bb737d6096e8330ca01de9ee433aa7b45705a6e18e718d8a",
+          "expect": "digest_changes",
+          "field_path": "object_ref/content_hash",
+          "name": "field.object_ref.content_hash"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "2424783afd048fff82ab8e046a31d47cacca0d5ab29f3e95e757b60ab5c88b05",
+          "expect": "digest_changes",
+          "field_path": "object_ref/evidence_producer_kind",
+          "name": "field.object_ref.evidence_producer_kind"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "8da7002b45880d69a48defed8eaaf997585dbf37744e30dce5838a3d8f860004",
+          "expect": "digest_changes",
+          "field_path": "object_ref/verify_round",
+          "name": "field.object_ref.verify_round"
+        },
+        {
+          "change": "present -\u003e absent",
+          "digest_hex": "256607d76b3301a7fa35b6b15d6bc75173af47e83fcedc8296511440411c3569",
+          "expect": "digest_changes",
+          "field_path": "object_ref/producer_operator",
+          "name": "field.object_ref.producer_operator"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "e61db8eaf0479650e9f00f5dfd80d8a284a13634cc8d233c7c4c5878b544b50d",
+          "expect": "digest_changes",
+          "field_path": "object_ref/producer_operator/value",
+          "name": "field.object_ref.producer_operator.value"
+        },
+        {
+          "change": "556 -\u003e 557",
+          "digest_hex": "d0e26aec4c9c80fa59b8fd730de24bd5ffb9e2b7328d6f56b9ec3872225619aa",
+          "expect": "digest_changes",
+          "field_path": "size_bytes",
+          "name": "field.size_bytes"
+        },
+        {
+          "change": "utf8 'application/json' -\u003e 'application/jso0'",
+          "digest_hex": "d1bda99369d8960c25019f66e51a29fa4bd64c0f24923bd67f079503687d1470",
+          "expect": "digest_changes",
+          "field_path": "media_type",
+          "name": "field.media_type"
+        }
+      ],
+      "name": "task_data_upload_body_v1",
+      "preimage_hex": "0000000000000021545255454f50454e5f5441534b5f444154415f55504c4f41445f424f44595f563100000000000000e900000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000002000000000000000400000002000000000000001d010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d30000000000000008000000000000022c00000000000000106170706c69636174696f6e2f6a736f6e",
+      "producer": "TaskDataUploadBodyDigest"
+    },
+    {
+      "contract_section": "§4.2.1",
+      "digest_hex": "bfc6626ea56873baea625da90a14fb23f27528ef2500c040f7d1bf71473474f7",
+      "domain": "TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1",
+      "fields": [
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "infer_receipt_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5656565656565656565656565656565656565656565656565656565656565656",
+          "name": "infer_receipt_signature_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "6bbdb1ba32990f2742d4c155a8753696ac4169acad5f2d355856c384fcfde6c8",
+          "expect": "digest_changes",
+          "field_path": "task_hash",
+          "name": "field.task_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "a96d44bdbde9e1911b0e606c027fa16d83f5a3e1d92251fff149dd409d2d9408",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "947e7a6c16749d8188b084d81ca6dc2a23c1c99f28916e36cc0c9f5a43c402d9",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "649d59f32664f1ee10a96ba3b4cae6a1d22c0761bf972aba534a4db3cf662686",
+          "expect": "digest_changes",
+          "field_path": "infer_receipt_hash",
+          "name": "field.infer_receipt_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "9e44c20e221247f3a757948375818363dfdaf0f8844651aa9ef0b25925829d42",
+          "expect": "digest_changes",
+          "field_path": "infer_receipt_signature_digest",
+          "name": "field.infer_receipt_signature_digest"
+        }
+      ],
+      "name": "task_data_finalize_result_body_v1",
+      "preimage_hex": "000000000000002a545255454f50454e5f5441534b5f444154415f46494e414c495a455f524553554c545f424f44595f56310000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000205656565656565656565656565656565656565656565656565656565656565656",
+      "producer": "TaskDataFinalizeResultBodyDigest"
+    },
+    {
+      "contract_section": "§4.2.1",
+      "digest_hex": "fed02d8d12c406b16a13a58c35c146cd3a5f5ccaf9ada0cf5aac0263d521c913",
+      "domain": "TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1",
+      "fields": [
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+          "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "verifier_operator",
+          "type": "address"
+        },
+        {
+          "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+          "name": "result_receipt_signing_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "6767676767676767676767676767676767676767676767676767676767676767",
+          "name": "result_receipt_signature_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "051fa33e7a0bdf4555e6cd9ac5b4088e311748faf345cce6df884f4286ba6d86",
+          "expect": "digest_changes",
+          "field_path": "task_hash",
+          "name": "field.task_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "005557030a962e222afd2b0a18ad73841c6f1d7fadc49190a91fe5be9b7b1edf",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "e061a50f4ece13a64b25d59dbe77c5f8c58db0bcb6e4bc7d7c230ac191698a2c",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "69c94dc78de1ba13a6cb8b90dc296e83da9ad51e8c8bdae45ce6f5def9803c86",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "4c5125a8e3803e291c5caa5adf3ccc122aaddb72e55afc419335eed955387d4c",
+          "expect": "digest_changes",
+          "field_path": "verifier_operator",
+          "name": "field.verifier_operator"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "99067d07dfd85555ff46546038844fdacb728f6d079ef93e4ddcdcad9b80f575",
+          "expect": "digest_changes",
+          "field_path": "result_receipt_signing_digest",
+          "name": "field.result_receipt_signing_digest"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "51e57478370e32a2a01a22525543bdca7c374016427ee734da150bea098cbe54",
+          "expect": "digest_changes",
+          "field_path": "result_receipt_signature_digest",
+          "name": "field.result_receipt_signature_digest"
+        }
+      ],
+      "name": "task_data_finalize_verifier_body_v1",
+      "preimage_hex": "000000000000002c545255454f50454e5f5441534b5f444154415f46494e414c495a455f56455249464945525f424f44595f56310000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000004000000020000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d30000000000000020666666666666666666666666666666666666666666666666666666666666666600000000000000206767676767676767676767676767676767676767676767676767676767676767",
+      "producer": "TaskDataFinalizeVerifierBodyDigest"
+    },
+    {
+      "contract_section": "§4.2.1",
+      "digest_hex": "6c228b37b0baa5bb0d92ca80579bf347bd3920ddc34e32f6add864cf8fc17f18",
+      "domain": "TRUEOPEN_TASK_DATA_METADATA_BODY_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_OUTPUT",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 2
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 0
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "producer_operator",
+              "present": false,
+              "type": "optional"
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "fa0921fd5c5ef21d2a20a3f485afc0ec3040dd4a8e20c7897307202e5e88a175",
+          "expect": "digest_changes",
+          "field_path": "object_ref/task_hash",
+          "name": "field.object_ref.task_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "f2b34ee018111b76db1e44bbf3797bf34af9a7b717f2f94d79849cba5313e54e",
+          "expect": "digest_changes",
+          "field_path": "object_ref/session_id",
+          "name": "field.object_ref.session_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "0531631956b4d462414251d263234741279f4788aee0b8c7dbb180765be8ea03",
+          "expect": "digest_changes",
+          "field_path": "object_ref/task_id",
+          "name": "field.object_ref.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "3a3df062a480207a746b9bed862899c677c097ce2b1638e684c45cffe8115084",
+          "expect": "digest_changes",
+          "field_path": "object_ref/object_kind",
+          "name": "field.object_ref.object_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "1854e99e0fa9c56eda8bf112f7b0a29a6f44bf24db8bf1e067f2757e81c5eae2",
+          "expect": "digest_changes",
+          "field_path": "object_ref/content_hash",
+          "name": "field.object_ref.content_hash"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "7c91983854a86c39d83db0a0f52624b252a9040866a9d0300c058ce9b4eb2f8b",
+          "expect": "digest_changes",
+          "field_path": "object_ref/evidence_producer_kind",
+          "name": "field.object_ref.evidence_producer_kind"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "54a77912dd5236b98272e309a23390e780a59004a8f051d17d8f083752f0e8da",
+          "expect": "digest_changes",
+          "field_path": "object_ref/verify_round",
+          "name": "field.object_ref.verify_round"
+        },
+        {
+          "change": "absent -\u003e present",
+          "digest_hex": "0084a97a5f598f17ffe563c7050f15fbed4ab481f6cf8eabf1199c85ca36cdc0",
+          "expect": "digest_changes",
+          "field_path": "object_ref/producer_operator",
+          "name": "field.object_ref.producer_operator"
+        }
+      ],
+      "name": "task_data_metadata_body_v1",
+      "preimage_hex": "0000000000000023545255454f50454e5f5441534b5f444154415f4d455441444154415f424f44595f563100000000000000cd00000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000000000000000000000400000000000000000000000100",
+      "producer": "TaskDataMetadataBodyDigest"
+    },
+    {
+      "contract_section": "§4.2.1",
+      "digest_hex": "f079d3b5e89705f4b65ca30e3d982aa2a62a1fee2aed291b28f088ca386fc964",
+      "domain": "TRUEOPEN_TASK_DATA_FETCH_BODY_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_OUTPUT",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 2
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 0
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "producer_operator",
+              "present": false,
+              "type": "optional"
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "fields": [
+                {
+                  "name": "offset",
+                  "type": "uint64",
+                  "value": 64
+                },
+                {
+                  "name": "length",
+                  "type": "uint64",
+                  "value": 128
+                }
+              ],
+              "name": "value",
+              "type": "frame"
+            }
+          ],
+          "name": "range",
+          "present": true,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "63c92175245c8fc55e3e98405407e2f2fc71e7446e8b945fa4308735b3009b53",
+          "expect": "digest_changes",
+          "field_path": "object_ref/task_hash",
+          "name": "field.object_ref.task_hash"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "87bfd293bf76dbeec07857e45a6d2399b138ec39171c71fd62e29e99878e3078",
+          "expect": "digest_changes",
+          "field_path": "object_ref/session_id",
+          "name": "field.object_ref.session_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "b62e9b462e6ed7a07cb92f7c2527b8194e0be4aa9d4dfc69fc6b1dc14c6645fc",
+          "expect": "digest_changes",
+          "field_path": "object_ref/task_id",
+          "name": "field.object_ref.task_id"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "508310be5f1d76e46ba65f4e1244130f75065fb5c7756e8810f772db5e822165",
+          "expect": "digest_changes",
+          "field_path": "object_ref/object_kind",
+          "name": "field.object_ref.object_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "12aa4b1c70dd56befe0888db7f6e4bb4147a7af5ff19ba73d7bee1e4ee579aab",
+          "expect": "digest_changes",
+          "field_path": "object_ref/content_hash",
+          "name": "field.object_ref.content_hash"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "e0d9588798e2ece77571e286a45f3d962f7fd0b23a3f7ec238ccd132c43ced7e",
+          "expect": "digest_changes",
+          "field_path": "object_ref/evidence_producer_kind",
+          "name": "field.object_ref.evidence_producer_kind"
+        },
+        {
+          "change": "0 -\u003e 1",
+          "digest_hex": "f1956bf29283b487d4a627e22eb27a80e3dfc465bd7313a4d4187eaef8c21a1e",
+          "expect": "digest_changes",
+          "field_path": "object_ref/verify_round",
+          "name": "field.object_ref.verify_round"
+        },
+        {
+          "change": "absent -\u003e present",
+          "digest_hex": "7ec605253c6f4407aed31e6ae6aa71fac069fd00dd3c31ecf594363c434c389f",
+          "expect": "digest_changes",
+          "field_path": "object_ref/producer_operator",
+          "name": "field.object_ref.producer_operator"
+        },
+        {
+          "change": "present -\u003e absent",
+          "digest_hex": "cefc0af8f023c4a6f240aa5eb4d0e08b288b981f237cbe4667490f662cf2ee06",
+          "expect": "digest_changes",
+          "field_path": "range",
+          "name": "field.range"
+        },
+        {
+          "change": "64 -\u003e 65",
+          "digest_hex": "b4ea6a84027ca1c0e1d502c5ee62e669aa7e1afc3f54416c6f96376729eca955",
+          "expect": "digest_changes",
+          "field_path": "range/value/offset",
+          "name": "field.range.value.offset"
+        },
+        {
+          "change": "128 -\u003e 129",
+          "digest_hex": "fe067183338eb891b3565158900c4246c64ca96dd9d5b2110e5b128feb0a38ca",
+          "expect": "digest_changes",
+          "field_path": "range/value/length",
+          "name": "field.range.value.length"
+        }
+      ],
+      "name": "task_data_fetch_body_v1",
+      "preimage_hex": "0000000000000020545255454f50454e5f5441534b5f444154415f46455443485f424f44595f563100000000000000cd0000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000004000000020000000000000020444444444444444444444444444444444444444444444444444444444444444400000000000000040000000000000000000000040000000000000000000000010000000000000000290100000000000000200000000000000008000000000000004000000000000000080000000000000080",
+      "producer": "TaskDataFetchBodyDigest"
+    },
+    {
+      "contract_section": "§4.2.1",
+      "digest_hex": "66b140f48e8b49c1c69eb8213334eb42db05db91630e7a496f64640ba70b94dc",
+      "domain": "TRUEOPEN_TASK_DATA_REQUEST_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "bech32": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+          "hex": "77d7bb07580b39fb949df09f7bb9f80a1d0641b8",
+          "name": "builder_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/nexus.v1.IngressAPI/UploadTaskResultObject"
+        },
+        {
+          "hex": "34dbf62abb8ccc24737908fe9219be53972942337a71f1a9e1a311ab7ddda32a",
+          "name": "body_digest",
+          "type": "bytes"
+        },
+        {
+          "enum": "TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE",
+          "name": "requester_kind",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+          "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "requester_address",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+          "name": "request_nonce",
+          "type": "bytes"
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "1 -\u003e 2",
+          "digest_hex": "3509f1dfaf6a40685c1487dad4ece6429f748809e665c7c592ffd988bdd30907",
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "utf8 'trueopen-golden-1' -\u003e 'trueopen-golden-0'",
+          "digest_hex": "2606afba95c3b80dfac762e84372c0e190c29fa7d9d972dbd96f2f2d4337b368",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "91b354e89dde5cada046775a4a039869f85ffc9ade6ef6173495cb09313ab47e",
+          "expect": "digest_changes",
+          "field_path": "builder_operator_address",
+          "name": "field.builder_operator_address"
+        },
+        {
+          "change": "utf8 '/nexus.v1.IngressAPI/UploadTaskResultObject' -\u003e '/nexus.v1.IngressAPI/UploadTaskResultObjec0'",
+          "digest_hex": "619378f1b5dd7a80ade39f3e4eb399ee6a8ed440f528bdd6cd7607bc8cdd9a7c",
+          "expect": "digest_changes",
+          "field_path": "rpc_method",
+          "name": "field.rpc_method"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "2acf71aa4bdc4520dfdd2a7e55717f2e8fb1fc1f8079650c8204ccc3e4e38a90",
+          "expect": "digest_changes",
+          "field_path": "body_digest",
+          "name": "field.body_digest"
+        },
+        {
+          "change": "2 -\u003e 3",
+          "digest_hex": "fae26a9f06191f5738eeb4d8db1aa2c437117cc237282dc5932966edfd498058",
+          "expect": "digest_changes",
+          "field_path": "requester_kind",
+          "name": "field.requester_kind"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "e41dcec345fcae936ab5cdd4a1dc211fccbd9287b88bc22d2b691585afbeda29",
+          "expect": "digest_changes",
+          "field_path": "requester_address",
+          "name": "field.requester_address"
+        },
+        {
+          "change": "7 -\u003e 8",
+          "digest_hex": "2bf3a781d3477a3c8d98f2a6d6b1297b18d5dc8ef67a38c78cf93ae54d76518c",
+          "expect": "digest_changes",
+          "field_path": "service_authorization_nonce",
+          "name": "field.service_authorization_nonce"
+        },
+        {
+          "change": "flip the low bit of the last byte",
+          "digest_hex": "d688746118a58808bf840b26fdd8b376a0fbb9f26168fc5727b54dffe9aa1be6",
+          "expect": "digest_changes",
+          "field_path": "request_nonce",
+          "name": "field.request_nonce"
+        },
+        {
+          "change": "2000 -\u003e 2001",
+          "digest_hex": "5e42dfbdede90819b69beae1539274915a6291afbd2f348cebcffa3f8bf52737",
+          "expect": "digest_changes",
+          "field_path": "expiry_height",
+          "name": "field.expiry_height"
+        }
+      ],
+      "name": "task_data_request_v1_cortex_service",
+      "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f444154415f524551554553545f56310000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b8000000000000002b2f6e657875732e76312e496e67726573734150492f55706c6f61645461736b526573756c744f626a656374000000000000002034dbf62abb8ccc24737908fe9219be53972942337a71f1a9e1a311ab7ddda32a0000000000000004000000020000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000800000000000000070000000000000020a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf000000000000000800000000000007d0",
+      "producer": "CortexTaskDataRequestDigest"
+    }
+  ]
+}

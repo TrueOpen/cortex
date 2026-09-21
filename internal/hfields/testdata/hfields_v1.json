@@ -1,0 +1,238 @@
+{
+  "schema": "cortex.hfields.v1",
+  "node_source_commit": "3fe65982fd40462b4053d8e6757de3ec552e36be",
+  "node_sources": [
+    "x/shared/types/canonical.go:60-70 (typed scalar encoders Uint32BE/Uint64BE/BoolByte/EnumBE)",
+    "x/shared/types/canonical.go:80-95 (CanonicalFrameBytes, the shared H_FIELDS_V1 framing primitive)",
+    "x/shared/types/canonical.go:136-145 (CanonicalHashBytes: SHA256 over domain-prefixed frame)",
+    "x/hub/types/testdata/hub_domains_v1.json:5-6 (frozen preimage layout and per-type field encoding, §1.2)",
+    "x/hub/types/testdata/hub_domains_v1.json:7 (KNOWN ENCODING DRIFT for operator addresses)",
+    "x/hub/types/hub_domains_fixture_test.go:101-106,128-131 (nested frame carries no domain prefix)"
+  ],
+  "notes": [
+    "preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA-256(preimage).",
+    "Field encoding: string = strict UTF-8 bytes; bytes = raw; hash = raw 32 bytes; uint32/uint64 = 4/8-byte big endian; bool = 0x00/0x01; enum = uint32 big endian; frame = nested field frame with no domain prefix.",
+    "The CORTEX_HFIELDS_* domains are synthetic primitive-coverage domains. They are not contract domains and nothing signs them.",
+    "The node_parity vectors are copied verbatim from x/hub/types/testdata/hub_domains_v1.json at the commit above. Their domains are Hub staking domains that Cortex never signs; they are present only so the framing primitive is proven byte-for-byte against the frozen contract. Do not reuse them as Cortex signing domains.",
+    "No vector encodes an operator address or any Cortex message field vector. This package exposes no address field constructor because it is the framing primitive and carries no Bech32 decoder: callers resolve the address codec bytes themselves (internal/nodewire/address.go CanonicalOperatorAddressBytes) and pass them as hfields.Bytes. Concrete Cortex message field vectors live with the package that owns their field order - internal/nodewire/testdata/task_domains_v1.json and result_receipt_v1.json."
+  ],
+  "vectors": [
+    {
+      "name": "primitive_all_field_types",
+      "kind": "synthetic",
+      "domain": "CORTEX_HFIELDS_PRIMITIVE_V1",
+      "fields": [
+        {
+          "name": "string_field",
+          "type": "string",
+          "utf8": "cortex"
+        },
+        {
+          "name": "bytes_field",
+          "type": "bytes",
+          "hex": "00ff10"
+        },
+        {
+          "name": "hash_field",
+          "type": "hash",
+          "hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        },
+        {
+          "name": "uint32_field",
+          "type": "uint32",
+          "value": 66051
+        },
+        {
+          "name": "uint64_field",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "bool_true_field",
+          "type": "bool",
+          "bool": true
+        },
+        {
+          "name": "bool_false_field",
+          "type": "bool",
+          "bool": false
+        },
+        {
+          "name": "enum_field",
+          "type": "enum",
+          "value": 7
+        },
+        {
+          "name": "nested_frame_field",
+          "type": "frame",
+          "fields": [
+            {
+              "name": "inner_string",
+              "type": "string",
+              "utf8": "a"
+            },
+            {
+              "name": "inner_uint32",
+              "type": "uint32",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "name": "empty_string_field",
+          "type": "string",
+          "utf8": ""
+        },
+        {
+          "name": "empty_frame_field",
+          "type": "frame",
+          "fields": []
+        }
+      ],
+      "preimage_hex": "000000000000001b434f525445585f484649454c44535f5052494d49544956455f56310000000000000006636f72746578000000000000000300ff100000000000000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000000000000040001020300000000000000080000000000000001000000000000000101000000000000000100000000000000000400000007000000000000001500000000000000016100000000000000040000000200000000000000000000000000000000",
+      "digest_hex": "be7eb544c18172279b587a4e8707dca2602889ff1a14e03968941cb439b0d483"
+    },
+    {
+      "name": "primitive_no_fields",
+      "kind": "synthetic",
+      "domain": "CORTEX_HFIELDS_NO_FIELDS_V1",
+      "fields": [],
+      "preimage_hex": "000000000000001b434f525445585f484649454c44535f4e4f5f4649454c44535f5631",
+      "digest_hex": "c6d43a3918a8c7af42fa73ca5c49ce6955042589db88b4feae06c8bcfed2a541"
+    },
+    {
+      "name": "primitive_one_empty_field",
+      "kind": "synthetic",
+      "domain": "CORTEX_HFIELDS_NO_FIELDS_V1",
+      "fields": [
+        {
+          "name": "absent_optional",
+          "type": "bytes",
+          "hex": ""
+        }
+      ],
+      "preimage_hex": "000000000000001b434f525445585f484649454c44535f4e4f5f4649454c44535f56310000000000000000",
+      "digest_hex": "8f91c18240490fa2d0d00e0f1cd4095039fc7b8224166370e180ca40b1f70b51"
+    },
+    {
+      "name": "node_parity_model_support_declaration_v1",
+      "kind": "node_parity",
+      "domain": "TRUEOPEN_MODEL_SUPPORT_DECLARATION_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-goal1-1"
+        },
+        {
+          "name": "operator_address",
+          "type": "bytes",
+          "hex": "a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4"
+        },
+        {
+          "name": "model_id",
+          "type": "string",
+          "utf8": "model-goal1-fixture"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "inference_capability",
+          "type": "bool",
+          "bool": true
+        },
+        {
+          "name": "verification_capability",
+          "type": "bool",
+          "bool": false
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        }
+      ],
+      "preimage_hex": "0000000000000025545255454f50454e5f4d4f44454c5f535550504f52545f4445434c41524154494f4e5f56310000000000000010747275656f70656e2d676f616c312d310000000000000014a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b400000000000000136d6f64656c2d676f616c312d6669787475726500000000000000040000000100000000000000010100000000000000010000000000000000080000000000000007000000000000000800000000000007d0",
+      "digest_hex": "5f2962350f8128150e48c9f387b3f1e7ac6c5938cdb8f5b0a89fc7e0cc60b973"
+    },
+    {
+      "name": "node_parity_daily_support_confirmation_v1",
+      "kind": "node_parity",
+      "domain": "TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-goal1-1"
+        },
+        {
+          "name": "operator_address",
+          "type": "bytes",
+          "hex": "a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4"
+        },
+        {
+          "name": "epoch_index",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "name": "profile_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "profile_0",
+          "type": "frame",
+          "fields": [
+            {
+              "name": "model_id",
+              "type": "string",
+              "utf8": "model-goal1-a"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "name": "profile_1",
+          "type": "frame",
+          "fields": [
+            {
+              "name": "model_id",
+              "type": "string",
+              "utf8": "model-goal1-b"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            }
+          ]
+        }
+      ],
+      "preimage_hex": "0000000000000026545255454f50454e5f4441494c595f535550504f52545f434f4e4649524d4154494f4e5f56310000000000000010747275656f70656e2d676f616c312d310000000000000014a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b40000000000000008000000000000002a00000000000000080000000000000007000000000000000800000000000007d00000000000000004000000020000000000000021000000000000000d6d6f64656c2d676f616c312d610000000000000004000000010000000000000021000000000000000d6d6f64656c2d676f616c312d62000000000000000400000002",
+      "digest_hex": "3ceb7d432ab0532bd6f8840da44c92bba3e013b294137131f3f0ac0090ca684f"
+    }
+  ]
+}

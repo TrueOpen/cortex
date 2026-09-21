@@ -1,0 +1,41 @@
+{
+  "source": "example_only",
+  "judgment_function_version": "PREFILL_GENERATED_TOKEN_METRICS_V1",
+  "token_scope": "ALL_GENERATED_OUTPUT_TOKENS",
+  "pass": {
+    "missing_compared_count_max": 0,
+    "mean_abs_logprob_diff_max": 0.05,
+    "abs_logprob_diff_p95_max": 0.1,
+    "abs_logprob_diff_p99_max": 0.2,
+    "rank_delta_nonzero_rate_max": 0.05,
+    "topk_jaccard_mean_min": 0.9,
+    "union_js_p99_max": 0.05
+  },
+  "reject": {
+    "missing_compared_count_max": 1,
+    "mean_abs_logprob_diff_max": 0.3,
+    "abs_logprob_diff_p95_max": 0.5,
+    "abs_logprob_diff_p99_max": 0.8,
+    "rank_delta_nonzero_rate_max": 0.3,
+    "topk_jaccard_mean_min": 0.6,
+    "union_js_p99_max": 0.2
+  },
+  "pass_fp_1e6": {
+    "missing_compared_count_max": 0,
+    "mean_abs_logprob_diff_max": 50000,
+    "abs_logprob_diff_p95_max": 100000,
+    "abs_logprob_diff_p99_max": 200000,
+    "rank_delta_nonzero_rate_max": 50000,
+    "topk_jaccard_mean_min": 900000,
+    "union_js_p99_max": 50000
+  },
+  "reject_fp_1e6": {
+    "missing_compared_count_max": 1000000,
+    "mean_abs_logprob_diff_max": 300000,
+    "abs_logprob_diff_p95_max": 500000,
+    "abs_logprob_diff_p99_max": 800000,
+    "rank_delta_nonzero_rate_max": 300000,
+    "topk_jaccard_mean_min": 600000,
+    "union_js_p99_max": 200000
+  }
+}

@@ -1,0 +1,59 @@
+mode: real
+chain_id: trueopen-devnet-1
+admin:
+  uds_path: /tmp/cortexd.sock
+model_management:
+  endpoint: 127.0.0.1:9090
+  transport: grpc
+node:
+  rpc_endpoint: http://127.0.0.1:26657
+  rest_endpoint: http://127.0.0.1:1317
+keeper:
+  poll_interval_ms: 1000
+  max_lag_blocks: 20
+task_execution:
+  retry_delay_ms: 30000
+  # grpc model transport: task input comes from the receiving Builder's Nexus.
+  input_resolver: nexus
+nexus:
+  ingress_url: https://nexus.devnet.trueopen.xyz
+  nats_url: tls://nexus.devnet.trueopen.xyz:4222
+  # Seed file of this node's NATS user key (ed25519 nkey, generated on first
+  # start). Real mode requires it for a remote NATS; nats_creds_file is
+  # retired and refused in real mode (ADR-0016 P5).
+  nats_user_key_file: /etc/cortex/nats-user.nk
+  auth_token_file: /etc/cortex/nexus.token
+  # JetStream stream Nexus publishes task frames to; devnet ships TRUEOPEN_TASK.
+  jetstream_stream: TRUEOPEN_TASK
+  # Integration shape stays strict like production. trusted_nats_dev is unsafe
+  # and rejected in real mode.
+  envelope_auth_mode: strict
+  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
+  # inbound one; must match the Nexus this node talks to.
+  envelope_ttl_ms: 30000
+  # Tolerated clock skew when judging inbound issued_at/expires_at.
+  envelope_clock_skew_ms: 2000
+tx:
+  enabled: true
+  max_fee_amount: 1000000
+  fee_denom: uusdc
+  max_attempts: 5
+  poll_attempts: 30
+  gas_limit: 250000
+artifacts:
+  root: /var/lib/cortex/evidence
+store:
+  path: /var/lib/cortex/store
+signer:
+  uri: http://127.0.0.1:9080
+local_identity:
+  operator_address: trueopen1operator
+  service_key_ref: kms://cortex/service-key
+  supported_model_profiles: [llama-dev@1=llm_text_v1]
+  model_service_id: model-service-devnet
+self_rescue:
+  enabled: false
+challenge_verifier:
+  enabled: false
+health:
+  bind: 127.0.0.1:8081

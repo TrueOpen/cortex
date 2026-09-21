@@ -1,0 +1,8 @@
+.git
+.gitignore
+.worktrees
+bin
+deploy/devnet/.env
+deploy/devnet/generated
+**/*.db
+**/*.sock

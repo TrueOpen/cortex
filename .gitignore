@@ -1,0 +1,13 @@
+.DS_Store
+.idea/
+.worktrees/
+bin/
+/cortexd
+deploy/devnet/.env
+deploy/devnet/runtime.env
+deploy/devnet/generated/
+deploy/testnet/.env
+deploy/testnet/generated/
+
+# Local subagent-driven-development execution ledgers
+.superpowers/

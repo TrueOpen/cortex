@@ -1,0 +1,25 @@
+[Unit]
+Description=Cortex daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cortex
+Group=cortex
+ExecStart=/usr/local/bin/cortexd -config /etc/cortex/cortex.yaml
+Restart=on-failure
+RestartSec=5s
+RuntimeDirectory=cortex
+RuntimeDirectoryMode=0750
+StateDirectory=cortex
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/cortex
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/cortex /run/cortex
+
+[Install]
+WantedBy=multi-user.target

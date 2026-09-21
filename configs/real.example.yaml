@@ -1,0 +1,145 @@
+# Deployment values may be overridden with CORTEX_* environment variables or
+# matching cortexd flags. Keep secrets in referenced files, not in this file.
+mode: real
+chain_id: trueopen-mainnet-1
+admin:
+  uds_path: /var/run/cortex/cortexd.sock
+model_management:
+  endpoint: 127.0.0.1:9090
+  transport: grpc
+  # Safe baseline for Cortex TaskRunner dispatch. Raise only after load testing,
+  # and never above the model service's resource_snapshot.max_concurrency.
+  max_concurrency: 1
+  # Per-request timeout for /v1/completions (Infer and Verify). vLLM time
+  # depends on model size, max_new_tokens, and queue depth. 0 falls back to
+  # 60 seconds to preserve the previous hardcoded behaviour.
+  infer_timeout_ms: 300000
+  # Per-request timeout for /health, /v1/models, and /metrics probes. Keep
+  # short so readiness and capacity decisions do not stall. 0 falls back to
+  # 5 seconds.
+  probe_timeout_ms: 5000
+node:
+  rpc_endpoint: https://rpc.trueopen.example.org
+  rest_endpoint: https://api.trueopen.example.org
+keeper:
+  poll_interval_ms: 1000
+  max_lag_blocks: 20
+task_execution:
+  # The wait after the FIRST failed attempt, measured from when that attempt
+  # finished. Later attempts double it, up to max_retry_delay_ms.
+  retry_delay_ms: 30000
+  # Ceiling on that backoff, not a target. A responsibility that keeps failing
+  # stops asking twice a minute forever; one that is merely unlucky still retries
+  # promptly. Never applied below retry_delay_ms.
+  max_retry_delay_ms: 900000
+  # Bounds only queue rows with no protocol deadline recorded. Rows carrying a
+  # due_height terminate once the chain passes that height instead.
+  #
+  # A deterministic model failure no longer consumes this budget at all: it is
+  # halted after one attempt and reported with a fault code, because re-running
+  # the model cannot change the verdict. `cortexctl task-queue list` shows the
+  # code; `cortexctl task-queue requeue <queue_id>` is the only thing that
+  # releases the halt.
+  max_retry_attempts: 120
+  # Bounds the Verifier's output artifact fetch. The output is not evidence, so no
+  # locked profile field sizes it, and the fetch completes before the output hash
+  # can reject anything: without a bound a model service that streams many
+  # individually valid chunks makes this node buffer all of them. Omit or set 0 to
+  # take the built-in 64 MiB default. There is no value meaning "unbounded".
+  max_output_bytes: 67108864
+  # Real-mode Workers resolve the receiving Builder's verified descriptor,
+  # authenticate with the current Cortex service key, and fetch plaintext input
+  # through metadata plus ranged FetchTaskData. `fixture` is only legal with
+  # model_management transport `fake` and is not a production shape.
+  input_resolver: nexus
+nexus:
+  ingress_url: https://nexus.trueopen.example.org
+  nats_url: tls://nats.trueopen.example.org:4222
+  # Remote NATS in real mode is verified against the distributed server
+  # certificate (or its CA) and never falls back to the system roots (ADR-0016).
+  nats_ca_file: /etc/cortex/nats-ca.pem
+  # ADR-0016 decision three (interface-and-topic-list §5.14): cortex joins NATS with its
+  # on-chain identity. This is the seed file of the node's own NATS user key
+  # (ed25519 nkey, 0600, generated on first start; the public key is logged).
+  # cortexd binds it to the Keeper-confirmed service key and connects with
+  # nkey + nonce signature + auth_token; the NATS-side auth callout verifies the
+  # binding against the chain. Required in real mode for a remote NATS;
+  # nats_creds_file is retired and refused in real mode.
+  nats_user_key_file: /var/lib/cortex/nats-user.nk
+  auth_token_file: /etc/cortex/nexus.token
+  # JetStream stream Nexus publishes task frames to. Cortex creates and binds
+  # its own durable consumer on it, so the name is required in real mode.
+  jetstream_stream: TRUEOPEN_TASK
+  # Production stays strict. trusted_nats_dev is explicitly unsafe.
+  #
+  # WARNING: strict signs every outbound envelope with this node's current
+  # service key and requires a valid signature on every inbound envelope. The
+  # Nexus that ships today emits unsigned BusEnvelopes, so a strict node
+  # rejects every Builder message and never takes work. Keep strict only once
+  # the deployed Nexus signs; see docs/operations/cortexd-real-mode.md.
+  envelope_auth_mode: strict
+  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
+  # inbound one. Deployment config rather than a chain parameter, so it must
+  # match the Nexus this node talks to; Nexus stamps 30000 today.
+  envelope_ttl_ms: 30000
+  # Tolerated clock skew when judging inbound issued_at/expires_at. Keep it
+  # small and run NTP; a wide window weakens the freshness bound.
+  envelope_clock_skew_ms: 2000
+  # OPTIONAL narrowing filter: the one Builder operator this node deals with.
+  # It is not the authority over who may address this node - the chain's current
+  # BuilderSet is - so leaving it empty admits every current BuilderSet member,
+  # and a Builder the chain has removed is refused even when it is named here.
+  # When set, cortexd also reads that Builder's on-chain service descriptor at a
+  # pinned height and stays unready unless its NEXUS_GRPC endpoint is
+  # byte-for-byte this endpoint and the Builder is in the current BuilderSet.
+  builder_operator_address: trueopen1builderoperatoraddress
+  # Devnet-only concession. It admits one thing: an http:// endpoint in the
+  # on-chain descriptor. https:// is the only other scheme cortexd dials. It
+  # does not relax a superseded descriptor version, a missing NEXUS_GRPC
+  # endpoint, a duplicate endpoint kind, or a tls_pubkey_hash this build
+  # cannot check.
+  allow_insecure_descriptor: false
+  # Devnet compatibility switch for a Builder whose descriptor publishes
+  # https:// or grpcs:// in front of an ingress that terminates no TLS: it
+  # dials that endpoint at its plaintext origin. It requires
+  # allow_insecure_descriptor, and real mode refuses both, so a deployment that
+  # needs it runs mode: integration. Leave it false here.
+  downgrade_descriptor_tls: false
+  subscribe_models: [llama-main]
+tx:
+  enabled: true
+  max_fee_amount: 1000000
+  # Must match the target chain's genesis business_denom.
+  fee_denom: uusdc
+  max_attempts: 5
+  poll_attempts: 30
+  gas_limit: 250000
+artifacts:
+  root: /var/lib/cortex/evidence
+  retention_policy_version: retention-v1
+  minimum_retention_blocks: 100800
+  sweep_grace_period: 1h
+store:
+  path: /var/lib/cortex/store
+signer:
+  uri: http://127.0.0.1:9080
+  readiness_proof_interval_ms: 30000
+local_identity:
+  operator_address: trueopen1operator
+  service_key_ref: kms://cortex/service-key
+  supported_model_profiles: [llama-main@1=llm_text_v1]
+  model_service_id: model-service-main
+self_rescue:
+  # This gates the DEADLINE-RISK trigger only, and its automatic deadline
+  # scheduling is not wired yet; see Cortex issue #108. It does NOT gate the
+  # verifier commit exit: a signed verify commit has no relay to travel on, so
+  # this node submits its own MsgSubmitVerifyCommit every round regardless. That
+  # is why tx.enabled above is required, not optional.
+  enabled: false
+  # Per-transaction bound for that commit exit as well. It may only narrow
+  # tx.max_fee_amount, never widen it.
+  max_fee_amount: 1000000
+challenge_verifier:
+  enabled: false
+health:
+  bind: 127.0.0.1:8081
