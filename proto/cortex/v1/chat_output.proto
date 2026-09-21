@@ -4,21 +4,26 @@ package cortex.v1;
 
 option go_package = "github.com/SingaXYZ/cortex/proto/cortex/v1;cortexv1";
 
-// ChatCompletionOutput is the committed output the chat capability delivers: a
+// NOTE (current implementation): the chat capability NO LONGER delivers this
+// ChatCompletion object. The committed/delivered output is now the RAW TEXT decoded
+// from the committed token_ids -- each generated token's bytes
+// (logprobs.content[i].bytes) concatenated in order, including the trailing EOS
+// special token -- exactly like the raw-text (inferV0) path, so the delivered text,
+// the streamed chunk text, trace.Output and checkpoint.Output all correspond
+// byte-for-byte to the token_ids the Verifier scores. tool_calls are not parsed out
+// separately; any tool-call syntax the model emitted is just tokens in that raw
+// text. This message is retained for reference only and is no longer the delivered
+// shape (no Go code constructs or parses it).
+//
+// ChatCompletionOutput was the committed output the chat capability delivered: a
 // clean OpenAI Chat Completions RESPONSE object (verified against openai-python
-// v1.107.3). It is what output_hash commits and what the User's OpenAI-compatible
-// client parses as a normal ChatCompletion.
+// v1.107.3).
 //
 // It carries only the fields an OpenAI ChatCompletion requires to validate
 // (id, object, created, model, choices) plus usage (commonly read for metering).
 // Every vLLM-internal field is deliberately EXCLUDED -- token_ids, logprobs and
 // especially prompt_token_ids are evidence material, not user output, and the
 // last would leak the chat-template-expanded input tokens.
-//
-// Streaming does NOT introduce a second committed shape: the committed output is
-// always this complete object even when the caller requested stream. Incremental
-// delivery (OpenAI chat.completion.chunk deltas) is a separate, transient channel
-// that is never committed (see the InferStreamObserver forwarder, deferred).
 //
 // finish_reason here is the FAITHFUL model value ("tool_calls", "stop", ...) --
 // distinct from the in-set FinishReasonV1 the worker-value commitment binds
