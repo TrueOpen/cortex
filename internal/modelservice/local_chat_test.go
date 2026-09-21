@@ -51,8 +51,19 @@ func newChatVLLMStub(t *testing.T, resp chatCompletionResponse, models []string)
 	return srv, &seen
 }
 
+// helloBytes/worldBytes are the UTF-8 byte values of the two generated tokens,
+// carried on each logprob content entry. The delivered output and trace text are
+// decoded from these (decodeTokensFromLogprobs), so they -- not Message.Content --
+// determine the committed text ("hello world").
+var (
+	helloBytes = []int{104, 101, 108, 108, 111}      // "hello"
+	worldBytes = []int{32, 119, 111, 114, 108, 100}  // " world"
+)
+
 // chatGenResponse is a two-token chat generation with top-level prompt_token_ids
-// and per-choice token_ids + logprobs.content, mirroring vLLM's chat shape.
+// and per-choice token_ids + logprobs.content (with bytes), mirroring vLLM's chat
+// shape. Message.Content is deliberately left DIFFERENT from the decoded bytes to
+// prove the delivered text comes from the token bytes, not message.content.
 func chatGenResponse() chatCompletionResponse {
 	return chatCompletionResponse{
 		ID:             "chatcmpl-test",
@@ -62,12 +73,12 @@ func chatGenResponse() chatCompletionResponse {
 		PromptTokenIDs: []int{1, 2, 3},
 		Choices: []chatResponseChoice{{
 			Index:        0,
-			Message:      chatRespMessage{Role: "assistant", Content: "hello world"},
+			Message:      chatRespMessage{Role: "assistant", Content: "ENGINE-DETOKENIZED"},
 			FinishReason: "stop",
 			TokenIDs:     []int{10, 11},
 			Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
-				{Token: "token_id:10", Logprob: -0.1, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:10", Logprob: -0.1}}},
-				{Token: "token_id:11", Logprob: -0.2, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:11", Logprob: -0.2}}},
+				{Token: "token_id:10", Logprob: -0.1, Bytes: helloBytes, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:10", Logprob: -0.1}}},
+				{Token: "token_id:11", Logprob: -0.2, Bytes: worldBytes, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:11", Logprob: -0.2}}},
 			}},
 		}},
 	}
@@ -96,36 +107,19 @@ func TestLocalServiceChatInferProjectsResponse(t *testing.T) {
 		t.Fatalf("finish reason = %v, want EOS", resp.FinishReason)
 	}
 
-	// Output is a clean OpenAI ChatCompletion object (no vLLM internals).
+	// Output is the RAW TEXT decoded from the committed token ids (their logprobs
+	// bytes), NOT the engine's message.content and NOT a JSON envelope.
 	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
 	if err != nil {
 		t.Fatalf("FetchArtifact(output) error = %v", err)
 	}
-	var out chatCompletionOutput
-	if err := json.Unmarshal(output.Data, &out); err != nil {
-		t.Fatalf("output is not JSON: %v (%s)", err, output.Data)
+	if string(output.Data) != "hello world" {
+		t.Fatalf("output = %q, want decoded token bytes %q", output.Data, "hello world")
 	}
-	if out.ID != "chatcmpl-test" || out.Object != "chat.completion" || out.Created != 1700000000 {
-		t.Fatalf("output envelope = %+v, want id/object/created echoed", out)
-	}
-	if out.Model != testQwenModelID() {
-		t.Fatalf("output model = %q, want chain model_id %q", out.Model, testQwenModelID())
-	}
-	if len(out.Choices) != 1 || out.Choices[0].Message.Content != "hello world" || out.Choices[0].FinishReason != "stop" {
-		t.Fatalf("output choices = %+v, want content=hello world finish_reason=stop", out.Choices)
-	}
-	if len(out.Choices[0].Message.ToolCalls) != 0 {
-		t.Fatalf("output tool_calls = %s, want omitted", out.Choices[0].Message.ToolCalls)
-	}
-	if out.Usage == nil || out.Usage.TotalTokens != 5 {
-		t.Fatalf("output usage = %+v, want total_tokens=5", out.Usage)
-	}
-	// The evidence trace keeps the model TEXT (not the delivered envelope).
-	if strings.Contains(string(output.Data), "prompt_token_ids") || strings.Contains(string(output.Data), "token_ids") {
-		t.Fatalf("output must not leak vLLM internal token ids: %s", output.Data)
-	}
+	t.Logf("decoded output from token ids %v = %q", []int{10, 11}, string(output.Data))
 
-	// Trace carries the token-level material the Verifier reconstructs from.
+	// Trace carries the token-level material the Verifier reconstructs from, and its
+	// Output is the same decoded text as the delivered output.
 	traceArt, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.TraceRef})
 	if err != nil {
 		t.Fatalf("FetchArtifact(trace) error = %v", err)
@@ -133,6 +127,9 @@ func TestLocalServiceChatInferProjectsResponse(t *testing.T) {
 	var trace traceEnvelope
 	if err := json.Unmarshal(traceArt.Data, &trace); err != nil {
 		t.Fatalf("trace decode error = %v", err)
+	}
+	if trace.Output != "hello world" {
+		t.Fatalf("trace.Output = %q, want decoded token bytes %q", trace.Output, "hello world")
 	}
 	if len(trace.InputTokenIDs) != 3 || trace.InputTokenIDs[0] != 1 {
 		t.Fatalf("trace input token ids = %v, want [1 2 3]", trace.InputTokenIDs)
@@ -206,13 +203,9 @@ func TestLocalServiceChatRoutesRawTextToInferV0(t *testing.T) {
 }
 
 func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
+	// A "tool_calls" finish reason still maps to the in-set EOS. The output is just
+	// the decoded token text -- tool_calls are no longer parsed into a separate field.
 	resp := chatGenResponse()
-	resp.Choices[0].Message = chatRespMessage{
-		Role:    "assistant",
-		Content: "",
-		ToolCalls: json.RawMessage(
-			`[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Beijing\"}"}}]`),
-	}
 	resp.Choices[0].FinishReason = "tool_calls"
 
 	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
@@ -234,15 +227,8 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchArtifact(output) error = %v", err)
 	}
-	var out chatCompletionOutput
-	if err := json.Unmarshal(output.Data, &out); err != nil {
-		t.Fatalf("output is not JSON: %v", err)
-	}
-	if len(out.Choices) != 1 || len(out.Choices[0].Message.ToolCalls) == 0 {
-		t.Fatalf("output must carry tool_calls, got %s", output.Data)
-	}
-	if out.Choices[0].FinishReason != "tool_calls" {
-		t.Fatalf("output finish_reason = %q, want faithful tool_calls", out.Choices[0].FinishReason)
+	if string(output.Data) != "hello world" {
+		t.Fatalf("output = %q, want decoded token bytes %q", output.Data, "hello world")
 	}
 }
 
@@ -307,10 +293,10 @@ func chatContentChunks() []chatCompletionChunk {
 			PromptTokenIDs: []int{1, 2, 3},
 			Choices: []chatChunkChoice{{
 				Index:    0,
-				Delta:    chatChunkDelta{Role: "assistant", Content: "hello"},
+				Delta:    chatChunkDelta{Role: "assistant", Content: "ENGINE"},
 				TokenIDs: []int{10},
 				Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
-					{Token: "token_id:10", Logprob: -0.1, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:10", Logprob: -0.1}}},
+					{Token: "token_id:10", Logprob: -0.1, Bytes: helloBytes, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:10", Logprob: -0.1}}},
 				}},
 			}},
 		},
@@ -318,11 +304,11 @@ func chatContentChunks() []chatCompletionChunk {
 			ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B",
 			Choices: []chatChunkChoice{{
 				Index:        0,
-				Delta:        chatChunkDelta{Content: " world"},
+				Delta:        chatChunkDelta{Content: "DETOK"},
 				FinishReason: "stop",
 				TokenIDs:     []int{11},
 				Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
-					{Token: "token_id:11", Logprob: -0.2, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:11", Logprob: -0.2}}},
+					{Token: "token_id:11", Logprob: -0.2, Bytes: worldBytes, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:11", Logprob: -0.2}}},
 				}},
 			}},
 		},
@@ -371,57 +357,6 @@ func TestLocalServiceChatStreamingMatchesNonStreaming(t *testing.T) {
 	}
 }
 
-func TestLocalServiceChatStreamingToolCallsMatchesNonStreaming(t *testing.T) {
-	ctx := context.Background()
-	models := []string{"Qwen/Qwen3-8B"}
-
-	// Non-streaming fixture: tool_calls as one block, empty content.
-	nonStream := chatGenResponse()
-	nonStream.Choices[0].Message = chatRespMessage{
-		Role:      "assistant",
-		Content:   "",
-		ToolCalls: json.RawMessage(`[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Beijing\"}"}}]`),
-	}
-	nonStream.Choices[0].FinishReason = "tool_calls"
-
-	// Streaming fixture: same generation, tool_calls arriving as index-0 fragments.
-	streamChunks := chatContentChunks()
-	streamChunks[0].Choices[0].Delta = chatChunkDelta{
-		Role: "assistant",
-		ToolCalls: []chatToolCallDelta{{
-			Index: 0, ID: "call_1", Type: "function",
-			Function: &chatToolCallFuncDelta{Name: "get_weather", Arguments: `{"city":`},
-		}},
-	}
-	streamChunks[1].Choices[0].Delta = chatChunkDelta{
-		ToolCalls: []chatToolCallDelta{{
-			Index:    0,
-			Function: &chatToolCallFuncDelta{Arguments: `"Beijing"}`},
-		}},
-	}
-	streamChunks[1].Choices[0].FinishReason = "tool_calls"
-
-	streamSrv, _ := newChatVLLMStreamStub(t, streamChunks, models)
-	streamOut, _ := chatInferArtifacts(t, ctx, NewLocalService(streamSrv.URL, "local-svc", 4, 0, 0), chatInferReq())
-
-	jsonSrv, _ := newChatVLLMStub(t, nonStream, models)
-	jsonSvc := NewLocalService(jsonSrv.URL, "local-svc", 4, 0, 0)
-	jsonSvc.SetStreamInference(false)
-	jsonOut, _ := chatInferArtifacts(t, ctx, jsonSvc, chatInferReq())
-
-	if !bytes.Equal(streamOut, jsonOut) {
-		t.Fatalf("streaming tool_calls output = %s\n non-streaming = %s", streamOut, jsonOut)
-	}
-	// Guard that the reassembled arguments really were the concatenation.
-	var out chatCompletionOutput
-	if err := json.Unmarshal(streamOut, &out); err != nil {
-		t.Fatalf("output not JSON: %v", err)
-	}
-	if !strings.Contains(string(out.Choices[0].Message.ToolCalls), `{\"city\":\"Beijing\"}`) {
-		t.Fatalf("tool_calls arguments not reassembled: %s", out.Choices[0].Message.ToolCalls)
-	}
-}
-
 func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 	srv, _ := newChatVLLMStreamStub(t, chatContentChunks(), []string{"Qwen/Qwen3-8B"})
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
@@ -451,18 +386,21 @@ func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 		t.Fatalf("frame[2] = %+v, want terminal done frame with finish reason", f)
 	}
 
-	// The observed content deltas reassemble the committed output byte-for-byte.
+	// The observed (decoded) deltas reassemble the committed output byte-for-byte.
 	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
 	if err != nil {
 		t.Fatalf("FetchArtifact(output) error = %v", err)
 	}
-	var out chatCompletionOutput
-	if err := json.Unmarshal(output.Data, &out); err != nil {
-		t.Fatalf("output not JSON: %v", err)
+	if string(output.Data) != obs.frames[0].TextDelta+obs.frames[1].TextDelta {
+		t.Fatalf("output %q != concatenated deltas %q", output.Data, obs.frames[0].TextDelta+obs.frames[1].TextDelta)
 	}
-	if out.Choices[0].Message.Content != obs.frames[0].TextDelta+obs.frames[1].TextDelta {
-		t.Fatalf("content %q != concatenated deltas", out.Choices[0].Message.Content)
+	if string(output.Data) != "hello world" {
+		t.Fatalf("output = %q, want decoded token bytes %q", output.Data, "hello world")
 	}
+	for i, f := range obs.frames {
+		t.Logf("stream frame[%d]: token_ids=%v decoded piece=%q", i, f.TokenIDs, f.TextDelta)
+	}
+	t.Logf("concatenated stream output = %q", string(output.Data))
 }
 
 func TestLocalServiceChatStreamObserverErrorDoesNotFailInference(t *testing.T) {
@@ -498,6 +436,54 @@ func TestLocalServiceChatStreamingFallsBackToJSONResponse(t *testing.T) {
 	}
 	if resp.GeneratedTokenCount != 2 {
 		t.Fatalf("GeneratedTokenCount = %d, want 2 (fell back to JSON decode)", resp.GeneratedTokenCount)
+	}
+}
+
+func TestLocalServiceChatRejectsUsageTokenCountMismatch(t *testing.T) {
+	// usage.completion_tokens must equal the number of generated token ids the
+	// decoded output is built from; a disagreement fails closed.
+	resp := chatGenResponse()
+	resp.Usage.CompletionTokens = 3 // != len(TokenIDs) == 2
+
+	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
+	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc.SetStreamInference(false)
+
+	_, err := svc.Infer(context.Background(), InferRequest{
+		RequestID:  "chat-usage",
+		ModelID:    testQwenModelID(),
+		Capability: CapabilityLLMTextV1,
+		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err == nil {
+		t.Fatalf("Infer() expected error for usage/token id count mismatch")
+	}
+	if !strings.Contains(err.Error(), "completion_tokens") {
+		t.Fatalf("error = %v, want it to name completion_tokens", err)
+	}
+}
+
+func TestLocalServiceChatRejectsTokenIDLogprobMismatch(t *testing.T) {
+	// Each logprobs.content[i] token id must equal token_ids[i], or the bytes being
+	// decoded would not provably belong to the committed token ids.
+	resp := chatGenResponse()
+	resp.Choices[0].Logprobs.Content[1].Token = "token_id:999" // != TokenIDs[1] == 11
+
+	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
+	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc.SetStreamInference(false)
+
+	_, err := svc.Infer(context.Background(), InferRequest{
+		RequestID:  "chat-align",
+		ModelID:    testQwenModelID(),
+		Capability: CapabilityLLMTextV1,
+		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+	})
+	if err == nil {
+		t.Fatalf("Infer() expected error for token id / logprobs mismatch")
+	}
+	if !strings.Contains(err.Error(), "token id mismatch") {
+		t.Fatalf("error = %v, want it to report a token id mismatch", err)
 	}
 }
 

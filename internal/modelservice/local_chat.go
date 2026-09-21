@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -23,11 +24,19 @@ import (
 // byte-identical regardless of which transport ran, and streaming is a node-local
 // detail never carried on the protocol. Verify is always non-streaming.
 //
+// Output is NOT the engine's detokenized message.content, nor a ChatCompletion
+// JSON envelope: the delivered output, the streamed chunk text, trace.Output and
+// checkpoint.Output are all the RAW TEXT decoded from the committed token_ids --
+// each generated token's bytes (logprobs.content[i].bytes) concatenated in order
+// (decodeTokensFromLogprobs). This makes every text artifact correspond
+// byte-for-byte to the token_ids the Verifier scores (including the trailing EOS
+// special token, which the engine drops from message.content), rather than to the
+// engine's own detokenization. tool_calls are therefore not parsed out separately;
+// any tool-call syntax the model emitted is just tokens in that raw text.
+//
 // Scope: sampling params are the OpenAI subset; stop sequences are intentionally
 // refused (not forwarded) so a "stop" finish_reason stays unambiguous EOS; a
-// "tool_calls" finish maps to EOS in finish_reason.go; output is committed as a
-// JSON object. tool_calls are canonicalised (canonicalToolCalls) on both the
-// streaming and non-streaming paths so the two agree byte-for-byte.
+// "tool_calls" finish maps to EOS in finish_reason.go.
 
 // chatInferInput is the accepted subset of the OpenAI chat request. Content-shape
 // fields (messages/tools/tool_choice/response_format) are kept as raw JSON and
@@ -131,9 +140,6 @@ type chatResponseChoice struct {
 type chatRespMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-	// ToolCalls is kept raw so it can be embedded into the committed output JSON
-	// verbatim without re-modelling the tool-call shape.
-	ToolCalls json.RawMessage `json:"tool_calls"`
 }
 
 type chatRespLogprobs struct {
@@ -141,8 +147,13 @@ type chatRespLogprobs struct {
 }
 
 type chatRespLogprobContent struct {
-	Token       string               `json:"token"`
-	Logprob     float64              `json:"logprob"`
+	Token   string  `json:"token"`
+	Logprob float64 `json:"logprob"`
+	// Bytes is the UTF-8 byte values of this generated token, used to decode the
+	// committed token_ids back into the delivered text (decodeTokensFromLogprobs).
+	// It is populated regardless of return_tokens_as_token_ids (which only changes
+	// the Token string to the "token_id:X" form).
+	Bytes       []int                `json:"bytes"`
 	TopLogprobs []chatRespTopLogprob `json:"top_logprobs"`
 }
 
@@ -194,11 +205,28 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	if err != nil {
 		return InferResponse{}, err
 	}
-	outputBytes, err := buildChatCompletionOutput(chatResp, req.ModelID)
-	if err != nil {
+	if err := validateChatUsage(chatResp); err != nil {
 		return InferResponse{}, err
 	}
-	return s.buildInferResultFromCompletion(ctx, req, profile, projected, outputBytes, chatFinishResolver)
+	// outputBytes is nil so the delivered output defaults to choice.Text -- the raw
+	// text decoded from the committed token_ids (set by projectChatToCompletion).
+	// The delivered output, trace.Output and checkpoint.Output are thus identical.
+	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, chatFinishResolver)
+}
+
+// validateChatUsage fails closed when the engine's reported completion token count
+// disagrees with the number of generated token ids the decoded output is built
+// from. It only checks when usage is present (it may be absent). On the streaming
+// path usage arrives on the terminal include_usage chunk (reassembleChatStream
+// sets out.Usage), so the same check covers both transports.
+func validateChatUsage(chatResp chatCompletionResponse) error {
+	if chatResp.Usage == nil || len(chatResp.Choices) == 0 {
+		return nil
+	}
+	if got, want := chatResp.Usage.CompletionTokens, len(chatResp.Choices[0].TokenIDs); got != want {
+		return fmt.Errorf("modelservice local chat: usage completion_tokens=%d != generated token ids=%d", got, want)
+	}
+	return nil
 }
 
 // parseChatInferInput decides whether the bytes are a chat request and, if so,
@@ -310,15 +338,23 @@ func (s *LocalService) buildChatCompletionRequest(profile localModelProfile, in 
 }
 
 // projectChatToCompletion maps a chat response onto the completionResponse shape
-// the shared post-processing consumes. choice.Text is the assistant's text content
-// (what trace.Output records); the delivered output artifact is built separately
-// by buildChatCompletionOutput. The token-level fields (token ids and logprobs)
-// are what the Verifier reconstructs from, and they are carried unchanged.
+// the shared post-processing consumes. choice.Text is the RAW TEXT decoded from
+// the committed token_ids (decodeTokensFromLogprobs) -- it is both trace.Output and,
+// because Infer passes outputBytes=nil, the delivered output. The token-level
+// fields (token ids and logprobs) are what the Verifier reconstructs from, and they
+// are carried unchanged. This is also the authoritative point where each token id
+// is checked against its logprobs entry (decodeTokensFromLogprobs fails closed on a
+// mismatch), for both the non-streaming body and the reassembled stream.
 func projectChatToCompletion(chatResp chatCompletionResponse) (completionResponse, error) {
 	if len(chatResp.Choices) == 0 {
 		return completionResponse{}, fmt.Errorf("modelservice local chat: empty choices")
 	}
 	c := chatResp.Choices[0]
+
+	text, err := decodeTokensFromLogprobs(c.TokenIDs, c.Logprobs)
+	if err != nil {
+		return completionResponse{}, err
+	}
 
 	var logprobs *completionLogprobs
 	if c.Logprobs != nil {
@@ -340,7 +376,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 
 	return completionResponse{
 		Choices: []completionChoice{{
-			Text:           c.Message.Content,
+			Text:           text,
 			FinishReason:   c.FinishReason,
 			PromptTokenIDs: chatResp.PromptTokenIDs,
 			TokenIDs:       c.TokenIDs,
@@ -349,75 +385,32 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 	}, nil
 }
 
-// chatCompletionOutput mirrors the OpenAI ChatCompletion RESPONSE object (see
-// proto/cortex/v1/chat_output.proto). It carries only OpenAI-standard fields;
-// vLLM-internal token_ids/logprobs/prompt_token_ids are never included.
-type chatCompletionOutput struct {
-	ID      string                       `json:"id"`
-	Object  string                       `json:"object"`
-	Created int64                        `json:"created"`
-	Model   string                       `json:"model"`
-	Choices []chatCompletionOutputChoice `json:"choices"`
-	Usage   *chatCompletionOutputUsage   `json:"usage,omitempty"`
-}
-
-type chatCompletionOutputChoice struct {
-	Index        int                         `json:"index"`
-	Message      chatCompletionOutputMessage `json:"message"`
-	FinishReason string                      `json:"finish_reason"`
-}
-
-type chatCompletionOutputMessage struct {
-	Role      string          `json:"role"`
-	Content   string          `json:"content"`
-	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
-}
-
-type chatCompletionOutputUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-}
-
-// buildChatCompletionOutput is the committed/delivered output for the chat path:
-// a clean OpenAI ChatCompletion object. finish_reason is the FAITHFUL model value
-// (e.g. "tool_calls"), distinct from the in-set FinishReasonV1 the commitment
-// binds. model is the chain model_id (protocol identity).
-func buildChatCompletionOutput(chatResp chatCompletionResponse, modelID string) ([]byte, error) {
-	c := chatResp.Choices[0]
-	msg := chatCompletionOutputMessage{Role: "assistant", Content: c.Message.Content}
-	if tc := bytes.TrimSpace(c.Message.ToolCalls); len(tc) > 0 && string(tc) != "null" && string(tc) != "[]" {
-		// Canonicalise so a non-streaming body (vLLM's exact bytes) and a
-		// streaming reassembly (fragments merged by index) commit identical bytes.
-		canonical, err := canonicalToolCalls(c.Message.ToolCalls)
-		if err != nil {
-			return nil, err
+// decodeTokensFromLogprobs reconstructs the delivered text from the committed
+// token_ids: it concatenates, in order, the bytes of each generated token
+// (logprobs.content[i].bytes). It also verifies that content[i]'s token id equals
+// tokenIDs[i] (under return_tokens_as_token_ids=true content[i].Token is the
+// "token_id:X" form), so the bytes being decoded provably belong to the token_ids
+// the Verifier scores. A length or per-position mismatch fails closed. Special/EOS
+// tokens are decoded like any other, so the result corresponds byte-for-byte to the
+// full token_ids sequence (unlike the engine's message.content, which drops EOS).
+func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, error) {
+	if lp == nil || len(lp.Content) != len(tokenIDs) {
+		n := 0
+		if lp != nil {
+			n = len(lp.Content)
 		}
-		msg.ToolCalls = canonical
+		return "", fmt.Errorf("modelservice local chat: token_ids (%d) / logprobs (%d) length mismatch", len(tokenIDs), n)
 	}
-	out := chatCompletionOutput{
-		ID:      chatResp.ID,
-		Object:  "chat.completion",
-		Created: chatResp.Created,
-		Model:   modelID,
-		Choices: []chatCompletionOutputChoice{{
-			Index:        c.Index,
-			Message:      msg,
-			FinishReason: c.FinishReason,
-		}},
-	}
-	if u := chatResp.Usage; u != nil {
-		out.Usage = &chatCompletionOutputUsage{
-			PromptTokens:     u.PromptTokens,
-			CompletionTokens: u.CompletionTokens,
-			TotalTokens:      u.TotalTokens,
+	var buf []byte
+	for i, e := range lp.Content {
+		if normalizeTokenKey(e.Token) != strconv.Itoa(tokenIDs[i]) {
+			return "", fmt.Errorf("modelservice local chat: token id mismatch at position %d: token_ids=%d logprobs token=%q", i, tokenIDs[i], e.Token)
+		}
+		for _, v := range e.Bytes {
+			buf = append(buf, byte(v))
 		}
 	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return nil, fmt.Errorf("modelservice local chat: marshal output: %w", err)
-	}
-	return b, nil
+	return string(buf), nil
 }
 
 // --- streaming transport ---------------------------------------------------
@@ -450,9 +443,6 @@ type chatChunkChoice struct {
 type chatChunkDelta struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-	// ToolCalls arrives as fragments, each tagged with an index; see
-	// toolCallAccumulator.
-	ToolCalls []chatToolCallDelta `json:"tool_calls"`
 }
 
 // postStreamingChat issues a streaming chat request and reassembles the SSE frames
@@ -476,10 +466,11 @@ func (s *LocalService) postStreamingChat(ctx context.Context, path string, body 
 
 // reassembleChatStream folds the SSE `data:` frames of a streaming chat completion
 // into out, and emits each frame's delta to the per-frame observer (best-effort).
-// The result matches a non-streaming response: content concatenated, generated
-// token ids / logprob entries appended in order, prompt_token_ids and usage taken
-// once, tool_call fragments merged by index, finish_reason taken from the frame
-// that carries it.
+// The result matches a non-streaming response: generated token ids / logprob
+// entries appended in order, prompt_token_ids and usage taken once, finish_reason
+// taken from the frame that carries it. The delivered text (committed output and
+// each frame's TextDelta) is decoded from the token ids via their logprobs bytes,
+// not the engine's delta.content -- see decodeTokensFromLogprobs.
 func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity) error {
 	observer := s.inferObserver()
 	observerActive := observer != nil
@@ -489,7 +480,6 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 	// raise the line limit well above bufio's 64 KiB default.
 	scanner.Buffer(make([]byte, 0, 1<<20), 8<<20)
 
-	var toolCalls toolCallAccumulator
 	sawChoice := false
 	finishReason := ""
 
@@ -541,7 +531,6 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 			sawChoice = true
 		}
 		dst := &out.Choices[0]
-		dst.Message.Content += cc.Delta.Content
 		dst.TokenIDs = append(dst.TokenIDs, cc.TokenIDs...)
 		if cc.FinishReason != "" {
 			dst.FinishReason = cc.FinishReason
@@ -553,15 +542,19 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 			}
 			dst.Logprobs.Content = append(dst.Logprobs.Content, src.Content...)
 		}
-		toolCalls.add(cc.Delta.ToolCalls)
 
 		if observerActive {
+			// The frame's text is decoded from this chunk's token ids via their
+			// logprobs bytes (not delta.content). This is transient delivery, so a
+			// decode/alignment error just drops this frame's text -- the authoritative
+			// check runs over the full reassembled sequence in projectChatToCompletion.
+			textDelta, _ := decodeTokensFromLogprobs(cc.TokenIDs, cc.Logprobs)
 			frame := InferStreamFrame{
 				RequestID:    ident.requestID,
 				JobID:        ident.jobID,
 				TaskID:       ident.taskID,
 				ModelID:      ident.modelID,
-				TextDelta:    cc.Delta.Content,
+				TextDelta:    textDelta,
 				TokenIDs:     cc.TokenIDs,
 				FinishReason: cc.FinishReason,
 			}
@@ -577,12 +570,6 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("modelservice local chat: read completion stream: %w", err)
-	}
-
-	if sawChoice {
-		if merged, ok := toolCalls.marshal(); ok {
-			out.Choices[0].Message.ToolCalls = merged
-		}
 	}
 
 	if observerActive {
@@ -622,94 +609,4 @@ func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []map[string]float64) {
 		topLogprobs = append(topLogprobs, top)
 	}
 	return tokenLogprobs, topLogprobs
-}
-
-// --- tool_calls canonicalisation -------------------------------------------
-
-// chatToolCall is the canonical OpenAI tool-call shape committed in the output.
-// Both transports encode through it so their bytes agree: the non-streaming path
-// re-marshals vLLM's array (canonicalToolCalls) and the streaming path merges
-// per-index fragments (toolCallAccumulator) into the same slice.
-type chatToolCall struct {
-	ID       string           `json:"id,omitempty"`
-	Type     string           `json:"type,omitempty"`
-	Function chatToolCallFunc `json:"function"`
-}
-
-type chatToolCallFunc struct {
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments"`
-}
-
-// chatToolCallDelta is one streaming tool-call fragment; index selects which
-// tool call it extends.
-type chatToolCallDelta struct {
-	Index    int                    `json:"index"`
-	ID       string                 `json:"id"`
-	Type     string                 `json:"type"`
-	Function *chatToolCallFuncDelta `json:"function"`
-}
-
-type chatToolCallFuncDelta struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-// canonicalToolCalls decodes a non-streaming tool_calls array and re-marshals it
-// through chatToolCall, producing the same bytes the streaming accumulator does.
-func canonicalToolCalls(raw json.RawMessage) (json.RawMessage, error) {
-	var calls []chatToolCall
-	if err := json.Unmarshal(raw, &calls); err != nil {
-		return nil, fmt.Errorf("modelservice local chat: decode tool_calls: %w", err)
-	}
-	b, err := json.Marshal(calls)
-	if err != nil {
-		return nil, fmt.Errorf("modelservice local chat: marshal tool_calls: %w", err)
-	}
-	return b, nil
-}
-
-// toolCallAccumulator merges streaming tool-call fragments by index: id/type/name
-// are taken from the first fragment that carries them, arguments are concatenated.
-type toolCallAccumulator struct {
-	calls []chatToolCall
-	seen  bool
-}
-
-func (a *toolCallAccumulator) add(deltas []chatToolCallDelta) {
-	for _, d := range deltas {
-		if d.Index < 0 {
-			continue
-		}
-		a.seen = true
-		for d.Index >= len(a.calls) {
-			a.calls = append(a.calls, chatToolCall{})
-		}
-		call := &a.calls[d.Index]
-		if call.ID == "" && d.ID != "" {
-			call.ID = d.ID
-		}
-		if call.Type == "" && d.Type != "" {
-			call.Type = d.Type
-		}
-		if d.Function != nil {
-			if call.Function.Name == "" && d.Function.Name != "" {
-				call.Function.Name = d.Function.Name
-			}
-			call.Function.Arguments += d.Function.Arguments
-		}
-	}
-}
-
-// marshal returns the merged tool calls encoded like canonicalToolCalls, and false
-// when no fragment was ever seen (so a content-only response carries no tool_calls).
-func (a *toolCallAccumulator) marshal() (json.RawMessage, bool) {
-	if !a.seen {
-		return nil, false
-	}
-	b, err := json.Marshal(a.calls)
-	if err != nil {
-		return nil, false
-	}
-	return b, true
 }

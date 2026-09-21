@@ -33,10 +33,6 @@ const (
 	// A full OpenAI chat request body for the chat integration test. When unset the
 	// test wraps envTestVLLMPrompt (or its default) in a single user message.
 	envTestVLLMChatInput = "CORTEX_TEST_VLLM_CHAT_INPUT"
-	// A full OpenAI chat request body carrying "tools" that reliably makes the
-	// model emit a tool_calls response, gating the tool-call streaming parity test.
-	// Left to the operator because whether a call is triggered is model-specific.
-	envTestVLLMChatToolInput = "CORTEX_TEST_VLLM_CHAT_TOOL_INPUT"
 )
 
 // keeperVLLMProfileResolver mirrors internal/daemon's keeperLocalProfileResolver,
@@ -227,9 +223,10 @@ func TestLocalServiceRealVLLM(t *testing.T) {
 // Completions body so the request is served over /v1/chat/completions rather than
 // /v1/completions, and asserts the same end-to-end contract — a committed output,
 // a chain-bound trace with generated token ids, and a self-Verify that does not
-// reject. The committed output is additionally checked to be a clean OpenAI
-// ChatCompletion object (object=chat.completion, protocol model_id, no leaked vLLM
-// token-id internals), the shape buildChatCompletionOutput commits.
+// reject. The committed output is additionally checked to be the raw text decoded
+// from the committed token ids (decodeTokensFromLogprobs) and to equal the trace's
+// decoded Output -- proving vLLM populates logprobs.content[].bytes under
+// return_tokens_as_token_ids and that the delivered text matches the token ids.
 func TestLocalServiceRealVLLMChat(t *testing.T) {
 	endpoint := strings.TrimSpace(os.Getenv(envTestVLLMURL))
 	if endpoint == "" {
@@ -315,30 +312,17 @@ func TestLocalServiceRealVLLMChat(t *testing.T) {
 		t.Fatalf("Infer() refs = %+v, want output, trace, and checkpoint refs", infer)
 	}
 
-	// The committed output is a clean OpenAI ChatCompletion object — not the
-	// raw-text body inferV0 commits — and must not leak vLLM token-id internals.
+	// The committed output is the RAW TEXT decoded from the committed token ids
+	// (their logprobs bytes), same shape inferV0 commits -- not a ChatCompletion
+	// JSON object. It must equal the text decoded from the trace's generated token
+	// ids (checked below against traceEnv.Output), proving vLLM populated
+	// logprobs.content[].bytes under return_tokens_as_token_ids and that the
+	// delivered output corresponds byte-for-byte to the committed token ids.
 	output := fetchRealVLLMArtifact(t, ctx, svc, infer.OutputRef, false)
 	if len(output.Data) == 0 {
 		t.Fatalf("Infer() output artifact is empty")
 	}
-	var chatOut chatCompletionOutput
-	if err := json.Unmarshal(output.Data, &chatOut); err != nil {
-		t.Fatalf("chat output is not JSON: %v (%s)", err, output.Data)
-	}
-	if chatOut.Object != "chat.completion" {
-		t.Fatalf("chat output object = %q, want chat.completion", chatOut.Object)
-	}
-	if chatOut.Model != modelID {
-		t.Fatalf("chat output model = %q, want chain model_id %q", chatOut.Model, modelID)
-	}
-	if len(chatOut.Choices) == 0 || chatOut.Choices[0].Message.Role != "assistant" {
-		t.Fatalf("chat output choices = %+v, want one assistant message", chatOut.Choices)
-	}
-	if strings.Contains(string(output.Data), "prompt_token_ids") || strings.Contains(string(output.Data), "token_ids") {
-		t.Fatalf("chat output must not leak vLLM internal token ids: %s", output.Data)
-	}
-	t.Logf("real vLLM chat output: content=%q finish=%q",
-		strings.TrimSpace(chatOut.Choices[0].Message.Content), chatOut.Choices[0].FinishReason)
+	t.Logf("real vLLM chat output (decoded token bytes): %q", string(output.Data))
 
 	trace := fetchRealVLLMArtifact(t, ctx, svc, infer.TraceRef, false)
 	checkpoint := fetchRealVLLMArtifact(t, ctx, svc, infer.CheckpointRef, false)
@@ -357,6 +341,10 @@ func TestLocalServiceRealVLLMChat(t *testing.T) {
 	}
 	if traceEnv.GeneratedTokenCount != len(traceEnv.OutTokens) {
 		t.Fatalf("trace generated count = %d, want %d", traceEnv.GeneratedTokenCount, len(traceEnv.OutTokens))
+	}
+	// The delivered output and the trace text are the same decoded token bytes.
+	if string(output.Data) != traceEnv.Output {
+		t.Fatalf("output %q != trace.Output %q (both must be the decoded token bytes)", output.Data, traceEnv.Output)
 	}
 	t.Logf("chat trace: model=%s@%s input_tokens=%d out_tokens=%d generated=%d",
 		traceEnv.ModelID, traceEnv.ProfileVersion,
@@ -1062,11 +1050,9 @@ func TestLocalServiceRealVLLMStreamObserver(t *testing.T) {
 // TestLocalServiceRealVLLMChatStreamingParity is the chat counterpart of
 // TestLocalServiceRealVLLMStreamingParity: it runs the same chat request over the
 // SSE transport and over the single-JSON-body transport and asserts the two agree.
-// Byte parity of the committed output is deliberately NOT asserted — a real chat
-// completion embeds a per-request id and created timestamp, so two calls differ in
-// those envelope fields even under greedy decoding. Parity is expressed over what
-// the protocol actually commits to: the assistant content, the finish reason, and
-// the input/generated token id sequences the Verifier reconstructs from.
+// The committed output is now the raw text decoded from the token ids (no per-request
+// id/created envelope), so byte parity of the output IS asserted, alongside the
+// input/generated token id sequences the Verifier reconstructs from.
 func TestLocalServiceRealVLLMChatStreamingParity(t *testing.T) {
 	endpoint := strings.TrimSpace(os.Getenv(envTestVLLMURL))
 	if endpoint == "" {
@@ -1107,19 +1093,12 @@ func TestLocalServiceRealVLLMChatStreamingParity(t *testing.T) {
 	svc.SetStreamInference(false)
 	jsonOut, jsonTrace := chatInferArtifacts(t, ctx, svc, req)
 
-	// Content parity — the delivered assistant message, ignoring the per-request
-	// id/created envelope fields a real engine varies between calls.
-	streamMsg := decodeChatOutputMessage(t, streamOut)
-	jsonMsg := decodeChatOutputMessage(t, jsonOut)
-	if streamMsg.Content != jsonMsg.Content {
-		t.Fatalf("real vLLM chat content differs streaming vs non-streaming:\n stream=%q\n json  =%q", streamMsg.Content, jsonMsg.Content)
+	// Output is now the raw text decoded from the committed token ids -- no
+	// per-request id/created envelope -- so two greedy runs must be byte-identical.
+	if !bytes.Equal(streamOut, jsonOut) {
+		t.Fatalf("real vLLM chat output differs streaming vs non-streaming:\n stream=%q\n json  =%q", streamOut, jsonOut)
 	}
-	if streamMsg.FinishReason != jsonMsg.FinishReason {
-		t.Fatalf("real vLLM chat finish_reason differs: stream=%q json=%q", streamMsg.FinishReason, jsonMsg.FinishReason)
-	}
-	if !bytes.Equal(streamMsg.ToolCalls, jsonMsg.ToolCalls) {
-		t.Fatalf("real vLLM chat tool_calls differ:\n stream=%s\n json  =%s", streamMsg.ToolCalls, jsonMsg.ToolCalls)
-	}
+	t.Logf("real vLLM chat output (decoded token bytes): %q", string(streamOut))
 
 	// Token-id parity — the material the trace/checkpoint bind and the Verifier
 	// reconstructs from, compared instead of raw logprob floats the engine may vary
@@ -1136,8 +1115,8 @@ func TestLocalServiceRealVLLMChatStreamingParity(t *testing.T) {
 		t.Fatalf("generated count/finish differ: stream=%d/%q json=%d/%q",
 			streamEnv.GeneratedTokenCount, streamEnv.FinishReason, jsonEnv.GeneratedTokenCount, jsonEnv.FinishReason)
 	}
-	t.Logf("real vLLM chat streaming parity: content=%dB input_tokens=%d generated=%d finish=%q",
-		len(streamMsg.Content), len(streamEnv.InputTokenIDs), streamEnv.GeneratedTokenCount, streamEnv.FinishReason)
+	t.Logf("real vLLM chat streaming parity: output=%dB input_tokens=%d generated=%d finish=%q",
+		len(streamOut), len(streamEnv.InputTokenIDs), streamEnv.GeneratedTokenCount, streamEnv.FinishReason)
 }
 
 // TestLocalServiceRealVLLMChatStreamObserver is the chat counterpart of
@@ -1194,9 +1173,9 @@ func TestLocalServiceRealVLLMChatStreamObserver(t *testing.T) {
 		t.Fatalf("Infer() error = %v", err)
 	}
 
-	// (1) The committed full output — the delivered assistant content.
+	// (1) The committed full output — the delivered assistant text (decoded token bytes).
 	output := fetchRealVLLMArtifact(t, ctx, svc, resp.OutputRef, false)
-	msg := decodeChatOutputMessage(t, output.Data)
+	committed := string(output.Data)
 
 	// (2) The chunks — every frame carries the request identity, split into content
 	// deltas plus a single terminal done frame.
@@ -1228,8 +1207,8 @@ func TestLocalServiceRealVLLMChatStreamObserver(t *testing.T) {
 		streamedText.WriteString(d.TextDelta)
 		streamedTokenIDs = append(streamedTokenIDs, d.TokenIDs...)
 	}
-	if streamedText.String() != msg.Content {
-		t.Fatalf("concatenated chunk text = %q, want it to equal the committed content %q", streamedText.String(), msg.Content)
+	if streamedText.String() != committed {
+		t.Fatalf("concatenated chunk text = %q, want it to equal the committed output %q", streamedText.String(), committed)
 	}
 
 	trace := fetchRealVLLMArtifact(t, ctx, svc, resp.TraceRef, false)
@@ -1241,151 +1220,11 @@ func TestLocalServiceRealVLLMChatStreamObserver(t *testing.T) {
 		t.Fatalf("GeneratedTokenCount = %d, want %d", resp.GeneratedTokenCount, len(traceIDs))
 	}
 	t.Logf("real vLLM chat stream observer: content=%dB delta_frames=%d generated_tokens=%d finish=%q",
-		len(msg.Content), len(deltas), resp.GeneratedTokenCount, done.FinishReason)
-}
-
-// TestLocalServiceRealVLLMChatToolCallsStreamingParity is the real-engine
-// counterpart of TestLocalServiceChatStreamingToolCallsMatchesNonStreaming: it
-// drives a tools-bearing chat request against a real vLLM over both transports and
-// asserts the committed tool_calls agree byte-for-byte. This is the parity that
-// matters for function calls, because the two transports build tool_calls by
-// different routes — the non-streaming path re-marshals vLLM's array
-// (canonicalToolCalls), the streaming path merges per-index argument fragments
-// (toolCallAccumulator) — and their bytes must be identical. The test is gated on
-// an operator-supplied tools request (envTestVLLMChatToolInput) because whether a
-// given model actually emits a tool_call is model-specific; it fails loudly if the
-// supplied input did not trigger one, since equal-but-empty proves nothing.
-func TestLocalServiceRealVLLMChatToolCallsStreamingParity(t *testing.T) {
-	endpoint := strings.TrimSpace(os.Getenv(envTestVLLMURL))
-	if endpoint == "" {
-		t.Skipf("set %s to run the real vLLM chat tool-calls parity test", envTestVLLMURL)
+		len(committed), len(deltas), resp.GeneratedTokenCount, done.FinishReason)
+	t.Logf("real vLLM chat stream observer output (decoded token bytes): %q", committed)
+	for i, d := range deltas {
+		t.Logf("  frame[%d] token_ids=%v piece=%q", i, d.TokenIDs, d.TextDelta)
 	}
-	toolInput := strings.TrimSpace(os.Getenv(envTestVLLMChatToolInput))
-	if toolInput == "" {
-		t.Skipf("set %s to a tools-bearing chat request to run the tool-calls streaming parity test", envTestVLLMChatToolInput)
-	}
-	if _, isChat, err := parseChatInferInput([]byte(toolInput)); err != nil || !isChat {
-		t.Fatalf("%s is not a valid chat request (isChat=%v err=%v)", envTestVLLMChatToolInput, isChat, err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	svc := NewLocalService(endpoint, "real-vllm-chat-tools", 4, 5*time.Minute, 5*time.Minute)
-	caps, err := svc.ListCapabilities(ctx, ListCapabilitiesRequest{RequestID: "chat-tools-caps"})
-	if err != nil {
-		t.Fatalf("ListCapabilities() error = %v", err)
-	}
-	if len(caps.Capabilities) == 0 {
-		t.Fatalf("ListCapabilities() = %+v, want at least one vLLM model", caps)
-	}
-	modelID := strings.TrimSpace(os.Getenv(envTestVLLMModel))
-	if modelID == "" {
-		modelID = caps.Capabilities[0].ModelID
-	}
-	profileVersion := strings.TrimSpace(os.Getenv(envTestVLLMProfileVersion))
-	if profileVersion == "" {
-		profileVersion = "1"
-	}
-	// Native chat mode (no generation context): a "tool_calls" finish resolves to
-	// EOS through chatFinishResolver. Binding a generation context would route the
-	// finish through localGenerationFinishReason, which has no tool_calls case.
-	input, _ := ensureChatMaxTokens(t, []byte(toolInput))
-	req := InferRequest{
-		RequestID:      "chat-tools-parity",
-		ModelID:        modelID,
-		ProfileVersion: profileVersion,
-		Capability:     CapabilityLLMTextV1,
-		Input:          input,
-	}
-
-	svc.SetStreamInference(true)
-	streamOut, _ := chatInferArtifacts(t, ctx, svc, req)
-	svc.SetStreamInference(false)
-	jsonOut, _ := chatInferArtifacts(t, ctx, svc, req)
-
-	streamMsg := decodeChatOutputMessage(t, streamOut)
-	jsonMsg := decodeChatOutputMessage(t, jsonOut)
-
-	// The supplied input must actually have triggered a tool call — otherwise the
-	// byte-equality below holds trivially and covers nothing.
-	if !hasToolCalls(jsonMsg.ToolCalls) || !hasToolCalls(streamMsg.ToolCalls) {
-		t.Fatalf("%s did not trigger a tool_calls response (stream=%s json=%s); supply an input the model calls a tool for",
-			envTestVLLMChatToolInput, streamMsg.ToolCalls, jsonMsg.ToolCalls)
-	}
-	// Contract: the two transports produce the SAME tool call despite building it by
-	// different routes (non-streaming re-marshals vLLM's array; streaming merges
-	// per-index argument fragments). The per-call id is excluded because it is a
-	// nonce vLLM assigns per request — the two separate calls get different ids, the
-	// same way the chat envelope's id/created vary — so parity is expressed over the
-	// type, function name, and reassembled arguments.
-	streamCalls := toolCallsWithoutIDs(t, streamMsg.ToolCalls)
-	jsonCalls := toolCallsWithoutIDs(t, jsonMsg.ToolCalls)
-	if !bytes.Equal(streamCalls, jsonCalls) {
-		t.Fatalf("real vLLM tool_calls differ streaming vs non-streaming (ignoring id):\n stream=%s\n json  =%s", streamCalls, jsonCalls)
-	}
-	if streamMsg.FinishReason != jsonMsg.FinishReason {
-		t.Fatalf("real vLLM tool_calls finish_reason differs: stream=%q json=%q", streamMsg.FinishReason, jsonMsg.FinishReason)
-	}
-	t.Logf("real vLLM tool_calls streaming parity: finish=%q tool_calls=%s", streamMsg.FinishReason, streamCalls)
-}
-
-// toolCallsWithoutIDs canonicalises committed tool_calls for comparison by zeroing
-// each call's id (a per-request nonce) and re-marshalling, so equality reflects the
-// type, function name, and arguments — the parts the two transports actually build.
-func toolCallsWithoutIDs(t *testing.T, raw json.RawMessage) []byte {
-	t.Helper()
-	var calls []chatToolCall
-	if err := json.Unmarshal(raw, &calls); err != nil {
-		t.Fatalf("decode tool_calls: %v (%s)", err, raw)
-	}
-	for i := range calls {
-		calls[i].ID = ""
-	}
-	out, err := json.Marshal(calls)
-	if err != nil {
-		t.Fatalf("marshal tool_calls: %v", err)
-	}
-	return out
-}
-
-// hasToolCalls reports whether a committed message's tool_calls field carries at
-// least one call (absent / null / empty-array all count as none).
-func hasToolCalls(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" || string(trimmed) == "[]" {
-		return false
-	}
-	var calls []json.RawMessage
-	if err := json.Unmarshal(trimmed, &calls); err != nil {
-		return false
-	}
-	return len(calls) > 0
-}
-
-// decodeChatOutputMessage decodes a committed chat output and returns its single
-// choice's message plus finish reason, the fields parity is expressed over (the
-// id/created envelope a real engine varies between calls are intentionally
-// dropped).
-func decodeChatOutputMessage(t *testing.T, data []byte) struct {
-	Content      string
-	FinishReason string
-	ToolCalls    json.RawMessage
-} {
-	t.Helper()
-	var out chatCompletionOutput
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("chat output is not JSON: %v (%s)", err, data)
-	}
-	if len(out.Choices) == 0 {
-		t.Fatalf("chat output has no choices: %s", data)
-	}
-	c := out.Choices[0]
-	return struct {
-		Content      string
-		FinishReason string
-		ToolCalls    json.RawMessage
-	}{Content: c.Message.Content, FinishReason: c.FinishReason, ToolCalls: c.Message.ToolCalls}
 }
 
 func decodeTraceEnvelope(t *testing.T, data []byte) traceEnvelope {
