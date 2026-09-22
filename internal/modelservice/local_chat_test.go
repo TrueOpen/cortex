@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/SingaXYZ/cortex/internal/nodewire"
 )
@@ -56,8 +57,8 @@ func newChatVLLMStub(t *testing.T, resp chatCompletionResponse, models []string)
 // decoded from these (decodeTokensFromLogprobs), so they -- not Message.Content --
 // determine the committed text ("hello world").
 var (
-	helloBytes = []int{104, 101, 108, 108, 111}      // "hello"
-	worldBytes = []int{32, 119, 111, 114, 108, 100}  // " world"
+	helloBytes = []int{104, 101, 108, 108, 111}     // "hello"
+	worldBytes = []int{32, 119, 111, 114, 108, 100} // " world"
 )
 
 // chatGenResponse is a two-token chat generation with top-level prompt_token_ids
@@ -503,4 +504,126 @@ func chatInferArtifacts(t *testing.T, ctx context.Context, svc *LocalService, re
 		t.Fatalf("FetchArtifact(trace) error = %v", err)
 	}
 	return out.Data, tr.Data
+}
+
+func TestLastCompleteUTF8Boundary(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []byte
+		want int
+	}{
+		{"empty", nil, 0},
+		{"ascii", []byte("abc"), 3},
+		{"complete 3-byte", []byte{0xE4, 0xBD, 0xA0}, 3},                  // 你
+		{"ascii then complete", append([]byte("x"), 0xE4, 0xBD, 0xA0), 4}, // x你
+		{"truncated 2of3", []byte{0xE4, 0xBD}, 0},                         // 你 missing last byte
+		{"truncated 1of3", []byte{0xE4}, 0},
+		{"truncated 1of2", []byte{0xC3}, 0},                        // é lead only
+		{"complete then truncated", []byte{0x61, 0xE4, 0xBD}, 1},   // "a" + partial 你
+		{"invalid lead left in place", []byte{0x61, 0xFF}, 2},      // 0xFF is not a valid lead
+		{"lone continuation left in place", []byte{0x61, 0x80}, 2}, // orphan continuation byte
+		{"emoji truncated 3of4", []byte{0xF0, 0x9F, 0x98}, 0},      // 😀 missing last byte
+		{"emoji complete", []byte{0xF0, 0x9F, 0x98, 0x80}, 4},      // 😀
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := lastCompleteUTF8Boundary(tc.in); got != tc.want {
+				t.Fatalf("lastCompleteUTF8Boundary(%v) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// chatSplitMultibyteChunks streams "你好" (E4 BD A0 / E5 A5 BD) with the token
+// byte boundaries deliberately cutting each character across SSE frames, so the
+// per-frame raw bytes are not individually valid UTF-8.
+func chatSplitMultibyteChunks() []chatCompletionChunk {
+	return []chatCompletionChunk{
+		{
+			ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B",
+			PromptTokenIDs: []int{1, 2, 3},
+			Choices: []chatChunkChoice{{
+				Index:    0,
+				Delta:    chatChunkDelta{Role: "assistant"},
+				TokenIDs: []int{20},
+				Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
+					{Token: "token_id:20", Logprob: -0.1, Bytes: []int{0xE4, 0xBD}, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:20", Logprob: -0.1}}},
+				}},
+			}},
+		},
+		{
+			ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B",
+			Choices: []chatChunkChoice{{
+				Index:    0,
+				TokenIDs: []int{21},
+				Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
+					{Token: "token_id:21", Logprob: -0.2, Bytes: []int{0xA0, 0xE5, 0xA5}, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:21", Logprob: -0.2}}},
+				}},
+			}},
+		},
+		{
+			ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B",
+			Choices: []chatChunkChoice{{
+				Index:        0,
+				FinishReason: "stop",
+				TokenIDs:     []int{22},
+				Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
+					{Token: "token_id:22", Logprob: -0.3, Bytes: []int{0xBD}, TopLogprobs: []chatRespTopLogprob{{Token: "token_id:22", Logprob: -0.3}}},
+				}},
+			}},
+		},
+		{
+			ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B",
+			Usage: &chatRespUsage{PromptTokens: 3, CompletionTokens: 3, TotalTokens: 6},
+		},
+	}
+}
+
+func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
+	srv, _ := newChatVLLMStreamStub(t, chatSplitMultibyteChunks(), []string{"Qwen/Qwen3-8B"})
+	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	obs := &recordingObserver{}
+	svc.SetInferStreamObserver(obs)
+
+	resp, err := svc.Infer(context.Background(), chatInferReq())
+	if err != nil {
+		t.Fatalf("Infer() error = %v", err)
+	}
+
+	// Every delivered delta must be valid UTF-8 despite the raw per-token bytes
+	// splitting characters across frames.
+	var reassembled strings.Builder
+	for i, f := range obs.frames {
+		if !utf8.ValidString(f.TextDelta) {
+			t.Fatalf("frame[%d] TextDelta = %q is not valid UTF-8", i, f.TextDelta)
+		}
+		reassembled.WriteString(f.TextDelta)
+	}
+
+	// The character that completes only on frame 1 / frame 2 is held back until
+	// its bytes are whole; frame 0 carries its token id with an empty delta.
+	if f := obs.frames[0]; f.TextDelta != "" || !slices.Equal(f.TokenIDs, []int{20}) {
+		t.Fatalf("frame[0] = %+v, want empty delta with token [20]", f)
+	}
+	if f := obs.frames[1]; f.TextDelta != "你" || !slices.Equal(f.TokenIDs, []int{21}) {
+		t.Fatalf("frame[1] = %+v, want delta 你 with token [21]", f)
+	}
+	if f := obs.frames[2]; f.TextDelta != "好" || !slices.Equal(f.TokenIDs, []int{22}) || f.FinishReason != "stop" {
+		t.Fatalf("frame[2] = %+v, want delta 好 with token [22] / stop", f)
+	}
+	if f := obs.frames[len(obs.frames)-1]; !f.Done {
+		t.Fatalf("last frame = %+v, want terminal done frame", f)
+	}
+
+	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
+	if err != nil {
+		t.Fatalf("FetchArtifact(output) error = %v", err)
+	}
+	if string(output.Data) != "你好" {
+		t.Fatalf("committed output = %q, want %q", output.Data, "你好")
+	}
+	// Byte parity: concat(TextDelta) reassembles the committed output exactly.
+	if reassembled.String() != string(output.Data) {
+		t.Fatalf("concatenated deltas %q != committed output %q", reassembled.String(), output.Data)
+	}
 }

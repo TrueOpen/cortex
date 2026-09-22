@@ -9,6 +9,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // This file implements the chat generation path: it interprets req.Input as an
@@ -413,6 +414,48 @@ func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, err
 	return string(buf), nil
 }
 
+// lastCompleteUTF8Boundary returns the length of the largest prefix of b that
+// ends on a complete UTF-8 rune boundary. It strips at most utf8.UTFMax-1
+// trailing bytes that form a truncated-but-valid multi-byte sequence (a
+// multi-byte character split across streaming frame boundaries), so the caller
+// can hold those bytes back until the next frame completes the character.
+// Genuinely invalid bytes (a bad lead byte, or a run of continuation bytes with
+// no lead) are left in place so a downstream UTF-8 check can fail closed rather
+// than being silently buffered forever.
+func lastCompleteUTF8Boundary(b []byte) int {
+	if len(b) == 0 {
+		return 0
+	}
+	// Walk back over continuation bytes (10xxxxxx) to the last lead byte, bounded
+	// by the max UTF-8 sequence length.
+	start := len(b) - 1
+	for i := 0; start >= 0 && i < utf8.UTFMax && b[start]&0xC0 == 0x80; i++ {
+		start--
+	}
+	if start < 0 || b[start]&0xC0 == 0x80 {
+		return len(b) // no lead byte within range: malformed tail, leave for fail-closed
+	}
+	var n int // expected byte length of the rune the lead byte opens
+	switch c := b[start]; {
+	case c < 0x80:
+		n = 1
+	case c >= 0xC0 && c <= 0xDF:
+		n = 2
+	case c >= 0xE0 && c <= 0xEF:
+		n = 3
+	case c >= 0xF0 && c <= 0xF4:
+		n = 4
+	default:
+		// Continuation byte (0x80-0xBF) or an invalid lead (0xF5-0xFF): not a
+		// completable prefix, leave it in place so the UTF-8 check can fail closed.
+		return len(b)
+	}
+	if start+n <= len(b) {
+		return len(b) // last rune is fully present
+	}
+	return start // last rune is truncated: hold it back from its lead byte
+}
+
 // --- streaming transport ---------------------------------------------------
 //
 // A streaming /v1/chat/completions response is a text/event-stream of
@@ -470,7 +513,9 @@ func (s *LocalService) postStreamingChat(ctx context.Context, path string, body 
 // entries appended in order, prompt_token_ids and usage taken once, finish_reason
 // taken from the frame that carries it. The delivered text (committed output and
 // each frame's TextDelta) is decoded from the token ids via their logprobs bytes,
-// not the engine's delta.content -- see decodeTokensFromLogprobs.
+// not the engine's delta.content -- see decodeTokensFromLogprobs. Per-frame text
+// is buffered to UTF-8 rune boundaries so a multi-byte character split across
+// frames is never delivered as a partial (invalid-UTF-8) TextDelta.
 func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity) error {
 	observer := s.inferObserver()
 	observerActive := observer != nil
@@ -482,6 +527,10 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 
 	sawChoice := false
 	finishReason := ""
+	// pendingText carries bytes decoded from earlier frames that did not yet end
+	// on a UTF-8 rune boundary (a multi-byte character split across frames), so
+	// each delivered TextDelta stays valid UTF-8. See lastCompleteUTF8Boundary.
+	var pendingText []byte
 
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
@@ -545,10 +594,23 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 
 		if observerActive {
 			// The frame's text is decoded from this chunk's token ids via their
-			// logprobs bytes (not delta.content). This is transient delivery, so a
-			// decode/alignment error just drops this frame's text -- the authoritative
-			// check runs over the full reassembled sequence in projectChatToCompletion.
-			textDelta, _ := decodeTokensFromLogprobs(cc.TokenIDs, cc.Logprobs)
+			// logprobs bytes (not delta.content). Raw per-token bytes carry none of
+			// vLLM's incremental-detokenize buffering, so a multi-byte character
+			// split across frame boundaries would otherwise surface as a partial,
+			// invalid-UTF-8 TextDelta. Buffer the incomplete trailing bytes and only
+			// deliver up to the last complete rune boundary, mirroring delta.content;
+			// TokenIDs / logprobs stay per-frame. Byte parity is preserved: the held
+			// bytes are delivered on a later frame (or the final flush below), so
+			// concat(TextDelta) still equals the full decoded output. This is transient
+			// delivery, so a decode/alignment error just drops this frame's text -- the
+			// authoritative check runs over the full reassembled sequence in
+			// projectChatToCompletion.
+			frameText, _ := decodeTokensFromLogprobs(cc.TokenIDs, cc.Logprobs)
+			pendingText = append(pendingText, frameText...)
+			cut := lastCompleteUTF8Boundary(pendingText)
+			textDelta := string(pendingText[:cut])
+			n := copy(pendingText, pendingText[cut:]) // left-shift the held remainder
+			pendingText = pendingText[:n]
 			frame := InferStreamFrame{
 				RequestID:    ident.requestID,
 				JobID:        ident.jobID,
@@ -570,6 +632,24 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("modelservice local chat: read completion stream: %w", err)
+	}
+
+	if observerActive && len(pendingText) > 0 {
+		// Flush any bytes still held back. For valid UTF-8 output this is empty --
+		// the final token closes the last rune. A non-empty remainder means the
+		// model produced ill-formed UTF-8; deliver it as-is so the downstream UTF-8
+		// check fails closed rather than silently dropping it, and so byte parity
+		// with the committed output is preserved.
+		if err := observer.ObserveInferFrame(ctx, InferStreamFrame{
+			RequestID: ident.requestID,
+			JobID:     ident.jobID,
+			TaskID:    ident.taskID,
+			ModelID:   ident.modelID,
+			TextDelta: string(pendingText),
+		}); err != nil {
+			observerActive = false
+		}
+		pendingText = nil
 	}
 
 	if observerActive {
