@@ -278,11 +278,11 @@ func TestLocalServiceRealVLLMChat(t *testing.T) {
 			modelID, profileVersionNumber, topK, envTestVLLMKeeperRPC)
 	}
 
-	// Ensure the chat body carries a generation cap and bind Infer and Verify to
-	// the SAME max, so the trace's generation_params_digest matches the verify
-	// request's generation context (they differ otherwise, since the chat path
-	// enforces the cap only via the request).
-	chatInput, chatMaxTokens := ensureChatMaxTokens(t, realVLLMChatInput(t))
+	// Bind Infer and Verify to the SAME generation context (capped at
+	// realVLLMChatMaxTokens) so the trace's generation_params_digest matches the
+	// verify request's context. The cap is applied from the generation context, not
+	// the request body.
+	chatInput, chatMaxTokens := realVLLMChatInput(t), uint64(realVLLMChatMaxTokens)
 
 	load, err := svc.LoadModel(ctx, LoadModelRequest{
 		RequestID:  "real-vllm-chat-load",
@@ -424,24 +424,18 @@ func realVLLMChatInput(t *testing.T) []byte {
 	return body
 }
 
-// realVLLMChatMaxTokens bounds generation on the chat path when the request does
-// not otherwise cap it. Unlike inferV0, the chat path forwards no profile-level
-// max to vLLM (see buildChatCompletionRequest), so without a request cap the engine
-// generates to its context limit — which then exceeds the MaxOutputTokens the
-// evidence is validated against. A modest cap keeps the run bounded and fast.
+// realVLLMChatMaxTokens bounds generation on the chat path. The chat path is now
+// chain-bound like inferV0: MaxOutputTokens comes from the generation context and
+// is forwarded to vLLM as max_completion_tokens (localChatGenerationRequest), so a
+// modest cap keeps the run bounded and fast while the evidence validates against
+// the same ceiling.
 const realVLLMChatMaxTokens = 256
 
 // boundRealVLLMChatInfer binds a chat Infer request to a generation context capped
-// at maxTokens. Only the Verify test uses it: Verify requires a generation context
-// and re-derives against the one the trace carries, so the producing Infer must
-// embed the same one. The streaming/observer/tool tests deliberately do NOT bind a
-// generation context — that is the chat path's native mode (buildInferResultFromCompletion
-// skips generation validation when req.Generation is nil), where the finish reason,
-// including "tool_calls" -> EOS, is resolved by chatFinishResolver rather than the
-// stricter localGenerationFinishReason, which has no tool_calls case. Those tests
-// still cap generation through the request body (ensureChatMaxTokens) for a bounded
-// run; they simply do not validate an on-chain generation contract that chat does
-// not carry yet.
+// at maxTokens. Every chat Infer needs one now: the chat path validates
+// req.Generation and applies the frozen sampling parameters from it (including the
+// max_completion_tokens cap), exactly as inferV0 does. The producing Infer and its
+// Verify must bind the SAME context so the trace's generation_params_digest matches.
 func boundRealVLLMChatInfer(t *testing.T, req InferRequest, maxTokens uint64) InferRequest {
 	t.Helper()
 	if req.ProfileVersion == "" {
@@ -480,38 +474,6 @@ func realVLLMChatGeneration(t *testing.T, modelID, profileVersion string, maxTok
 		t.Fatal(err)
 	}
 	return g, digest[:]
-}
-
-// ensureChatMaxTokens returns the chat body with a guaranteed generation cap and
-// that cap's value: an existing max_completion_tokens / max_tokens is honoured,
-// otherwise realVLLMChatMaxTokens is injected.
-func ensureChatMaxTokens(t *testing.T, raw []byte) ([]byte, uint64) {
-	t.Helper()
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err != nil {
-		t.Fatalf("chat input is not a JSON object: %v (%s)", err, raw)
-	}
-	if v, ok := body["max_completion_tokens"]; ok {
-		return raw, parseChatMaxTokens(t, "max_completion_tokens", v)
-	}
-	if v, ok := body["max_tokens"]; ok {
-		return raw, parseChatMaxTokens(t, "max_tokens", v)
-	}
-	body["max_completion_tokens"] = json.RawMessage(strconv.Itoa(realVLLMChatMaxTokens))
-	out, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal chat input with injected max: %v", err)
-	}
-	return out, realVLLMChatMaxTokens
-}
-
-func parseChatMaxTokens(t *testing.T, field string, raw json.RawMessage) uint64 {
-	t.Helper()
-	var n float64
-	if err := json.Unmarshal(raw, &n); err != nil || n <= 0 {
-		t.Fatalf("chat input %s = %s, want a positive number", field, raw)
-	}
-	return uint64(n)
 }
 
 func parseRealVLLMUint32(t *testing.T, envName string, raw string) int {
@@ -1078,15 +1040,16 @@ func TestLocalServiceRealVLLMChatStreamingParity(t *testing.T) {
 	if profileVersion == "" {
 		profileVersion = "1"
 	}
-	// Native chat mode: no generation context, generation bounded via the body.
-	input, _ := ensureChatMaxTokens(t, realVLLMChatInput(t))
-	req := InferRequest{
+	// The chat path is chain-bound: bind a generation context (which carries the
+	// max_completion_tokens cap). The same req is reused for the streaming and
+	// non-streaming runs, so both bind the identical context.
+	req := boundRealVLLMChatInfer(t, InferRequest{
 		RequestID:      "chat-stream-parity",
 		ModelID:        modelID,
 		ProfileVersion: profileVersion,
 		Capability:     CapabilityLLMTextV1,
-		Input:          input,
-	}
+		Input:          realVLLMChatInput(t),
+	}, realVLLMChatMaxTokens)
 
 	svc.SetStreamInference(true)
 	streamOut, streamTrace := chatInferArtifacts(t, ctx, svc, req)
@@ -1158,17 +1121,17 @@ func TestLocalServiceRealVLLMChatStreamObserver(t *testing.T) {
 	obs := &recordingObserver{}
 	svc.SetInferStreamObserver(obs)
 
-	// Native chat mode: no generation context, generation bounded via the body.
-	input, _ := ensureChatMaxTokens(t, realVLLMChatInput(t))
-	resp, err := svc.Infer(ctx, InferRequest{
+	// The chat path is chain-bound: bind a generation context (which carries the
+	// max_completion_tokens cap).
+	resp, err := svc.Infer(ctx, boundRealVLLMChatInfer(t, InferRequest{
 		RequestID:      "real-chat-stream-obs",
 		JobID:          "real-chat-stream-obs-job",
 		TaskID:         "real-chat-stream-obs-task",
 		ModelID:        modelID,
 		ProfileVersion: profileVersion,
 		Capability:     CapabilityLLMTextV1,
-		Input:          input,
-	})
+		Input:          realVLLMChatInput(t),
+	}, realVLLMChatMaxTokens))
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}

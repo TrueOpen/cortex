@@ -1000,13 +1000,6 @@ func completionFinishResolver(req InferRequest) finishReasonResolver {
 	}
 }
 
-// chatFinishResolver serves the chat path, which does not validate req.Generation
-// and may see vLLM's "tool_calls" finish. finishReasonV1FromString maps that to
-// EOS and treats "stop" as EOS (the chat path sends no stop sequences).
-func chatFinishResolver(reason string, _ json.RawMessage, _ uint64) (nodewire.FinishReasonV1, error) {
-	return finishReasonV1FromString(reason, false)
-}
-
 // buildInferResultFromCompletion turns a decoded /v1/completions response (or a
 // chat response projected onto the same shape) into the InferResponse plus the
 // stored output/trace/checkpoint artifacts. It is shared by inferV0 and the chat
@@ -1086,10 +1079,10 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	if err != nil {
 		return InferResponse{}, fmt.Errorf("modelservice local infer: marshal checkpoint: %w", err)
 	}
-	// The chain-bound generation contract is only validated for the completions
-	// path, which carries and validates req.Generation. The chat path has no
-	// generation context yet (its finish reason comes from chatFinishResolver), so
-	// there is nothing to re-derive against here.
+	// The chain-bound generation contract is re-derived here for both paths: the
+	// raw-text path (inferV0) and the chat path (Infer) each carry and validate
+	// req.Generation, so the evidence is checked against the frozen parameters
+	// regardless of which endpoint generated the tokens.
 	if req.Generation != nil {
 		if _, _, err := ValidateGenerationEvidence(req.Generation, req.GenerationParamsDigest, []byte(choice.Text), traceBytes, checkpointBytes); err != nil {
 			return InferResponse{}, err

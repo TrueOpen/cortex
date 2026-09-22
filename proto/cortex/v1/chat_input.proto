@@ -24,22 +24,27 @@ option go_package = "github.com/SingaXYZ/cortex/proto/cortex/v1;cortexv1";
 //
 //   2. GENERATION PARAMS -- temperature, top_p, max_completion_tokens, seed,
 //      presence_penalty, frequency_penalty, stop. These change WHICH tokens are
-//      generated, but NOT whether verification reproduces them: the Verifier
-//      re-derives logprobs by teacher-forcing (prefill) over the exact token
-//      sequence the Worker already produced, and a prefill logprob is a
-//      deterministic function of (weights, prefix) -- independent of the
-//      temperature / seed that sampled those tokens. THIS EXACT SUBSET of
-//      top-level fields is what generation_params_digest binds
-//      (internal/taskfacts); it is a named subset by convention, not a nested
-//      message.
+//      generated. THIS EXACT SUBSET is what generation_params_digest binds
+//      (internal/taskfacts): the order freezes them on-chain, and the Worker
+//      applies them from that chain-bound generation context -- NOT from this
+//      request. They are therefore REJECTED here (see below): the request carries
+//      only content/intent, and the frozen parameters come from the order. (They
+//      remain declared so the message still mirrors the OpenAI body field-for-
+//      field, and so a reader sees which fields the digest names.)
 //
 //   3. DELIVERY PREFERENCE -- stream. A transport hint only; streaming
 //      reassembles byte-for-byte into the same committed result.
 //
 // Parser behaviour on the remaining OpenAI fields:
 //   - REJECT (fail closed) if present -- they would desynchronise Worker and
-//     Verifier or break the single-sample model, and silently dropping them
-//     would answer a different request than the caller sent:
+//     Verifier, break the single-sample model, or diverge from the frozen
+//     parameters, and silently dropping them would answer a different request
+//     than the caller sent:
+//       temperature, top_p, max_completion_tokens (and the deprecated max_tokens
+//                               alias), seed, presence_penalty, frequency_penalty,
+//                               stop -> the generation_params_digest subset, owned
+//                               by the order's chain-bound generation context and
+//                               applied from there, not from the request
 //       logprobs, top_logprobs  -> the compared logprob COUNT is the profile's
 //                                  required_top_k / compared_top_k
 //       logit_bias              -> perturbs the distribution being compared
@@ -84,24 +89,30 @@ message ChatInferInput {
   ResponseFormat response_format = 5;
 
   // -- GENERATION PARAMS (the generation_params_digest subset) -----------
-  // Every field is an OpenAI sampling parameter; absent takes the profile
-  // default. temperature: 0 is greedy, and present-and-zero differs from absent,
-  // hence optional throughout.
+  // Every field is an OpenAI sampling parameter that generation_params_digest
+  // binds. They are REJECTED if present in the request (fail closed): the order
+  // freezes them on-chain and the Worker applies them from that chain-bound
+  // generation context, so accepting them here would let a request diverge from
+  // the committed parameters. They are declared only to mirror the OpenAI body
+  // field-for-field and to name the digest's subset.
 
   optional double temperature = 6;
   optional double top_p = 7;
-  // max_completion_tokens is OpenAI's current generation cap. The parser also
-  // accepts the deprecated OpenAI `max_tokens` key and maps it here.
+  // max_completion_tokens is OpenAI's current generation cap. The deprecated
+  // OpenAI `max_tokens` alias is rejected too.
   optional int32 max_completion_tokens = 8;
   // seed is a full signed int64 (OpenAI seed is a signed integer), NOT unsigned.
   optional int64 seed = 9;
   optional double presence_penalty = 10;
   optional double frequency_penalty = 11;
-  // stop are stop sequences (OpenAI allows up to 4). NOTE: supplying these makes
-  // the completion finish_reason "stop" ambiguous between EOS and a stop hit,
-  // which the local path currently treats as unambiguous EOS (see
-  // finish_reason.go's ambiguousStop). Leave empty until that ambiguity is
-  // handled.
+  // stop are stop sequences (OpenAI allows up to 4). Rejected on input like the
+  // other generation params. Beyond that, the chat path does NOT support stop
+  // conditions at all: a generation context that carries stop_sequences (or the
+  // vLLM-only stop_token_ids) is refused, because a string stop cannot be honoured
+  // under the chat path's decode-from-token_ids invariant (the committed output is
+  // the concatenated token bytes, which a text-level truncation would desync). Chat
+  // generations terminate by natural EOS or max_completion_tokens only. See
+  // modelservice/local_chat.go's rejectNonOpenAIChatGenerationParams.
   repeated string stop = 12;
 
   // -- DELIVERY PREFERENCE -----------------------------------------------
