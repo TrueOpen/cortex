@@ -517,7 +517,14 @@ func (s *LocalService) postStreamingChat(ctx context.Context, path string, body 
 // is buffered to UTF-8 rune boundaries so a multi-byte character split across
 // frames is never delivered as a partial (invalid-UTF-8) TextDelta.
 func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity) error {
-	observer := s.inferObserver()
+	// observerForRequest, not inferObserver: the Worker installs its output-stream
+	// recorder per request with WithInferStreamObserver, and the process-wide sink
+	// this used to read has no production caller at all, so it is always nil. The
+	// completions path already reads the request-scoped one. Reading the wrong one
+	// here meant no frame ever reached the recorder on the chat path, and
+	// outputStreamRecorder.finish then took its "no frames observed" branch and
+	// committed the whole generation as a single output chunk.
+	observer := s.observerForRequest(ctx)
 	observerActive := observer != nil
 
 	scanner := bufio.NewScanner(r)

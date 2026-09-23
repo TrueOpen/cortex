@@ -404,6 +404,49 @@ func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 	t.Logf("concatenated stream output = %q", string(output.Data))
 }
 
+// TestLocalServiceChatStreamDeliversToTheRequestScopedObserver pins the observer
+// the chat path actually reads in production. Every other streaming test here
+// installs the process-wide sink with SetInferStreamObserver, which has no
+// production caller at all -- the Worker scopes its output-stream recorder to one
+// request with WithInferStreamObserver, exactly so concurrent tasks sharing a
+// LocalService cannot replace each other's sink.
+//
+// Reading the process-wide sink instead left it nil on every real chat task, so no
+// frame reached the recorder, outputStreamRecorder.finish took its "no frames
+// observed" branch, and the whole generation was committed as a single output
+// chunk. The frame boundaries are MMR leaves, so that is a different output_hash,
+// not a cosmetic difference in delivery.
+func TestLocalServiceChatStreamDeliversToTheRequestScopedObserver(t *testing.T) {
+	srv, _ := newChatVLLMStreamStub(t, chatContentChunks(), []string{"Qwen/Qwen3-8B"})
+	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+
+	obs := &recordingObserver{}
+	// Deliberately NOT SetInferStreamObserver: this is how the Worker wires it.
+	ctx := WithInferStreamObserver(context.Background(), obs)
+
+	resp, err := svc.Infer(ctx, chatInferReq())
+	if err != nil {
+		t.Fatalf("Infer() error = %v", err)
+	}
+	if len(obs.frames) == 0 {
+		t.Fatal("request-scoped observer received no frames; the chat path is reading the process-wide sink again")
+	}
+
+	var streamed string
+	for _, f := range obs.frames {
+		streamed += f.TextDelta
+	}
+	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
+	if err != nil {
+		t.Fatalf("FetchArtifact(output) error = %v", err)
+	}
+	// Byte parity is what lets the Worker commit the streamed frames: its recorder
+	// refuses a stream that does not reassemble to the final output.
+	if streamed != string(output.Data) {
+		t.Fatalf("concatenated deltas %q != committed output %q", streamed, output.Data)
+	}
+}
+
 func TestLocalServiceChatStreamObserverErrorDoesNotFailInference(t *testing.T) {
 	srv, _ := newChatVLLMStreamStub(t, chatContentChunks(), []string{"Qwen/Qwen3-8B"})
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
