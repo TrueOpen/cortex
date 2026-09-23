@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // This file implements the chat generation path: it interprets req.Input as an
