@@ -7,9 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	"github.com/SingaXYZ/cortex/internal/nodewire"
 )
 
 // This file implements the chat generation path: it interprets req.Input as an
@@ -35,45 +39,54 @@ import (
 // engine's own detokenization. tool_calls are therefore not parsed out separately;
 // any tool-call syntax the model emitted is just tokens in that raw text.
 //
-// Scope: sampling params are the OpenAI subset; stop sequences are intentionally
-// refused (not forwarded) so a "stop" finish_reason stays unambiguous EOS; a
-// "tool_calls" finish maps to EOS in finish_reason.go.
+// Scope: the sampling parameters come from the chain-bound generation context
+// (NOT from the request), exactly as the raw-text path (see decodeGenerationParams).
+// But the chat endpoint honours only the OpenAI Chat Completions sampling subset:
+// a context that sets a vLLM-only knob (top_k, repetition_penalty) or ANY stop
+// condition (stop_sequences, stop_token_ids) is refused up front
+// (rejectNonOpenAIChatGenerationParams) rather than silently dropped. So chat
+// generations terminate only by natural EOS or max_output_tokens; there is no stop
+// condition to disambiguate. A "tool_calls" finish is normalised to EOS in
+// projectChatToCompletion, so the finish handling (completionFinishResolver) and
+// evidence re-derivation are identical to the raw-text path.
 
-// chatInferInput is the accepted subset of the OpenAI chat request. Content-shape
-// fields (messages/tools/tool_choice/response_format) are kept as raw JSON and
-// forwarded verbatim to vLLM -- the input is already OpenAI-shaped, so re-modelling
-// them would only risk lossy round-trips. Only the sampling scalars are typed,
-// because they are read (for the generation subset) and defaulted from the profile.
+// chatInferInput is the accepted subset of the OpenAI chat request. Only the
+// content/intent fields are accepted here: messages/tools/tool_choice/
+// response_format/parallel_tool_calls. They are kept as raw JSON and forwarded
+// verbatim to vLLM -- the input is already OpenAI-shaped, so re-modelling them
+// would only risk lossy round-trips.
+//
+// The sampling parameters (temperature, top_p, max_completion_tokens, seed,
+// presence/frequency penalty, stop) are NOT taken from the request: they are the
+// generation_params_digest subset, owned by the order's chain-bound generation
+// context. Supplying any of them in the input is refused (chatRejectedInputFields)
+// rather than silently overridden, so the request cannot claim parameters the
+// order did not freeze.
 type chatInferInput struct {
 	Messages          json.RawMessage `json:"messages"`
 	Tools             json.RawMessage `json:"tools,omitempty"`
 	ToolChoice        json.RawMessage `json:"tool_choice,omitempty"`
 	ResponseFormat    json.RawMessage `json:"response_format,omitempty"`
 	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitempty"`
-
-	// Generation params (the generation_params_digest subset). Pointers so an
-	// absent field falls back to the profile default rather than a zero value.
-	Temperature         *float64 `json:"temperature,omitempty"`
-	TopP                *float64 `json:"top_p,omitempty"`
-	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
-	MaxTokens           *int     `json:"max_tokens,omitempty"` // legacy OpenAI alias
-	Seed                *int64   `json:"seed,omitempty"`
-	PresencePenalty     *float64 `json:"presence_penalty,omitempty"`
-	FrequencyPenalty    *float64 `json:"frequency_penalty,omitempty"`
 }
 
 // chatRejectedInputFields are OpenAI request fields Cortex refuses on the chat
-// path, because silently dropping them would answer a different request than the
-// caller sent. Two reasons, one behaviour:
+// path, because silently dropping (or overriding) them would answer a different
+// request than the caller sent. Two groups, one behaviour:
 //   - logprobs/top_logprobs/logit_bias/n: their COUNT/bias is owned by the
 //     verification profile or fixed by Cortex.
-//   - stop: the first cut does NOT forward stop sequences so a "stop"
-//     finish_reason stays unambiguous EOS (see finish_reason.go's ambiguousStop).
-//     Until that ambiguity is handled it is refused rather than dropped, matching
-//     the proto's "leave empty until handled" note (chat_input.proto:100).
+//   - temperature/top_p/max_completion_tokens/max_tokens/seed/presence_penalty/
+//     frequency_penalty/stop: the generation_params_digest subset. These are
+//     frozen by the order's chain-bound generation context and applied from there
+//     (decodeGenerationParams), so accepting them from the request would let it
+//     diverge from the committed parameters.
 //
 // See proto/cortex/v1/chat_input.proto.
-var chatRejectedInputFields = []string{"logprobs", "top_logprobs", "logit_bias", "n", "stop"}
+var chatRejectedInputFields = []string{
+	"logprobs", "top_logprobs", "logit_bias", "n",
+	"temperature", "top_p", "max_completion_tokens", "max_tokens", "seed",
+	"presence_penalty", "frequency_penalty", "stop",
+}
 
 // chatCompletionRequest is the /v1/chat/completions request Cortex sends. The
 // content-shape fields pass through raw; the verification-relevant fields
@@ -87,6 +100,13 @@ type chatCompletionRequest struct {
 	ResponseFormat    json.RawMessage `json:"response_format,omitempty"`
 	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitempty"`
 
+	// Sampling parameters, set from the chain-bound generation context
+	// (localChatGenerationRequest), never from the request. Only the OpenAI Chat
+	// Completions sampling subset is sent: the vLLM-only knobs the raw-text path can
+	// carry (top_k, repetition_penalty) and the stop conditions (stop_sequences,
+	// stop_token_ids) are NOT forwarded -- a generation context that sets any of
+	// them is refused upstream (rejectNonOpenAIChatGenerationParams), so this request
+	// stays a pure OpenAI body.
 	Temperature         float64 `json:"temperature"`
 	TopP                float64 `json:"top_p"`
 	MaxCompletionTokens int     `json:"max_completion_tokens,omitempty"`
@@ -178,29 +198,57 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	if !isChat {
 		return s.inferV0(ctx, req)
 	}
+	// The chat path is now chain-bound just like inferV0: validate req.Generation
+	// against its digest, then clone it (and the digest) so post-processing sees a
+	// stable copy while it is re-derived against the evidence.
+	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {
+		return InferResponse{}, err
+	}
+	// Fail fast on a context that carries a parameter chat does not support, before
+	// resolving the profile (a possibly remote call): the digest is already
+	// validated above, so the frozen params can be trusted here.
+	if err := rejectNonOpenAIChatGenerationParams(req.Generation); err != nil {
+		return InferResponse{}, err
+	}
+	generation := req.Generation.Clone()
+	req.Generation = &generation
+	req.GenerationParamsDigest = slices.Clone(req.GenerationParamsDigest)
 	profile, err := s.resolveLocalProfile(ctx, req.ModelID, req.ProfileVersion)
 	if err != nil {
 		return InferResponse{}, err
 	}
 	streaming := s.streamInferenceEnabled()
-	chatReq := s.buildChatCompletionRequest(profile, input, streaming)
+	chatReq, duration, err := localChatGenerationRequest(req, profile, input, streaming)
+	if err != nil {
+		return InferResponse{}, err
+	}
+	// The local bound begins before the engine call, so queue and network time
+	// consume the budget. Expiry fails the call without publishing partial output.
+	ctx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+	if req.DeadlineMS > 0 {
+		var deadlineCancel context.CancelFunc
+		ctx, deadlineCancel = context.WithDeadline(ctx, time.UnixMilli(req.DeadlineMS))
+		defer deadlineCancel()
+	}
+	ctx, inferCancel := s.withInferTimeout(ctx)
+	defer inferCancel()
 	var chatResp chatCompletionResponse
-	{
-		ctx, cancel := s.withInferTimeout(ctx)
-		defer cancel()
-		if streaming {
-			ident := inferStreamIdentity{
-				requestID: req.RequestID,
-				jobID:     req.JobID,
-				taskID:    req.TaskID,
-				modelID:   profile.ModelID,
-			}
-			if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident); err != nil {
-				return InferResponse{}, err
-			}
-		} else if err := s.post(ctx, "/v1/chat/completions", chatReq, &chatResp); err != nil {
+	if streaming {
+		ident := inferStreamIdentity{
+			requestID: req.RequestID,
+			jobID:     req.JobID,
+			taskID:    req.TaskID,
+			modelID:   profile.ModelID,
+		}
+		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident); err != nil {
 			return InferResponse{}, err
 		}
+	} else if err := s.post(ctx, "/v1/chat/completions", chatReq, &chatResp); err != nil {
+		return InferResponse{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return InferResponse{}, err
 	}
 	projected, err := projectChatToCompletion(chatResp)
 	if err != nil {
@@ -212,7 +260,11 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	// outputBytes is nil so the delivered output defaults to choice.Text -- the raw
 	// text decoded from the committed token_ids (set by projectChatToCompletion).
 	// The delivered output, trace.Output and checkpoint.Output are thus identical.
-	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, chatFinishResolver)
+	// req.Generation is now set, so buildInferResultFromCompletion re-derives the
+	// chain-bound evidence contract (ValidateGenerationEvidence) for the chat path
+	// exactly as for inferV0. projectChatToCompletion already normalised the chat-only
+	// "tool_calls" finish to EOS, so the raw-text resolver applies unchanged.
+	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, completionFinishResolver(req))
 }
 
 // validateChatUsage fails closed when the engine's reported completion token count
@@ -251,7 +303,7 @@ func parseChatInferInput(input []byte) (chatInferInput, bool, error) {
 	for _, field := range chatRejectedInputFields {
 		if _, bad := probe[field]; bad {
 			return chatInferInput{}, true, fmt.Errorf(
-				"modelservice local chat: request field %q is not accepted (owned by the verification profile or fixed by Cortex)", field)
+				"modelservice local chat: request field %q is not accepted (owned by the generation context or verification profile, or fixed by Cortex)", field)
 		}
 	}
 	var parsed chatInferInput
@@ -279,13 +331,53 @@ func messagesEmpty(raw json.RawMessage) bool {
 	return len(msgs) == 0
 }
 
-// buildChatCompletionRequest assembles the outgoing request: content-shape fields
-// pass through, sampling params come from the input where present else the profile
-// default, and the verification-relevant fields are pinned by Cortex.
-func (s *LocalService) buildChatCompletionRequest(profile localModelProfile, in chatInferInput, streaming bool) chatCompletionRequest {
+// repetitionPenaltyNeutralPPM is repetition_penalty == 1.0 (no penalty) in the
+// generation context's parts-per-million units. A context that sets anything else
+// is applying the vLLM-only repetition_penalty, which the chat path refuses.
+const repetitionPenaltyNeutralPPM = 1_000_000
+
+// rejectNonOpenAIChatGenerationParams fails closed when the (already
+// digest-validated) generation context carries a parameter with no OpenAI Chat
+// Completions analog. The chat endpoint's supported feature set is the OpenAI
+// sampling subset (temperature/top_p/max_completion_tokens/seed/presence_penalty/
+// frequency_penalty). The raw-text path may set the vLLM-only knobs below, but chat
+// REFUSES them rather than silently dropping ordered parameters (which would commit
+// a computation different from the one the order froze). stop_sequences is an OpenAI
+// field but is refused too: it cannot be honoured under the chat path's
+// decode-from-token_ids invariant (see the file header).
+func rejectNonOpenAIChatGenerationParams(g *nodewire.GenerationContext) error {
+	d := g.Params.DecodingParams
+	switch {
+	case d.TopK != 0:
+		return fmt.Errorf("modelservice local chat: generation context sets top_k (%d); the chat path supports only the OpenAI sampling subset", d.TopK)
+	case d.RepetitionPenaltyPPM != repetitionPenaltyNeutralPPM:
+		return fmt.Errorf("modelservice local chat: generation context sets repetition_penalty (%d ppm); the chat path supports only the OpenAI sampling subset", d.RepetitionPenaltyPPM)
+	case len(d.StopSequences) != 0:
+		return fmt.Errorf("modelservice local chat: generation context sets stop_sequences; the chat path does not support them (unverifiable under decode-from-token_ids)")
+	case len(d.StopTokenIDs) != 0:
+		return fmt.Errorf("modelservice local chat: generation context sets stop_token_ids; the chat path supports only the OpenAI sampling subset")
+	}
+	return nil
+}
+
+// localChatGenerationRequest assembles the outgoing chat request from the
+// content/intent input and the chain-bound generation context. The sampling
+// parameters come entirely from decodeGenerationParams (the same validated source
+// the raw-text path uses), never from the request -- and only the OpenAI sampling
+// subset is forwarded. The caller (Infer) has already rejected any context that
+// sets a non-OpenAI knob (top_k / repetition_penalty) or a stop condition
+// (rejectNonOpenAIChatGenerationParams), so decodeGenerationParams' stop/top_k
+// fields are guaranteed empty/zero here. The verification-relevant fields (logprobs
+// count, return_token_ids, skip_special_tokens) are pinned by Cortex from the
+// profile. It returns the local output-duration budget alongside the request.
+func localChatGenerationRequest(req InferRequest, profile localModelProfile, in chatInferInput, streaming bool) (chatCompletionRequest, time.Duration, error) {
+	p, duration, err := decodeGenerationParams(req)
+	if err != nil {
+		return chatCompletionRequest{}, 0, err
+	}
 	skipSpecial := profile.Sampling.SkipSpecialTokens
-	seed := int64(profile.Sampling.Seed)
-	req := chatCompletionRequest{
+	seed := int64(p.seed)
+	chatReq := chatCompletionRequest{
 		Model:             profile.ServedModel,
 		Messages:          in.Messages,
 		Tools:             in.Tools,
@@ -293,14 +385,12 @@ func (s *LocalService) buildChatCompletionRequest(profile localModelProfile, in 
 		ResponseFormat:    in.ResponseFormat,
 		ParallelToolCalls: in.ParallelToolCalls,
 
-		Temperature: profile.Sampling.Temperature,
-		TopP:        profile.Sampling.TopP,
-		// No profile-level max: #370 removed the fixed 128-token default so output
-		// is not artificially truncated. The chat path carries no chain-bound
-		// generation params yet, so the bound comes only from the request's
-		// max_completion_tokens / max_tokens below (omitted when unset, letting the
-		// engine use its context-limited default).
-		Seed: &seed,
+		Temperature:         p.temperature,
+		TopP:                p.topP,
+		MaxCompletionTokens: p.maxTokens,
+		Seed:                &seed,
+		PresencePenalty:     p.presencePenalty,
+		FrequencyPenalty:    p.frequencyPenalty,
 
 		Stream:                 streaming,
 		Logprobs:               true,
@@ -312,30 +402,9 @@ func (s *LocalService) buildChatCompletionRequest(profile localModelProfile, in 
 	if streaming {
 		// Ask vLLM for the terminal usage-only chunk so the committed output's
 		// usage matches the non-streaming body (see chatStreamOptions).
-		req.StreamOptions = &chatStreamOptions{IncludeUsage: true}
+		chatReq.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	}
-	if in.Temperature != nil {
-		req.Temperature = *in.Temperature
-	}
-	if in.TopP != nil {
-		req.TopP = *in.TopP
-	}
-	switch {
-	case in.MaxCompletionTokens != nil:
-		req.MaxCompletionTokens = *in.MaxCompletionTokens
-	case in.MaxTokens != nil:
-		req.MaxCompletionTokens = *in.MaxTokens
-	}
-	if in.Seed != nil {
-		req.Seed = in.Seed
-	}
-	if in.PresencePenalty != nil {
-		req.PresencePenalty = *in.PresencePenalty
-	}
-	if in.FrequencyPenalty != nil {
-		req.FrequencyPenalty = *in.FrequencyPenalty
-	}
-	return req
+	return chatReq, duration, nil
 }
 
 // projectChatToCompletion maps a chat response onto the completionResponse shape
@@ -357,6 +426,19 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 		return completionResponse{}, err
 	}
 
+	// vLLM's chat endpoint reports "tool_calls" when the model finished its turn by
+	// emitting a tool call. That is not a member of the frozen finish set, and it is
+	// the model completing its turn at the EOS boundary, so it is normalised to
+	// "eos_token" HERE -- before the trace/checkpoint are built from this value and
+	// before ValidateGenerationEvidence re-derives the finish reason from it -- so
+	// the whole pipeline (resolver, evidence, Verifier) sees one in-set value. The
+	// raw-text path never sees "tool_calls"; with this normalisation the chat path's
+	// finish handling is identical to it (completionFinishResolver).
+	finishReason := c.FinishReason
+	if strings.EqualFold(strings.TrimSpace(finishReason), "tool_calls") {
+		finishReason = "eos_token"
+	}
+
 	var logprobs *completionLogprobs
 	if c.Logprobs != nil {
 		logprobs = &completionLogprobs{
@@ -375,10 +457,13 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 		}
 	}
 
+	// StopReason is deliberately left unset: chat refuses any configured stop
+	// condition (rejectNonOpenAIChatGenerationParams), so a natural EOS is the only
+	// termination and localGenerationFinishReason resolves it from finishReason alone.
 	return completionResponse{
 		Choices: []completionChoice{{
 			Text:           text,
-			FinishReason:   c.FinishReason,
+			FinishReason:   finishReason,
 			PromptTokenIDs: chatResp.PromptTokenIDs,
 			TokenIDs:       c.TokenIDs,
 			Logprobs:       logprobs,

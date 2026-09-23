@@ -90,12 +90,12 @@ func TestLocalServiceChatInferProjectsResponse(t *testing.T) {
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
 	svc.SetStreamInference(false) // this test pins the non-streaming transport
 
-	resp, err := svc.Infer(context.Background(), InferRequest{
+	resp, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
 		RequestID:  "chat-1",
 		ModelID:    testQwenModelID(),
 		Capability: CapabilityLLMTextV1,
-		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}],"temperature":0.7}`),
-	})
+		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+	}))
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}
@@ -153,8 +153,17 @@ func TestLocalServiceChatInferProjectsResponse(t *testing.T) {
 	if got.TopLogprobs != defaultTopK {
 		t.Fatalf("top_logprobs = %d, want profile default %d", got.TopLogprobs, defaultTopK)
 	}
-	if got.Temperature != 0.7 {
-		t.Fatalf("temperature = %v, want caller-supplied 0.7", got.Temperature)
+	// Sampling params come from the chain-bound generation context, not the request:
+	// localTestGeneration is greedy (sampling disabled -> temperature 0), top_p 1.0
+	// (top_p_ppm 1_000_000) and max_output_tokens 128.
+	if got.Temperature != 0 {
+		t.Fatalf("temperature = %v, want generation-derived 0", got.Temperature)
+	}
+	if got.TopP != 1 {
+		t.Fatalf("top_p = %v, want generation-derived 1.0", got.TopP)
+	}
+	if got.MaxCompletionTokens != 128 {
+		t.Fatalf("max_completion_tokens = %d, want generation max_output_tokens 128", got.MaxCompletionTokens)
 	}
 	if got.Stream {
 		t.Fatalf("non-streaming svc must send stream:false")
@@ -179,6 +188,97 @@ func TestLocalServiceChatRejectsForbiddenField(t *testing.T) {
 	}
 	if len(*seen) != 0 {
 		t.Fatalf("forbidden request must be rejected before calling vLLM")
+	}
+}
+
+func TestLocalServiceChatRejectsGenerationParamField(t *testing.T) {
+	// The sampling params are owned by the chain-bound generation context, so
+	// supplying one in the request is refused rather than silently overridden.
+	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
+	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+
+	for _, field := range []string{"temperature", "top_p", "max_completion_tokens", "max_tokens", "seed", "presence_penalty", "frequency_penalty", "stop"} {
+		input := fmt.Sprintf(`{"messages":[{"role":"user","content":"hi"}],%q:%s}`, field, genParamSampleValue(field))
+		_, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
+			RequestID:  "chat-reject-" + field,
+			ModelID:    testQwenModelID(),
+			Capability: CapabilityLLMTextV1,
+			Input:      []byte(input),
+		}))
+		if err == nil || !strings.Contains(err.Error(), field) {
+			t.Fatalf("field %q: error = %v, want it refused and named", field, err)
+		}
+	}
+	if len(*seen) != 0 {
+		t.Fatalf("generation-owned request fields must be rejected before calling vLLM")
+	}
+}
+
+// genParamSampleValue is a syntactically valid JSON value for a rejected
+// generation-param field, so the reject is proven to fire on the KEY, not on a
+// decode error.
+func genParamSampleValue(field string) string {
+	switch field {
+	case "max_completion_tokens", "max_tokens", "seed":
+		return "16"
+	case "stop":
+		return `["\n"]`
+	default:
+		return "0.5"
+	}
+}
+
+// chatBoundMut binds req to a CHAT generation context whose decoding params are
+// mutated by mut before the digest is computed, so a test can exercise a context
+// that carries a non-OpenAI knob or a stop condition.
+func chatBoundMut(t *testing.T, req InferRequest, mut func(*nodewire.DecodingParamsV1)) InferRequest {
+	t.Helper()
+	g := localTestGeneration(req.ModelID, 1)
+	g.TaskType = 2 // CHAT
+	mut(&g.Params.DecodingParams)
+	digest, err := g.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ProfileVersion = "1"
+	req.Generation = g
+	req.GenerationParamsDigest = digest[:]
+	return req
+}
+
+func TestLocalServiceChatRejectsNonOpenAIGenerationParams(t *testing.T) {
+	// The chat path honours only the OpenAI sampling subset. A generation context
+	// that freezes a vLLM-only knob (top_k, repetition_penalty) or ANY stop
+	// condition (stop_sequences, stop_token_ids) is refused up front -- fail closed,
+	// never silently dropped -- and vLLM is never called.
+	cases := []struct {
+		name string
+		mut  func(*nodewire.DecodingParamsV1)
+	}{
+		{"top_k", func(d *nodewire.DecodingParamsV1) { d.TopK = 5 }},
+		{"repetition_penalty", func(d *nodewire.DecodingParamsV1) { d.RepetitionPenaltyPPM = 1_100_000 }},
+		{"stop_sequences", func(d *nodewire.DecodingParamsV1) { d.StopSequences = []string{"END"} }},
+		{"stop_token_ids", func(d *nodewire.DecodingParamsV1) { d.StopTokenIDs = []uint32{100} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
+			svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+			svc.SetStreamInference(false)
+
+			_, err := svc.Infer(context.Background(), chatBoundMut(t, InferRequest{
+				RequestID:  "chat-nonopenai-" + tc.name,
+				ModelID:    testQwenModelID(),
+				Capability: CapabilityLLMTextV1,
+				Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+			}, tc.mut))
+			if err == nil || !strings.Contains(err.Error(), tc.name) {
+				t.Fatalf("%s: err = %v, want fail closed naming %q", tc.name, err, tc.name)
+			}
+			if len(*seen) != 0 {
+				t.Fatalf("%s: must be refused before calling vLLM", tc.name)
+			}
+		})
 	}
 }
 
@@ -212,12 +312,12 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
 
-	got, err := svc.Infer(context.Background(), InferRequest{
+	got, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
 		RequestID:  "chat-tools",
 		ModelID:    testQwenModelID(),
 		Capability: CapabilityLLMTextV1,
 		Input:      []byte(`{"messages":[{"role":"user","content":"weather?"}],"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}]}`),
-	})
+	}))
 	if err != nil {
 		t.Fatalf("Infer() tool_calls error = %v", err)
 	}
@@ -320,15 +420,33 @@ func chatContentChunks() []chatCompletionChunk {
 	}
 }
 
-func chatInferReq() InferRequest {
-	return InferRequest{
+// chatBound binds req to a CHAT (task_type 2) generation context and its digest,
+// mirroring boundLocalInferFixture for the raw-text path. The chat path is now
+// chain-bound just like inferV0, so every chat Infer needs a valid generation
+// context; the sampling parameters the request used to carry come from here.
+func chatBound(t *testing.T, req InferRequest) InferRequest {
+	t.Helper()
+	g := localTestGeneration(req.ModelID, 1)
+	g.TaskType = 2 // CHAT
+	digest, err := g.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ProfileVersion = "1"
+	req.Generation = g
+	req.GenerationParamsDigest = digest[:]
+	return req
+}
+
+func chatInferReq(t *testing.T) InferRequest {
+	return chatBound(t, InferRequest{
 		RequestID:  "chat-stream",
 		JobID:      "chat-job",
 		TaskID:     "chat-task",
 		ModelID:    testQwenModelID(),
 		Capability: CapabilityLLMTextV1,
 		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
-	}
+	})
 }
 
 func TestLocalServiceChatStreamingMatchesNonStreaming(t *testing.T) {
@@ -337,7 +455,7 @@ func TestLocalServiceChatStreamingMatchesNonStreaming(t *testing.T) {
 
 	streamSrv, seen := newChatVLLMStreamStub(t, chatContentChunks(), models)
 	streamSvc := NewLocalService(streamSrv.URL, "local-svc", 4, 0, 0) // streaming default on
-	streamOut, streamTrace := chatInferArtifacts(t, ctx, streamSvc, chatInferReq())
+	streamOut, streamTrace := chatInferArtifacts(t, ctx, streamSvc, chatInferReq(t))
 	if len(*seen) != 1 || !(*seen)[0].Stream {
 		t.Fatalf("generation request Stream = %+v, want a single stream:true call", *seen)
 	}
@@ -348,7 +466,7 @@ func TestLocalServiceChatStreamingMatchesNonStreaming(t *testing.T) {
 	jsonSrv, _ := newChatVLLMStub(t, chatGenResponse(), models)
 	jsonSvc := NewLocalService(jsonSrv.URL, "local-svc", 4, 0, 0)
 	jsonSvc.SetStreamInference(false)
-	jsonOut, jsonTrace := chatInferArtifacts(t, ctx, jsonSvc, chatInferReq())
+	jsonOut, jsonTrace := chatInferArtifacts(t, ctx, jsonSvc, chatInferReq(t))
 
 	if !bytes.Equal(streamOut, jsonOut) {
 		t.Fatalf("streaming output = %s\n non-streaming = %s", streamOut, jsonOut)
@@ -364,7 +482,7 @@ func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 	obs := &recordingObserver{}
 	svc.SetInferStreamObserver(obs)
 
-	resp, err := svc.Infer(context.Background(), chatInferReq())
+	resp, err := svc.Infer(context.Background(), chatInferReq(t))
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}
@@ -453,7 +571,7 @@ func TestLocalServiceChatStreamObserverErrorDoesNotFailInference(t *testing.T) {
 	obs := &recordingObserver{err: errors.New("downstream gone")}
 	svc.SetInferStreamObserver(obs)
 
-	resp, err := svc.Infer(context.Background(), chatInferReq())
+	resp, err := svc.Infer(context.Background(), chatInferReq(t))
 	if err != nil {
 		t.Fatalf("Infer() error = %v, want the observer error swallowed", err)
 	}
@@ -471,7 +589,7 @@ func TestLocalServiceChatStreamingFallsBackToJSONResponse(t *testing.T) {
 	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0) // streaming default on
 
-	resp, err := svc.Infer(context.Background(), chatInferReq())
+	resp, err := svc.Infer(context.Background(), chatInferReq(t))
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}
@@ -493,12 +611,12 @@ func TestLocalServiceChatRejectsUsageTokenCountMismatch(t *testing.T) {
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
 	svc.SetStreamInference(false)
 
-	_, err := svc.Infer(context.Background(), InferRequest{
+	_, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
 		RequestID:  "chat-usage",
 		ModelID:    testQwenModelID(),
 		Capability: CapabilityLLMTextV1,
 		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
-	})
+	}))
 	if err == nil {
 		t.Fatalf("Infer() expected error for usage/token id count mismatch")
 	}
@@ -517,12 +635,12 @@ func TestLocalServiceChatRejectsTokenIDLogprobMismatch(t *testing.T) {
 	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
 	svc.SetStreamInference(false)
 
-	_, err := svc.Infer(context.Background(), InferRequest{
+	_, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
 		RequestID:  "chat-align",
 		ModelID:    testQwenModelID(),
 		Capability: CapabilityLLMTextV1,
 		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
-	})
+	}))
 	if err == nil {
 		t.Fatalf("Infer() expected error for token id / logprobs mismatch")
 	}
