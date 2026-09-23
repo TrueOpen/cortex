@@ -542,7 +542,7 @@ func TestLocalServiceChatStreamDeliversToTheRequestScopedObserver(t *testing.T) 
 	// Deliberately NOT SetInferStreamObserver: this is how the Worker wires it.
 	ctx := WithInferStreamObserver(context.Background(), obs)
 
-	resp, err := svc.Infer(ctx, chatInferReq())
+	resp, err := svc.Infer(ctx, chatInferReq(t))
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}
@@ -746,7 +746,7 @@ func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
 	obs := &recordingObserver{}
 	svc.SetInferStreamObserver(obs)
 
-	resp, err := svc.Infer(context.Background(), chatInferReq())
+	resp, err := svc.Infer(context.Background(), chatInferReq(t))
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}
