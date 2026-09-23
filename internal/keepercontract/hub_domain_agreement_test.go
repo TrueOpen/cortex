@@ -4,8 +4,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
 // wireHubFixtureProfiles are the two profiles wire's support_profiles_v1 and

@@ -12,9 +12,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 func TestTaskOrderEIP712V2PublishedDigest(t *testing.T) {

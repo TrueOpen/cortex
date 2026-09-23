@@ -8,15 +8,15 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
-	"github.com/SingaXYZ/cortex/internal/verifier"
-	"github.com/SingaXYZ/cortex/internal/worker"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/worker"
 )
 
 // nexusVerifierEvidencePublisher makes the committed bundle available before a result is relayed.

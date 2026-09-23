@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 const testOperator = "trueopen1builder"
@@ -255,7 +255,7 @@ func TestResolveRefusesADescriptorWithoutANexusEndpoint(t *testing.T) {
 // What this test does NOT do is vary the Nexus endpoint's position in the list,
 // despite being the obvious place to: NewServiceDescriptorSnapshot requires
 // ascending kind order and SERVICE_ENDPOINT_KIND_NEXUS_GRPC = 1 is the smallest
-// kind consensus admits (SingaXYZ/node d8792e6
+// kind consensus admits (TrueOpen/node d8792e6
 // proto/hub/v1/participant_identity.proto:11-20), so in every descriptor
 // that has one, the Nexus endpoint is entry zero. The `[0]`-fallback property is
 // pinned by TestResolveRefusesADescriptorWithoutANexusEndpoint, which is the
@@ -316,7 +316,7 @@ func TestResolveRejectsRevokedOrForeignServiceKey(t *testing.T) {
 //
 // This test exists because http:// is REACHABLE IN COMMITTED STATE, not merely
 // conceivable: GenesisState.Validate runs the loose scheme validator that admits
-// http (SingaXYZ/node d8792e6 x/hub/types/genesis.go:278-281 calling
+// http (TrueOpen/node d8792e6 x/hub/types/genesis.go:278-281 calling
 // x/hub/types/participant_identity.go:62-65) and InitGenesis writes those
 // rows into the descriptor map with no further scheme check
 // (x/hub/keeper/genesis.go:91-95). A devnet genesis can seed exactly this
@@ -432,7 +432,7 @@ func TestCheckEndpointTransportRefusesAKindItHasNoRuleFor(t *testing.T) {
 }
 
 // tls_pubkey_hash = sha256(certificate SubjectPublicKeyInfo DER), written on chain
-// with the registration after nexus self-signs its certificate (SingaXYZ/nexus#63).
+// with the registration after nexus self-signs its certificate (TrueOpen/nexus#63).
 // A pin on an https/grpcs endpoint is carried into Identity unchanged and checked by
 // builderclient at dial time; a plaintext endpoint has no certificate to check, so a
 // pin on one is self-contradictory and is refused whether or not the plaintext

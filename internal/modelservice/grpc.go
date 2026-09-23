@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/metric"
-	cortexv1 "github.com/SingaXYZ/cortex/proto/cortex/v1"
+	"github.com/TrueOpen/cortex/internal/metric"
+	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 

@@ -287,7 +287,7 @@ type BatchConfirmModelSupportMessage struct {
 // Every struct below mirrors one frozen message field for field, in frozen
 // field-number order, using the ProtoJSON representation each scalar type
 // requires (uint32 -> JSON number, uint64 -> decimal string, bytes -> base64,
-// enum -> value name, oneof -> exactly one present member). Source: SingaXYZ/node
+// enum -> value name, oneof -> exactly one present member). Source: TrueOpen/node
 // contract/proto-v1-all-domains, proto/task/v1/{tx,msg_verification,
 // msg_settlement,deadline,commit,result,infer_receipt,evidence}.proto.
 // ---------------------------------------------------------------------------
@@ -615,7 +615,7 @@ func validateMessageType(kind Kind, value any) error {
 // ErrGenerationParamsDigestUnavailable is the single fail-closed reason for
 // every frozen wire that carries generation_params_digest. The field is preimage
 // field 7 of both TRUEOPEN_INFER_RECEIPT_V1 and TRUEOPEN_RESULT_V1. Its one source is
-// task.v1.TaskAssignmentViewV1 field 16 (SingaXYZ/node d8792e6
+// task.v1.TaskAssignmentViewV1 field 16 (TrueOpen/node d8792e6
 // proto/task/v1/query_task.proto:106), which
 // chainclient.KeeperABCIClient.TaskReceiptFacts reads and the Worker receipt and
 // verifier result paths call. A message that reaches this encoder without it was

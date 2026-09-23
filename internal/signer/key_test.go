@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestServiceAddressesMatchNodeEthereumSeed(t *testing.T) {
-	// Public vectors from SingaXYZ/node 6779581, config/localnet_genesis_seed.json.
+	// Public vectors from TrueOpen/node 6779581, config/localnet_genesis_seed.json.
 	for _, tc := range []struct{ public, address string }{
 		{"0298c2da175fd3063bd2e8156303b98a0f77df43c5ca078eaa08dc2533e829f507", "trueopen1j5me037hs26kmqz7xy6s5f0y224trsphlqjfd2"},
 		{"039832910fde7c4012d0b00e0305a2b55073e7fa6bf7670908fbf9467bbfe01849", "trueopen1q8fazf4duvmw5as74kgyyezdxdewahzydav3vl"},

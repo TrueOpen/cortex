@@ -14,8 +14,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/SingaXYZ/cortex/internal/observability"
-	"github.com/SingaXYZ/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/signer"
 )
 
 func main() {

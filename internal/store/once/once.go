@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store"
 )
 
 // record is the durable value stored for a claimed key.

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/daemon"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/daemon"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/signer"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 	"google.golang.org/protobuf/proto"
 )
 

@@ -1,4 +1,4 @@
-module github.com/SingaXYZ/cortex
+module github.com/TrueOpen/cortex
 
 go 1.25.0
 

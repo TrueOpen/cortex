@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/keepercontract"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 func TestCurrentManifestExampleProjectionIsValid(t *testing.T) {

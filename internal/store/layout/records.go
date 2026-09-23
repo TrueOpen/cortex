@@ -1,6 +1,6 @@
 package layout
 
-import "github.com/SingaXYZ/cortex/internal/codec"
+import "github.com/TrueOpen/cortex/internal/codec"
 
 const (
 	// Admission schema v2 marks handraises whose service_signature is canonical

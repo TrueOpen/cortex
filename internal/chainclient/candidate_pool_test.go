@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 // newVerifierWindowServer answers CommittedHeight plus one

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/SingaXYZ/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/adminapi"
 	"github.com/spf13/cobra"
 )
 

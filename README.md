@@ -480,7 +480,7 @@ inbound ones against the sender's current on-chain service key, with no
 historical-key or unsigned fallback. What still blocks a
 working `strict` deployment is upstream: Nexus does not sign the envelopes it
 publishes and does not verify inbound signatures, so every inbound Builder
-message is rejected for a missing signature. That is SingaXYZ/nexus#45.
+message is rejected for a missing signature. That is TrueOpen/nexus#45.
 See `docs/reviews/nexus-bus-envelope-contract.md` and
 `docs/operations/cortexd-real-mode.md`.
 

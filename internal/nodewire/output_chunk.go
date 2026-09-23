@@ -1,8 +1,8 @@
 package nodewire
 
 import (
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/hfields"
 )
 
 const DomainOutputChunkV1 = "TRUEOPEN_OUTPUT_CHUNK_V1"

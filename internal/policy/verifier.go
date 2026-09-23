@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 type OutputPackageSummary struct {

@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 const Domain = "TRUEOPEN_EVIDENCE_BUNDLE_MANIFEST_V1"

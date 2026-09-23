@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/observability"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
-	"github.com/SingaXYZ/cortex/scripts/natsurl"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/observability"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	"github.com/TrueOpen/cortex/scripts/natsurl"
 )
 
 func main() {

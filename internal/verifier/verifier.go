@@ -14,20 +14,20 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/identity"
-	"github.com/SingaXYZ/cortex/internal/keepercontract"
-	"github.com/SingaXYZ/cortex/internal/metric"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/policy"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	"github.com/SingaXYZ/cortex/internal/taskfacts"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/policy"
+	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/taskfacts"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 type Config struct {
@@ -1289,7 +1289,7 @@ func commitMessage(cfg Config, result VerifyResult) (txclient.SubmitVerifyCommit
 //
 // Nine of the twelve preimage fields are sourced here. generation_params_digest
 // (field 7) is one of them: TaskAssignmentViewV1 serves it as field 16
-// (SingaXYZ/node d8792e6 proto/task/v1/query_task.proto:106),
+// (TrueOpen/node d8792e6 proto/task/v1/query_task.proto:106),
 // chainclient.KeeperABCIClient.TaskReceiptFacts reads it, and the verifier's
 // TaskFacts reader is what puts it in facts. It is copied through byte for byte
 // and never re-derived: the Keeper only ever compares it, so a second derivation

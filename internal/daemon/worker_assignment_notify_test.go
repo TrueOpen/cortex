@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/store"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 )
 
 // The two chain facts this notify path has to keep apart, with the values the

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 const DomainGenerationParamsV1 = "TRUEOPEN_TASK_GENERATION_PARAMS_V1"

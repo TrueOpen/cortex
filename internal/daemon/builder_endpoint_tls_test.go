@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderdirectory"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/builderdirectory"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // The on-chain descriptor registers an https endpoint with a tls_pubkey_hash: the

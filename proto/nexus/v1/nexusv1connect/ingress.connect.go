@@ -8,7 +8,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
+	v1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	http "net/http"
 	strings "strings"
 )

@@ -4,10 +4,10 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	bussharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	bussharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 const WorkerHandraiseSchemaV1 = uint32(1)

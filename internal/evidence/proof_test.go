@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestProofMaterialRequiresRawEvidenceAndRejectsDuplicateFaultID(t *testing.T) {

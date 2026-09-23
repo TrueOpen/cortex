@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 func (v *Verifier) generationForEvidence(ctx context.Context, state TaskState, output, trace, checkpoint []byte) (*nodewire.GenerationContext, []byte, error) {

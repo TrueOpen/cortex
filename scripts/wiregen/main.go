@@ -69,7 +69,7 @@ func main() {
 	for _, plugin := range []string{"go", "connect-go"} {
 		args := []string{"--descriptor_set_in=" + *descriptor, "--" + plugin + "_out=" + *out, "--" + plugin + "_opt=paths=source_relative"}
 		for _, name := range names {
-			args = append(args, "--"+plugin+"_opt=M"+name+"=github.com/SingaXYZ/cortex/proto/"+filepath.ToSlash(filepath.Dir(name)))
+			args = append(args, "--"+plugin+"_opt=M"+name+"=github.com/TrueOpen/cortex/proto/"+filepath.ToSlash(filepath.Dir(name)))
 		}
 		if plugin == "go" {
 			args = append(args, names...)

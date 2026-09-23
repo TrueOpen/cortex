@@ -7,9 +7,9 @@
 package types
 
 import (
-	_ "github.com/SingaXYZ/cortex/proto/cosmos_proto"
-	_ "github.com/SingaXYZ/cortex/proto/gogoproto"
-	v1 "github.com/SingaXYZ/cortex/proto/shared/v1"
+	_ "github.com/TrueOpen/cortex/proto/cosmos_proto"
+	_ "github.com/TrueOpen/cortex/proto/gogoproto"
+	v1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

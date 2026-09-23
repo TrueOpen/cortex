@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	cortexv1 "github.com/SingaXYZ/cortex/proto/cortex/v1"
+	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

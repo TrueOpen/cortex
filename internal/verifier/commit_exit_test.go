@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/observability"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 // stubCommitRelay stands in for a Task Builder relay that Cortex does not have

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 func TestDeadlineRisksSubmitCanonicalSelfRescueMessages(t *testing.T) {

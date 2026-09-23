@@ -12,7 +12,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"google.golang.org/protobuf/proto"
 
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 // testEnvelopeKey derives a deterministic secp256k1 key for envelope tests.

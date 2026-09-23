@@ -11,17 +11,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidence"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/store/layout"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	"github.com/SingaXYZ/cortex/internal/verifier"
-	"github.com/SingaXYZ/cortex/internal/worker"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store/layout"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/worker"
 )
 
 type productionInferExecutor struct {

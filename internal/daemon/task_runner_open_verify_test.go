@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 )
 
 // openVerifyCall is the OPEN_VERIFY body a Builder sends when it agrees with the

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
 )
 
 func TestHealthzIsLive(t *testing.T) {

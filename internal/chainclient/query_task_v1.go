@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 func decodeTaskIDHash32(taskID string) ([]byte, error) {

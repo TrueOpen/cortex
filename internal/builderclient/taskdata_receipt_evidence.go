@@ -7,8 +7,8 @@ package builderclient
 import (
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // InferEvidenceRequirement is one element of the locked Verification Profile's

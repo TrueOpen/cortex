@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // finishReasonV1FromString maps a model service finish_reason string to the

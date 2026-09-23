@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/identity"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 const capacityTestSession = "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b"

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store"
 )
 
 func autoHaltStore(t *testing.T) (context.Context, *store.Store) {

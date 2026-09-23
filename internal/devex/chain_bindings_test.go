@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/SingaXYZ/cortex/proto/bus/v1"
-	_ "github.com/SingaXYZ/cortex/proto/hub/v1"
-	_ "github.com/SingaXYZ/cortex/proto/nexus/v1"
-	_ "github.com/SingaXYZ/cortex/proto/shared/v1"
-	_ "github.com/SingaXYZ/cortex/proto/task/v1"
+	_ "github.com/TrueOpen/cortex/proto/bus/v1"
+	_ "github.com/TrueOpen/cortex/proto/hub/v1"
+	_ "github.com/TrueOpen/cortex/proto/nexus/v1"
+	_ "github.com/TrueOpen/cortex/proto/shared/v1"
+	_ "github.com/TrueOpen/cortex/proto/task/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -80,7 +80,7 @@ func TestVendoredChainBindingsKeepImportsLocalised(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if !strings.Contains(name, ".") || strings.HasPrefix(name, "google.golang.org/protobuf/") || strings.HasPrefix(name, "github.com/SingaXYZ/cortex/proto/") {
+			if !strings.Contains(name, ".") || strings.HasPrefix(name, "google.golang.org/protobuf/") || strings.HasPrefix(name, "github.com/TrueOpen/cortex/proto/") {
 				continue
 			}
 			t.Errorf("unlocalised binding import %q in %s", name, path)

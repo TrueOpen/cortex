@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	cortexv1 "github.com/SingaXYZ/cortex/proto/cortex/v1"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 	"google.golang.org/protobuf/proto"
 )
 

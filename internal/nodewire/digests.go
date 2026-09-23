@@ -6,8 +6,8 @@ import (
 	"math"
 	"unicode/utf8"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/hfields"
 )
 
 // EvidenceCommitmentsPreimage returns the ordered

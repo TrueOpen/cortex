@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"github.com/cosmos/gogoproto/proto"
 	"google.golang.org/protobuf/encoding/protowire"
 )

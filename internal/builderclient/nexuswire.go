@@ -32,7 +32,7 @@ var errNexusRedirect = errors.New("nexus endpoint redirect refused")
 //
 // ServiceEndpointV1.tls_pubkey_hash is the pin: sha256 of the certificate's
 // SubjectPublicKeyInfo DER, published by nexus alongside its self-signed
-// certificate (SingaXYZ/nexus#63). The chain declares the field "a
+// certificate (TrueOpen/nexus#63). The chain declares the field "a
 // caller-authored opaque 32-byte value" and defines no preimage itself; the
 // preimage is a nexus/cortex/sdk convention, stated in tlspin.go and checked
 // there at dial time whenever the caller put the descriptor pin in the request

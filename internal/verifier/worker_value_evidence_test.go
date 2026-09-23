@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 // TestConfirmedWorkerValueEvidenceReplacesTheRefFetch is the real-chain path.

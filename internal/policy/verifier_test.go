@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 func TestVerifierL0L4AnyFailureDoesNotSignHandraise(t *testing.T) {

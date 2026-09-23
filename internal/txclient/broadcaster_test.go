@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestBroadcasterAcceptsTxAfterSequenceRetry(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 // ErrCosmosTxUnsupported is returned by the in-process signer for chain

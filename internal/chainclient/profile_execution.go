@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/SingaXYZ/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/hfields"
 )
 
 // profileVerificationDomain is the H_FIELDS_V1 domain of the snapshot digest.

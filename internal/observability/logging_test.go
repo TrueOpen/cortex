@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/observability/logtest"
+	"github.com/TrueOpen/cortex/internal/observability/logtest"
 )
 
 func TestTextLoggerIncludesLevelRelativeSourceAndMessage(t *testing.T) {

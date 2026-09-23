@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
 )
 
 func TestReadinessControllerStartsStopsAndRestartsWorkloadOnTransitions(t *testing.T) {

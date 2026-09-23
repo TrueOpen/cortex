@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/metric"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/revealcontract"
-	"github.com/SingaXYZ/cortex/internal/taskfacts"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/revealcontract"
+	"github.com/TrueOpen/cortex/internal/taskfacts"
 )
 
 func selectedVerifierIndex(state TaskState, verifier string) (uint32, error) {

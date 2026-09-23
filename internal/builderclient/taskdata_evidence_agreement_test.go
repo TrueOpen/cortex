@@ -3,9 +3,9 @@ package builderclient
 import (
 	"encoding/hex"
 	"encoding/json"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 	"strings"
 	"testing"
 )

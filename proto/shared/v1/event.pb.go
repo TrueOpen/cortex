@@ -7,7 +7,7 @@
 package types
 
 import (
-	_ "github.com/SingaXYZ/cortex/proto/cosmos_proto"
+	_ "github.com/TrueOpen/cortex/proto/cosmos_proto"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

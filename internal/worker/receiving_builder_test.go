@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 // The seam is the only place per-task Builder authority is read, so swapping the
 // provider must move relay, upload and confirmation verification to the Builder
-// it names, without any Worker change. This is what SingaXYZ/node#92 will do for
+// it names, without any Worker change. This is what TrueOpen/node#92 will do for
 // real when selected_task_builders replaces the assignment field.
 func TestReceivingBuilderProviderRedirectsRelayUploadAndConfirmation(t *testing.T) {
 	h := newHarness(t)

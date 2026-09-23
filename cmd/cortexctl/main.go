@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/SingaXYZ/cortex/internal/adminapi"
-	"github.com/SingaXYZ/cortex/internal/modelregistry"
-	"github.com/SingaXYZ/cortex/internal/observability"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/modelregistry"
+	"github.com/TrueOpen/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 func main() {

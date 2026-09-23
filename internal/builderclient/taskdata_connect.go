@@ -10,12 +10,12 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	nexusv1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
-	nexusv1connect "github.com/SingaXYZ/cortex/proto/nexus/v1/nexusv1connect"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
+	nexusv1connect "github.com/TrueOpen/cortex/proto/nexus/v1/nexusv1connect"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 const taskDataChunkSize = 256 << 10

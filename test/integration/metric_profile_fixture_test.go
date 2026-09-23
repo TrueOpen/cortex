@@ -3,12 +3,12 @@ package integration_test
 import (
 	"context"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/keepercontract"
-	"github.com/SingaXYZ/cortex/internal/metric"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	cortexv1 "github.com/SingaXYZ/cortex/proto/cortex/v1"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 )
 
 // integrationLockedProfileReader serves the locked profile this rig's task was

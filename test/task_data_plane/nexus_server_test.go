@@ -18,14 +18,14 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	nexusv1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
-	nexusv1connect "github.com/SingaXYZ/cortex/proto/nexus/v1/nexusv1connect"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/signer"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
+	nexusv1connect "github.com/TrueOpen/cortex/proto/nexus/v1/nexusv1connect"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 type nexusBehavior struct {

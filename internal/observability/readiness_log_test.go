@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
 )
 
 type readinessLogRecorder struct {

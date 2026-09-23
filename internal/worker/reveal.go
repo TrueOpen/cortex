@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
 )
 
 func (w *Worker) HandleWorkerRevealTrigger(ctx context.Context, trigger WorkerRevealTrigger) (WorkerRevealResult, error) {

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // newVLLMStub returns an httptest server that emulates vLLM's /v1/completions,

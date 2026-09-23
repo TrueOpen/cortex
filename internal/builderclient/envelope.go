@@ -14,9 +14,9 @@ import (
 	"github.com/TrueOpen/wire/bus"
 	"google.golang.org/protobuf/proto"
 
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
-	bussharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	bussharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 const BusEnvelopeSchemaVersion uint32 = 1
@@ -60,7 +60,7 @@ func (f BusEnvelopeSignerFunc) SignEnvelope(envelope BusEnvelope) ([]byte, error
 type BusMessageKind string
 
 // The eight kinds of the bus.v1 contract (TrueOpen/wire proto/bus/v1,
-// SingaXYZ/nexus#52). The vocabulary is a closed set on both sides of this bus.
+// TrueOpen/nexus#52). The vocabulary is a closed set on both sides of this bus.
 // OPEN_TASK from the retired JSON contract is now ORDER_BROADCAST: the broadcast
 // carries the complete user-signed order exactly once.
 const (

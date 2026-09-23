@@ -7,12 +7,12 @@ import (
 	"sort"
 	"strings"
 
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 )
 
 // ServiceEndpointKind is the closed set of descriptor endpoint kinds
-// hub.v1.ServiceEndpointKind admits (SingaXYZ/node d8792e6
+// hub.v1.ServiceEndpointKind admits (TrueOpen/node d8792e6
 // proto/hub/v1/participant_identity.proto:11-20). It is a Cortex-side
 // string rather than the wire enum so callers outside this package select an
 // endpoint by naming a kind, never by importing the vendored proto types and

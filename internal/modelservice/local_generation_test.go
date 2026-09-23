@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 func localTestGeneration(model string, profile uint32) *nodewire.GenerationContext {

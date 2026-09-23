@@ -3,9 +3,9 @@ package metric
 import (
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/hfields"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // AggregateProof is the metric aggregate proof and the plain SHA-256 the frozen

@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/SingaXYZ/cortex/internal/denom"
+	"github.com/TrueOpen/cortex/internal/denom"
 )
 
 // The three deployment modes sit on two independent axes, which is why there

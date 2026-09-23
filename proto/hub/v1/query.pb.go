@@ -7,7 +7,7 @@
 package types
 
 import (
-	_ "github.com/SingaXYZ/cortex/proto/google/api"
+	_ "github.com/TrueOpen/cortex/proto/google/api"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

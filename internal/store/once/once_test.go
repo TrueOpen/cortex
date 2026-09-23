@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store"
 )
 
 func newTestStore(t *testing.T) *store.Store {

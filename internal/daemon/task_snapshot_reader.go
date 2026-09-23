@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // taskSnapshotReader adapts Keeper's (session_id, task_id) query to the

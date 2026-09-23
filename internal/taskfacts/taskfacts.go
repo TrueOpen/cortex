@@ -1,6 +1,6 @@
 // Package taskfacts is the consumer seam for the two immutable Task facts the
 // frozen task.v1 Task wires sign and Cortex cannot derive:
-// TaskCoreState.accepted_task_hash (SingaXYZ/node d8792e6
+// TaskCoreState.accepted_task_hash (TrueOpen/node d8792e6
 // proto/task/v1/assignment.proto:202) and
 // TaskAssignmentViewV1.generation_params_digest (d8792e6
 // proto/task/v1/query_task.proto:106).
@@ -17,7 +17,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // Facts is one answer, and it carries the task it answers for.

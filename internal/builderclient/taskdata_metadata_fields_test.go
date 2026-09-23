@@ -3,8 +3,8 @@ package builderclient
 import (
 	"connectrpc.com/connect"
 	"context"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	nexusv1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	"google.golang.org/protobuf/proto"
 	"testing"
 )

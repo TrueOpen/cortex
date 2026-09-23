@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/denom"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/denom"
 )
 
 var (

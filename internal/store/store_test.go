@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/cockroachdb/pebble/v2"
 )
 

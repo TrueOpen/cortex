@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 func localGenerationRequest(req InferRequest, profile localModelProfile, streaming bool) (completionRequest, time.Duration, error) {

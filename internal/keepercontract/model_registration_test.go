@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 // The V2 projection formula is checked against the released model fixture.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
 )
 
 var ErrUnknownDependency = errors.New("unknown health dependency")

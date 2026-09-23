@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package cortex.v1;
 
-option go_package = "github.com/SingaXYZ/cortex/proto/cortex/v1;cortexv1";
+option go_package = "github.com/TrueOpen/cortex/proto/cortex/v1;cortexv1";
 
 // NOTE (current implementation): the chat capability NO LONGER delivers this
 // ChatCompletion object. The committed/delivered output is now the RAW TEXT decoded

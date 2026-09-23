@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
