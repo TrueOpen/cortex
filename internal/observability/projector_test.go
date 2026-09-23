@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/modelregistry"
+	"github.com/TrueOpen/cortex/internal/modelregistry"
 )
 
 type observationSourceStub struct {

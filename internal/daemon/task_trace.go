@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
 // traceConfirmedPackage is the field set of a confirmed output, shared by the

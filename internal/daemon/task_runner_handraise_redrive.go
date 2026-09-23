@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
 // The Verifier handraise re-drive: the local scheduler that gives a Core-tier

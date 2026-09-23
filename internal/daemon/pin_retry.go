@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 // BuilderEndpointRefresher re-reads the on-chain descriptor once, past the descriptor

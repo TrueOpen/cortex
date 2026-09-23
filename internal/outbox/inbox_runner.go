@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 type InboxRunnerConfig struct {

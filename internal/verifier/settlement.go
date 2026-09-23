@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 type DeadlineRiskType string

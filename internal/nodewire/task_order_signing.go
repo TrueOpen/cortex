@@ -12,8 +12,8 @@ import (
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/codec"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 // TaskOrderSigningDigest derives the released EIP-712 order domain version 2.

@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/config"
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/natsidentity"
-	"github.com/SingaXYZ/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/config"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/natsidentity"
+	"github.com/TrueOpen/cortex/internal/signer"
 )
 
 // cosmosTxCapableProbe keeps the tx capability diagnostic honest when the

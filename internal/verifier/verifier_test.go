@@ -12,20 +12,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/identity"
-	"github.com/SingaXYZ/cortex/internal/keepercontract"
-	"github.com/SingaXYZ/cortex/internal/metric"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/policy"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	"github.com/SingaXYZ/cortex/internal/taskfacts"
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/policy"
+	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/taskfacts"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -1239,7 +1239,7 @@ func fixtureSignature(digest codec.Hash) []byte {
 
 // fixtureTaskGenerationParamsDigest stands in for
 // TaskAssignmentViewV1.generation_params_digest as the frozen view serves it
-// (SingaXYZ/node d8792e6 proto/task/v1/query_task.proto:106). It is keyed
+// (TrueOpen/node d8792e6 proto/task/v1/query_task.proto:106). It is keyed
 // by task id so a fetch answering for another task cannot coincidentally match.
 func fixtureTaskGenerationParamsDigest(taskID string) chainclient.ProtoBytes32 {
 	digest := codec.HashWithDomain("TEST_GENERATION_PARAMS_DIGEST_V1", []byte(taskID))

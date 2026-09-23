@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 // refreshingEndpoints simulates "descriptor cache + forced re-read": Resolve returns

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/store/layout"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store/layout"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 )
 
 // The handraise itself no longer needs to know which Builder to fetch from - per

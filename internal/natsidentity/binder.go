@@ -12,10 +12,10 @@ import (
 
 	"github.com/TrueOpen/wire/bus"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/signer"
 )
 
 // ServiceKeyReader is the Binder's only dependency on the chain: it reads the

@@ -3,8 +3,8 @@ package metric
 import (
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // Material is everything the metric pipeline produces for one verification run:

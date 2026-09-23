@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 const domainResultCommit = "TRUEOPEN_RESULT_COMMIT_V1"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	"github.com/SingaXYZ/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/verifier"
 )
 
 func TestProtocolTxAdaptersInjectSettlementTxAndFeePolicy(t *testing.T) {

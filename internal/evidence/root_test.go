@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestTaskEvidenceRootIsDeterministicAndCountsLeavesByType(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/TrueOpen/wire/bus"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 // BusEnvelopeSignDomain is the domain separator of the TRUEOPEN_BUS_ENVELOPE_V2

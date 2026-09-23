@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
-	"github.com/SingaXYZ/cortex/internal/adminapi"
-	"github.com/SingaXYZ/cortex/internal/daemon"
+	"github.com/TrueOpen/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/daemon"
 )
 
 func taskSettlementSubmitter(runtime *daemon.Runtime) func(context.Context, adminapi.TaskSettlementRequest) (adminapi.TaskSettlementResponse, error) {

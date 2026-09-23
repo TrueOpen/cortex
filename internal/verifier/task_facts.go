@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/taskfacts"
+	"github.com/TrueOpen/cortex/internal/taskfacts"
 )
 
 // taskFacts reads the Task facts the frozen result credential signs for the

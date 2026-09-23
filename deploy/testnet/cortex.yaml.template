@@ -51,7 +51,7 @@ nexus:
   # Explicit rather than inherited so the posture is visible. strict signs every
   # outbound envelope with this node's current service key and requires a valid
   # signature on every inbound one. The Nexus that ships today emits unsigned
-  # BusEnvelopes (upstream gap, SingaXYZ/nexus#45), so a strict node rejects
+  # BusEnvelopes (upstream gap, TrueOpen/nexus#45), so a strict node rejects
   # every Builder message and takes no work. trusted_nats_dev relaxes the
   # signature layer only, never the wire shape: DecodeBusEnvelope refuses any
   # frame that is not the full 20-field envelope

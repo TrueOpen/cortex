@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestFixtureOutputPackageStoreSharesCanonicalPackage(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 )
 
-// The frozen §16.2 Task views, at SingaXYZ/node contract/proto-v1-all-domains
+// The frozen §16.2 Task views, at TrueOpen/node contract/proto-v1-all-domains
 // (d8792e6). Every number below is a field number read off that tree, and both
 // the golden responses and the expected request bodies in this file are
 // hand-encoded from them rather than produced by the vendored Go structs, so a

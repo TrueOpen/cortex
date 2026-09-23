@@ -13,7 +13,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // newChatVLLMStub emulates vLLM's /v1/chat/completions (plus /v1/models and

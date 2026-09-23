@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
 )
 
 // ReadinessLog turns readiness snapshots into operator-facing log lines.

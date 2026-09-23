@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 func TestManifestGenerationIsStableAndHashesSameInputIdentically(t *testing.T) {

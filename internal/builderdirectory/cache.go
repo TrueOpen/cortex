@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // DefaultCacheTTL bounds how long a resolved identity or a membership snapshot

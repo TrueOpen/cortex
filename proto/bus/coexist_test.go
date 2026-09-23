@@ -4,11 +4,11 @@ package bus_test
 import (
 	"testing"
 
-	nexusv1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	"google.golang.org/protobuf/proto"
 
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 func TestBusAndIngressShareOneTaskBinding(t *testing.T) {

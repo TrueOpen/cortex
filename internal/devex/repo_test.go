@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/config"
-	nexusv1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
-	"github.com/SingaXYZ/cortex/proto/nexus/v1/nexusv1connect"
+	"github.com/TrueOpen/cortex/internal/config"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
+	"github.com/TrueOpen/cortex/proto/nexus/v1/nexusv1connect"
 )
 
 func TestDevnetRendererProducesValidSingleIdentityConfig(t *testing.T) {

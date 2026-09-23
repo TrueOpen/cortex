@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	"github.com/SingaXYZ/cortex/internal/store/once"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/store/once"
 )
 
 // serviceKeyStatusActive is the only binding status that may authenticate or

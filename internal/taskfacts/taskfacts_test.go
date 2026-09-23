@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 const factsTestTaskID = "1111111111111111111111111111111111111111111111111111111111111111"

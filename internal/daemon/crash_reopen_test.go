@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidence"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/store/layout"
-	"github.com/SingaXYZ/cortex/internal/worker"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store/layout"
+	"github.com/TrueOpen/cortex/internal/worker"
 )
 
 // TestInferInputReopenWithoutCloseRecoversData uses a subprocess to open a

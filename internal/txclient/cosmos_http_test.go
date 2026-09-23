@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/signer"
 )
 
 func TestCosmosBroadcasterUsesDeliverTxInclusionForCommitWithoutQuery(t *testing.T) {

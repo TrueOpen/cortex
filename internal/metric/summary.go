@@ -3,7 +3,7 @@ package metric
 import (
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // Aggregates is the single-sample metric aggregation in real units, as the

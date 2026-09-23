@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/taskdataauth"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/taskdataauth"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
 // EvidenceCommitments comes from the chain-checked receipt and locked profile.

@@ -6,15 +6,15 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/taskdataauth"
-	"github.com/SingaXYZ/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/taskdataauth"
+	"github.com/TrueOpen/cortex/internal/verifier"
 )
 
 const relayTestPin = "ab" + "cd" + "ef" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789"

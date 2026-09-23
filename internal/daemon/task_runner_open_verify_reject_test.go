@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/policy"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/policy"
 )
 
 // A precheck refusal must not be silent, and must not mark this admission complete.

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	"github.com/SingaXYZ/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/verifier"
 )
 
 // SettleTask is an explicit operator-triggered settlement attempt. Eligibility

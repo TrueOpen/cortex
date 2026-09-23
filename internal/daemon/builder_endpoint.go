@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/builderdirectory"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/natsidentity"
-	"github.com/SingaXYZ/cortex/internal/worker"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderdirectory"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/natsidentity"
+	"github.com/TrueOpen/cortex/internal/worker"
 )
 
 // Endpoint sources, reported in diagnostics so an operator can tell an

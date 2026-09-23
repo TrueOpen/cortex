@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
 func TestManifestMatchesWireV040Vector(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestKeeperConfirmerUsesCodeZeroInclusionForUnqueryableRecords(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // completeInferReceiptFacts is the hypothetical complete input set. Nothing in

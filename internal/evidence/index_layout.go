@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/store/layout"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 )
 
 // LayoutStoreIndex adapts a store.Store to the MetadataStore and

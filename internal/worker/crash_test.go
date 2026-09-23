@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 // enableEvidenceSchema wires the locked Profile evidence schema into the worker

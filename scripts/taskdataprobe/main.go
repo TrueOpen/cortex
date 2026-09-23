@@ -26,12 +26,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/builderdirectory"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/observability"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	"github.com/SingaXYZ/cortex/internal/taskdataauth"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderdirectory"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/taskdataauth"
 )
 
 // probeExpiryBlocks mirrors inputTaskDataExpiryBlocks in

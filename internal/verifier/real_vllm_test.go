@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/modelservice"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/policy"
-	"github.com/SingaXYZ/cortex/internal/revealcontract"
-	"github.com/SingaXYZ/cortex/internal/taskfacts"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/policy"
+	"github.com/TrueOpen/cortex/internal/revealcontract"
+	"github.com/TrueOpen/cortex/internal/taskfacts"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 const (

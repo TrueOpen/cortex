@@ -8,8 +8,8 @@ import (
 
 	"github.com/cosmos/gogoproto/proto"
 
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 )
 
 const descriptorTestHash = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -76,7 +76,7 @@ func readDescriptor(t *testing.T, row *hubv1.ServiceDescriptorState) (ServiceDes
 // enum were sent as a string the keeper would answer for nobody.
 //
 // The expectation is the request bytes, assembled tag by tag from
-// SingaXYZ/node d8792e6 proto/hub/v1/query_registry.proto:181-184
+// TrueOpen/node d8792e6 proto/hub/v1/query_registry.proto:181-184
 // (participant_type = 1 varint, operator_address = 2 string) and from
 // proto/hub/v1/common.proto:23 (PARTICIPANT_TYPE_BUILDER = 2). Decoding the
 // body with the same hand-written type that produced it would round-trip a wrong
@@ -403,7 +403,7 @@ func TestNewServiceDescriptorSnapshotAppliesTheReaderRules(t *testing.T) {
 //
 // The asymmetry is the reason they have to be checked here at all. The
 // state-invariant validator looks at a scheme prefix and nothing else
-// (SingaXYZ/node d8792e6 x/hub/types/participant_identity.go:58-65), and
+// (TrueOpen/node d8792e6 x/hub/types/participant_identity.go:58-65), and
 // GenesisState.Validate calls exactly that validator, so a genesis file can seed
 // a descriptor row the normal write path would have rejected outright:
 // MsgUpdateServiceDescriptor parses the URI and requires a host and forbids
@@ -505,7 +505,7 @@ func varint(value uint64) []byte {
 
 // TestServiceDescriptorDecodesHandBuiltFrozenWire is the golden vector for the
 // hand-written shim. It pins every frozen field number and wire type from
-// SingaXYZ/node d8792e6 proto/hub/v1/participant_identity.proto:23-28,63-71
+// TrueOpen/node d8792e6 proto/hub/v1/participant_identity.proto:23-28,63-71
 // and proto/hub/v1/query_registry.proto:186-189 against bytes assembled
 // tag by tag, so a wrong field number or wire type in
 // proto/hub/v1/service_descriptor_frozen.pb.go fails here rather than

@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/policy"
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/policy"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 	"google.golang.org/protobuf/proto"
 )
 

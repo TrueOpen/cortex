@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestInferReceiptMaterialUsesCanonicalBinaryEncoding(t *testing.T) {

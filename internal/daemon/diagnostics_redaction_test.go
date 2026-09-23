@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 // The top-level nexus_nats field has been redacted since it was added, and

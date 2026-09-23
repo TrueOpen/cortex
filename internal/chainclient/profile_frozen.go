@@ -3,8 +3,8 @@ package chainclient
 import (
 	"strings"
 
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 )
 
 func currentProfileSnapshotFromWire(profile *hubv1.ProfileState) CurrentProfileSnapshot {

@@ -16,9 +16,9 @@ import (
 
 	"github.com/TrueOpen/wire/bus"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/signer"
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
 type vectorFile struct {

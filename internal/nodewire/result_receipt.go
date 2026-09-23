@@ -2,8 +2,8 @@ package nodewire
 
 import (
 	"fmt"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/hfields"
 )
 
 // DomainResultV2 is the released verifier credential signing domain.

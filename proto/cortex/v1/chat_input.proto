@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package cortex.v1;
 
-option go_package = "github.com/SingaXYZ/cortex/proto/cortex/v1;cortexv1";
+option go_package = "github.com/TrueOpen/cortex/proto/cortex/v1;cortexv1";
 
 // ChatInferInput is the structured payload a User places inside
 // InferRequest.input (the `bytes input` field of model_management.proto). The

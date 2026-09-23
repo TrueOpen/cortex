@@ -3,7 +3,7 @@
 // signs its material.
 //
 // The endpoint list is on chain. ServiceDescriptorV1 carries
-// repeated ServiceEndpointV1 in consensus state (SingaXYZ/node
+// repeated ServiceEndpointV1 in consensus state (TrueOpen/node
 // contract/proto-v1-all-domains d8792e6
 // proto/hub/v1/participant_identity.proto:31-33), so resolution is three
 // chain reads and no network fetch. The earlier model — a descriptor_uri
@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // ErrNoCurrentDescriptor reports that the Builder has never published a service
@@ -42,7 +42,7 @@ var ErrPlaintextEndpoint = errors.New("plaintext endpoint requires nexus.allow_i
 // that nevertheless commits a tls_pubkey_hash.
 //
 // tls_pubkey_hash is sha256 of the certificate's SubjectPublicKeyInfo DER,
-// published by nexus next to its self-signed certificate (SingaXYZ/nexus#63)
+// published by nexus next to its self-signed certificate (TrueOpen/nexus#63)
 // and checked by builderclient at dial time. On a TLS endpoint the pin is
 // carried through Identity.EndpointTLSPubkeyHash for that check. On a plaintext
 // endpoint there is no certificate to check it against, so a present pin is a
@@ -99,7 +99,7 @@ type Identity struct {
 
 type Options struct {
 	// AllowInsecure admits an http:// endpoint. It is a devnet-only concession:
-	// nexus's ingress terminates no TLS at all (SingaXYZ/nexus b201a98
+	// nexus's ingress terminates no TLS at all (TrueOpen/nexus b201a98
 	// internal/ingress/server.go:140-143 serves h2c), and V1 Task data is
 	// application plaintext, so production must leave this false.
 	//
@@ -281,7 +281,7 @@ func CheckEndpointTransport(endpoint chainclient.ServiceEndpointSnapshot, allowI
 //  2. http:// and grpc:// are plaintext and are refused unless AllowInsecure.
 //     THE PLAINTEXT GATE IS NOT DEAD CODE: both are admitted upstream by
 //     deliberate decision, and they are how an h2c nexus is published, because
-//     nexus terminates no TLS at all (SingaXYZ/nexus b201a98
+//     nexus terminates no TLS at all (TrueOpen/nexus b201a98
 //     internal/ingress/server.go:140-143). The devnet BuilderSet publishes
 //     grpc:// today.
 //  3. A present tls_pubkey_hash is carried through on https/grpcs for the

@@ -25,8 +25,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/observability"
 )
 
 // Trace emits the milestone lines. A nil Trace, or one with no Emit, is silent:

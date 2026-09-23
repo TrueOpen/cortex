@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/evidencebundle"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 func fakeFinalizeFixture(t *testing.T, mutate func(*evidencebundle.Manifest)) (*FakeClient, taskDataTestKeyPair, FinalizeTaskResultRequest, []UploadTaskResultRequest) {

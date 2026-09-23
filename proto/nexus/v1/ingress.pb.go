@@ -7,7 +7,7 @@
 package nexusv1
 
 import (
-	v1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	v1 "github.com/TrueOpen/cortex/proto/task/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

@@ -10,7 +10,7 @@ import (
 // for, resolved once so every gate downstream agrees.
 //
 // The chain admits four schemes in committed state — http, https, grpc, grpcs
-// (SingaXYZ/node x/hub/types/participant_identity.go:206-208) — and all
+// (TrueOpen/node x/hub/types/participant_identity.go:206-208) — and all
 // four are dialable, because the deployed ingress is a connect-go server: it
 // answers the Connect protocol over HTTP/1.1 and gRPC over h2c on the same
 // port. Measured against the devnet ingress at 207.180.235.236:8080, an
@@ -41,7 +41,7 @@ const NexusEndpointSchemes = "https://, grpcs://, http://, grpc://"
 // so in Plaintext, leaving an already-plaintext endpoint untouched.
 //
 // It exists because the devnet BuilderSet publishes https://…:8080 while the
-// ingress it names terminates no TLS at all (SingaXYZ/nexus
+// ingress it names terminates no TLS at all (TrueOpen/nexus
 // internal/ingress/server.go serves h2c/HTTP1.1 only), so every task-data call
 // dies with `http: server gave HTTP response to HTTPS client`. The descriptor
 // is consensus state and Cortex cannot edit it; the only local remedy is to

@@ -36,8 +36,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/store/layout"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 )
 
 // objectClass is the local publication unit for one task object. It is derived

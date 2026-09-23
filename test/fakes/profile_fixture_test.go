@@ -3,11 +3,11 @@ package fakes_test
 import (
 	"context"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/keepercontract"
-	"github.com/SingaXYZ/cortex/internal/metric"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // fakeLockedProfileReader serves the one locked profile this rig runs under.

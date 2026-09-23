@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SingaXYZ/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 const (

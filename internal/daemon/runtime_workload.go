@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 // ActivateWorkload opens the workload path for the Keeper-confirmed service

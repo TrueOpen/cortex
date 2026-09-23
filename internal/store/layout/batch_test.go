@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store"
 )
 
 func openTestLayout(t *testing.T) *store.Store {

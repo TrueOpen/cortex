@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"strconv"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // KeeperConfirmationReader names exactly the Keeper reads a confirmation

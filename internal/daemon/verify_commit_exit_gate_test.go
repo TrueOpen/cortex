@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 // The gate in front of the commit exit, asserted from the devnet symptom it

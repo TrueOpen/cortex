@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 const (

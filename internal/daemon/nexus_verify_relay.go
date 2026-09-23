@@ -5,14 +5,14 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/SingaXYZ/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/verifier"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
-	"github.com/SingaXYZ/cortex/internal/store"
-	"github.com/SingaXYZ/cortex/internal/taskdataauth"
-	"github.com/SingaXYZ/cortex/internal/tasktrace"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/taskdataauth"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
 // VerifyCommitRelay hands a Verifier-signed commit to the receiving Builder to submit

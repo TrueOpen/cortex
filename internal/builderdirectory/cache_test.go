@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // testClock is a hand-advanced clock. Cache expiry is a decision about staleness,

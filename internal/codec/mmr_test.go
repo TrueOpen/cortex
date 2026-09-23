@@ -6,7 +6,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
 func TestMMRPublishedPrimitive(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // ReceivingBuilderRef identifies the task whose receiving Builder must be
@@ -31,7 +31,7 @@ func receivingBuilderRef(event chainclient.AssignmentFinalized) ReceivingBuilder
 // ReceivingBuilderProvider yields the receiving Builder's operator address,
 // Nexus endpoint, current service pubkey and the chain height those were pinned
 // at. It is the single switch point for where per-task Builder authority is
-// read from; see ReceivingBuilderRef and SingaXYZ/node#92.
+// read from; see ReceivingBuilderRef and TrueOpen/node#92.
 type ReceivingBuilderProvider interface {
 	ResolveReceivingBuilder(ctx context.Context, task ReceivingBuilderRef) (BuilderEndpoint, error)
 }

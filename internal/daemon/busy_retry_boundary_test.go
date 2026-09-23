@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 // The boundary this pins is the one a busy node crosses three times for one

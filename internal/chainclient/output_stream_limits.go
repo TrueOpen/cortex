@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 // OutputStreamLimitsSnapshot reports current governed stream limits at one

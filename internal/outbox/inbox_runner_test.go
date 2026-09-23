@@ -10,9 +10,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/SingaXYZ/cortex/internal/builderclient"
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"github.com/TrueOpen/wire/bus"
 )
 

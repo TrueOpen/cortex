@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
-	signerclient "github.com/SingaXYZ/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	signerclient "github.com/TrueOpen/cortex/internal/signer"
 )
 
 const (

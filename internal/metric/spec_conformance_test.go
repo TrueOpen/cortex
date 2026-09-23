@@ -26,8 +26,8 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // specFrame implements FRAME_V1 from canonical-encoding-and-domain-hashing §3.2 literally:

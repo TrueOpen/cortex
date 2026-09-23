@@ -18,7 +18,7 @@
 // One thing is deliberately absent: there is no address field constructor.
 // Node's own frozen fixture records an unresolved drift between canonical
 // Bech32 text bytes and address-codec bytes for operator addresses, so no
-// encoding may be guessed here (SingaXYZ/node#95, CLOSED). Callers that must
+// encoding may be guessed here (TrueOpen/node#95, CLOSED). Callers that must
 // frame an address resolve the bytes themselves and pass Bytes - see
 // internal/nodewire/address.go CanonicalOperatorAddressBytes.
 //
@@ -38,7 +38,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 const (

@@ -5,19 +5,18 @@ Cortex consumes the descriptor released as `TrueOpen/wire` v0.2.0, commit
 one Google Protobuf descriptor graph. The previous mixed Node revisions,
 handwritten `Frozen*` subsets and duplicate Bus Task types are retired.
 
-This replaces `SingaXYZ/wire` v0.4.3 and is a rename, not an upgrade: the proto
-packages lost their `singa` prefix (`bus.v1` is `bus.v1`, `task.v1` is
-`task.v1`, and so on), every signing domain moved from `TRUEOPEN_*` to
-`TRUEOPEN_*`, the bech32 HRP moved from `singa` to `trueopen`, and the NATS
-subjects moved from `trueopen.*` to `trueopen.*`. A domain literal is framed into
-its own preimage, so **every digest this repository produces changed**. Deploy
-with Node and Nexus builds that made the same move; a node on either side of the
-rename cannot verify the other's signatures.
+What this pins is a rename of the previous contract generation, not an upgrade
+of it. The proto packages carry no vendor prefix (`bus.v1`, `task.v1`, `hub.v1`,
+`shared.v1`, `nexus.v1`), every signing domain is `TRUEOPEN_*`, the bech32 HRP is
+`trueopen`, and the NATS subjects are `trueopen.*`. A domain literal is framed
+into its own preimage, so **every digest this repository produces moved with the
+rename**. Deploy with Node and Nexus builds of the same generation: a node on
+either side of it cannot verify the other's signatures.
 
-Message shapes did not change. The descriptor's non-Singa dependency closure
-(amino, cosmos, cosmos_proto, gogoproto, google) regenerates byte for byte
-against the v0.4.3 output, which is what shows the rename carried no field
-changes with it.
+Message shapes did not change. The descriptor's vendor-neutral dependency
+closure (amino, cosmos, cosmos_proto, gogoproto, google) regenerates byte for
+byte against the previous generation's output, which is what shows the rename
+carried no field changes with it.
 
 ## Reproduction
 
@@ -59,8 +58,8 @@ This is a reviewed breaking release despite its patch version:
   Both sign the output MMR leaf count; no V1 decoder or alias is retained.
 - OUTPUT uses signed Header/Chunk/Fin streams. Chunk boundaries are committed by
   `TRUEOPEN_OUTPUT_MMR_V1`; one chunk still uses the MMR formula, and an empty
-  output is exactly one empty leaf. Fin establishes STORED only, and since SingaXYZ/wire v0.2.0
-  it also carries the Worker's normalized successful `FinishReasonV1` under a
+  output is exactly one empty leaf. Fin establishes STORED only, and it also
+  carries the Worker's normalized successful `FinishReasonV1` under a
   raw64 `TRUEOPEN_OUTPUT_FIN_V1` signature; neither field enters the OUTPUT MMR,
   `output_hash` or object metadata.
 - Worker evidence has exactly four artifacts: checkpoint, generated token IDs,

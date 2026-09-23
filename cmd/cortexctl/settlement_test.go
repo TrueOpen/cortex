@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/adminapi"
 )
 
 func TestTaskSettleCommandReportsKeeperConfirmation(t *testing.T) {

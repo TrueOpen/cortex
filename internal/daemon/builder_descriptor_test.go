@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/builderdirectory"
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/config"
+	"github.com/TrueOpen/cortex/internal/builderdirectory"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/config"
 )
 
 const descriptorTestOperator = "trueopen1builderoperator"

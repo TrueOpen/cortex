@@ -6,8 +6,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
-	bustaskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 // Pin the active task-control field numbers from wire v0.4.0.

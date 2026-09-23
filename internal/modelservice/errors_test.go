@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // The classification is only worth anything if it survives the wrapping every

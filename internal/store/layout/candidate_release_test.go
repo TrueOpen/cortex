@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store"
 )
 
 // TestReleaseCandidateAdmissionRemovesBothRowsOfALostOrder pins the missing

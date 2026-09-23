@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	"google.golang.org/protobuf/proto"
 )
 

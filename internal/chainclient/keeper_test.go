@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
-	sharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"github.com/cosmos/gogoproto/proto"
 )
 

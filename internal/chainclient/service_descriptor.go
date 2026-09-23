@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	hubv1 "github.com/SingaXYZ/cortex/proto/hub/v1"
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
 )
 
 // Participant types accepted by the Hub identity queries.

@@ -7,7 +7,7 @@ import (
 	"math"
 	"slices"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // TokenIDArtifacts exports the local model evidence into the protocol's raw

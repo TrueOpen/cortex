@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package cortex.v1;
 
-option go_package = "github.com/SingaXYZ/cortex/proto/cortex/v1;cortexv1";
+option go_package = "github.com/TrueOpen/cortex/proto/cortex/v1;cortexv1";
 
 service ModelManagementService {
   rpc Health(HealthRequest) returns (HealthResponse);

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // TestHandraiseProtoRoundTrip pins the nodewire <-> proto bridge: the digest

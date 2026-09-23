@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/observability"
 )
 
 func TestTraceEventKeepsFieldOrderAndPrintsDigestsInHex(t *testing.T) {

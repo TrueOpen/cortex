@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 // task.v1.EventVerifierAssignmentFinalized is the only event the chain

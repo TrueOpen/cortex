@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 func TestWorkerL0L4AnyFailureDoesNotSignHandraise(t *testing.T) {

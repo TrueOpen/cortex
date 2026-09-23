@@ -3,7 +3,7 @@ package modelservice
 import (
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/metric"
 )
 
 // The metric leaf set has to cover EVERY generated token position, contiguously

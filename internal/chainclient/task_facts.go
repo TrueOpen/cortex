@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	taskv1 "github.com/SingaXYZ/cortex/proto/task/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 // TaskReceiptFactsSnapshot carries the immutable Keeper commitments signed by

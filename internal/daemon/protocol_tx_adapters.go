@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"github.com/SingaXYZ/cortex/internal/txclient"
-	"github.com/SingaXYZ/cortex/internal/verifier"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/verifier"
 )
 
 // ProtocolTxAdapters binds explicit settlement and rescue operations to

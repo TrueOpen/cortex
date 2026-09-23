@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/SingaXYZ/cortex/internal/wirevectors"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 	"math"
 	"strconv"
 	"testing"
@@ -12,8 +12,8 @@ import (
 	"github.com/TrueOpen/wire/bus"
 	"google.golang.org/protobuf/proto"
 
-	busv1 "github.com/SingaXYZ/cortex/proto/bus/v1"
-	bussharedv1 "github.com/SingaXYZ/cortex/proto/shared/v1"
+	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	bussharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 )
 
 // wirevectors.File verifies the released cross-language signing vectors against

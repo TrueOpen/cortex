@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	nexusv1 "github.com/SingaXYZ/cortex/proto/nexus/v1"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 )
 
 type fakeOutputStream struct {

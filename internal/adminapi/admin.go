@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
-	"github.com/SingaXYZ/cortex/internal/evidence"
-	"github.com/SingaXYZ/cortex/internal/modelregistry"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/modelregistry"
 )
 
 const (

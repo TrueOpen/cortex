@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/hfields"
-	"github.com/SingaXYZ/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 

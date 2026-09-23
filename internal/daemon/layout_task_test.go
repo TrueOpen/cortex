@@ -3,8 +3,8 @@ package daemon
 import (
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/codec"
-	"github.com/SingaXYZ/cortex/internal/store/layout"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 )
 
 func TestInferTaskRoundTrip(t *testing.T) {

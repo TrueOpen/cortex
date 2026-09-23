@@ -15,13 +15,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SingaXYZ/cortex/internal/chainclient"
-	"github.com/SingaXYZ/cortex/internal/diagnostics"
-	"github.com/SingaXYZ/cortex/internal/evidence"
-	"github.com/SingaXYZ/cortex/internal/modelregistry"
-	"github.com/SingaXYZ/cortex/internal/observability"
-	"github.com/SingaXYZ/cortex/internal/observability/logtest"
-	"github.com/SingaXYZ/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/modelregistry"
+	"github.com/TrueOpen/cortex/internal/observability"
+	"github.com/TrueOpen/cortex/internal/observability/logtest"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 func TestAdminAPIDelegatesModelCommandsTreasuryAndCapability(t *testing.T) {
