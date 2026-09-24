@@ -164,6 +164,11 @@ type TxSupportConfirmerOptions struct {
 	GasPayer        string
 	FeeCap          txclient.Coin
 	FeeGrant        string
+	// SupportedProfiles is every profile this node is configured to support
+	// (local_identity.supported_model_profiles), in any order. Node keeps one
+	// daily support record per (epoch, operator), so each daily confirmation
+	// carries this whole set rather than the one model it was requested for.
+	SupportedProfiles []keepercontract.ProfileRef
 }
 
 type txSupportConfirmer struct {
@@ -195,6 +200,10 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 		if err != nil {
 			return "", err
 		}
+		profiles, err := c.dailySupportProfiles(keepercontract.ProfileRef{ModelID: material.ModelID, ProfileVersion: profileVersion})
+		if err != nil {
+			return "", err
+		}
 		nonce, committedHeight, epoch, expiryHeight, err := c.options.ServiceIdentity(ctx)
 		if err != nil {
 			return "", fmt.Errorf("read current service identity: %w", err)
@@ -202,7 +211,6 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 		if nonce == 0 || committedHeight == 0 || committedHeight == ^uint64(0) || expiryHeight < committedHeight {
 			return "", fmt.Errorf("current service identity nonce, committed height, and expiry are required")
 		}
-		profiles := []keepercontract.ProfileRef{{ModelID: material.ModelID, ProfileVersion: profileVersion}}
 		material.EpochIndex = epoch
 		digest, err := keepercontract.DailySupportConfirmation(
 			c.options.ChainID, c.options.OperatorAddress, material.EpochIndex, nonce, expiryHeight, profiles,
@@ -214,16 +222,23 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 		if err != nil {
 			return "", err
 		}
+		supportedProfiles := make([]txclient.SupportedProfileRef, 0, len(profiles))
+		for _, profile := range profiles {
+			supportedProfiles = append(supportedProfiles, txclient.SupportedProfileRef{ModelID: profile.ModelID, ProfileVersion: txclient.ProtoUint32(profile.ProfileVersion)})
+		}
 		confirmations := []txclient.ModelSupportConfirmation{{
 			OperatorAddress:           c.options.OperatorAddress,
-			SupportedProfiles:         []txclient.SupportedProfileRef{{ModelID: material.ModelID, ProfileVersion: txclient.ProtoUint32(profileVersion)}},
+			SupportedProfiles:         supportedProfiles,
 			ServiceAuthorizationNonce: txclient.ProtoUint64(nonce), ExpiryHeight: txclient.ProtoUint64(expiryHeight),
 			ServiceSignature: txclient.ProtoBytes(signature),
 		}}
 		message := txclient.BatchConfirmModelSupportMessage{SubmitterAddress: c.options.ServiceAddress, EpochIndex: txclient.ProtoUint64(material.EpochIndex), Confirmations: confirmations}
 		material.SupportDigest = hex.EncodeToString(digest[:])
 		material.SignedEnvelope = signature
-		return c.submitAndConfirm(ctx, material, txclient.MsgBatchConfirmModelSupport, message, digest)
+		// The confirmation is one record per (epoch, operator), so that is the
+		// identity the tx is tracked under, not the model it was requested for.
+		taskID := "model-support-daily:" + c.options.OperatorAddress + ":" + strconv.FormatUint(material.EpochIndex, 10)
+		return c.submitAndConfirm(ctx, material, taskID, txclient.MsgBatchConfirmModelSupport, message, digest)
 	default:
 		return "", fmt.Errorf("unsupported model support mode %q", material.SupportMode)
 	}
@@ -248,12 +263,32 @@ func (c txSupportConfirmer) sign(ctx context.Context, digest codec.Hash) (string
 	return hex.EncodeToString(signature), nil
 }
 
-func (c txSupportConfirmer) submitAndConfirm(ctx context.Context, material SupportMaterial, kind txclient.Kind, message any, materialDigest codec.Hash) (string, error) {
+// dailySupportProfiles returns the configured profile set in Node's canonical
+// order, after checking that the requested profile belongs to it. Confirming a
+// profile outside the configured set would drop every configured one from the
+// epoch's single record.
+func (c txSupportConfirmer) dailySupportProfiles(requested keepercontract.ProfileRef) ([]keepercontract.ProfileRef, error) {
+	if len(c.options.SupportedProfiles) == 0 {
+		return nil, fmt.Errorf("daily support requires the configured local_identity.supported_model_profiles")
+	}
+	profiles, err := keepercontract.CanonicalProfileRefs(c.options.SupportedProfiles)
+	if err != nil {
+		return nil, fmt.Errorf("configured supported profiles: %w", err)
+	}
+	for _, profile := range profiles {
+		if profile == requested {
+			return profiles, nil
+		}
+	}
+	return nil, fmt.Errorf("model profile %s@%d is not in local_identity.supported_model_profiles", requested.ModelID, requested.ProfileVersion)
+}
+
+func (c txSupportConfirmer) submitAndConfirm(ctx context.Context, material SupportMaterial, taskID string, kind txclient.Kind, message any, materialDigest codec.Hash) (string, error) {
 	payload, err := txclient.MarshalMessage(kind, message)
 	if err != nil {
 		return "", err
 	}
-	obs, err := c.tx.Submit(ctx, txclient.Request{TaskID: "model-support:" + material.ModelID + ":" + material.ProfileVersion, Kind: kind, Payload: payload, GasPayer: c.options.GasPayer, FeeCap: c.options.FeeCap, FeeGrant: c.options.FeeGrant, MaterialDigest: materialDigest})
+	obs, err := c.tx.Submit(ctx, txclient.Request{TaskID: taskID, Kind: kind, Payload: payload, GasPayer: c.options.GasPayer, FeeCap: c.options.FeeCap, FeeGrant: c.options.FeeGrant, MaterialDigest: materialDigest})
 	if err != nil {
 		return "", err
 	}

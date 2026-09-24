@@ -9,6 +9,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
@@ -126,6 +127,7 @@ func TestTxSupportConfirmerRefusesOperatorDeclarationAndStillSubmitsDailyConfirm
 		Signer: digestSigner, ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
 		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
 		GasPayer:        "trueopen1service", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},
+		SupportedProfiles: []keepercontract.ProfileRef{{ModelID: "model-a", ProfileVersion: 1}},
 	})
 	material := SupportMaterial{
 		ModelID: "model-a", ProfileVersion: "1", SupporterAddress: "trueopen1node", SupportMode: SupportModeDeclared, Supported: true,
@@ -158,6 +160,109 @@ func TestTxSupportConfirmerRefusesOperatorDeclarationAndStillSubmitsDailyConfirm
 	}
 }
 
+// Node keeps one daily support record per (epoch, operator) and rejects a second
+// confirmation whose profile set differs. A confirmation that carried only the
+// requested model therefore left every other configured model unrefreshed for
+// the epoch, so each one must carry the complete configured set.
+func TestTxSupportConfirmerDailyConfirmationCoversEveryConfiguredProfile(t *testing.T) {
+	ctx := context.Background()
+	tx := &recordingTxClient{obs: txclient.Observation{Accepted: true, Status: txclient.LifecycleKeeperConfirmed, TxHash: "tx-support", IncludedHeight: 55}}
+	var signed []codec.Hash
+	digestSigner := signer.DigestSignerFunc(func(_ context.Context, req signer.DigestRequest) ([]byte, error) {
+		signed = append(signed, req.Digest)
+		return []byte(strings.Repeat("s", 64)), nil
+	})
+	const operator = "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
+	confirmer := NewTxSupportConfirmer(tx, TxSupportConfirmerOptions{
+		ChainID: "chain-1", OperatorAddress: operator,
+		Signer: digestSigner, ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
+		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
+		// Deliberately out of order: the confirmer must sort into Node's order.
+		SupportedProfiles: []keepercontract.ProfileRef{
+			{ModelID: "model-b", ProfileVersion: 1},
+			{ModelID: "model-a", ProfileVersion: 10},
+			{ModelID: "model-a", ProfileVersion: 2},
+		},
+	})
+	wantProfiles := []keepercontract.ProfileRef{
+		{ModelID: "model-a", ProfileVersion: 2},
+		{ModelID: "model-a", ProfileVersion: 10},
+		{ModelID: "model-b", ProfileVersion: 1},
+	}
+	wantDigest, err := keepercontract.DailySupportConfirmation("chain-1", operator, 1, 3, 199, wantProfiles)
+	if err != nil {
+		t.Fatalf("expected digest: %v", err)
+	}
+
+	for _, requested := range []SupportMaterial{
+		{ModelID: "model-b", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true},
+		{ModelID: "model-a", ProfileVersion: "2", SupportMode: SupportModeDaily, Supported: true},
+	} {
+		if _, err := confirmer.ConfirmSupport(ctx, requested); err != nil {
+			t.Fatalf("daily ConfirmSupport(%s@%s) error = %v", requested.ModelID, requested.ProfileVersion, err)
+		}
+	}
+
+	if len(tx.requests) != 2 || len(signed) != 2 {
+		t.Fatalf("tx requests = %d, signatures = %d, want 2 each", len(tx.requests), len(signed))
+	}
+	for index, request := range tx.requests {
+		if signed[index] != wantDigest {
+			t.Fatalf("confirmation %d signed %s, want the digest over every configured profile %s", index, signed[index], wantDigest)
+		}
+		var batch txclient.BatchConfirmModelSupportMessage
+		if err := json.Unmarshal(request.Payload, &batch); err != nil {
+			t.Fatalf("decode batch request %d: %v", index, err)
+		}
+		if len(batch.Confirmations) != 1 {
+			t.Fatalf("confirmation %d carries %d operator confirmations, want 1", index, len(batch.Confirmations))
+		}
+		got := batch.Confirmations[0].SupportedProfiles
+		if len(got) != len(wantProfiles) {
+			t.Fatalf("confirmation %d supported_profiles = %#v, want %#v", index, got, wantProfiles)
+		}
+		for position, profile := range got {
+			if profile.ModelID != wantProfiles[position].ModelID || uint32(profile.ProfileVersion) != wantProfiles[position].ProfileVersion {
+				t.Fatalf("confirmation %d supported_profiles = %#v, want %#v", index, got, wantProfiles)
+			}
+		}
+		if want := "model-support-daily:" + operator + ":1"; request.TaskID != want {
+			t.Fatalf("confirmation %d task id = %q, want %q", index, request.TaskID, want)
+		}
+	}
+}
+
+func TestTxSupportConfirmerRejectsDailySupportForUnconfiguredProfile(t *testing.T) {
+	ctx := context.Background()
+	tx := &recordingTxClient{}
+	signCalls := 0
+	digestSigner := signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) {
+		signCalls++
+		return []byte(strings.Repeat("s", 64)), nil
+	})
+	options := TxSupportConfirmerOptions{
+		ChainID: "chain-1", OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc", Signer: digestSigner,
+		ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
+		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
+	}
+	daily := SupportMaterial{ModelID: "model-c", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true}
+
+	options.SupportedProfiles = []keepercontract.ProfileRef{{ModelID: "model-a", ProfileVersion: 1}}
+	_, err := NewTxSupportConfirmer(tx, options).ConfirmSupport(ctx, daily)
+	if err == nil || !strings.Contains(err.Error(), "model-c@1") {
+		t.Fatalf("unconfigured ConfirmSupport error = %v, want model-c@1 named", err)
+	}
+
+	options.SupportedProfiles = nil
+	if _, err := NewTxSupportConfirmer(tx, options).ConfirmSupport(ctx, daily); err == nil {
+		t.Fatal("ConfirmSupport without configured profiles error = nil")
+	}
+
+	if signCalls != 0 || len(tx.requests) != 0 {
+		t.Fatalf("refused confirmation signed %d times or submitted %#v", signCalls, tx.requests)
+	}
+}
+
 func TestTxSupportConfirmerRejectsNonNumericProfileIdentity(t *testing.T) {
 	for _, profile := range []string{"", "0", "01", "profile-v1", " 1"} {
 		if _, err := canonicalSupportProfileVersion(profile); err == nil {
@@ -175,7 +280,8 @@ func TestTxSupportConfirmerRejectsRecoveryByte(t *testing.T) {
 	confirmer := NewTxSupportConfirmer(tx, TxSupportConfirmerOptions{
 		ChainID: "chain-1", OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc", Signer: digestSigner,
 		ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
-		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
+		ServiceIdentity:   func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
+		SupportedProfiles: []keepercontract.ProfileRef{{ModelID: "model-a", ProfileVersion: 1}},
 	})
 	_, err := confirmer.ConfirmSupport(ctx, SupportMaterial{
 		ModelID: "model-a", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true, EpochIndex: 7,

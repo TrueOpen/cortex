@@ -1,8 +1,10 @@
 package keepercontract
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,6 +27,30 @@ func TaskEpoch(height uint64) uint64 {
 type ProfileRef struct {
 	ModelID        string
 	ProfileVersion uint32
+}
+
+// CanonicalProfileRefs returns a sorted copy of profiles in the order Node
+// requires for supported_profiles: model_id ascending, then profile_version
+// ascending as a number. It refuses an empty set, a missing or untrimmed
+// identity, and duplicates, so its result is always accepted by
+// SupportedProfilesHash and DailySupportConfirmation.
+func CanonicalProfileRefs(profiles []ProfileRef) ([]ProfileRef, error) {
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("supported profiles are required")
+	}
+	sorted := slices.Clone(profiles)
+	for _, profile := range sorted {
+		if profile.ModelID == "" || strings.TrimSpace(profile.ModelID) != profile.ModelID || profile.ProfileVersion == 0 {
+			return nil, fmt.Errorf("supported profile identity must be canonical and non-empty")
+		}
+	}
+	slices.SortFunc(sorted, compareProfileRefs)
+	for index := 1; index < len(sorted); index++ {
+		if compareProfileRefs(sorted[index-1], sorted[index]) == 0 {
+			return nil, fmt.Errorf("supported profiles contain duplicate %s@%d", sorted[index].ModelID, sorted[index].ProfileVersion)
+		}
+	}
+	return sorted, nil
 }
 
 func SupportedProfilesHash(profiles []ProfileRef) (codec.Hash, error) {
@@ -75,21 +101,30 @@ func supportedProfileFields(profiles []ProfileRef) ([]hfields.Field, error) {
 	}
 	elements := make([]hfields.Field, 0, len(profiles)+1)
 	elements = append(elements, hfields.Uint32(uint32(len(profiles))))
-	var previous string
-	for _, profile := range profiles {
+	for index, profile := range profiles {
 		if profile.ModelID == "" || profile.ProfileVersion == 0 {
 			return nil, fmt.Errorf("supported profile identity is required")
 		}
-		key := profile.ModelID + "\x00" + strconv.FormatUint(uint64(profile.ProfileVersion), 10)
-		if previous != "" && key <= previous {
+		// Compare the version as a number: ordering the decimal text put "10"
+		// before "2", the reverse of the order Node requires.
+		if index > 0 && compareProfileRefs(profiles[index-1], profile) >= 0 {
 			return nil, fmt.Errorf("supported profiles must be strictly ascending and unique")
 		}
-		previous = key
 		elements = append(elements, hfields.Frame(hfields.String(profile.ModelID), hfields.Uint32(profile.ProfileVersion)))
 	}
 	// profile_count and the frame's element_count are two separate fields
 	// carrying the same number; wire's vectors list both.
 	return []hfields.Field{hfields.Uint32(uint32(len(profiles))), hfields.Frame(elements...)}, nil
+}
+
+// compareProfileRefs orders profiles the way Node's
+// validateCanonicalSupportedProfiles does: by model_id, then by the numeric
+// profile_version.
+func compareProfileRefs(a, b ProfileRef) int {
+	if order := strings.Compare(a.ModelID, b.ModelID); order != 0 {
+		return order
+	}
+	return cmp.Compare(a.ProfileVersion, b.ProfileVersion)
 }
 
 func WorkerReveal(chainID, taskID string, verifyRound uint64, sampleSeed, sampledValueSetHash, evidenceSchemaVersion string) codec.Hash {

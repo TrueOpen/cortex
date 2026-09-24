@@ -30,6 +30,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/daemon"
 	"github.com/TrueOpen/cortex/internal/diagnostics"
 	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -2861,5 +2862,20 @@ func assertCortexdLogRecord(t *testing.T, line string, level slog.Level, message
 	}
 	if !strings.Contains(line, "msg="+message) && !strings.Contains(line, `msg="`+message) {
 		t.Fatalf("log record %q missing message prefix %q", line, message)
+	}
+}
+
+func TestDailySupportProfilesListEveryConfiguredProfile(t *testing.T) {
+	var cfg config.Config
+	cfg.LocalIdentity.SupportedModelProfiles = []string{"model-b@1=llm_text_v1", "model-a@2=llm_text_v1"}
+	got := dailySupportProfiles(cfg)
+	want := []keepercontract.ProfileRef{{ModelID: "model-b", ProfileVersion: 1}, {ModelID: "model-a", ProfileVersion: 2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dailySupportProfiles = %#v, want %#v", got, want)
+	}
+
+	cfg.LocalIdentity.SupportedModelProfiles = []string{"model-a"}
+	if got := dailySupportProfiles(cfg); len(got) != 0 {
+		t.Fatalf("dailySupportProfiles for an unparseable entry = %#v, want none", got)
 	}
 }

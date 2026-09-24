@@ -23,6 +23,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/daemon"
 	"github.com/TrueOpen/cortex/internal/diagnostics"
 	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/observability"
 	"github.com/TrueOpen/cortex/internal/outbox"
@@ -1235,6 +1236,7 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 				return nonce, height, epoch, expiry, err
 			},
 			GasPayer: rt.ServiceAddress, FeeCap: modelregistryTxFeeCap(cfg),
+			SupportedProfiles: dailySupportProfiles(cfg),
 		})
 	}
 	registry := modelregistry.NewRegistry(registryConfig)
@@ -1242,6 +1244,22 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 		rt.Reconciler.SetRegistry(registry)
 	}
 	return registry
+}
+
+// dailySupportProfiles lists every profile in local_identity.supported_model_profiles.
+// A daily support confirmation must carry the whole set, because Node keeps one
+// record per (epoch, operator). An unparseable configuration yields no profiles,
+// which the confirmer refuses rather than confirming a partial set.
+func dailySupportProfiles(cfg config.Config) []keepercontract.ProfileRef {
+	refs, err := cfg.LocalIdentity.ModelProfiles()
+	if err != nil {
+		return nil
+	}
+	profiles := make([]keepercontract.ProfileRef, 0, len(refs))
+	for _, ref := range refs {
+		profiles = append(profiles, keepercontract.ProfileRef{ModelID: ref.ModelID, ProfileVersion: ref.ProfileVersion})
+	}
+	return profiles
 }
 
 func modelregistryTxFeeCap(cfg config.Config) txclient.Coin {
