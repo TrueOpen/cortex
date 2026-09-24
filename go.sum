@@ -6,8 +6,8 @@ github.com/RaduBerinde/axisds v0.1.0 h1:YItk/RmU5nvlsv/awo2Fjx97Mfpt4JfgtEVAGPrL
 github.com/RaduBerinde/axisds v0.1.0/go.mod h1:UHGJonU9z4YYGKJxSaC6/TNcLOBptpmM5m2Cksbnw0Y=
 github.com/RaduBerinde/btreemap v0.0.0-20250419174037-3d62b7205d54 h1:bsU8Tzxr/PNz75ayvCnxKZWEYdLMPDkUgticP4a4Bvk=
 github.com/RaduBerinde/btreemap v0.0.0-20250419174037-3d62b7205d54/go.mod h1:0tr7FllbE9gJkHq7CVeeDDFAFKQVy5RnCSSNBOvdqbc=
-github.com/TrueOpen/wire v0.2.0 h1:WfHDrjG2n+3Q+Pff/XmcJHj7wBJTPZ6alAypsgPsjCc=
-github.com/TrueOpen/wire v0.2.0/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
+github.com/TrueOpen/wire v0.2.1 h1:+cs6XjkTJz3wVl8bLONVBmuQgsYnw9ymXSilO+lxrio=
+github.com/TrueOpen/wire v0.2.1/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
 github.com/aclements/go-perfevent v0.0.0-20240301234650-f7843625020f h1:JjxwchlOepwsUWcQwD2mLUAGE9aCp0/ehy6yCHFBOvo=
 github.com/aclements/go-perfevent v0.0.0-20240301234650-f7843625020f/go.mod h1:tMDTce/yLLN/SK8gMOxQfnyeMeCg8KGzp0D1cbECEeo=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
