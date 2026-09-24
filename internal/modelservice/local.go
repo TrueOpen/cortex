@@ -820,9 +820,13 @@ func applyCurrentProfileSnapshot(profile localModelProfile, snapshot chainclient
 	if err != nil {
 		return localModelProfile{}, err
 	}
-	if ok {
-		profile.Thresholds = thresholds
+	// Judging under the built-in defaults instead would record a policy the
+	// chain never registered, and Node cannot judge an all-zero set: its pass
+	// and reject bounds always overlap.
+	if !ok {
+		return localModelProfile{}, fmt.Errorf("resolved model profile %s@%s has no verification_thresholds", profile.ModelID, profile.ProfileVersion)
 	}
+	profile.Thresholds = thresholds
 	return profile, nil
 }
 

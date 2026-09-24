@@ -1295,6 +1295,23 @@ func liveLikeProfileSnapshot(modelID, profileVersion string) chainclient.Current
 	snapshot.VerificationProfile.Metrics.CompareUnionJS = true
 	snapshot.VerificationProfile.IncludeGeneratedSpecialTokens = true
 	snapshot.VerificationProfile.TokenScope = "TOKEN_SCOPE_" + defaultLocalTokenScope
+	// The thresholds the node's localnet genesis seed registers for this profile
+	// (config/localnet_genesis_seed.json), in FP_1E6.
+	snapshot.VerificationThresholds = chainclient.CurrentVerificationThresholdsSnapshot{
+		PassMinFiniteCount:            16,
+		PassMeanAbsLogprobDiffMax:     50000,
+		PassAbsLogprobDiffP95Max:      100000,
+		PassAbsLogprobDiffP99Max:      200000,
+		PassRankDeltaNonzeroRateMax:   50000,
+		PassTopKJaccardMeanMin:        900000,
+		PassUnionJSP99Max:             50000,
+		RejectMeanAbsLogprobDiffMin:   300000,
+		RejectAbsLogprobDiffP95Min:    500000,
+		RejectAbsLogprobDiffP99Min:    800000,
+		RejectRankDeltaNonzeroRateMin: 300000,
+		RejectTopKJaccardMeanMax:      600000,
+		RejectUnionJSP99Min:           200000,
+	}
 	return snapshot
 }
 
@@ -1427,6 +1444,26 @@ func TestLocalServiceRejectsUnimplementedVerificationRules(t *testing.T) {
 				t.Fatalf("error = %v, want it to name %s", err, testCase.want)
 			}
 		})
+	}
+}
+
+// A profile snapshot without verification thresholds used to keep the built-in
+// defaults, a policy the chain never registered, and record it in the
+// verification evidence. Node cannot judge such a profile either: its
+// JudgeMetricSample refuses pass and reject bounds that overlap, which an
+// all-zero set always does. Refusing the profile keeps the node from producing
+// evidence under rules that exist only locally.
+func TestLocalServiceRejectsProfileWithoutVerificationThresholds(t *testing.T) {
+	base := defaultQwenSingleSampleProfile("hf-model", "1", "Qwen/Qwen3-8B")
+	snapshot := supportedVerificationSnapshot()
+	snapshot.VerificationThresholds = chainclient.CurrentVerificationThresholdsSnapshot{}
+
+	_, err := applyCurrentProfileSnapshot(base, snapshot)
+	if err == nil {
+		t.Fatal("applyCurrentProfileSnapshot() error = nil, want a profile without thresholds refused rather than judged under built-in defaults")
+	}
+	if !strings.Contains(err.Error(), "verification_thresholds") {
+		t.Fatalf("error = %v, want it to name verification_thresholds", err)
 	}
 }
 
