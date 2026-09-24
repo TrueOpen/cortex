@@ -1272,21 +1272,6 @@ func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyRes
 	}, nil
 }
 
-// compareOutputLogprobs compares the output token ids and logprobs captured at
-// infer time against the verifier's recomputed prompt_logprobs, and reports how
-// many positions are inconsistent.
-func compareOutputLogprobs(trace []tokenLogprob, inputLen int, recomputed []map[string]logprobEntry) (mismatchCount int) {
-	metrics, _, err := computeSingleSampleMetrics(trace, inputLen, recomputed, defaultTopK, missingLogprob)
-	if err != nil {
-		return 0
-	}
-	verdict, reasons := classifySingleSample(metrics)
-	if verdict != verdictReject {
-		return 0
-	}
-	return len(reasons)
-}
-
 func verificationSequence(trace []tokenLogprob, inputLen int, recomputed []map[string]logprobEntry, missingValue float64) []verificationValue {
 	values := make([]verificationValue, 0, len(trace))
 	for i, t := range trace {
@@ -1419,10 +1404,6 @@ func leafUint32(name string, value int) (uint32, error) {
 				"than clamping, because a clamped value hashes into metric_root as a plausible one", name, value)
 	}
 	return uint32(value), nil
-}
-
-func classifySingleSample(metrics singleSampleMetrics) (string, []string) {
-	return classifySingleSampleWithThresholds(metrics, localSingleSampleThresholds())
 }
 
 func classifySingleSampleWithThresholds(metrics singleSampleMetrics, thresholds singleSampleThresholds) (string, []string) {

@@ -893,7 +893,7 @@ func TestLocalServiceSingleSampleClassifierRejectsOnlyRejectThresholds(t *testin
 		ComparedRankCount:    128,
 		MissingSelectedCount: 0,
 	}
-	verdict, reasons := classifySingleSample(rejectMetrics)
+	verdict, reasons := classifySingleSampleWithThresholds(rejectMetrics, localSingleSampleThresholds())
 	if verdict != verdictReject || len(reasons) != 1 || reasons[0] != "mean_abs_logprob_diff" {
 		t.Fatalf("reject classify = %s reasons=%v, want mean_abs reject", verdict, reasons)
 	}
@@ -910,12 +910,9 @@ func TestLocalServiceSingleSampleClassifierRejectsOnlyRejectThresholds(t *testin
 		ComparedRankCount:    128,
 		MissingSelectedCount: 0,
 	}
-	verdict, reasons = classifySingleSample(inconclusiveMetrics)
+	verdict, reasons = classifySingleSampleWithThresholds(inconclusiveMetrics, localSingleSampleThresholds())
 	if verdict != verdictInconclusive || len(reasons) != 0 {
 		t.Fatalf("gray classify = %s reasons=%v, want inconclusive without reject", verdict, reasons)
-	}
-	if compareOutputLogprobs([]tokenLogprob{{TokenID: 1, Logprob: -1}}, 0, []map[string]logprobEntry{{"1": {Logprob: -1.01, Rank: 1}}}) != 0 {
-		t.Fatalf("compareOutputLogprobs rejected a gray/non-reject sample")
 	}
 }
 
