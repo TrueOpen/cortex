@@ -27,6 +27,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -137,6 +138,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 			Signer: testDigestSigner(), ServiceKeyRef: "test-worker-key", ServiceAddress: workerAddress,
 			ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
 			GasPayer:        gasPayer, FeeCap: txclient.Coin{Amount: 5, Denom: "utrueopen"},
+			SupportedProfiles: []keepercontract.ProfileRef{{ModelID: modelID, ProfileVersion: 1}},
 		}),
 	})
 

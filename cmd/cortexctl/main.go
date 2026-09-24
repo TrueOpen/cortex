@@ -338,7 +338,9 @@ func newModelShowCommand(client clientFactory, stdout io.Writer) *cobra.Command 
 func newModelSupportCommand(client clientFactory, stdout io.Writer, daily bool) *cobra.Command {
 	name, short := "support", "Prepare an operator-signed model support transaction"
 	if daily {
-		name, short = "daily-support", "Renew daily model support"
+		// One confirmation renews every configured profile for the epoch;
+		// MODEL_ID must be one of them.
+		name, short = "daily-support", "Renew daily support for every configured model profile"
 	}
 	var profileVersion string
 	var dryRun bool
