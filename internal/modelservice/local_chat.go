@@ -222,9 +222,12 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	if err != nil {
 		return InferResponse{}, err
 	}
-	// The local bound begins before the engine call, so queue and network time
-	// consume the budget. Expiry fails the call without publishing partial output.
-	ctx, cancel := context.WithTimeout(ctx, duration)
+	// max_output_duration ends the generation successfully rather than failing
+	// the call; see the same split in inferV0. Only the streaming transport can
+	// honour it, and the context deadline sits budgetGrace behind so a silent
+	// engine still fails.
+	budgetAt := time.Now().Add(duration)
+	ctx, cancel := context.WithDeadline(ctx, budgetAt.Add(budgetGrace))
 	defer cancel()
 	if req.DeadlineMS > 0 {
 		var deadlineCancel context.CancelFunc
@@ -241,13 +244,13 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 			taskID:    req.TaskID,
 			modelID:   profile.ModelID,
 		}
-		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident); err != nil {
+		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident, budgetAt); err != nil {
 			return InferResponse{}, err
 		}
 	} else if err := s.post(ctx, "/v1/chat/completions", chatReq, &chatResp); err != nil {
 		return InferResponse{}, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := ctx.Err(); err != nil && !chatBudgetStopped(&chatResp) {
 		return InferResponse{}, err
 	}
 	projected, err := projectChatToCompletion(chatResp)
@@ -577,19 +580,27 @@ type chatChunkDelta struct {
 // into out. If the server did not actually stream (Content-Type is not
 // text/event-stream -- a stub, or a vLLM that ignored stream:true), it falls back
 // to the plain JSON decode, mirroring postStreamingCompletion.
-func (s *LocalService) postStreamingChat(ctx context.Context, path string, body any, out *chatCompletionResponse, ident inferStreamIdentity) error {
+func (s *LocalService) postStreamingChat(ctx context.Context, path string, body any, out *chatCompletionResponse, ident inferStreamIdentity, budget time.Time) error {
 	resp, err := s.doPost(ctx, path, body)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if !isEventStream(resp.Header.Get("Content-Type")) {
+		// A unary body arrives whole or not at all, so there is nothing to
+		// truncate; the caller's context deadline is the only bound that applies.
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			return fmt.Errorf("modelservice local chat: decode response %s: %w", path, err)
 		}
 		return nil
 	}
-	return s.reassembleChatStream(ctx, resp.Body, out, ident)
+	return s.reassembleChatStream(ctx, resp.Body, out, ident, budget)
+}
+
+// chatBudgetStopped reports whether this node, rather than the engine, ended the
+// generation. See budgetStopped for the completions shape.
+func chatBudgetStopped(out *chatCompletionResponse) bool {
+	return len(out.Choices) > 0 && out.Choices[0].FinishReason == finishReasonMaxOutputDuration
 }
 
 // reassembleChatStream folds the SSE `data:` frames of a streaming chat completion
@@ -601,7 +612,12 @@ func (s *LocalService) postStreamingChat(ctx context.Context, path string, body 
 // not the engine's delta.content -- see decodeTokensFromLogprobs. Per-frame text
 // is buffered to UTF-8 rune boundaries so a multi-byte character split across
 // frames is never delivered as a partial (invalid-UTF-8) TextDelta.
-func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity) error {
+// budget, when non-zero, is the max_output_duration deadline. It is checked
+// between whole frames so a truncation never lands inside a token, and it ends
+// the generation successfully rather than failing it; see the completions
+// counterpart for the full reasoning.
+func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity, budget time.Time) error {
+	overBudget := func() bool { return !budget.IsZero() && !time.Now().Before(budget) }
 	// observerForRequest, not inferObserver: the Worker installs its output-stream
 	// recorder per request with WithInferStreamObserver, and the process-wide sink
 	// this used to read has no production caller at all, so it is always nil. The
@@ -720,6 +736,12 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 				// inference. Stop delivering, keep reassembling.
 				observerActive = false
 			}
+		}
+		// After the frame is folded in, never mid-frame: what the budget
+		// truncates is the generation, not a token.
+		if overBudget() && out.Choices[0].FinishReason == "" {
+			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
+			break
 		}
 	}
 	if err := scanner.Err(); err != nil {
