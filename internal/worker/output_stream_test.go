@@ -253,13 +253,21 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 	}
 }
 
+// TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration also pins
+// the ADR-0027 ordering: the Fin is delivered BEFORE the receipt is relayed, so
+// a receipt in a Builder's hands always has a Fin behind it.
+//
+// This test used to assert the opposite -- "Fin failure must allow receipt relay
+// while holding object finalization" -- which left a refused Fin with the
+// receipt already relayed, a state nothing downstream can tell apart from a
+// Worker that never finished.
 func TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration(t *testing.T) {
 	h := newHarness(t)
 	enableEvidenceSchema(&h)
 	data := &observedTaskData{recordingTaskData: h.taskData, finishError: builderclient.Retryable(errors.New("Fin unavailable"))}
 	data.onFinish = func() error {
-		if len(h.taskData.relays) == 0 {
-			return errors.New("Fin was awaited before the signed receipt relay")
+		if len(h.taskData.relays) != 0 {
+			return errors.New("receipt was relayed before the Fin")
 		}
 		return nil
 	}
@@ -268,8 +276,10 @@ func TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration(t *testi
 	if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err == nil || !builderclient.IsRetryable(err) {
 		t.Fatalf("Fin failure=%v", err)
 	}
-	if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 0 || pendingOutputAvailable(h.persistence.outbox) {
-		t.Fatal("Fin failure must allow receipt relay while holding object finalization and availability")
+	// Nothing reached the Builder: the Fin is what failed, and the receipt is
+	// behind it. The retry below is what delivers both.
+	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 || pendingOutputAvailable(h.persistence.outbox) {
+		t.Fatal("a refused Fin must hold the receipt back, not leave it relayed")
 	}
 	frames, err := h.persistence.OutputStreamFrames(context.Background(), event.TaskID)
 	if err != nil || len(frames) == 0 {
@@ -291,8 +301,10 @@ func TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration(t *testi
 	if result.TaskDataReceipt.OutputLeafCount != uint64(len(frames)) || len(h.persistence.confirmations) != 2 {
 		t.Fatal("resumed finalization lost receipt or storage facts")
 	}
-	if len(h.taskData.relays) != 2 || !reflect.DeepEqual(h.taskData.relays[0].Receipt, h.taskData.relays[1].Receipt) {
-		t.Fatal("Fin retry changed the promptly relayed signed receipt")
+	// One relay, not two: the first attempt never got past the Fin, so the
+	// receipt went out exactly once, on the retry that delivered the Fin.
+	if len(h.taskData.relays) != 1 {
+		t.Fatalf("receipt relays=%d, want exactly the one the successful retry sent", len(h.taskData.relays))
 	}
 	if len(data.fins) != 2 || !reflect.DeepEqual(data.fins[0], data.fins[1]) {
 		t.Fatal("Fin retry changed the persisted terminal frame")

@@ -1091,10 +1091,24 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 	if err != nil {
 		return err
 	}
-	if err := w.cfg.TaskData.SubmitInferReceipt(ctx, endpoint.Endpoint, builderclient.SubmitInferReceiptRequest{Receipt: receipt}); err != nil {
+	// The Fin goes out before the receipt, in that order, because ADR-0027
+	// decision three makes a receipt imply a Fin: a Builder holding a receipt
+	// must already hold the signed Fin that terminates its output stream.
+	//
+	// Submitted the other way round, a Fin the Builder refuses -- a signature it
+	// cannot verify, a finish_reason outside the closed set -- leaves the receipt
+	// already in its hands with no Fin behind it, and nothing downstream can
+	// distinguish that from a Worker that never finished. Failing here instead
+	// leaves the receipt unsubmitted, which a retry or a restart resumes cleanly:
+	// both re-enter through this function.
+	//
+	// Only the submission moves. The receipt is still built and persisted first,
+	// because building it is local and observable to nobody; it is the relay that
+	// the ordering is about.
+	if err := w.ensureOutputStreamStored(ctx, event, receipt); err != nil {
 		return err
 	}
-	if err := w.ensureOutputStreamStored(ctx, event, receipt); err != nil {
+	if err := w.cfg.TaskData.SubmitInferReceipt(ctx, endpoint.Endpoint, builderclient.SubmitInferReceiptRequest{Receipt: receipt}); err != nil {
 		return err
 	}
 	outputKey := builderclient.TaskDataKey{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput, ContentHash: receipt.OutputHash}
