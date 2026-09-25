@@ -957,9 +957,26 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	if err != nil {
 		return InferResponse{}, err
 	}
-	// The local bound begins before the engine call, so queue and network time
-	// consume the budget. Expiry fails the call without publishing partial output.
-	ctx, cancel := context.WithTimeout(ctx, duration)
+	// max_output_duration is a generation budget, not a transport timeout, and
+	// the two need different behaviour at expiry. The budget ends the generation
+	// SUCCESSFULLY -- the tokens produced so far are committed and the finish
+	// reason is max_output_duration, which the frozen set admits. A transport
+	// timeout fails the call.
+	//
+	// They used to be one context deadline, so an over-budget run discarded
+	// everything and MAX_OUTPUT_DURATION could never be produced at all, despite
+	// being in the closed successful-termination set.
+	//
+	// The budget begins before the engine call, so queue and network time still
+	// consume it. Only the streaming transport can honour it: a unary body
+	// arrives whole or not at all.
+	//
+	// budgetGrace keeps a context deadline behind the budget so an engine that
+	// has stopped sending is still a failure rather than a hang. Truncation is
+	// checked between frames, so the clean stop wins whenever frames are still
+	// arriving.
+	budgetAt := time.Now().Add(duration)
+	ctx, cancel := context.WithDeadline(ctx, budgetAt.Add(budgetGrace))
 	defer cancel()
 	if req.DeadlineMS > 0 {
 		var deadlineCancel context.CancelFunc
@@ -977,14 +994,14 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 				taskID:    req.TaskID,
 				modelID:   profile.ModelID,
 			}
-			if err := s.postStreamingCompletion(ctx, "/v1/completions", genReq, &resp, ident); err != nil {
+			if err := s.postStreamingCompletion(ctx, "/v1/completions", genReq, &resp, ident, budgetAt); err != nil {
 				return InferResponse{}, err
 			}
 		} else if err := s.post(ctx, "/v1/completions", genReq, &resp); err != nil {
 			return InferResponse{}, err
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	if err := ctx.Err(); err != nil && !budgetStopped(&resp) {
 		return InferResponse{}, err
 	}
 	return s.buildInferResultFromCompletion(ctx, req, profile, resp, nil, completionFinishResolver(req))
@@ -2107,19 +2124,22 @@ func (s *LocalService) post(ctx context.Context, path string, body any, out any)
 // downstream can tell which transport was used. If the server did not actually
 // stream (Content-Type is not text/event-stream -- a stub, or a vLLM that ignored
 // stream:true), it falls back to the plain JSON decode.
-func (s *LocalService) postStreamingCompletion(ctx context.Context, path string, body any, out *completionResponse, ident inferStreamIdentity) error {
+func (s *LocalService) postStreamingCompletion(ctx context.Context, path string, body any, out *completionResponse, ident inferStreamIdentity, budget time.Time) error {
 	resp, err := s.doPost(ctx, path, body)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if !isEventStream(resp.Header.Get("Content-Type")) {
+		// A unary body arrives whole or not at all, so there is nothing to
+		// truncate: the budget can only fail this call, which the caller's
+		// context deadline already does.
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			return fmt.Errorf("modelservice local: decode response %s: %w", path, err)
 		}
 		return nil
 	}
-	return s.reassembleCompletionStream(ctx, resp.Body, out, ident)
+	return s.reassembleCompletionStream(ctx, resp.Body, out, ident, budget)
 }
 
 // isEventStream reports whether a Content-Type header names text/event-stream,
@@ -2132,14 +2152,43 @@ func isEventStream(contentType string) bool {
 	return strings.EqualFold(strings.TrimSpace(mediaType), "text/event-stream")
 }
 
+// budgetGrace is how long after max_output_duration the context deadline sits.
+// It exists so an engine that has gone silent still fails instead of hanging,
+// while leaving the clean between-frames truncation to win in every case where
+// frames are still arriving. It is deliberately short: it is a backstop for a
+// dead connection, not additional generation time.
+const budgetGrace = 5 * time.Second
+
+// finishReasonMaxOutputDuration is the finish_reason this node fills in when it
+// stops a generation at max_output_duration. It is spelled the same way the
+// gRPC model-service contract spells it (see finishReasonV1FromString) so one
+// string means one thing across both transports; no engine ever sends it.
+const finishReasonMaxOutputDuration = "max_output_duration"
+
+// budgetStopped reports whether this node, rather than the engine, ended the
+// generation.
+func budgetStopped(out *completionResponse) bool {
+	return len(out.Choices) > 0 && out.Choices[0].FinishReason == finishReasonMaxOutputDuration
+}
+
 // reassembleCompletionStream folds the SSE `data:` frames of a streaming
 // completion into out, and emits each frame's delta to the per-frame observer
 // (best-effort). Frames are accumulated so that out matches a non-streaming
 // response: text concatenated, generated-token slices appended in order,
 // prompt_token_ids taken once, finish_reason taken from the frame that carries it.
-func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Reader, out *completionResponse, ident inferStreamIdentity) error {
+//
+// budget, when non-zero, is the wall-clock deadline max_output_duration sets. It
+// is checked between whole frames, so what it stops is always a complete token
+// with its logprobs: the committed text is decoded from the token ids, and half
+// a frame would leave those two disagreeing. Stopping this way is a SUCCESSFUL
+// termination -- the reason is filled in as max_output_duration and the tokens
+// collected so far are committed -- which is why it is the budget and not a
+// context cancellation. The caller keeps a later context deadline as the
+// backstop for an engine that has stopped sending at all; that one still fails.
+func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Reader, out *completionResponse, ident inferStreamIdentity, budget time.Time) error {
 	observer := s.observerForRequest(ctx)
 	observerActive := observer != nil
+	overBudget := func() bool { return !budget.IsZero() && !time.Now().Before(budget) }
 
 	scanner := bufio.NewScanner(r)
 	// vLLM emits one JSON object per SSE frame; with top-k logprobs a frame can be
@@ -2229,11 +2278,19 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 				observerActive = false
 			}
 		}
+		// Checked after the frame is folded in, never in the middle of one: the
+		// budget truncates the generation, not a token.
+		if overBudget() && out.Choices[0].FinishReason == "" {
+			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
+			break
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("modelservice local: read completion stream: %w", err)
 	}
-	if err := ctx.Err(); err != nil {
+	// A budget stop is a result, so it must not be overwritten by the context
+	// error that the abandoned response body produces as it is closed.
+	if err := ctx.Err(); err != nil && !budgetStopped(out) {
 		return err
 	}
 

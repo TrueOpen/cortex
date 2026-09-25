@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -786,5 +787,110 @@ func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
 	// Byte parity: concat(TextDelta) reassembles the committed output exactly.
 	if reassembled.String() != string(output.Data) {
 		t.Fatalf("concatenated deltas %q != committed output %q", reassembled.String(), output.Data)
+	}
+}
+
+// newSlowChatStreamStub emits chunks with a delay before each one, so a test can
+// place max_output_duration in the middle of the stream. It never sends [DONE],
+// which is the real shape: vLLM keeps generating and this node stops listening.
+func newSlowChatStreamStub(t *testing.T, chunks []chatCompletionChunk, delay time.Duration, models []string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/metrics":
+			writeVLLMMetrics(w, 0, 0)
+			return
+		case "/v1/models":
+			data := make([]map[string]any, 0, len(models))
+			for _, m := range models {
+				data = append(data, map[string]any{"id": m, "object": "model"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
+			return
+		case "/v1/chat/completions":
+		default:
+			http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		for _, chunk := range chunks {
+			time.Sleep(delay)
+			payload, err := json.Marshal(chunk)
+			if err != nil {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestLocalServiceChatStopsAtMaxOutputDurationAsSuccess pins the behaviour
+// max_output_duration is in the frozen finish-reason set for.
+//
+// vLLM has no wall-clock stopping condition, so before this the budget was a
+// context deadline: expiry discarded the whole generation and the value could
+// never be produced at all. It is a successful termination now -- the tokens
+// that arrived before the budget are committed, and this node names the reason
+// the engine cannot.
+func TestLocalServiceChatStopsAtMaxOutputDurationAsSuccess(t *testing.T) {
+	// The engine must still be generating when the budget expires, so both chunks
+	// are non-terminal. A stream that already carried finish_reason was ended by
+	// the ENGINE and the engine's reason wins: the budget only names a stop that
+	// nothing else has named. Clearing it here is what makes this a duration test
+	// rather than an EOS one.
+	chunks := chatContentChunks()[:2]
+	chunks[1].Choices[0].FinishReason = ""
+	// 150ms apart against a 200ms budget: the first chunk is folded in under
+	// budget, the second crosses it and is the last one committed.
+	srv := newSlowChatStreamStub(t, chunks, 150*time.Millisecond, []string{"Qwen/Qwen3-8B"})
+	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+
+	req := chatInferReq(t)
+	req.Generation.Params.MaxOutputDuration = 200 // ms: the first chunk lands, nothing else arrives
+	digest, err := req.Generation.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.GenerationParamsDigest = digest[:]
+
+	resp, err := svc.Infer(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Infer() error = %v, want a successful truncation", err)
+	}
+	if resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration {
+		t.Fatalf("finish reason = %v, want MAX_OUTPUT_DURATION", resp.FinishReason)
+	}
+	if resp.GeneratedTokenCount == 0 {
+		t.Fatal("a budget stop must still commit the tokens that arrived")
+	}
+	if resp.GeneratedTokenCount >= req.Generation.Params.MaxOutputTokens {
+		t.Fatalf("generated %d tokens at the ceiling; that is MAX_OUTPUT_TOKENS, not a duration stop", resp.GeneratedTokenCount)
+	}
+
+	// The evidence must describe the truncated run: output, trace and token ids
+	// all stop at the same place.
+	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
+	if err != nil {
+		t.Fatalf("FetchArtifact(output) error = %v", err)
+	}
+	traceArt, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.TraceRef})
+	if err != nil {
+		t.Fatalf("FetchArtifact(trace) error = %v", err)
+	}
+	var trace traceEnvelope
+	if err := json.Unmarshal(traceArt.Data, &trace); err != nil {
+		t.Fatal(err)
+	}
+	if trace.Output != string(output.Data) {
+		t.Fatalf("trace.Output %q != committed output %q", trace.Output, output.Data)
+	}
+	if len(trace.OutTokens) != int(resp.GeneratedTokenCount) {
+		t.Fatalf("trace carries %d tokens, receipt counts %d", len(trace.OutTokens), resp.GeneratedTokenCount)
 	}
 }

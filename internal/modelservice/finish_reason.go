@@ -101,6 +101,37 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 			return 0, fmt.Errorf("ambiguous stop: backend did not identify the stop condition")
 		}
 		return nodewire.FinishReasonV1EosToken, nil
+	case "max_output_duration":
+		// The one finish reason the engine never reports. vLLM has no wall-clock
+		// stopping condition -- SamplingParams bounds tokens and stop strings,
+		// nothing else -- so a generation that outruns max_output_duration is
+		// stopped by this node, and this node is what names the reason.
+		//
+		// That makes it the only value a Worker asserts rather than observes,
+		// and it is worth being plain about the consequence: a Worker that
+		// wanted to stop early for its own reasons could claim this one, and no
+		// Verifier can contradict it, because the elapsed wall-clock time is not
+		// in any commitment. The checks below are the only ones that mean
+		// anything, and they are cheap to satisfy honestly.
+		if hasStop {
+			// Reaching a stop condition IS the finish reason. A run that hit one
+			// did not run out of time.
+			return 0, fmt.Errorf("max_output_duration finish carries a stop_reason")
+		}
+		if count >= g.Params.MaxOutputTokens {
+			// At the token ceiling the engine reports "length", and that is the
+			// stronger claim because it is checkable: the count equals the
+			// budget. Preferring the unverifiable reason there would discard a
+			// verifiable one.
+			return 0, fmt.Errorf("max_output_duration finish reached max_output_tokens")
+		}
+		if count == 0 {
+			// No token survived the budget. There is nothing to commit, and an
+			// empty output attributed to a timeout is indistinguishable from a
+			// model service that produced nothing at all.
+			return 0, fmt.Errorf("max_output_duration finish generated no tokens")
+		}
+		return nodewire.FinishReasonV1MaxOutputDuration, nil
 	default:
 		return 0, fmt.Errorf("unsupported local finish reason %q", reason)
 	}
