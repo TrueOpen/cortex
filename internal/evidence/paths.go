@@ -20,14 +20,14 @@ package evidence
 // The cost is deliberate: identical bytes submitted for two tasks are stored
 // twice.
 //
-// Two parts of the target design are *not* here, because they are the half that
-// is still blocked upstream: evidence/manifest.json and the
-// evidence_bundle_hash derived from its bytes, and therefore also the
-// whole-bundle atomic publication of evidence/. Artifacts are published one
-// file at a time into evidence/artifacts/ instead, which is the strongest
-// invariant available while the bundle's closure is still named by the local
-// index rather than by a manifest. input/ and output/ are published by
-// directory rename exactly as specified, because their closure is one file.
+// Write publishes evidence one artifact at a time into evidence/artifacts/,
+// which is the strongest invariant available while a bundle's closure is named
+// by the local index rather than by a manifest; live tasks still use it.
+// Bundle-scoped publication with evidence/<producer>/<kind>/manifest.json and
+// one atomic directory rename per bundle is in bundle.go, for wire v0.3.0's
+// two-level Worker evidence, and is not wired into the daemon yet. input/ and
+// output/ are published by directory rename exactly as specified, because
+// their closure is one file.
 
 import (
 	"encoding/hex"
