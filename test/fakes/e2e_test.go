@@ -85,7 +85,7 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 	})
 
 	manifest, err := registry.GenerateManifest(ctx, modelregistry.ManifestInput{
-		ModelID:        "fake-llm-text",
+		ModelID:        modelservice.FakeModelID,
 		Version:        "2026-07-08",
 		Digest:         "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		Tokenizer:      "tiktoken-cl100k",
@@ -195,7 +195,8 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		Signer:                      outputFixture.signer,
 		NexusEnvelopeSigner:         testNexusEnvelopeSigner(),
 		EvidenceSchemaHash:          hex.EncodeToString(evidenceSchemaHash[:]),
-		ProfileEvidenceRequirements: builderclient.WorkerValueEvidenceRequirementsV2(),
+		ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(),
+		RequiredTopK:                e2eRequiredTopK,
 		ReceivingBuilder:            worker.ReceivingBuilderFunc(outputFixture.receivingBuilder),
 		TaskFacts:                   taskfacts.ReaderFunc(generation.TaskFacts),
 		GenerationReader:            generation,
@@ -506,7 +507,7 @@ func TestFakeBackedFlowRejectsNonCanonicalAssignmentTaskID(t *testing.T) {
 		OrderDigest:         codec.HashWithDomain("E2E_ORDER", []byte("task-e2e-1")),
 		Winner:              "worker-1",
 		WinnerConfirmHeight: 120,
-		ModelID:             "fake-llm-text",
+		ModelID:             modelservice.FakeModelID,
 		ProfileVersion:      1,
 		Capability:          modelservice.CapabilityLLMTextV1,
 		Input:               []byte("summarize cortex fake mvp"),
@@ -667,7 +668,7 @@ type e2eSignedTaskData struct {
 
 type e2eVerifierEvidencePublisher struct{ client *builderclient.FakeClient }
 
-func (p e2eVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Context, state verifier.TaskState, receipt nodewire.ResultReceiptV2, encoded, proof []byte) error {
+func (p e2eVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Context, state verifier.TaskState, receipt nodewire.ResultReceiptV3, encoded, proof []byte) error {
 	manifest, err := evidencebundle.Decode(encoded)
 	if err != nil {
 		return err
@@ -689,7 +690,7 @@ func (p e2eVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Contex
 		if i == 1 {
 			kind, hash = builderclient.DataKindEvidenceManifest, evidencebundle.Hash(data)
 		}
-		key := builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, kind, hash.String(), builderclient.EvidenceProducerVerifier, uint32(state.VerifyRound), receipt.VerifierOperatorAddress)
+		key := builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, kind, hash.String(), builderclient.EvidenceProducerVerifier, uint32(state.VerifyRound), receipt.VerifierOperatorAddress, nodewire.EvidenceKindVerifierValueOpening)
 		body, err := builderclient.TaskDataUploadBodyDigest(key, uint64(len(data)), "")
 		if err != nil {
 			return err
@@ -847,11 +848,64 @@ type workerPersistence struct {
 func (p workerPersistence) WriteEvidence(ctx context.Context, record worker.EvidenceRecord) error {
 	return p.base.writeEvidence(ctx, record.TaskID, record.Kind, record.Data)
 }
-func (p workerPersistence) CheckpointInferOutput(ctx context.Context, taskID string, output, trace, checkpoint []byte, cp worker.InferOutputCheckpoint) error {
+
+// PublishWorkerBundle stores one Worker bundle in the evidence store's bundle
+// layout, exactly as the daemon does.
+func (p workerPersistence) PublishWorkerBundle(ctx context.Context, _ string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error {
+	id, err := p.bundleID(kind)
+	if err != nil {
+		return err
+	}
+	_, err = p.base.evidence.PublishBundle(ctx, evidence.BundleRequest{ID: id, Manifest: manifest, Artifacts: artifacts})
+	return err
+}
+
+func (p workerPersistence) WorkerBundle(_ context.Context, _ string, kind nodewire.EvidenceKind) ([]byte, map[string][]byte, error) {
+	id, err := p.bundleID(kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifestBytes, _, err := p.base.evidence.ReadBundleManifest(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifest, err := evidencebundle.Decode(manifestBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	artifacts := map[string][]byte{}
+	for _, artifact := range manifest.Artifacts {
+		raw, err := hex.DecodeString(artifact.ContentHash)
+		if err != nil || len(raw) != 32 {
+			return nil, nil, fmt.Errorf("artifact %s content hash is not Hash32", artifact.ID)
+		}
+		size, err := artifact.SizeBytes()
+		if err != nil {
+			return nil, nil, err
+		}
+		if artifacts[artifact.ID], err = p.base.evidence.ReadBundleArtifact(id, codec.Hash(raw), int64(size)); err != nil {
+			return nil, nil, err
+		}
+	}
+	return manifestBytes, artifacts, nil
+}
+
+func (p workerPersistence) bundleID(kind nodewire.EvidenceKind) (evidence.BundleID, error) {
+	switch kind {
+	case nodewire.EvidenceKindWorkerTokenOpening:
+		return evidence.WorkerTokenBundle(p.base.taskHash), nil
+	case nodewire.EvidenceKindWorkerValueOpening:
+		return evidence.WorkerValueBundle(p.base.taskHash), nil
+	default:
+		return evidence.BundleID{}, fmt.Errorf("evidence kind %d is not a Worker bundle", kind)
+	}
+}
+
+func (p workerPersistence) CheckpointInferOutput(ctx context.Context, taskID string, output, tokenIDs, positionValues []byte, cp worker.InferOutputCheckpoint) error {
 	for _, rec := range []worker.EvidenceRecord{
 		{TaskID: taskID, Kind: "worker-output", Data: output},
-		{TaskID: taskID, Kind: "worker-trace", Data: trace},
-		{TaskID: taskID, Kind: "worker-checkpoint", Data: checkpoint},
+		{TaskID: taskID, Kind: "worker-token-ids-material", Data: tokenIDs},
+		{TaskID: taskID, Kind: "worker-position-values-material", Data: positionValues},
 		{TaskID: taskID, Kind: "worker-output-descriptor", Data: cp.DescriptorJSON},
 	} {
 		if err := p.WriteEvidence(ctx, rec); err != nil {
@@ -997,12 +1051,12 @@ func (registrationOutbox) WriteRegistration(_ context.Context, msg modelregistry
 
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {
 	return policy.OutputPackageSummary{
-		TaskID:        pkg.TaskID,
-		OutputRef:     pkg.OutputRef,
-		TraceRef:      pkg.TraceRef,
-		CheckpointRef: pkg.CheckpointRef,
-		OutputHash:    pkg.OutputHash,
-		PackageHash:   pkg.PackageHash,
+		TaskID:            pkg.TaskID,
+		OutputRef:         pkg.OutputRef,
+		TokenIDsRef:       pkg.TokenIDsRef,
+		PositionValuesRef: pkg.PositionValuesRef,
+		OutputHash:        pkg.OutputHash,
+		PackageHash:       pkg.PackageHash,
 	}
 }
 
@@ -1014,3 +1068,6 @@ func mustJSON(t *testing.T, value any) []byte {
 	}
 	return data
 }
+
+// e2eRequiredTopK is the locked Profile's required_top_k in this harness.
+const e2eRequiredTopK = 4

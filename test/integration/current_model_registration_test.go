@@ -46,7 +46,7 @@ func TestDevnetCurrentModelRegistrationDryRunUsesExactNodeDigestWithoutSigning(t
 	if result.Status != modelregistry.RegistrationStagePlanned || result.RegistrationDigest != hex.EncodeToString(want[:]) {
 		t.Fatalf("dry-run result = %#v, want exact Node digest %x", result, want)
 	}
-	if reader.modelID != profile.ModelID || reader.profileVersion != "1" {
+	if reader.modelID != profile.ModelID.Hex() || reader.profileVersion != "1" {
 		t.Fatalf("Keeper query = %q/%q", reader.modelID, reader.profileVersion)
 	}
 }

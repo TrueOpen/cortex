@@ -13,8 +13,10 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
@@ -32,6 +34,44 @@ type memoryPersistence struct {
 	artifacts     map[string][]byte
 	confirmations map[string][]worker.StorageConfirmationCheckpoint
 	builder       *builderclient.FakeClient
+	bundles       map[nodewire.EvidenceKind]memoryBundle
+}
+
+// memoryBundle is one published Worker bundle.
+type memoryBundle struct {
+	manifest  []byte
+	artifacts map[string][]byte
+}
+
+func (p *memoryPersistence) PublishWorkerBundle(_ context.Context, _ string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error {
+	decoded, err := evidencebundle.Decode(manifest)
+	if err != nil {
+		return err
+	}
+	byHash := make(map[string][]byte, len(artifacts))
+	for _, data := range artifacts {
+		byHash[codec.HashBytes(data).String()] = append([]byte(nil), data...)
+	}
+	bundle := memoryBundle{manifest: append([]byte(nil), manifest...), artifacts: map[string][]byte{}}
+	for _, artifact := range decoded.Artifacts {
+		bundle.artifacts[artifact.ID] = byHash[artifact.ContentHash]
+	}
+	if p.bundles == nil {
+		p.bundles = map[nodewire.EvidenceKind]memoryBundle{}
+	}
+	if existing, ok := p.bundles[kind]; ok && !bytes.Equal(existing.manifest, manifest) {
+		return fmt.Errorf("bundle %d already published with a different manifest", kind)
+	}
+	p.bundles[kind] = bundle
+	return nil
+}
+
+func (p *memoryPersistence) WorkerBundle(_ context.Context, _ string, kind nodewire.EvidenceKind) ([]byte, map[string][]byte, error) {
+	bundle, ok := p.bundles[kind]
+	if !ok {
+		return nil, nil, worker.ErrCheckpointNotFound
+	}
+	return bundle.manifest, bundle.artifacts, nil
 }
 
 func (p *memoryPersistence) WriteEvidence(_ context.Context, record worker.EvidenceRecord) error {
@@ -42,11 +82,11 @@ func (p *memoryPersistence) WriteEvidence(_ context.Context, record worker.Evide
 	p.artifacts[record.TaskID+"/"+record.Kind] = append([]byte(nil), record.Data...)
 	return nil
 }
-func (p *memoryPersistence) CheckpointInferOutput(ctx context.Context, taskID string, output, trace, checkpoint []byte, cp worker.InferOutputCheckpoint) error {
+func (p *memoryPersistence) CheckpointInferOutput(ctx context.Context, taskID string, output, tokenIDs, positionValues []byte, cp worker.InferOutputCheckpoint) error {
 	for _, rec := range []worker.EvidenceRecord{
 		{TaskID: taskID, Kind: "worker-output", Data: output},
-		{TaskID: taskID, Kind: "worker-trace", Data: trace},
-		{TaskID: taskID, Kind: "worker-checkpoint", Data: checkpoint},
+		{TaskID: taskID, Kind: "worker-token-ids-material", Data: tokenIDs},
+		{TaskID: taskID, Kind: "worker-position-values-material", Data: positionValues},
 		{TaskID: taskID, Kind: "worker-output-descriptor", Data: cp.DescriptorJSON},
 	} {
 		if err := p.WriteEvidence(ctx, rec); err != nil {
@@ -288,7 +328,7 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 	persistence := &memoryPersistence{builder: builder}
 	evidenceSchemaHash := codec.HashWithDomain("TRUEOPEN_EVIDENCE_SCHEMA_V1", []byte(taskID))
 	snapshotReader := &readinessSnapshotReader{}
-	generation := generationfixture.New(t, taskID, "llama-dev", "READINESS_ACCEPTED_TASK_HASH_V1")
+	generation := generationfixture.New(t, taskID, "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", "READINESS_ACCEPTED_TASK_HASH_V1")
 	workerNode := worker.New(worker.Config{
 		WorkerAddress:               "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 		ModelServiceID:              "fake-model-service",
@@ -308,7 +348,8 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 		Signer:                      outputFixture.signer,
 		NexusEnvelopeSigner:         testNexusEnvelopeSigner(),
 		EvidenceSchemaHash:          hex.EncodeToString(evidenceSchemaHash[:]),
-		ProfileEvidenceRequirements: builderclient.WorkerValueEvidenceRequirementsV2(),
+		ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(),
+		RequiredTopK:                4,
 		ReceivingBuilder:            worker.ReceivingBuilderFunc(outputFixture.receivingBuilder),
 		TaskFacts:                   taskfacts.ReaderFunc(generation.TaskFacts),
 		GenerationReader:            generation,
@@ -323,7 +364,7 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 		Winner:                 "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 		WinnerConfirmHeight:    90,
 		InferDeadlineHeight:    110,
-		ModelID:                "llama-dev",
+		ModelID:                "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1",
 		ProfileVersion:         1,
 		Capability:             modelservice.CapabilityLLMTextV1,
 		Input:                  []byte("hello"),
@@ -359,14 +400,18 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 	if len(builder.ValidatedPackages) != 1 {
 		t.Fatalf("validated packages = %d, want the inference to have completed", len(builder.ValidatedPackages))
 	}
-	if len(persistence.evidence) != 13 {
-		t.Fatalf("evidence records = %d, want completed model response, result artifacts, token vectors, signed output frame and Fin, and stored acknowledgement", len(persistence.evidence))
+	if len(persistence.evidence) != 10 {
+		t.Fatalf("evidence records = %d, want completed model response, result artifacts, model material, signed output frame and Fin, and stored acknowledgement", len(persistence.evidence))
+	}
+	// The protocol artifacts live in the two published Worker bundles.
+	if len(persistence.bundles) != 2 {
+		t.Fatalf("published Worker bundles = %d, want the value and token bundles", len(persistence.bundles))
 	}
 	evidenceKinds := make(map[string]bool, len(persistence.evidence))
 	for _, record := range persistence.evidence {
 		evidenceKinds[record.Kind] = record.TaskID == taskID
 	}
-	for _, kind := range []string{"worker-output", "worker-trace", "worker-checkpoint", "worker-output-descriptor", "worker-infer-receipt", "worker-result", "worker-evidence-manifest", "worker-input_token_ids", "worker-generated_token_ids", worker.OutputStreamFinKind, "worker-output-stream-stored", "worker-model-result", worker.OutputStreamFrameKind(0)} {
+	for _, kind := range []string{"worker-output", "worker-token-ids-material", "worker-position-values-material", "worker-output-descriptor", "worker-infer-receipt", "worker-result", worker.OutputStreamFinKind, "worker-output-stream-stored", "worker-model-result", worker.OutputStreamFrameKind(0)} {
 		if !evidenceKinds[kind] {
 			t.Fatalf("evidence kinds = %#v, want task-bound %s", evidenceKinds, kind)
 		}

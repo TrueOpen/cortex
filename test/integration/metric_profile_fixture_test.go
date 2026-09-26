@@ -8,7 +8,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/nodewire"
-	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 )
 
 // integrationLockedProfileReader serves the locked profile this rig's task was
@@ -51,7 +50,11 @@ func integrationLockedProfile(modelID string) chainclient.CurrentModelProfileSna
 					SchemaVersion: 1,
 					RequiredInferEvidence: []chainclient.CurrentInferEvidenceRequirementSnapshot{{
 						EvidenceKind:            int32(nodewire.EvidenceKindWorkerValueOpening),
-						CommitmentSchemaVersion: 2,
+						CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV3,
+						MaxEncodedSizeBytes:     chainclient.NewUint64String(1 << 20),
+					}, {
+						EvidenceKind:            int32(nodewire.EvidenceKindWorkerTokenOpening),
+						CommitmentSchemaVersion: nodewire.WorkerTokenCommitmentSchemaVersionV1,
 						MaxEncodedSizeBytes:     chainclient.NewUint64String(1 << 20),
 					}},
 				},
@@ -64,29 +67,4 @@ func integrationLockedProfile(modelID string) chainclient.CurrentModelProfileSna
 	}
 	profile.Profile.VerificationProfile.EvidenceSchemaHash = chainclient.ProtoBytes32(hash[:])
 	return profile
-}
-
-// integrationMetricSamples is the per-token comparison the rig's model service
-// reports. Two positions with distinct values, so a transport that dropped or
-// duplicated one changes metric_root rather than passing quietly.
-func integrationMetricSamples() []*cortexv1.MetricSampleV1 {
-	present := func(value float64) *cortexv1.MetricOptionalFP {
-		return &cortexv1.MetricOptionalFP{Present: true, Value: value}
-	}
-	return []*cortexv1.MetricSampleV1{
-		{
-			OutputPosition: 0, EmittedTokenId: 1000,
-			WorkerLogprob: -0.125, VerifierLogprob: -0.130,
-			WorkerRank: 1, VerifierRank: 1,
-			TopkJaccard: present(0.875), UnionJs: present(0.002),
-			FiniteFlag: true,
-		},
-		{
-			OutputPosition: 1, EmittedTokenId: 1001,
-			WorkerLogprob: -0.250, VerifierLogprob: -0.252,
-			WorkerRank: 1, VerifierRank: 2,
-			TopkJaccard: present(0.750), UnionJs: present(0.004),
-			FiniteFlag: true,
-		},
-	}
 }
