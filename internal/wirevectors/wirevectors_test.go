@@ -34,7 +34,7 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// The pre-release set must be the unreleased commit's bytes, checked the same
+// The pre-release set must be the release candidate's bytes, checked the same
 // way as the released set.
 func TestPrereleaseVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{

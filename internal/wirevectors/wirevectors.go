@@ -9,8 +9,8 @@
 // which file is checked.
 //
 // The vectors are wire v0.2.0's files copied byte for byte, plus a small
-// pre-release set copied from an untagged wire commit (see
-// PrereleaseWireCommit) for encoders written ahead of the next release. VerifyProvenance
+// pre-release set copied from a wire release candidate (see
+// PrereleaseWireVersion) for encoders written ahead of the final release. VerifyProvenance
 // checks the embedded bytes against wire's own release manifest, which is what
 // makes them evidence rather than transcription: without it a fixture could be
 // edited to agree with whatever this repository happens to compute, which is
@@ -36,12 +36,12 @@ const WireVersion = "v0.2.0"
 //go:embed testdata/v020
 var released embed.FS
 
-// PrereleaseWireCommit is the unreleased wire commit the v030rc files were
-// copied from: TrueOpen/wire#14, which carries the v0.3.0 contract but is not
-// tagged yet. These vectors let the v0.3.0 encoders be written and checked
-// before the dependency can be raised. When v0.3.0 is tagged, the released
-// files replace this set and this constant goes away.
-const PrereleaseWireCommit = "cf6402f"
+// PrereleaseWireVersion is the wire release candidate the v030rc files were
+// copied from. Its testdata manifest is the one published with the
+// v0.3.0-rc.1 release. These vectors let the v0.3.0 encoders be written and
+// checked before the dependency is raised; when v0.3.0 final is tagged, its
+// released files replace this set and this constant goes away.
+const PrereleaseWireVersion = "v0.3.0-rc.1"
 
 //go:embed testdata/v030rc
 var prerelease embed.FS
@@ -61,7 +61,7 @@ var (
 		manifestSum: "cc378b636c088ad4a2b165bc25b6549c9c7df20046eb8d5e4883c06199102a3f",
 	}
 	prereleaseSet = vectorSet{
-		fs: prerelease, dir: "testdata/v030rc", version: PrereleaseWireCommit,
+		fs: prerelease, dir: "testdata/v030rc", version: PrereleaseWireVersion,
 		manifestSum: "d272b9e95b7cfb4b2ca56a269201ab7b4fce0abce2a85e7be322fab69cb7cf66",
 	}
 )
@@ -71,7 +71,7 @@ func File(path string) ([]byte, error) {
 	return releasedSet.file(path)
 }
 
-// PrereleaseFile returns exact fixture bytes from PrereleaseWireCommit after
+// PrereleaseFile returns exact fixture bytes from PrereleaseWireVersion after
 // checking them against that commit's own manifest. Only files this repository
 // already derives are copied, so an unregistered or uncopied path is an error.
 func PrereleaseFile(path string) ([]byte, error) {
