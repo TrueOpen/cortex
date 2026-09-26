@@ -16,25 +16,26 @@ import (
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-// TaskOrderSigningDigest derives the released EIP-712 order domain version 2.
-// EVM chain ID and fee denomination are authoritative chain configuration; the
-// order does not carry either, so callers must provide both explicitly.
-func TaskOrderSigningDigest(order *taskv1.TaskOrderV2, evmChainID uint64, feeDenom string) (codec.Hash, error) {
+// TaskOrderSigningDigest derives the EIP-712 order domain version 3, which binds
+// the raw bytes32 model id. EVM chain ID and fee denomination are authoritative
+// chain configuration; the order does not carry either, so callers must provide
+// both explicitly.
+func TaskOrderSigningDigest(order *taskv1.TaskOrderV3, evmChainID uint64, feeDenom string) (codec.Hash, error) {
 	if order == nil {
-		return codec.Hash{}, fmt.Errorf("TaskOrderV2 is required")
+		return codec.Hash{}, fmt.Errorf("TaskOrderV3 is required")
 	}
 	raw, err := proto.Marshal(order)
 	if err != nil {
 		return codec.Hash{}, err
 	}
-	decoded, err := decodeTaskOrderV2(raw)
+	decoded, err := decodeTaskOrderV3(raw)
 	if err != nil {
 		return codec.Hash{}, err
 	}
 	return taskOrderSigningDigest(decoded, evmChainID, feeDenom)
 }
 
-func taskOrderSigningDigest(order taskOrderV2, evmChainID uint64, feeDenom string) (codec.Hash, error) {
+func taskOrderSigningDigest(order taskOrderV3, evmChainID uint64, feeDenom string) (codec.Hash, error) {
 	if evmChainID == 0 || feeDenom == "" || !utf8.ValidString(feeDenom) {
 		return codec.Hash{}, fmt.Errorf("authoritative EVM chain ID and fee denomination are required")
 	}
@@ -45,14 +46,14 @@ func taskOrderSigningDigest(order taskOrderV2, evmChainID uint64, feeDenom strin
 	return taskOrderTypedDigest(order, taskHash, evmChainID, feeDenom), nil
 }
 
-func taskOrderTypedDigest(order taskOrderV2, taskHash codec.Hash, evmChainID uint64, feeDenom string) codec.Hash {
+func taskOrderTypedDigest(order taskOrderV3, taskHash codec.Hash, evmChainID uint64, feeDenom string) codec.Hash {
 	domain := orderKeccak(
 		orderKeccak([]byte("EIP712Domain(string name,string version,uint256 chainId)")),
-		orderKeccak([]byte("TrueOpen Task Order")), orderKeccak([]byte("2")), orderUint256(evmChainID))
+		orderKeccak([]byte("TrueOpen Task Order")), orderKeccak([]byte("3")), orderUint256(evmChainID))
 	message := orderKeccak(
-		orderKeccak([]byte("TaskOrder(string chainId,string user,bytes32 sessionId,uint64 orderSequence,string modelId,uint32 profileVersion,string maxFee,string feeDenom,uint64 earliestSubmitHeight,uint64 orderExpireHeight,bytes32 taskHash)")),
+		orderKeccak([]byte("TaskOrder(string chainId,string user,bytes32 sessionId,uint64 orderSequence,bytes32 modelId,uint32 profileVersion,string maxFee,string feeDenom,uint64 earliestSubmitHeight,uint64 orderExpireHeight,bytes32 taskHash)")),
 		orderKeccak([]byte(order.ChainID)), orderKeccak([]byte(order.UserAddress)), order.SessionID,
-		orderUint256(uint64(order.OrderSequence)), orderKeccak([]byte(order.ModelID)), orderUint256(uint64(order.ProfileVersion)),
+		orderUint256(uint64(order.OrderSequence)), []byte(order.ModelID), orderUint256(uint64(order.ProfileVersion)),
 		orderKeccak([]byte(order.MaxFee.AtomicUnits)), orderKeccak([]byte(feeDenom)),
 		orderUint256(uint64(order.EarliestSubmitHeight)), orderUint256(uint64(order.OrderExpireHeight)), taskHash[:])
 	var digest codec.Hash

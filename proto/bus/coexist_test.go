@@ -12,7 +12,7 @@ import (
 )
 
 func TestBusAndIngressShareOneTaskBinding(t *testing.T) {
-	receipt := &bustaskv1.ResultReceiptV2{SchemaVersion: 2, ChainId: "trueopen-localnet-1"}
+	receipt := &bustaskv1.ResultReceiptV3{SchemaVersion: 3, ChainId: "trueopen-localnet-1"}
 	raw, err := proto.Marshal(receipt)
 	if err != nil {
 		t.Fatalf("marshal mirror message: %v", err)

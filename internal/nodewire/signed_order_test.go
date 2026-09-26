@@ -22,7 +22,7 @@ type nexusSignedOrderFixture struct {
 
 func loadNexusSignedOrderFixture(t *testing.T) nexusSignedOrderFixture {
 	t.Helper()
-	var order taskv1.TaskOrderV2
+	var order taskv1.TaskOrderV3
 	if err := protojson.Unmarshal(goldenTaskOrderJSON(t), &order); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestSignedOrderCarrierPreservesFacts(t *testing.T) {
 	}
 	want := TaskOrderFacts{
 		ChainID: "trueopen-test-1", SessionID: strings.Repeat("12", 32), OrderSequence: 7,
-		ModelID: "model-task-order", ProfileVersion: 3, InputHash: strings.Repeat("13", 32),
+		ModelID: strings.Repeat("16", 32), ProfileVersion: 3, InputHash: strings.Repeat("13", 32),
 		InputSizeBytes: 99, SessionAnchorBlockHash: strings.Repeat("14", 32),
 		BuilderSetID: "7", BuilderSetHash: strings.Repeat("15", 32), OrderExpireHeight: 80,
 		SignatureScheme: fixture.SignatureScheme, UserSignature: fixture.UserSignatureHex,
@@ -93,7 +93,7 @@ func TestOrderEnvelopeCarriersDeriveOneTaskHash(t *testing.T) {
 // produces a confusing error for the other's bytes.
 func TestOrderEnvelopeCarrierIsChosenByFirstByte(t *testing.T) {
 	fixture := loadNexusSignedOrderFixture(t)
-	if _, _, err := TaskOrderHashAndFactsEnvelope("{"); err == nil || !strings.Contains(err.Error(), "decode TaskOrderV2") {
+	if _, _, err := TaskOrderHashAndFactsEnvelope("{"); err == nil || !strings.Contains(err.Error(), "decode TaskOrderV3") {
 		t.Fatalf("'{' must reach the JSON decoder, got %v", err)
 	}
 	if _, _, err := TaskOrderHashAndFactsEnvelope(fixture.OrderEnvelopeHex[:8]); err == nil || !strings.Contains(err.Error(), "SignedOrderV2") {
@@ -138,9 +138,9 @@ func TestSignedOrderCarrierRefusesMalformedCarriers(t *testing.T) {
 		{"truncated frame", hex.EncodeToString(raw[:len(raw)-4]), "SignedOrderV2 field 3 is truncated"},
 		{"trailing garbage", hex.EncodeToString(append(append([]byte(nil), raw...), 0xff)), "SignedOrderV2 is not a well-formed proto message"},
 		{"unknown SignedOrderV2 field", hex.EncodeToString(appendField(raw, 4, protowire.VarintType, []byte{1})), "SignedOrderV2 carries unknown field 4"},
-		{"unknown TaskOrderV2 field", rewrap(appendField(orderOnly, 31, protowire.VarintType, []byte{1})), "TaskOrderV2 carries unknown field 31"},
-		{"duplicate TaskOrderV2 field", rewrap(appendField(orderOnly, 2, protowire.BytesType, []byte("trueopen-test-2"))), "TaskOrderV2 field 2 appears more than once"},
-		{"wrong wire type", rewrap(appendField(orderOnly[:0], 2, protowire.VarintType, []byte{1})), "TaskOrderV2 field 2 is not a string on the wire"},
+		{"unknown TaskOrderV2 field", rewrap(appendField(orderOnly, 31, protowire.VarintType, []byte{1})), "TaskOrderV3 carries unknown field 31"},
+		{"duplicate TaskOrderV2 field", rewrap(appendField(orderOnly, 2, protowire.BytesType, []byte("trueopen-test-2"))), "TaskOrderV3 field 2 appears more than once"},
+		{"wrong wire type", rewrap(appendField(orderOnly[:0], 2, protowire.VarintType, []byte{1})), "TaskOrderV3 field 2 is not a string on the wire"},
 		// A bare TaskOrderV2 is not a SignedOrderV2: its field 1 is the varint
 		// schema_version, not a nested message, so it is refused at the tag rather
 		// than mistaken for an unsigned order.

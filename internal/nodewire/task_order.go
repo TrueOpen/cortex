@@ -2,6 +2,7 @@ package nodewire
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
 )
-
-const DomainTaskOrderV2 = "TRUEOPEN_TASK_ORDER_V2"
 
 type taskOrderUint64 uint64
 
@@ -58,11 +57,11 @@ type taskOrderTaskTypeValue uint32
 func (v *taskOrderTaskTypeValue) UnmarshalJSON(data []byte) error {
 	var text string
 	if err := json.Unmarshal(data, &text); err != nil {
-		return fmt.Errorf("TaskOrderV2 task_type must be a ProtoJSON enum name: %w", err)
+		return fmt.Errorf("TaskOrderV3 task_type must be a ProtoJSON enum name: %w", err)
 	}
 	number := map[string]uint32{"TASK_TYPE_TEXT_GENERATION": 1, "TASK_TYPE_CHAT": 2, "TASK_TYPE_EMBEDDING": 3, "TASK_TYPE_CLASSIFICATION": 4, "TASK_TYPE_IMAGE_GENERATION": 5, "TASK_TYPE_MULTIMODAL": 6}[text]
 	if number == 0 {
-		return fmt.Errorf("TaskOrderV2 task_type is invalid")
+		return fmt.Errorf("TaskOrderV3 task_type is invalid")
 	}
 	*v = taskOrderTaskTypeValue(number)
 	return nil
@@ -73,13 +72,30 @@ type taskOrderLatencyClassValue uint32
 func (v *taskOrderLatencyClassValue) UnmarshalJSON(data []byte) error {
 	var text string
 	if err := json.Unmarshal(data, &text); err != nil {
-		return fmt.Errorf("TaskOrderV2 latency_class must be a ProtoJSON enum name: %w", err)
+		return fmt.Errorf("TaskOrderV3 latency_class must be a ProtoJSON enum name: %w", err)
 	}
 	number := map[string]uint32{"DEADLINE_LATENCY_CLASS_ECONOMY": 1, "DEADLINE_LATENCY_CLASS_STANDARD": 2, "DEADLINE_LATENCY_CLASS_FAST": 3, "DEADLINE_LATENCY_CLASS_EXPRESS": 4}[text]
 	if number == 0 {
-		return fmt.Errorf("TaskOrderV2 latency_class is invalid")
+		return fmt.Errorf("TaskOrderV3 latency_class is invalid")
 	}
 	*v = taskOrderLatencyClassValue(number)
+	return nil
+}
+
+// taskOrderPayloadModeValue is the PayloadModeV1 number, decoded from its
+// ProtoJSON name the same way as the two enums above.
+type taskOrderPayloadModeValue uint32
+
+func (v *taskOrderPayloadModeValue) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return fmt.Errorf("TaskOrderV3 payload_mode must be a ProtoJSON enum name: %w", err)
+	}
+	number := map[string]uint32{"PAYLOAD_MODE_V1_PLAINTEXT": 1, "PAYLOAD_MODE_V1_ENCRYPTED": 2}[text]
+	if number == 0 {
+		return fmt.Errorf("TaskOrderV3 payload_mode is invalid")
+	}
+	*v = taskOrderPayloadModeValue(number)
 	return nil
 }
 
@@ -111,13 +127,13 @@ type taskOrderDeadlinePolicy struct {
 	LatencyClass taskOrderLatencyClassValue `json:"latency_class"`
 }
 
-type taskOrderV2 struct {
+type taskOrderV3 struct {
 	SchemaVersion          uint32                    `json:"schema_version"`
 	ChainID                string                    `json:"chain_id"`
 	UserAddress            string                    `json:"user_address"`
 	SessionID              taskOrderBytes            `json:"session_id"`
 	OrderSequence          taskOrderUint64           `json:"order_sequence"`
-	ModelID                string                    `json:"model_id"`
+	ModelID                taskOrderBytes            `json:"model_id"`
 	ProfileVersion         uint32                    `json:"profile_version"`
 	TaskType               taskOrderTaskTypeValue    `json:"task_type"`
 	InputHash              taskOrderBytes            `json:"input_hash"`
@@ -137,13 +153,16 @@ type taskOrderV2 struct {
 	SessionAnchorBlockHash taskOrderBytes            `json:"session_anchor_block_hash"`
 	BuilderSetID           string                    `json:"builder_set_id"`
 	BuilderSetHash         taskOrderBytes            `json:"builder_set_hash"`
+	PayloadMode            taskOrderPayloadModeValue `json:"payload_mode"`
+	InputKeyCommitment     taskOrderBytes            `json:"input_key_commitment"`
+	UserRecipientPubkey    taskOrderBytes            `json:"user_recipient_pubkey"`
 }
 
 type TaskOrderFacts struct {
 	ChainID                string
 	SessionID              string
 	OrderSequence          uint64
-	ModelID                string
+	ModelID                string // canonical lowercase hex of the Hash32
 	ProfileVersion         uint32
 	Generation             *GenerationContext
 	InputHash              string
@@ -171,7 +190,7 @@ func TaskOrderHashJSON(value string) (codec.Hash, error) {
 // this: a canonical JSON document always opens with '{', and a proto-encoded
 // SignedOrderV2 always opens with the tag byte of field 1, which is 0x0a. The
 // carrier a real Builder publishes is the proto one - the user signs the frozen
-// TaskOrderV2 and Nexus forwards those exact bytes rather than re-encoding them
+// TaskOrderV3 and Nexus forwards those exact bytes rather than re-encoding them
 // (nexus internal/ingress/service.go parseSignedOrderEnvelope) - so the JSON arm
 // is only reachable from the legacy order path and from scripts/testorder.
 func TaskOrderHashAndFactsEnvelope(value string) (codec.Hash, TaskOrderFacts, error) {
@@ -184,13 +203,13 @@ func TaskOrderHashAndFactsEnvelope(value string) (codec.Hash, TaskOrderFacts, er
 func TaskOrderHashAndFactsJSON(value string) (codec.Hash, TaskOrderFacts, error) {
 	decoder := json.NewDecoder(strings.NewReader(value))
 	decoder.DisallowUnknownFields()
-	var order taskOrderV2
+	var order taskOrderV3
 	if err := decoder.Decode(&order); err != nil {
-		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("decode TaskOrderV2: %w", err)
+		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("decode TaskOrderV3: %w", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("TaskOrderV2 carries trailing JSON")
+		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("TaskOrderV3 carries trailing JSON")
 	}
 	digest, err := taskOrderHash(order)
 	if err != nil {
@@ -199,10 +218,10 @@ func TaskOrderHashAndFactsJSON(value string) (codec.Hash, TaskOrderFacts, error)
 	return digest, taskOrderFacts(order), nil
 }
 
-func taskOrderFacts(order taskOrderV2) TaskOrderFacts {
+func taskOrderFacts(order taskOrderV3) TaskOrderFacts {
 	d := order.GenerationParams.DecodingParams
 	generation := GenerationContext{
-		ModelID: order.ModelID, ProfileVersion: order.ProfileVersion, TaskType: uint32(order.TaskType), OutputBudgetBucket: order.OutputBudgetBucket,
+		ModelID: hex.EncodeToString(order.ModelID), ProfileVersion: order.ProfileVersion, TaskType: uint32(order.TaskType), OutputBudgetBucket: order.OutputBudgetBucket,
 		Params: GenerationParamsV1{
 			SchemaVersion:   order.GenerationParams.SchemaVersion,
 			MaxOutputTokens: uint64(order.GenerationParams.MaxOutputTokens), MaxOutputDuration: uint64(order.GenerationParams.MaxOutputDuration),
@@ -215,7 +234,7 @@ func taskOrderFacts(order taskOrderV2) TaskOrderFacts {
 	}.Clone()
 	return TaskOrderFacts{
 		ChainID: order.ChainID, SessionID: fmt.Sprintf("%x", []byte(order.SessionID)), OrderSequence: uint64(order.OrderSequence),
-		ModelID: order.ModelID, ProfileVersion: order.ProfileVersion, InputHash: fmt.Sprintf("%x", []byte(order.InputHash)),
+		ModelID: hex.EncodeToString(order.ModelID), ProfileVersion: order.ProfileVersion, InputHash: fmt.Sprintf("%x", []byte(order.InputHash)),
 		Generation:             &generation,
 		InputSizeBytes:         uint64(order.InputSizeBytes),
 		SessionAnchorBlockHash: fmt.Sprintf("%x", []byte(order.SessionAnchorBlockHash)),
@@ -224,47 +243,40 @@ func taskOrderFacts(order taskOrderV2) TaskOrderFacts {
 	}
 }
 
-func taskOrderHash(order taskOrderV2) (codec.Hash, error) {
-	if order.SchemaVersion != 2 || order.ChainID == "" || !utf8.ValidString(order.ChainID) || order.ModelID == "" || !utf8.ValidString(order.ModelID) ||
-		len(order.SessionID) != 32 || order.ProfileVersion == 0 || len(order.InputHash) != 32 || order.InputSizeBytes == 0 || order.OutputBudgetBucket == 0 ||
-		order.EarliestSubmitHeight == 0 || order.OrderExpireHeight == 0 || order.EarliestSubmitHeight >= order.OrderExpireHeight ||
-		order.TimeoutBucketVersion == 0 || order.SessionAnchorHeight == 0 || len(order.SessionAnchorBlockHash) != 32 ||
-		order.BuilderSetID == "" || !utf8.ValidString(order.BuilderSetID) || len(order.BuilderSetHash) != 32 {
-		return codec.Hash{}, fmt.Errorf("TaskOrderV2 scalar scope is invalid")
+// taskOrderHash derives the task hash of a decoded order through TaskOrderV3Hash,
+// so both carriers and the published vectors meet one implementation.
+func taskOrderHash(order taskOrderV3) (codec.Hash, error) {
+	if order.SchemaVersion != TaskOrderSchemaVersionV3 {
+		return codec.Hash{}, fmt.Errorf("TaskOrderV3 schema_version must be %d", TaskOrderSchemaVersionV3)
 	}
-	user, err := CanonicalOperatorAddressBytes("user_address", order.UserAddress)
-	if err != nil {
-		return codec.Hash{}, err
+	return TaskOrderV3Hash(order.typed())
+}
+
+// typed converts the decoded order into the V3 encoder's input.
+func (order taskOrderV3) typed() TaskOrderV3 {
+	d := order.GenerationParams.DecodingParams
+	return TaskOrderV3{
+		SchemaVersion: order.SchemaVersion, ChainID: order.ChainID, UserAddress: order.UserAddress,
+		SessionID: order.SessionID, OrderSequence: uint64(order.OrderSequence), ModelID: order.ModelID,
+		ProfileVersion: order.ProfileVersion, TaskType: uint32(order.TaskType), InputHash: order.InputHash,
+		InputSizeBytes: uint64(order.InputSizeBytes), InputBucket: order.InputBucket, OutputBudgetBucket: order.OutputBudgetBucket,
+		GenerationParams: GenerationParamsV1{
+			SchemaVersion:   order.GenerationParams.SchemaVersion,
+			MaxOutputTokens: uint64(order.GenerationParams.MaxOutputTokens), MaxOutputDuration: uint64(order.GenerationParams.MaxOutputDuration),
+			DecodingParams: DecodingParamsV1{
+				SamplingEnabled: d.SamplingEnabled, TemperatureMilli: d.TemperatureMilli, TopPPPM: d.TopPPPM, TopK: d.TopK, Seed: uint64(d.Seed),
+				PresencePenaltyMilli: d.PresencePenaltyMilli, FrequencyPenaltyMilli: d.FrequencyPenaltyMilli, RepetitionPenaltyPPM: d.RepetitionPenaltyPPM,
+				StopSequences: d.StopSequences, StopTokenIDs: d.StopTokenIDs,
+			},
+		},
+		PriceBid: order.PriceBid.AtomicUnits, MaxFee: order.MaxFee.AtomicUnits,
+		AssignmentPriorityFee: order.AssignmentPriorityFee.AtomicUnits, TxFeeReserve: order.TxFeeReserve.AtomicUnits,
+		EarliestSubmitHeight: uint64(order.EarliestSubmitHeight), OrderExpireHeight: uint64(order.OrderExpireHeight),
+		LatencyClass: uint32(order.DeadlinePolicy.LatencyClass), TimeoutBucketVersion: uint64(order.TimeoutBucketVersion),
+		SessionAnchorHeight: uint64(order.SessionAnchorHeight), SessionAnchorBlockHash: order.SessionAnchorBlockHash,
+		BuilderSetID: order.BuilderSetID, BuilderSetHash: order.BuilderSetHash,
+		PayloadMode: uint32(order.PayloadMode), InputKeyCommitment: order.InputKeyCommitment, UserRecipientPubkey: order.UserRecipientPubkey,
 	}
-	if order.TaskType == 0 || order.TaskType > 6 {
-		return codec.Hash{}, fmt.Errorf("TaskOrderV2 task_type is invalid")
-	}
-	if order.DeadlinePolicy.LatencyClass == 0 || order.DeadlinePolicy.LatencyClass > 4 {
-		return codec.Hash{}, fmt.Errorf("TaskOrderV2 latency_class is invalid")
-	}
-	taskType, latency := uint32(order.TaskType), uint32(order.DeadlinePolicy.LatencyClass)
-	generation, err := taskOrderGenerationFrame(order.GenerationParams)
-	if err != nil {
-		return codec.Hash{}, err
-	}
-	amounts := []taskOrderAmount{order.PriceBid, order.MaxFee, order.AssignmentPriorityFee, order.TxFeeReserve}
-	fields := []hfields.Field{
-		hfields.Uint32(order.SchemaVersion), hfields.String(order.ChainID), hfields.Bytes(user), hfields.Bytes(order.SessionID), hfields.Uint64(uint64(order.OrderSequence)),
-		hfields.String(order.ModelID), hfields.Uint32(order.ProfileVersion), hfields.Uint32(taskType), hfields.Bytes(order.InputHash), hfields.Uint64(uint64(order.InputSizeBytes)),
-		hfields.Uint32(order.InputBucket), hfields.Uint32(order.OutputBudgetBucket), generation,
-	}
-	for index, amount := range amounts {
-		if err := validateTaskOrderAmount(amount.AtomicUnits); err != nil {
-			return codec.Hash{}, fmt.Errorf("TaskOrderV2 amount field %d: %w", index+14, err)
-		}
-		fields = append(fields, hfields.Frame(hfields.String(amount.AtomicUnits)))
-	}
-	fields = append(fields,
-		hfields.Uint64(uint64(order.EarliestSubmitHeight)), hfields.Uint64(uint64(order.OrderExpireHeight)), hfields.Frame(hfields.Uint32(latency)),
-		hfields.Uint64(uint64(order.TimeoutBucketVersion)), hfields.Uint64(uint64(order.SessionAnchorHeight)),
-		hfields.Bytes(order.SessionAnchorBlockHash), hfields.String(order.BuilderSetID), hfields.Bytes(order.BuilderSetHash),
-	)
-	return hfields.Digest(DomainTaskOrderV2, fields...)
 }
 
 func taskOrderGenerationFrame(params taskOrderGenerationParams) (hfields.Field, error) {

@@ -26,7 +26,7 @@ type commitmentFileV3 struct {
 
 func loadCommitmentVector(t *testing.T, path, domain string) (goldenVector, uint64) {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile(path)
+	data, err := wirevectors.File(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ type valueTree struct {
 
 func loadValueTree(t *testing.T, path string) valueTree {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile(path)
+	data, err := wirevectors.File(path)
 	if err != nil {
 		t.Fatal(err)
 	}

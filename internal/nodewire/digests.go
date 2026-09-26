@@ -27,7 +27,7 @@ import (
 // github.com/TrueOpen/wire (testdata/v1/task/task_domains_v1.json, the four
 // infer_evidence_commitments_v1_* vectors) settle the shape: the empty list is
 // u64_be(12)||u64_be(4)||uint32_be(0), which the flattened form could not emit.
-// Do not re-flatten it; evidence_commitments_hash feeds InferReceiptV2, so the
+// Do not re-flatten it; evidence_commitments_hash feeds InferReceiptV3, so the
 // difference reaches a digest this node signs and submits on chain.
 //
 // The element frame is the nested FieldFrameV1 of EvidenceCommitmentV1 with no
@@ -51,7 +51,7 @@ func EvidenceCommitmentsPreimage(items []EvidenceCommitmentV1) ([]byte, error) {
 	return hfields.Preimage(DomainInferEvidenceCommitmentsV1, fields...)
 }
 
-// EvidenceCommitmentsHash derives InferReceiptV2.evidence_commitments_hash, the
+// EvidenceCommitmentsHash derives the receipt's evidence_commitments_hash, the
 // tenth field of the receipt preimage. It is Keeper-derived and is never a
 // caller-submitted wire field.
 func EvidenceCommitmentsHash(items []EvidenceCommitmentV1) (codec.Hash, error) {
@@ -103,65 +103,6 @@ func evidenceCommitmentFrame(item EvidenceCommitmentV1) (hfields.Field, error) {
 	), nil
 }
 
-// InferReceiptSigningPreimage frames the receipt fields in schema order,
-// excluding service_signature. The typed evidence list enters through its hash;
-// generated_token_count and output_leaf_count follow expiry_height.
-func InferReceiptSigningPreimage(receipt InferReceiptV2) ([]byte, error) {
-	if receipt.SchemaVersion != InferReceiptSchemaVersionV2 {
-		return nil, fmt.Errorf("infer receipt schema_version must be %d", InferReceiptSchemaVersionV2)
-	}
-	chainID, err := canonicalUTF8Field("chain_id", receipt.ChainID)
-	if err != nil {
-		return nil, err
-	}
-	taskID, err := canonicalHash32("task_id", receipt.TaskID)
-	if err != nil {
-		return nil, err
-	}
-	taskHash, err := canonicalHash32("task_hash", receipt.TaskHash)
-	if err != nil {
-		return nil, err
-	}
-	worker, err := CanonicalOperatorAddressBytes("worker_operator_address", receipt.WorkerOperatorAddress)
-	if err != nil {
-		return nil, err
-	}
-	generationParamsDigest, err := canonicalHash32("generation_params_digest", receipt.GenerationParamsDigest)
-	if err != nil {
-		return nil, err
-	}
-	outputHash, err := canonicalHash32("output_hash", receipt.OutputHash)
-	if err != nil {
-		return nil, err
-	}
-	evidenceCommitmentsHash, err := EvidenceCommitmentsHash(receipt.RequiredEvidenceCommitments)
-	if err != nil {
-		return nil, err
-	}
-	return hfields.Preimage(
-		DomainInferReceiptV2,
-		hfields.Uint32(receipt.SchemaVersion),
-		hfields.String(chainID),
-		hfields.Bytes(taskID),
-		hfields.Bytes(taskHash),
-		hfields.Bytes(worker),
-		hfields.Uint64(receipt.ServiceAuthorizationNonce),
-		hfields.Bytes(generationParamsDigest),
-		hfields.Bytes(outputHash),
-		hfields.Uint64(receipt.OutputSizeBytes),
-		hfields.Hash(evidenceCommitmentsHash),
-		hfields.Uint64(receipt.ExpiryHeight),
-		hfields.Uint64(receipt.GeneratedTokenCount),
-		hfields.Uint64(receipt.OutputLeafCount),
-	)
-}
-
-// InferReceiptSigningDigest is the frozen receipt digest. It is both the value a
-// Worker signs and the receipt's own identity on chain.
-func InferReceiptSigningDigest(receipt InferReceiptV2) (codec.Hash, error) {
-	return digestOf(InferReceiptSigningPreimage(receipt))
-}
-
 // VerifyCommitSigningPreimage returns the frozen verifier commit preimage:
 //
 //	H_FIELDS_V1("TRUEOPEN_COMMIT_V1",
@@ -206,120 +147,6 @@ func VerifyCommitSigningPreimage(commit VerifyCommitV1) ([]byte, error) {
 // VerifyCommitSigningDigest is the frozen verifier commit digest.
 func VerifyCommitSigningDigest(commit VerifyCommitV1) (codec.Hash, error) {
 	return digestOf(VerifyCommitSigningPreimage(commit))
-}
-
-// WorkerHandraiseSigningPreimage returns the frozen worker handraise preimage
-// with its ten fields in order:
-//
-//	schema_version, chain_id, task_id, task_hash, model_id, profile_version,
-//	member, duty, service_authorization_nonce, expiry_height
-//
-// member is a required nested message and is framed recursively; duty is framed
-// as uint32_be. duty = WORKER for this wire is an admission check and is left to
-// the handler so the derivation stays total, exactly as for schema_version.
-func WorkerHandraiseSigningPreimage(handraise WorkerHandraiseV1) ([]byte, error) {
-	chainID, err := canonicalUTF8Field("chain_id", handraise.ChainID)
-	if err != nil {
-		return nil, err
-	}
-	taskID, err := canonicalHash32("task_id", handraise.TaskID)
-	if err != nil {
-		return nil, err
-	}
-	taskHash, err := canonicalHash32("task_hash", handraise.TaskHash)
-	if err != nil {
-		return nil, err
-	}
-	modelID, err := canonicalUTF8Field("model_id", handraise.ModelID)
-	if err != nil {
-		return nil, err
-	}
-	member, err := candidateMemberRefFrame(handraise.Member)
-	if err != nil {
-		return nil, err
-	}
-	duty, err := canonicalDuty(handraise.Duty)
-	if err != nil {
-		return nil, err
-	}
-	return hfields.Preimage(
-		DomainWorkerHandraiseV1,
-		hfields.Uint32(handraise.SchemaVersion),
-		hfields.String(chainID),
-		hfields.Bytes(taskID),
-		hfields.Bytes(taskHash),
-		hfields.String(modelID),
-		hfields.Uint32(handraise.ProfileVersion),
-		member,
-		hfields.Uint32(duty),
-		hfields.Uint64(handraise.ServiceAuthorizationNonce),
-		hfields.Uint64(handraise.ExpiryHeight),
-	)
-}
-
-// WorkerHandraiseSigningDigest is the frozen worker handraise digest.
-func WorkerHandraiseSigningDigest(handraise WorkerHandraiseV1) (codec.Hash, error) {
-	return digestOf(WorkerHandraiseSigningPreimage(handraise))
-}
-
-// VerifierHandraiseSigningPreimage returns the frozen verifier handraise
-// preimage with its twelve fields in order:
-//
-//	schema_version, chain_id, task_id, verify_round, infer_receipt_hash,
-//	output_hash, model_id, profile_version, member, duty,
-//	service_authorization_nonce, expiry_height
-//
-// Same framing rules as the worker handraise; duty = VERIFIER for this wire is
-// likewise an admission check.
-func VerifierHandraiseSigningPreimage(handraise VerifierHandraiseV1) ([]byte, error) {
-	chainID, err := canonicalUTF8Field("chain_id", handraise.ChainID)
-	if err != nil {
-		return nil, err
-	}
-	taskID, err := canonicalHash32("task_id", handraise.TaskID)
-	if err != nil {
-		return nil, err
-	}
-	inferReceiptHash, err := canonicalHash32("infer_receipt_hash", handraise.InferReceiptHash)
-	if err != nil {
-		return nil, err
-	}
-	outputHash, err := canonicalHash32("output_hash", handraise.OutputHash)
-	if err != nil {
-		return nil, err
-	}
-	modelID, err := canonicalUTF8Field("model_id", handraise.ModelID)
-	if err != nil {
-		return nil, err
-	}
-	member, err := candidateMemberRefFrame(handraise.Member)
-	if err != nil {
-		return nil, err
-	}
-	duty, err := canonicalDuty(handraise.Duty)
-	if err != nil {
-		return nil, err
-	}
-	return hfields.Preimage(
-		DomainVerifierHandraiseV1,
-		hfields.Uint32(handraise.SchemaVersion),
-		hfields.String(chainID),
-		hfields.Bytes(taskID),
-		hfields.Uint32(handraise.VerifyRound),
-		hfields.Bytes(inferReceiptHash),
-		hfields.Bytes(outputHash),
-		hfields.String(modelID),
-		hfields.Uint32(handraise.ProfileVersion),
-		member,
-		hfields.Uint32(duty),
-		hfields.Uint64(handraise.ServiceAuthorizationNonce),
-		hfields.Uint64(handraise.ExpiryHeight),
-	)
-}
-
-// VerifierHandraiseSigningDigest is the frozen verifier handraise digest.
-func VerifierHandraiseSigningDigest(handraise VerifierHandraiseV1) (codec.Hash, error) {
-	return digestOf(VerifierHandraiseSigningPreimage(handraise))
 }
 
 // SettlementBillLeafPreimage returns the frozen settlement bill leaf preimage:
@@ -394,7 +221,7 @@ func digestOf(preimage []byte, err error) (codec.Hash, error) {
 // frozen framing requires to be rejected rather than framed.
 func canonicalEvidenceKind(kind EvidenceKind) (uint32, error) {
 	switch kind {
-	case EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindSettlementRootOpening:
+	case EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindSettlementRootOpening, EvidenceKindWorkerTokenOpening:
 		return uint32(kind), nil
 	case EvidenceKindUnspecified:
 		return 0, fmt.Errorf("evidence_kind must not be EVIDENCE_KIND_UNSPECIFIED")

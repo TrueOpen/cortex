@@ -1,10 +1,7 @@
 package nodewire
 
 // TaskOrderV3 of wire v0.3.0 (TrueOpen/wire#14, task/task_order_v3.json). It
-// binds the raw Hash32 model id and adds ADR-0024's three payload fields. The
-// V2 path parses its carriers into an unexported order; this typed form exists
-// so the V3 hash can be checked against the published vectors before the
-// generated V3 carrier is available. Nothing produces it yet.
+// binds the raw Hash32 model id and adds ADR-0024's three payload fields.
 
 import (
 	"fmt"

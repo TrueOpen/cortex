@@ -27,7 +27,6 @@ const (
 	vectorEvidenceSingle    = "infer_evidence_commitments_v1_single"
 	vectorEvidencePair      = "infer_evidence_commitments_v1_pair"
 	vectorEvidenceReordered = "infer_evidence_commitments_v1_pair_reordered"
-	vectorInferReceipt      = "infer_receipt_v2"
 	vectorVerifyCommit      = "verify_commit_v1"
 	vectorWorkerHandraise   = "worker_handraise_v1"
 	vectorVerifierHandraise = "verifier_handraise_v1"
@@ -114,15 +113,6 @@ func loadGoldenFixture(t *testing.T) goldenFixture {
 	if len(fixture.Vectors) == 0 {
 		t.Fatalf("%s carries no vectors", goldenFixturePath)
 	}
-	raw, err = wirevectors.File("task/infer_receipt_v2.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var receiptFixture goldenFixture
-	if err := json.Unmarshal(raw, &receiptFixture); err != nil {
-		t.Fatal(err)
-	}
-	fixture.Vectors = append(fixture.Vectors, receiptFixture.Vectors...)
 	return fixture
 }
 
@@ -359,17 +349,17 @@ func TestFixtureProvenanceIsVerified(t *testing.T) {
 	if fixture.Source == "" {
 		t.Fatalf("fixture carries no source stamp")
 	}
-	// The published set is a superset of the nine vectors Cortex named by hand,
+	// The published set is a superset of the vectors Cortex named by hand,
 	// so the assertion is a floor and a per-name presence check rather than an
 	// exact count: wire adding a vector for a domain Cortex does not implement
 	// yet must not fail this repository's build.
-	if len(fixture.Vectors) < 9 {
-		t.Fatalf("fixture carries %d vectors, fewer than the 9 frozen Task vectors Cortex consumes",
+	if len(fixture.Vectors) < 8 {
+		t.Fatalf("fixture carries %d vectors, fewer than the 8 frozen Task vectors Cortex consumes",
 			len(fixture.Vectors))
 	}
 	for _, name := range []string{
 		vectorEvidenceEmpty, vectorEvidenceSingle, vectorEvidencePair, vectorEvidenceReordered,
-		vectorInferReceipt, vectorVerifyCommit, vectorWorkerHandraise, vectorVerifierHandraise,
+		vectorVerifyCommit, vectorWorkerHandraise, vectorVerifierHandraise,
 	} {
 		requireVector(t, goldenVectorsByName(t), name)
 	}
@@ -430,8 +420,11 @@ func TestGoldenRejectsEveryFieldBitFlip(t *testing.T) {
 			flipped := 0
 			for index, field := range vector.Fields {
 				if len(base[index]) == 0 {
-					t.Fatalf("no frozen Task signing field is optional, so field %d (%s) must never frame empty",
-						index, field.Name)
+					// Only the plaintext recipient_pubkey frames empty.
+					if field.Name != "recipient_pubkey" {
+						t.Fatalf("field %d (%s) must never frame empty", index, field.Name)
+					}
+					continue
 				}
 				for byteIndex := range base[index] {
 					for bit := range 8 {
@@ -486,7 +479,8 @@ func TestGoldenTamperVectors(t *testing.T) {
 				seen[got] = tamper.Name
 			}
 			for index, field := range vector.Fields {
-				if _, ok := covered[index]; !ok {
+				// An empty plaintext recipient_pubkey has no bit to flip.
+				if _, ok := covered[index]; !ok && field.Name != "recipient_pubkey" {
 					t.Fatalf("field %d (%s) has no published tamper vector", index, field.Name)
 				}
 			}
@@ -633,17 +627,6 @@ func TestProductionDigestsMatchGoldens(t *testing.T) {
 		}
 	})
 
-	t.Run("InferReceipt", func(t *testing.T) {
-		vector := requireVector(t, vectors, vectorInferReceipt)
-		receipt := inferReceiptFromVector(t, vectors, vector)
-		assertPreimageAndDigest(t, vector, func() ([]byte, error) {
-			return nodewire.InferReceiptSigningPreimage(receipt)
-		})
-		if got := fieldUint(t, vector, 0, "schema_version"); got != uint64(nodewire.InferReceiptSchemaVersionV2) {
-			t.Fatalf("schema_version %d, want %d", got, nodewire.InferReceiptSchemaVersionV2)
-		}
-	})
-
 	t.Run("VerifyCommit", func(t *testing.T) {
 		vector := requireVector(t, vectors, vectorVerifyCommit)
 		commit := nodewire.VerifyCommitV1{
@@ -671,12 +654,13 @@ func TestProductionDigestsMatchGoldens(t *testing.T) {
 			ChainID:                   fieldString(t, vector, 1, "chain_id"),
 			TaskID:                    fieldBytes(t, vector, 2, "task_id"),
 			TaskHash:                  fieldBytes(t, vector, 3, "task_hash"),
-			ModelID:                   fieldString(t, vector, 4, "model_id"),
+			ModelID:                   fieldBytes(t, vector, 4, "model_id"),
 			ProfileVersion:            uint32(fieldUint(t, vector, 5, "profile_version")),
 			Member:                    memberRef(t, vector, 6),
 			Duty:                      nodewire.Duty(fieldUint(t, vector, 7, "duty")),
 			ServiceAuthorizationNonce: fieldUint(t, vector, 8, "service_authorization_nonce"),
 			ExpiryHeight:              fieldUint(t, vector, 9, "expiry_height"),
+			RecipientPubkey:           fieldBytes(t, vector, 10, "recipient_pubkey"),
 		}
 		assertPreimageAndDigest(t, vector, func() ([]byte, error) {
 			return nodewire.WorkerHandraiseSigningPreimage(handraise)
@@ -698,12 +682,13 @@ func TestProductionDigestsMatchGoldens(t *testing.T) {
 			VerifyRound:               uint32(fieldUint(t, vector, 3, "verify_round")),
 			InferReceiptHash:          fieldBytes(t, vector, 4, "infer_receipt_hash"),
 			OutputHash:                fieldBytes(t, vector, 5, "output_hash"),
-			ModelID:                   fieldString(t, vector, 6, "model_id"),
+			ModelID:                   fieldBytes(t, vector, 6, "model_id"),
 			ProfileVersion:            uint32(fieldUint(t, vector, 7, "profile_version")),
 			Member:                    memberRef(t, vector, 8),
 			Duty:                      nodewire.Duty(fieldUint(t, vector, 9, "duty")),
 			ServiceAuthorizationNonce: fieldUint(t, vector, 10, "service_authorization_nonce"),
 			ExpiryHeight:              fieldUint(t, vector, 11, "expiry_height"),
+			RecipientPubkey:           fieldBytes(t, vector, 12, "recipient_pubkey"),
 		}
 		assertPreimageAndDigest(t, vector, func() ([]byte, error) {
 			return nodewire.VerifierHandraiseSigningPreimage(handraise)
@@ -883,45 +868,3 @@ func evidenceCommitments(t *testing.T, vector goldenVector) []nodewire.EvidenceC
 
 // inferReceiptFromVector rebuilds the typed receipt behind the receipt vector.
 // Preimage field 9 is derived from the separately published typed commitment list.
-func inferReceiptFromVector(t *testing.T, vectors map[string]goldenVector, vector goldenVector) nodewire.InferReceiptV2 {
-	t.Helper()
-	raw, err := wirevectors.File("task/infer_receipt_v2.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fixture struct {
-		CommitmentList struct {
-			Items []struct {
-				EvidenceKind          nodewire.EvidenceKind `json:"evidence_kind"`
-				EvidenceHashOrRootHex string                `json:"evidence_hash_or_root_hex"`
-				EncodedSizeBytes      uint64                `json:"encoded_size_bytes"`
-			} `json:"items"`
-		} `json:"commitment_list"`
-	}
-	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatal(err)
-	}
-	items := make([]nodewire.EvidenceCommitmentV1, len(fixture.CommitmentList.Items))
-	for i, item := range fixture.CommitmentList.Items {
-		hash, err := hex.DecodeString(item.EvidenceHashOrRootHex)
-		if err != nil {
-			t.Fatal(err)
-		}
-		items[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: hash, EncodedSizeBytes: item.EncodedSizeBytes}
-	}
-	return nodewire.InferReceiptV2{
-		SchemaVersion:               uint32(fieldUint(t, vector, 0, "schema_version")),
-		ChainID:                     fieldString(t, vector, 1, "chain_id"),
-		TaskID:                      fieldBytes(t, vector, 2, "task_id"),
-		TaskHash:                    fieldBytes(t, vector, 3, "task_hash"),
-		WorkerOperatorAddress:       fieldBech32(t, vector, 4, "worker_operator_address"),
-		ServiceAuthorizationNonce:   fieldUint(t, vector, 5, "service_authorization_nonce"),
-		GenerationParamsDigest:      fieldBytes(t, vector, 6, "generation_params_digest"),
-		OutputHash:                  fieldBytes(t, vector, 7, "output_hash"),
-		OutputSizeBytes:             fieldUint(t, vector, 8, "output_size_bytes"),
-		RequiredEvidenceCommitments: items,
-		ExpiryHeight:                fieldUint(t, vector, 10, "expiry_height"),
-		GeneratedTokenCount:         fieldUint(t, vector, 11, "generated_token_count"),
-		OutputLeafCount:             fieldUint(t, vector, 12, "output_leaf_count"),
-	}
-}

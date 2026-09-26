@@ -38,6 +38,9 @@ type GenerationParamsV1 struct {
 	DecodingParams    DecodingParamsV1 `json:"decoding_params"`
 }
 
+// GenerationContext is the chain-bound generation identity. ModelID is the
+// canonical lowercase hex of the Hash32 model id; the digest projection writes
+// it as "0x"-prefixed hex, the canonical-JSON form of a Hash32.
 type GenerationContext struct {
 	ModelID            string             `json:"model_id"`
 	ProfileVersion     uint32             `json:"profile_version"`
@@ -88,7 +91,7 @@ type generationProjection struct {
 
 func (g GenerationContext) canonicalJSON() ([]byte, error) {
 	d := g.Params.DecodingParams
-	if g.ModelID == "" || len(g.ModelID) > maxGenerationPayloadBytes || !utf8.ValidString(g.ModelID) || g.ProfileVersion == 0 || g.OutputBudgetBucket == 0 {
+	if !canonicalModelIDHex(g.ModelID) || g.ProfileVersion == 0 || g.OutputBudgetBucket == 0 {
 		return nil, fmt.Errorf("generation context model, profile, or output budget is invalid")
 	}
 	if g.TaskType != 1 && g.TaskType != 2 {
@@ -130,7 +133,7 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	size := uint64(len(base)) + generationJSONStringContentSize(g.ModelID)
+	size := uint64(len(base)) + 2 + uint64(len(g.ModelID))
 	for i, value := range d.StopSequences {
 		if len(value) > maxGenerationPayloadBytes || !utf8.ValidString(value) || i > 0 && value <= d.StopSequences[i-1] {
 			return nil, fmt.Errorf("generation stop sequences must be bounded UTF-8, sorted, and unique")
@@ -155,7 +158,7 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 	if size > maxGenerationPayloadBytes {
 		return nil, fmt.Errorf("generation canonical payload exceeds 32 MiB")
 	}
-	p.ModelID = g.ModelID
+	p.ModelID = "0x" + g.ModelID
 	if d.StopSequences != nil {
 		p.DecodingParams.StopSequences = d.StopSequences
 	}
@@ -168,7 +171,11 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 func encodeGenerationProjection(p generationProjection) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
+	// TODO(wire v0.3.0): wire rc.1's generation_params_v1 and canonical_json_v1
+	// vectors HTML-escape '<', '>' and '&' (as \u003c etc.), while its
+	// CANONICAL_ENCODING_V1.md says HTML escaping is disabled. The published
+	// vectors are followed until wire settles which one is normative.
+	encoder.SetEscapeHTML(true)
 	if err := encoder.Encode(p); err != nil {
 		return nil, fmt.Errorf("encode generation params: %w", err)
 	}
@@ -183,6 +190,8 @@ func generationJSONStringContentSize(s string) uint64 {
 			size++
 		case '\u2028', '\u2029':
 			size += 3
+		case '<', '>', '&':
+			size += 5 // HTML-escaped as \u003c, \u003e, \u0026
 		default:
 			if r < 0x20 {
 				size += 5
@@ -190,4 +199,18 @@ func generationJSONStringContentSize(s string) uint64 {
 		}
 	}
 	return size
+}
+
+// canonicalModelIDHex reports whether text is the 64-lowercase-hex form of a
+// Hash32 model id.
+func canonicalModelIDHex(text string) bool {
+	if len(text) != 64 {
+		return false
+	}
+	for i := 0; i < len(text); i++ {
+		if c := text[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

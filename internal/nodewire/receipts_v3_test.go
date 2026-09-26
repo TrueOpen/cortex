@@ -24,7 +24,7 @@ type inferReceiptV3File struct {
 
 func inferReceiptV3Fixture(t *testing.T) (nodewire.InferReceiptV3, inferReceiptV3File) {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile("task/infer_receipt_v3.json")
+	data, err := wirevectors.File("task/infer_receipt_v3.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,18 +74,18 @@ func inferReceiptV3Fixture(t *testing.T) (nodewire.InferReceiptV3, inferReceiptV
 
 func TestInferReceiptV3ReproducesPublishedVector(t *testing.T) {
 	receipt, file := inferReceiptV3Fixture(t)
-	list, err := nodewire.InferEvidenceCommitmentsV3Hash(receipt.RequiredEvidenceCommitments)
+	list, err := nodewire.EvidenceCommitmentsHash(receipt.RequiredEvidenceCommitments)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hex.EncodeToString(list[:]) != file.CommitmentList.DigestHex {
 		t.Fatalf("evidence_commitments_hash = %x, published %s", list, file.CommitmentList.DigestHex)
 	}
-	preimage, err := nodewire.InferReceiptV3SigningPreimage(receipt)
+	preimage, err := nodewire.InferReceiptSigningPreimage(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := nodewire.InferReceiptV3SigningDigest(receipt)
+	digest, err := nodewire.InferReceiptSigningDigest(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestInferReceiptV3ReproducesPublishedVector(t *testing.T) {
 	// The service signature is outside the preimage.
 	signed := receipt
 	signed.ServiceSignature = []byte("signature")
-	if again, err := nodewire.InferReceiptV3SigningDigest(signed); err != nil || again != digest {
+	if again, err := nodewire.InferReceiptSigningDigest(signed); err != nil || again != digest {
 		t.Fatal("service_signature changed the receipt digest")
 	}
 }
@@ -118,19 +118,15 @@ func TestInferReceiptV3RejectsPublishedBadEncodings(t *testing.T) {
 	} {
 		bad := receipt
 		mutate(&bad)
-		if _, err := nodewire.InferReceiptV3SigningDigest(bad); err == nil {
-			t.Errorf("%s: InferReceiptV3SigningDigest() error = nil", name)
+		if _, err := nodewire.InferReceiptSigningDigest(bad); err == nil {
+			t.Errorf("%s: InferReceiptSigningDigest() error = nil", name)
 		}
-	}
-	// V2 derivations keep refusing the new kind.
-	if _, err := nodewire.EvidenceCommitmentsHash(receipt.RequiredEvidenceCommitments); err == nil {
-		t.Fatal("the V2 commitment list accepted EVIDENCE_KIND_WORKER_TOKEN_OPENING")
 	}
 }
 
 func resultReceiptV3Vectors(t *testing.T) map[string]goldenVector {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile("task/result_receipt_v3.json")
+	data, err := wirevectors.File("task/result_receipt_v3.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +178,7 @@ func TestResultCommitmentV3ReproducesPublishedVector(t *testing.T) {
 		VerifierValueRoot:       fieldBytes(t, v, 5, "verifier_value_root"),
 		Salt:                    fieldBytes(t, v, 6, "salt"),
 	}
-	digest, err := nodewire.ResultCommitmentV3Hash(commitment)
+	digest, err := nodewire.ResultCommitmentHash(commitment)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,8 +187,8 @@ func TestResultCommitmentV3ReproducesPublishedVector(t *testing.T) {
 	}
 	zeroSalt := commitment
 	zeroSalt.Salt = make([]byte, 32)
-	if _, err := nodewire.ResultCommitmentV3Hash(zeroSalt); err == nil {
-		t.Fatal("ResultCommitmentV3Hash() accepted a ZERO32 salt")
+	if _, err := nodewire.ResultCommitmentHash(zeroSalt); err == nil {
+		t.Fatal("ResultCommitmentHash() accepted a ZERO32 salt")
 	}
 }
 
@@ -235,11 +231,11 @@ func TestResultReceiptV3ReproducesPublishedVector(t *testing.T) {
 		MetricLeafCount:                   uint32(fieldUint(t, v, 15, "metric_leaf_count")),
 		VerifierEvidenceKeyCommitment:     fieldBytes(t, v, 16, "verifier_evidence_key_commitment"),
 	}
-	preimage, err := nodewire.ResultReceiptV3SigningPreimage(receipt)
+	preimage, err := nodewire.ResultReceiptSigningPreimage(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := nodewire.ResultReceiptV3SigningDigest(receipt)
+	digest, err := nodewire.ResultReceiptSigningDigest(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,8 +252,8 @@ func TestResultReceiptV3ReproducesPublishedVector(t *testing.T) {
 	} {
 		bad := receipt
 		mutate(&bad)
-		if _, err := nodewire.ResultReceiptV3SigningDigest(bad); err == nil {
-			t.Errorf("%s: ResultReceiptV3SigningDigest() error = nil", name)
+		if _, err := nodewire.ResultReceiptSigningDigest(bad); err == nil {
+			t.Errorf("%s: ResultReceiptSigningDigest() error = nil", name)
 		}
 	}
 }
