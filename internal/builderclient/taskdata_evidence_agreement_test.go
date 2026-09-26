@@ -3,11 +3,11 @@ package builderclient
 import (
 	"encoding/hex"
 	"encoding/json"
-	"github.com/TrueOpen/cortex/internal/codec"
-	"github.com/TrueOpen/cortex/internal/nodewire"
-	"github.com/TrueOpen/cortex/internal/wirevectors"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
 type taskDataGoldenField struct {
@@ -60,56 +60,6 @@ func loadTaskDataGoldens(t *testing.T, path string) []taskDataGolden {
 		t.Fatal(err)
 	}
 	return file.Vectors
-}
-
-func TestTaskDataV040PublishedAuthenticationDigests(t *testing.T) {
-	for _, v := range loadTaskDataGoldens(t, "task/task_data_auth_v1.json") {
-		t.Run(v.Name, func(t *testing.T) {
-			f := func(name string) taskDataGoldenField { return goldenField(t, v.Fields, name) }
-			var got codec.Hash
-			var err error
-			switch v.Domain {
-			case "TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1":
-				got, err = TaskDataUploadBodyDigest(goldenKey(t, f("object_ref")), f("size_bytes").Value, f("media_type").UTF8)
-			case "TRUEOPEN_TASK_DATA_METADATA_BODY_V1":
-				got, err = TaskDataMetadataBodyDigest(goldenKey(t, f("object_ref")))
-			case "TRUEOPEN_TASK_DATA_FETCH_BODY_V1":
-				rangeField := goldenField(t, f("range").Fields, "value")
-				got, err = TaskDataFetchBodyDigest(goldenKey(t, f("object_ref")), &TaskDataRange{Offset: goldenField(t, rangeField.Fields, "offset").Value, Length: goldenField(t, rangeField.Fields, "length").Value})
-			case "TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1":
-				scope, e := finalizeScope(f("task_hash").Hex, f("session_id").Hex, f("task_id").Hex)
-				if e != nil {
-					t.Fatal(e)
-				}
-				got, err = taskDataFinalizeResultDigest(scope, mustHash(t, f("infer_receipt_hash").Hex), mustHash(t, f("infer_receipt_signature_digest").Hex))
-			case "TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1":
-				scope, e := finalizeScope(f("task_hash").Hex, f("session_id").Hex, f("task_id").Hex)
-				if e != nil {
-					t.Fatal(e)
-				}
-				operator, e := nodewire.CanonicalOperatorAddressBytes("verifier_operator", goldenAddress(t, f("verifier_operator")))
-				if e != nil {
-					t.Fatal(e)
-				}
-				got, err = taskDataFinalizeVerifierDigest(scope, uint32(f("verify_round").Value), operator, mustHash(t, f("result_receipt_signing_digest").Hex), mustHash(t, f("result_receipt_signature_digest").Hex))
-			case "TRUEOPEN_TASK_DATA_REQUEST_V1":
-				got, err = TaskDataRequestSigningHash(TaskDataRequestAuth{SchemaVersion: uint32(f("schema_version").Value), ChainID: f("chain_id").UTF8, BuilderAddress: goldenAddress(t, f("builder_operator_address")), Method: f("rpc_method").UTF8, BodyDigest: mustHash(t, f("body_digest").Hex), RequesterKind: TaskDataRequesterKind(f("requester_kind").Value), Requester: goldenAddress(t, f("requester_address")), ServiceAuthorizationNonce: f("service_authorization_nonce").Value, RequestNonce: mustDecodeHex(t, f("request_nonce").Hex), ExpiresAtHeight: f("expiry_height").Value})
-			default:
-				t.Fatalf("unhandled published domain %s", v.Domain)
-			}
-			assertHash(t, got, err, v.Digest)
-		})
-	}
-}
-
-func TestTaskDataV040PublishedStorageConfirmations(t *testing.T) {
-	for _, v := range loadTaskDataGoldens(t, "task/builder_confirmation_v1.json") {
-		t.Run(v.Name, func(t *testing.T) {
-			f := func(name string) taskDataGoldenField { return goldenField(t, v.Fields, name) }
-			got, err := StorageConfirmationSigningHash(StorageConfirmation{SchemaVersion: uint32(f("schema_version").Value), ChainID: f("chain_id").UTF8, BuilderOperator: goldenAddress(t, f("builder_operator_address")), ServiceAuthorizationNonce: f("service_authorization_nonce").Value, Key: goldenKey(t, f("object_ref")), SizeBytes: f("size_bytes").Value, ArtifactTotalSizeBytes: f("artifact_total_size_bytes").Value, RetentionUntilHeight: f("retention_until_height").Value})
-			assertHash(t, got, err, v.Digest)
-		})
-	}
 }
 
 func TestObjectRefAndRangePresenceCannotBeConfused(t *testing.T) {

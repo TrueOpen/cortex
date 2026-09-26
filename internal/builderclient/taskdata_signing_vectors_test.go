@@ -34,7 +34,7 @@ type v2Vector struct {
 
 func v2Vectors(t *testing.T, path string) map[string]v2Vector {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile(path)
+	data, err := wirevectors.File(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,8 @@ func objectRef(t *testing.T, ref v2Node) (TaskDataKey, nodewire.EvidenceKind) {
 	if operator := v2Field(t, f, 7, "producer_operator"); operator.Present != nil && *operator.Present {
 		key.ProducerOperator = operator.Fields[0].Bech32
 	}
-	return key, nodewire.EvidenceKind(v2Field(t, f, 8, "evidence_kind").u64(t))
+	key.EvidenceKind = nodewire.EvidenceKind(v2Field(t, f, 8, "evidence_kind").u64(t))
+	return key, key.EvidenceKind
 }
 
 func assertDigest(t *testing.T, name string, got codec.Hash, err error, want string) {
@@ -119,30 +120,34 @@ func TestTaskDataBodiesV2ReproducePublishedVectors(t *testing.T) {
 	key, kind := objectRef(t, v2Field(t, upload.Fields, 0, "object_ref"))
 	size := v2Field(t, upload.Fields, 1, "size_bytes").u64(t)
 	media := v2Field(t, upload.Fields, 2, "media_type").UTF8
-	uploadDigest, err := TaskDataUploadBodyDigestV2(key, kind, size, media)
+	uploadDigest, err := TaskDataUploadBodyDigest(key, size, media)
 	assertDigest(t, upload.Name, uploadDigest, err, upload.DigestHex)
 	for _, m := range upload.Mutations {
 		if m.FieldPath == "object_ref.evidence_kind" {
 			// The +1 mutation is not a legal kind for a Verifier bundle, so it
 			// is refused rather than hashed.
-			if _, err := TaskDataUploadBodyDigestV2(key, kind+1, size, media); err == nil {
+			bad := key
+			bad.EvidenceKind = kind + 1
+			if _, err := TaskDataUploadBodyDigest(bad, size, media); err == nil {
 				t.Fatal("a Verifier bundle accepted a non-Verifier evidence kind")
 			}
 		}
 	}
 
 	metadata := vectors["task_data_metadata_body_v2"]
-	key, kind = objectRef(t, v2Field(t, metadata.Fields, 0, "object_ref"))
-	got, err := TaskDataMetadataBodyDigestV2(key, kind)
+	key, _ = objectRef(t, v2Field(t, metadata.Fields, 0, "object_ref"))
+	got, err := TaskDataMetadataBodyDigest(key)
 	assertDigest(t, metadata.Name, got, err, metadata.DigestHex)
-	if _, err := TaskDataMetadataBodyDigestV2(key, nodewire.EvidenceKindWorkerValueOpening); err == nil {
+	bad := key
+	bad.EvidenceKind = nodewire.EvidenceKindWorkerValueOpening
+	if _, err := TaskDataMetadataBodyDigest(bad); err == nil {
 		t.Fatal("an OUTPUT object accepted an evidence kind")
 	}
 
 	fetch := vectors["task_data_fetch_body_v2"]
-	key, kind = objectRef(t, v2Field(t, fetch.Fields, 0, "object_ref"))
+	key, _ = objectRef(t, v2Field(t, fetch.Fields, 0, "object_ref"))
 	bounds := v2Field(t, fetch.Fields, 1, "range").Fields[0].Fields
-	got, err = TaskDataFetchBodyDigestV2(key, kind, &TaskDataRange{
+	got, err = TaskDataFetchBodyDigest(key, &TaskDataRange{
 		Offset: v2Field(t, bounds, 0, "offset").u64(t), Length: v2Field(t, bounds, 1, "length").u64(t),
 	})
 	assertDigest(t, fetch.Name, got, err, fetch.DigestHex)
@@ -150,14 +155,16 @@ func TestTaskDataBodiesV2ReproducePublishedVectors(t *testing.T) {
 	result := vectors["task_data_finalize_result_body_v2"]
 	f := result.Fields
 	resultKind := nodewire.EvidenceKind(v2Field(t, f, 5, "evidence_kind").u64(t))
-	got, err = TaskDataFinalizeResultBodyDigestV2(v2Field(t, f, 0, "task_hash").Hex, v2Field(t, f, 1, "session_id").Hex, v2Field(t, f, 2, "task_id").Hex,
-		v2Field(t, f, 3, "infer_receipt_hash").digest(t), v2Field(t, f, 4, "infer_receipt_signature_digest").digest(t), resultKind)
+	scope, err := finalizeScope(v2Field(t, f, 0, "task_hash").Hex, v2Field(t, f, 1, "session_id").Hex, v2Field(t, f, 2, "task_id").Hex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = taskDataFinalizeResultDigest(scope, v2Field(t, f, 3, "infer_receipt_hash").digest(t), v2Field(t, f, 4, "infer_receipt_signature_digest").digest(t), resultKind)
 	assertDigest(t, result.Name, got, err, result.DigestHex)
 	for _, m := range result.Mutations {
 		if m.FieldPath == "evidence_kind" {
 			// kind 1 + 1 is VERIFIER_VALUE_OPENING, which a result finalize refuses.
-			if _, err := TaskDataFinalizeResultBodyDigestV2(v2Field(t, f, 0, "task_hash").Hex, v2Field(t, f, 1, "session_id").Hex, v2Field(t, f, 2, "task_id").Hex,
-				v2Field(t, f, 3, "infer_receipt_hash").digest(t), v2Field(t, f, 4, "infer_receipt_signature_digest").digest(t), resultKind+1); err == nil {
+			if _, err := TaskDataFinalizeResultBodyDigest(FinalizeTaskResultRequest{EvidenceKind: resultKind + 1}); err == nil {
 				t.Fatal("a result finalize accepted a non-Worker evidence kind")
 			}
 		}
@@ -165,8 +172,15 @@ func TestTaskDataBodiesV2ReproducePublishedVectors(t *testing.T) {
 
 	verifier := vectors["task_data_finalize_verifier_body_v2"]
 	f = verifier.Fields
-	got, err = TaskDataFinalizeVerifierBodyDigestV2(v2Field(t, f, 0, "task_hash").Hex, v2Field(t, f, 1, "session_id").Hex, v2Field(t, f, 2, "task_id").Hex,
-		uint32(v2Field(t, f, 3, "verify_round").u64(t)), v2Field(t, f, 4, "verifier_operator").Bech32,
+	scope, err = finalizeScope(v2Field(t, f, 0, "task_hash").Hex, v2Field(t, f, 1, "session_id").Hex, v2Field(t, f, 2, "task_id").Hex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, err := nodewire.CanonicalOperatorAddressBytes("verifier_operator", v2Field(t, f, 4, "verifier_operator").Bech32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = taskDataFinalizeVerifierDigest(scope, uint32(v2Field(t, f, 3, "verify_round").u64(t)), operator,
 		v2Field(t, f, 5, "result_receipt_signing_digest").digest(t), v2Field(t, f, 6, "result_receipt_signature_digest").digest(t))
 	assertDigest(t, verifier.Name, got, err, verifier.DigestHex)
 
@@ -196,8 +210,8 @@ func TestStorageConfirmationV2ReproducesPublishedVectors(t *testing.T) {
 	kinds := map[nodewire.EvidenceKind]bool{}
 	for name, v := range vectors {
 		f := v.Fields
-		if v.Domain != storageConfirmationDomainV2 || len(f) != 8 {
-			t.Fatalf("%s is not an eight-field %s vector", name, storageConfirmationDomainV2)
+		if v.Domain != storageConfirmationDomain || len(f) != 8 {
+			t.Fatalf("%s is not an eight-field %s vector", name, storageConfirmationDomain)
 		}
 		key, kind := objectRef(t, v2Field(t, f, 4, "object_ref"))
 		kinds[kind] = true
@@ -211,7 +225,7 @@ func TestStorageConfirmationV2ReproducesPublishedVectors(t *testing.T) {
 			ArtifactTotalSizeBytes:    v2Field(t, f, 6, "artifact_total_size_bytes").u64(t),
 			RetentionUntilHeight:      v2Field(t, f, 7, "retention_until_height").u64(t),
 		}
-		got, err := StorageConfirmationSigningHashV2(confirmation, kind)
+		got, err := StorageConfirmationSigningHash(confirmation)
 		assertDigest(t, name, got, err, v.DigestHex)
 	}
 	// INPUT/OUTPUT, Verifier, and both Worker levels are all covered.
@@ -223,10 +237,11 @@ func TestStorageConfirmationV2ReproducesPublishedVectors(t *testing.T) {
 	}
 	token := vectors["builder_confirmation_worker_token_evidence"]
 	key, _ := objectRef(t, v2Field(t, token.Fields, 4, "object_ref"))
-	if _, err := StorageConfirmationSigningHashV2(StorageConfirmation{
+	key.EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
+	if _, err := StorageConfirmationSigningHash(StorageConfirmation{
 		SchemaVersion: 1, ChainID: "c", BuilderOperator: v2Field(t, token.Fields, 2, "builder_operator_address").Bech32,
 		ServiceAuthorizationNonce: 1, Key: key, RetentionUntilHeight: 1,
-	}, nodewire.EvidenceKindVerifierValueOpening); err == nil {
+	}); err == nil {
 		t.Fatal("a Worker bundle confirmation accepted VERIFIER_VALUE_OPENING")
 	}
 }

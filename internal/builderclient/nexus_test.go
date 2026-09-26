@@ -271,13 +271,13 @@ func validOutputPackage(t *testing.T, taskID string) OutputPackage {
 		t.Fatalf("EncodeInferReceiptMaterial returned error: %v", err)
 	}
 	return OutputPackage{
-		TaskID:         taskID,
-		OutputRef:      "cortex-artifact://svc/output/" + taskID,
-		TraceRef:       "cortex-artifact://svc/trace/" + taskID,
-		CheckpointRef:  "cortex-artifact://svc/checkpoint/" + taskID,
-		OutputHash:     outputHash,
-		PackageHash:    packageHash,
-		ReceiptHash:    receiptHash,
-		ReceiptPayload: receiptPayload,
+		TaskID:            taskID,
+		OutputRef:         "cortex-artifact://svc/output/" + taskID,
+		TokenIDsRef:       "cortex-artifact://svc/trace/" + taskID,
+		PositionValuesRef: "cortex-artifact://svc/checkpoint/" + taskID,
+		OutputHash:        outputHash,
+		PackageHash:       packageHash,
+		ReceiptHash:       receiptHash,
+		ReceiptPayload:    receiptPayload,
 	}
 }

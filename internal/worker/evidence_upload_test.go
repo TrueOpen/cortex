@@ -12,6 +12,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
@@ -25,38 +26,56 @@ func TestWorkerStagesCanonicalBundleBeforeFinalizingAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Each bundle uploads its artifacts and then its manifest, value bundle
+	// first: worker_values, manifest, generated_token_ids, input_token_ids,
+	// manifest.
 	if len(h.taskData.uploads) != 5 {
-		t.Fatalf("uploads = %d, want four artifacts and manifest", len(h.taskData.uploads))
+		t.Fatalf("uploads = %d, want three artifacts and two manifests", len(h.taskData.uploads))
 	}
-	manifestUpload := h.taskData.uploads[4]
-	manifest, err := evidencebundle.Decode(manifestUpload.Data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if manifestUpload.Key.Kind != builderclient.DataKindEvidenceManifest || result.TaskDataReceipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String() != manifestUpload.Key.ContentHash {
-		t.Fatal("manifest object commitment mismatch")
-	}
-	if len(manifest.Artifacts) != 4 || manifest.Artifacts[0].ID != "checkpoint" || manifest.Artifacts[1].ID != "generated_token_ids" || manifest.Artifacts[2].ID != "input_token_ids" || manifest.Artifacts[3].ID != "trace" {
-		t.Fatal("manifest artifacts not sorted")
-	}
-	for i, artifact := range manifest.Artifacts {
-		upload := h.taskData.uploads[i]
-		data, err := h.persistence.ReadArtifact(context.Background(), event.TaskID, "worker-"+artifact.ID)
+	receipt := result.TaskDataReceipt
+	for bundle, spec := range []struct {
+		manifestAt int
+		kind       nodewire.EvidenceKind
+		artifacts  []string
+	}{
+		{1, nodewire.EvidenceKindWorkerValueOpening, []string{"worker_values"}},
+		{4, nodewire.EvidenceKindWorkerTokenOpening, []string{"generated_token_ids", "input_token_ids"}},
+	} {
+		manifestUpload := h.taskData.uploads[spec.manifestAt]
+		manifest, err := evidencebundle.Decode(manifestUpload.Data)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := builderclient.EvidenceObjectKey(result.TaskDataReceipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceArtifact, codec.HashBytes(data).String(), builderclient.EvidenceProducerWorker, 1, workerTestOperatorAddress)
-		if upload.Key != want || string(upload.Data) != string(data) {
-			t.Fatalf("artifact %s scope or bytes differ", artifact.ID)
+		commitment := receipt.RequiredEvidenceCommitments[bundle]
+		if manifestUpload.Key.Kind != builderclient.DataKindEvidenceManifest || manifestUpload.Key.EvidenceKind != spec.kind ||
+			commitment.EvidenceKind != spec.kind || commitment.EvidenceHashOrRoot.String() != manifestUpload.Key.ContentHash {
+			t.Fatalf("bundle %d manifest object commitment mismatch", bundle)
 		}
-	}
-	commitment := result.TaskDataReceipt.RequiredEvidenceCommitments[0]
-	if commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestUpload.Data) || commitment.EncodedSizeBytes != manifest.TotalSize() {
-		t.Fatal("receipt does not commit the V2 artifact bundle")
+		if commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestUpload.Data) || commitment.EncodedSizeBytes != manifest.TotalSize() {
+			t.Fatalf("receipt does not commit bundle %d's artifacts", bundle)
+		}
+		if len(manifest.Artifacts) != len(spec.artifacts) {
+			t.Fatalf("bundle %d artifacts = %+v", bundle, manifest.Artifacts)
+		}
+		_, stored, err := h.persistence.WorkerBundle(context.Background(), event.TaskID, spec.kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, artifact := range manifest.Artifacts {
+			if artifact.ID != spec.artifacts[i] {
+				t.Fatalf("bundle %d artifacts not sorted: %+v", bundle, manifest.Artifacts)
+			}
+			upload := h.taskData.uploads[spec.manifestAt-len(spec.artifacts)+i]
+			data := stored[artifact.ID]
+			want := builderclient.EvidenceObjectKey(receipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceArtifact, codec.HashBytes(data).String(), builderclient.EvidenceProducerWorker, 1, workerTestOperatorAddress, spec.kind)
+			if upload.Key != want || string(upload.Data) != string(data) {
+				t.Fatalf("artifact %s scope or bytes differ", artifact.ID)
+			}
+		}
 	}
 	finalize := slicesIndex(events, "task-data:finalize")
 	pending := slicesIndex(events, "outbox:pending")
-	if finalize < 0 || pending <= finalize || len(h.persistence.confirmations) != 2 {
+	if finalize < 0 || pending <= finalize || len(h.persistence.confirmations) != 3 {
 		t.Fatalf("finalize/availability events = %v", events)
 	}
 	for _, metadata := range h.taskData.TaskDataMetadata {
@@ -84,7 +103,7 @@ func TestWorkerRetainedConfirmationsSurviveBuilderKeyRotation(t *testing.T) {
 			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
 				t.Fatal(err)
 			}
-			if len(h.taskData.uploads) != 5 || len(h.taskData.relays) != 1 || len(h.persistence.confirmations) != 2 {
+			if len(h.taskData.uploads) != 5 || len(h.taskData.relays) != 1 || len(h.persistence.confirmations) != 3 {
 				t.Fatal("key rotation repeated finalized material")
 			}
 		})
@@ -110,7 +129,7 @@ func TestWorkerExpiredRetainedConfirmationDoesNotReleaseAvailability(t *testing.
 	if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.taskData.uploads) != 10 || len(h.persistence.confirmations) != 4 || h.persistence.confirmations[2].RetentionUntilHeight != 300 {
+	if len(h.taskData.uploads) != 10 || len(h.persistence.confirmations) != 6 || h.persistence.confirmations[3].RetentionUntilHeight != 300 {
 		t.Fatal("expired storage was reused to release availability")
 	}
 }
@@ -156,7 +175,7 @@ func TestWorkerRetainedConfirmationNeedsCurrentHeightAndExpectedBuilder(t *testi
 }
 
 func TestWorkerRecoveryRejectsBundleProfileOrArtifactTampering(t *testing.T) {
-	for _, name := range []string{"schema", "profile size", "artifact", "manifest", "input token IDs", "generated token IDs", "leaf count", "generated token count"} {
+	for _, name := range []string{"schema", "profile size", "value manifest", "token manifest", "input token IDs", "generated token IDs", "worker values", "leaf count", "generated token count"} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			event := finalizedTask()
@@ -187,20 +206,26 @@ func TestWorkerRecoveryRejectsBundleProfileOrArtifactTampering(t *testing.T) {
 					h.persistence.evidence[i].Data, _ = json.Marshal(descriptor)
 				}
 			default:
-				kind := "worker-trace"
+				// Tamper with the published bundle in the store.
+				kind, id := nodewire.EvidenceKindWorkerTokenOpening, ""
 				switch name {
-				case "manifest":
-					kind = "worker-evidence-manifest"
+				case "value manifest":
+					kind = nodewire.EvidenceKindWorkerValueOpening
 				case "input token IDs":
-					kind = "worker-input_token_ids"
+					id = builderclient.EvidenceArtifactInputTokenIDs
 				case "generated token IDs":
-					kind = "worker-generated_token_ids"
+					id = builderclient.EvidenceArtifactGeneratedTokenIDs
+				case "worker values":
+					kind, id = nodewire.EvidenceKindWorkerValueOpening, builderclient.EvidenceArtifactWorkerValues
 				}
-				for i := range h.persistence.evidence {
-					if h.persistence.evidence[i].Kind == kind {
-						h.persistence.evidence[i].Data = append(h.persistence.evidence[i].Data, ' ')
-					}
+				key := fmt.Sprintf("%s/%d", event.TaskID, kind)
+				bundle := h.persistence.bundles[key]
+				if id == "" {
+					bundle.manifest = append(append([]byte(nil), bundle.manifest...), ' ')
+				} else {
+					bundle.artifacts[id] = append(append([]byte(nil), bundle.artifacts[id]...), 0)
 				}
+				h.persistence.bundles[key] = bundle
 			}
 			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil {
 				t.Fatal("recovery accepted invalid retained bundle")

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +19,7 @@ import (
 func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	const tokens = 512
 	const servedModel = "test/generation-model"
-	modelID := "hf-" + fmt.Sprint(codec.HashBytes([]byte("huggingface:"+servedModel)))
+	modelID := codec.HashBytes([]byte("huggingface:" + servedModel)).String()
 	output := strings.Repeat("\u5b8c\u6574\u8f93\u51fa ", tokens)
 	ids := make([]int, tokens)
 	logprobs := make([]float64, tokens)
@@ -55,6 +54,9 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	h, _, _ := generationBoundHarness(t, 1024, modelID)
 	enableEvidenceSchema(&h)
 	service := modelservice.NewLocalService(server.URL, "generation-test", 1, time.Minute, time.Second)
+	if err := service.BindModel(modelID, servedModel); err != nil {
+		t.Fatal(err)
+	}
 	service.SetStreamInference(false)
 	h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "generation-test"
 	event := finalizedTask()
@@ -123,7 +125,7 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil || !strings.Contains(err.Error(), field) {
+				if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil || !strings.Contains(strings.ReplaceAll(err.Error(), "_", " "), field) {
 					t.Fatalf("accepted tampered retained %s: %v", field, err)
 				}
 			})
@@ -133,24 +135,5 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	stored, err := h.persistence.ReadArtifact(context.Background(), event.TaskID, "worker-output")
 	if err != nil || !bytes.Equal(stored, []byte(output)) {
 		t.Fatalf("retained output was truncated or replaced: %v", err)
-	}
-	// Pre-upgrade or damaged evidence must not be reused under today's bound
-	// parameters simply because an output/receipt checkpoint exists.
-	for i := range h.persistence.evidence {
-		if h.persistence.evidence[i].Kind != "worker-trace" {
-			continue
-		}
-		var trace map[string]json.RawMessage
-		if err := json.Unmarshal(h.persistence.evidence[i].Data, &trace); err != nil {
-			t.Fatal(err)
-		}
-		delete(trace, "generation_context")
-		h.persistence.evidence[i].Data, err = json.Marshal(trace)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil || !strings.Contains(err.Error(), "generation") {
-		t.Fatalf("recovery accepted old evidence without generation binding: %v", err)
 	}
 }

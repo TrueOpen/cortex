@@ -8,9 +8,10 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// InferReceiptFacts supplies the signed InferReceiptV2 fields from wire v0.4.1.
-// The schema is fixed at 2; output_hash and output_leaf_count come from the same
-// retained chunk stream, and evidence bounds come from the locked Profile.
+// InferReceiptFacts supplies the signed InferReceiptV3 fields of wire v0.3.0.
+// The schema is fixed at 3; output_hash and output_leaf_count come from the same
+// retained chunk stream, and evidence bounds come from the locked Profile. The
+// four ADR-0024 key slots are ZERO32 while only PLAINTEXT is accepted.
 type InferReceiptFacts struct {
 	ChainID string
 	// TaskID is the canonical lowercase 64-hex Keeper task id.
@@ -31,9 +32,8 @@ type InferReceiptFacts struct {
 	OutputLeafCount        uint64
 	GeneratedTokenCount    uint64
 	// RequiredEvidenceCommitments must be exactly the locked Verification
-	// Profile's required evidence kind set, strictly ascending and unique. For
-	// every V1 profile that is one WORKER_VALUE_OPENING element, which
-	// WorkerValueEvidenceCommitment derives.
+	// Profile's required evidence kind set, strictly ascending and unique: the
+	// value and token commitments WorkerEvidenceCommitments derives.
 	RequiredEvidenceCommitments []EvidenceCommitment
 	// ProfileEvidenceRequirements is the locked Profile's
 	// evidence_schema.required_infer_evidence, served by hub.v1.Query/Profile
@@ -67,16 +67,12 @@ var ErrInferReceiptInputUnavailable = fmt.Errorf("frozen infer receipt input is 
 // below refuses an unset or all-zero value for both and one refusal is enough.
 func BuildInferReceipt(facts InferReceiptFacts) (SignedInferReceipt, codec.Hash, error) {
 	// required_evidence_commitments is checked against the locked Profile's real
-	// requirement set and never against a derived stand-in. The kind and count of
-	// that set ARE derivable -- msg_server_receipt.go:303-306 admits only
-	// commitment_schema_version 2 with WORKER_VALUE_OPENING, and
-	// ValidateEvidenceSchemaV1 (evidence.go:23-48) requires a non-empty, strictly
-	// ascending, unique-kind list, so a V1 profile carries exactly one element --
-	// but max_encoded_size_bytes is not: it is per-Profile data, and the handler
-	// bounds encoded_size_bytes by that specific Profile's value
-	// (msg_server_receipt.go:307-309). Substituting the contract ceiling would let
-	// a caller that never read the Profile sign a body the Keeper rejects on size,
-	// so the requirement set is required input rather than a permissive default.
+	// requirement set and never against a derived stand-in. The kinds and count
+	// of that set ARE derivable, but max_encoded_size_bytes is not: it is
+	// per-Profile data, and the handler bounds encoded_size_bytes by that specific
+	// Profile's value. Substituting the contract ceiling would let a caller that
+	// never read the Profile sign a body the Keeper rejects on size, so the
+	// requirement set is required input rather than a permissive default.
 	if len(facts.ProfileEvidenceRequirements) == 0 {
 		return SignedInferReceipt{}, codec.Hash{}, fmt.Errorf(
 			"%w: required_evidence_commitments must be bounded by the locked Profile's "+
@@ -92,7 +88,7 @@ func BuildInferReceipt(facts InferReceiptFacts) (SignedInferReceipt, codec.Hash,
 		return SignedInferReceipt{}, codec.Hash{}, fmt.Errorf("build frozen infer receipt: %w", err)
 	}
 	receipt := SignedInferReceipt{
-		SchemaVersion:               nodewire.InferReceiptSchemaVersionV2,
+		SchemaVersion:               nodewire.InferReceiptSchemaVersionV3,
 		ChainID:                     facts.ChainID,
 		TaskID:                      facts.TaskID,
 		TaskHash:                    facts.TaskHash,

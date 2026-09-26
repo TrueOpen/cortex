@@ -14,15 +14,16 @@ import (
 func fakeFinalizeFixture(t *testing.T, mutate func(*evidencebundle.Manifest)) (*FakeClient, taskDataTestKeyPair, FinalizeTaskResultRequest, []UploadTaskResultRequest) {
 	t.Helper()
 	pair := newTaskDataTestKeyPair(t)
-	output, checkpoint, trace := []byte("output"), []byte("checkpoint"), []byte("trace")
+	output := []byte("output")
 	input, _ := nodewire.EncodeTokenIDs([]uint32{7})
 	generated, _ := nodewire.EncodeTokenIDs([]uint32{1, 2, 3})
 	receipt := taskDataTestReceipt(t, pair, "chain-A", output)
-	req := FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: strings.Repeat("11", 32), TaskID: receipt.TaskID, Receipt: receipt}
-	manifest := evidencebundle.Manifest{Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("checkpoint", checkpoint), evidencebundle.NewArtifact("generated_token_ids", generated), evidencebundle.NewArtifact("input_token_ids", input), evidencebundle.NewArtifact("trace", trace)}, ChainID: receipt.ChainID, EvidenceKind: "WORKER_VALUE_OPENING", EvidenceSchemaHash: strings.Repeat("22", 32), Version: 1, ProducerKind: "WORKER", ProducerOperator: receipt.WorkerOperatorAddress, TaskHash: receipt.TaskHash, TaskID: receipt.TaskID, VerifyRound: 1}
+	// The fixture finalizes the A-level token bundle.
+	req := FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: strings.Repeat("11", 32), TaskID: receipt.TaskID, Receipt: receipt, EvidenceKind: nodewire.EvidenceKindWorkerTokenOpening}
+	manifest := evidencebundle.Manifest{Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("generated_token_ids", generated), evidencebundle.NewArtifact("input_token_ids", input)}, ChainID: receipt.ChainID, EvidenceKind: evidencebundle.KindWorkerTokenOpening, EvidenceSchemaHash: strings.Repeat("22", 32), Version: 1, ProducerKind: "WORKER", ProducerOperator: receipt.WorkerOperatorAddress, TaskHash: receipt.TaskHash, TaskID: receipt.TaskID, VerifyRound: 1}
 	inputHash, _ := nodewire.InputTokenIDsHash([]uint32{7})
 	generatedHash, _ := nodewire.GeneratedTokenIDsHash([]uint32{1, 2, 3})
-	commitment, err := WorkerValueEvidenceCommitment(WorkerValueEvidenceFacts{ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest, EvidenceSchemaHash: manifest.EvidenceSchemaHash, OutputHash: mustHash(t, receipt.OutputHash), OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: 1, GeneratedTokenCount: 3, FinishReason: nodewire.FinishReasonV1EosToken, TraceRoot: codec.HashBytes(trace), TraceEncodedSizeBytes: uint64(len(trace)), CheckpointRoot: codec.HashBytes(checkpoint), CheckpointEncodedSizeBytes: uint64(len(checkpoint)), InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: uint64(len(input)), GeneratedTokenIDsSizeBytes: uint64(len(generated))})
+	commitment, err := WorkerTokenEvidenceCommitment(WorkerEvidenceFacts{ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest, EvidenceSchemaHash: manifest.EvidenceSchemaHash, OutputHash: mustHash(t, receipt.OutputHash), OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: 1, GeneratedTokenCount: 3, FinishReason: nodewire.FinishReasonV1EosToken, InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: uint64(len(input)), GeneratedTokenIDsSizeBytes: uint64(len(generated))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,14 +34,14 @@ func fakeFinalizeFixture(t *testing.T, mutate func(*evidencebundle.Manifest)) (*
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Receipt.RequiredEvidenceCommitments[0] = commitment
+	req.Receipt.RequiredEvidenceCommitments[1] = commitment
 	signFakeFinalize(t, pair, &req)
 	outputKey := TaskDataKey{TaskHash: req.TaskHash, SessionID: req.SessionID, TaskID: req.TaskID, Kind: DataKindOutput, ContentHash: receipt.OutputHash}
 	objects := []struct {
 		key  TaskDataKey
 		data []byte
 	}{{outputKey, output}}
-	for i, data := range [][]byte{checkpoint, trace, encoded, input, generated} {
+	for i, data := range [][]byte{input, generated, encoded} {
 		kind, hash := DataKindEvidenceArtifact, codec.HashBytes(data)
 		if i == 2 {
 			kind, hash = DataKindEvidenceManifest, commitment.EvidenceHashOrRoot
@@ -48,7 +49,7 @@ func fakeFinalizeFixture(t *testing.T, mutate func(*evidencebundle.Manifest)) (*
 		objects = append(objects, struct {
 			key  TaskDataKey
 			data []byte
-		}{EvidenceObjectKey(req.TaskHash, req.SessionID, req.TaskID, kind, hash.String(), EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress), data})
+		}{EvidenceObjectKey(req.TaskHash, req.SessionID, req.TaskID, kind, hash.String(), EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress, nodewire.EvidenceKindWorkerTokenOpening), data})
 	}
 	uploads := make([]UploadTaskResultRequest, 0, len(objects))
 	for _, object := range objects {
@@ -90,6 +91,7 @@ func fakeUploadFixture(t *testing.T, f *FakeClient, pair taskDataTestKeyPair, up
 		t.Fatal(err)
 	}
 	request := OutputStreamRequest{TaskHash: upload.Key.TaskHash, SessionID: upload.Key.SessionID, TaskID: upload.Key.TaskID, Auth: taskDataTestRequestAuth(t, pair, "UploadTaskOutputStream", upload.Key, body), ReplayChunks: []OutputChunk{{Text: upload.Data, MMRRoot: root, WorkerSignature: pair.sign(t, digest)}}}
+	request.HeaderSignature = signOutputStreamHeader(t, pair, request)
 	finDigest, digestErr := nodewire.OutputFinSigningDigest(upload.Auth.ChainID, mustDecodeHex(t, upload.Key.TaskHash), 0, root[:], nodewire.FinishReasonV1EosToken)
 	if digestErr != nil {
 		t.Fatal(digestErr)
@@ -128,7 +130,7 @@ func TestFakeFinalizeIsAtomicAndIdempotent(t *testing.T) {
 	if err != nil || result.Idempotent || len(result.EvidenceBundleConfirmations) != 1 {
 		t.Fatalf("finalize=%+v err=%v", result, err)
 	}
-	if result.EvidenceBundleConfirmations[0].ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[0].EncodedSizeBytes {
+	if result.EvidenceBundleConfirmations[0].ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[1].EncodedSizeBytes {
 		t.Fatal("bundle total incorrect")
 	}
 	for _, metadata := range f.TaskDataMetadata {

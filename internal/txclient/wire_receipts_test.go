@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func TestResultV2DTOAgreesWithReleasedDescriptor(t *testing.T) {
+func TestResultV3DTOAgreesWithReleasedDescriptor(t *testing.T) {
 	receipt := validSubmitVerifyResultMessage().Receipt
 	receipt.VerifyRound = 2
 	receipt.VerifierEvidenceManifestSizeBytes = 123
@@ -16,37 +16,37 @@ func TestResultV2DTOAgreesWithReleasedDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got taskv1.ResultReceiptV2
+	var got taskv1.ResultReceiptV3
 	if err := protojson.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 2 || got.VerifyRound != 2 || got.VerifierEvidenceManifestSizeBytes != 123 || len(got.Salt) != 32 {
+	if got.SchemaVersion != 3 || got.VerifyRound != 2 || got.VerifierEvidenceManifestSizeBytes != 123 || len(got.Salt) != 32 {
 		t.Fatalf("lost released fields: %v", &got)
 	}
 }
 
-func TestInferV2DTOAgreesWithReleasedDescriptor(t *testing.T) {
+func TestInferV3DTOAgreesWithReleasedDescriptor(t *testing.T) {
 	receipt := validSubmitInferReceiptMessage().Receipt
 	receipt.OutputLeafCount = 9
 	encoded, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got taskv1.InferReceiptV2
+	var got taskv1.InferReceiptV3
 	if err := protojson.Unmarshal(encoded, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SchemaVersion != 2 || got.OutputLeafCount != 9 || got.GeneratedTokenCount != 32 {
+	if got.SchemaVersion != 3 || got.OutputLeafCount != 9 || got.GeneratedTokenCount != 32 {
 		t.Fatalf("lost released fields: %v", &got)
 	}
 }
 
-func TestInferV2RejectsLegacySchemaAndMissingCounts(t *testing.T) {
+func TestInferV3RejectsLegacySchemaAndMissingCounts(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		mutate func(*InferReceiptMessage)
 	}{
-		{"legacy schema", func(r *InferReceiptMessage) { r.SchemaVersion = 1 }},
+		{"legacy schema", func(r *InferReceiptMessage) { r.SchemaVersion = 2 }},
 		{"missing output leaves", func(r *InferReceiptMessage) { r.OutputLeafCount = 0 }},
 		{"empty output with multiple leaves", func(r *InferReceiptMessage) { r.OutputSizeBytes = 0 }},
 	} {

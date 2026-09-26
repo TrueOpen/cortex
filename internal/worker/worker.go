@@ -70,6 +70,9 @@ type Config struct {
 	// They are immutable receipt inputs and are never locally defaulted.
 	EvidenceSchemaHash          string
 	ProfileEvidenceRequirements []builderclient.InferEvidenceRequirement
+	// RequiredTopK is the locked Profile's required_top_k: every normal
+	// worker_values leaf carries exactly this many top-k entries.
+	RequiredTopK uint32
 	// TaskBuilderSet is the BuilderSet reference this task's outbound bus
 	// envelopes carry in fields 11 and 12 (interface-and-topic-list.md §5.2 fields 11-12).
 	//
@@ -102,8 +105,8 @@ type SnapshotReader interface {
 	TaskSnapshot(ctx context.Context, taskID string) (chainclient.TaskSnapshot, error)
 }
 
-// workerValueEvidenceInputs are the two TRUEOPEN_WORKER_VALUE_COMMITMENT_V1 inputs
-// the frozen receipt wire does not carry.
+// workerValueEvidenceInputs are the two Worker evidence commitment inputs the
+// receipt wire does not carry.
 type workerValueEvidenceInputs struct {
 	// EvidenceSchemaHash is the locked Profile's
 	// verification_profile.evidence_schema_hash, canonical lowercase 64-hex.
@@ -127,8 +130,8 @@ type producedOutput struct {
 	event                   chainclient.AssignmentFinalized
 	jobID                   string
 	output                  []byte
-	trace                   []byte
-	checkpoint              []byte
+	tokenIDs                []byte
+	positionValues          []byte
 	batchLog                []byte
 	canonicalReceiptPayload []byte
 	canonicalReceiptDigest  codec.Hash
@@ -147,8 +150,8 @@ type producedOutput struct {
 type outputDescriptor struct {
 	JobID               string                  `json:"job_id"`
 	OutputRef           string                  `json:"output_ref"`
-	TraceRef            string                  `json:"trace_ref"`
-	CheckpointRef       string                  `json:"checkpoint_ref"`
+	TokenIDsRef         string                  `json:"token_ids_ref"`
+	PositionValuesRef   string                  `json:"position_values_ref"`
 	OutputHash          codec.Hash              `json:"output_hash"`
 	PackageHash         codec.Hash              `json:"package_hash"`
 	OutputCID           string                  `json:"output_cid"`
@@ -161,15 +164,15 @@ type outputDescriptor struct {
 // inference pass so that the persistence layer can commit the artifact refs and
 // InferRecord finish reason in a single batch.
 type InferOutputCheckpoint struct {
-	JobID          string
-	OutputRef      string
-	TraceRef       string
-	CheckpointRef  string
-	OutputHash     codec.Hash
-	PackageHash    codec.Hash
-	OutputCID      string
-	FinishReason   nodewire.FinishReasonV1
-	DescriptorJSON []byte
+	JobID             string
+	OutputRef         string
+	TokenIDsRef       string
+	PositionValuesRef string
+	OutputHash        codec.Hash
+	PackageHash       codec.Hash
+	OutputCID         string
+	FinishReason      nodewire.FinishReasonV1
+	DescriptorJSON    []byte
 }
 type Persistence interface {
 	WriteEvidence(context.Context, EvidenceRecord) error
@@ -184,10 +187,17 @@ type Persistence interface {
 	StorageConfirmations(context.Context, string) ([]StorageConfirmationCheckpoint, error)
 	OutputStreamFrames(context.Context, string) ([]builderclient.OutputChunk, error)
 	BuilderMessage(context.Context, string) (BuilderMessageCheckpoint, error)
-	// CheckpointInferOutput persists the output, trace, checkpoint and output
+	// CheckpointInferOutput persists the output, the model token-id and
+	// position-value material and the output
 	// descriptor for an inference pass together with the InferRecord finish reason
 	// in a single durable batch. The descriptor is also stored as an artifact.
 	CheckpointInferOutput(context.Context, string, []byte, []byte, []byte, InferOutputCheckpoint) error
+	// PublishWorkerBundle publishes one Worker evidence bundle write-once: its
+	// canonical manifest and every artifact the manifest references.
+	PublishWorkerBundle(ctx context.Context, taskID string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error
+	// WorkerBundle reads a published Worker bundle back: the exact manifest
+	// bytes and its artifacts keyed by artifact id.
+	WorkerBundle(ctx context.Context, taskID string, kind nodewire.EvidenceKind) ([]byte, map[string][]byte, error)
 }
 
 var ErrCheckpointNotFound = errors.New("worker checkpoint not found")
@@ -377,10 +387,14 @@ func (w *Worker) EvaluateAndHandraise(ctx context.Context, req WorkerHandraiseRe
 	if err != nil {
 		return WorkerHandraiseResult{}, err
 	}
+	modelID, err := identity.ModelIDBytes(req.ModelID)
+	if err != nil {
+		return WorkerHandraiseResult{}, err
+	}
 	handraise := nodewire.WorkerHandraiseV1{
 		SchemaVersion: builderclient.WorkerHandraiseSchemaV1, ChainID: w.cfg.ChainID,
 		TaskID: taskID[:], TaskHash: append([]byte(nil), req.TaskHash[:]...),
-		ModelID: req.ModelID, ProfileVersion: req.ProfileVersion, Member: member,
+		ModelID: modelID, ProfileVersion: req.ProfileVersion, Member: member,
 		Duty:                      nodewire.DutyWorker,
 		ServiceAuthorizationNonce: req.ServiceAuthorizationNonce, ExpiryHeight: req.HandraiseExpireHeight,
 	}
@@ -456,12 +470,12 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	}
 
 	// Ensure output: run inference if worker-output artifact is missing.
-	output, trace, checkpoint, err := w.ensureOutput(ctx, event, input)
+	output, tokenIDs, positionValues, err := w.ensureOutput(ctx, event, input)
 	if err != nil {
 		return InferResult{}, err
 	}
 	// Ensure descriptor and receipt from committed artifacts.
-	_, result, err := w.ensureReceiptAndResult(ctx, event, output, trace, checkpoint)
+	_, result, err := w.ensureReceiptAndResult(ctx, event, output, tokenIDs, positionValues)
 	if err != nil {
 		return InferResult{}, err
 	}
@@ -479,11 +493,11 @@ func (w *Worker) prepareOutput(ctx context.Context, event chainclient.Assignment
 	if err := w.requireInferDependencies(); err != nil {
 		return nil, err
 	}
-	output, trace, checkpoint, descriptor, err := w.runInferenceAndPersistArtifacts(ctx, event)
+	output, tokenIDs, positionValues, descriptor, err := w.runInferenceAndPersistArtifacts(ctx, event)
 	if err != nil {
 		return nil, err
 	}
-	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, trace, checkpoint)
+	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, tokenIDs, positionValues)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +510,7 @@ func (w *Worker) prepareOutput(ctx context.Context, event chainclient.Assignment
 	}
 	return &producedOutput{
 		event: event, jobID: descriptor.JobID, output: append([]byte(nil), output...),
-		trace: append([]byte(nil), trace...), checkpoint: append([]byte(nil), checkpoint...),
+		tokenIDs: append([]byte(nil), tokenIDs...), positionValues: append([]byte(nil), positionValues...),
 		receipt: receipt, workerValueEvidence: workerValueEvidenceInputs{
 			EvidenceSchemaHash: w.cfg.EvidenceSchemaHash,
 			FinishReason:       descriptor.FinishReason,
@@ -530,7 +544,7 @@ func (w *Worker) requireInferDependencies() error {
 	return nil
 }
 
-func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chainclient.AssignmentFinalized) (output, trace, checkpoint []byte, descriptor outputDescriptor, err error) {
+func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chainclient.AssignmentFinalized) (output, tokenIDs, positionValues []byte, descriptor outputDescriptor, err error) {
 	profileVersion := fmt.Sprintf("%d", event.ProfileVersion)
 	generation, generationDigest, err := w.taskGeneration(ctx, event)
 	if err != nil {
@@ -621,41 +635,41 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
-	traceArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "trace", resp.TraceRef)
+	tokenIDsArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "token_ids", resp.TokenIDsRef)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
-	checkpointArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "checkpoint", resp.CheckpointRef)
+	positionValuesArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "position_values", resp.PositionValuesRef)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
 	output = append([]byte(nil), outputArtifact.Data...)
-	trace = append([]byte(nil), traceArtifact.Data...)
-	checkpoint = append([]byte(nil), checkpointArtifact.Data...)
+	tokenIDs = append([]byte(nil), tokenIDsArtifact.Data...)
+	positionValues = append([]byte(nil), positionValuesArtifact.Data...)
 	if generation != nil {
-		count, reason, err := modelservice.ValidateGenerationEvidence(generation, generationDigest, output, trace, checkpoint)
+		ids, values, err := decodeMaterial(tokenIDs, positionValues)
+		if err != nil {
+			return nil, nil, nil, outputDescriptor{}, fmt.Errorf("model generation material: %w", err)
+		}
+		count, err := modelservice.ValidateGenerationMaterial(generation, generationDigest, ids, values)
 		if err != nil {
 			// The numbers that decided this refusal, on their own line, bound to
-			// the task. The error text alone never carried the task identity and
-			// the values lived inside a sentence; both are what an operator needs
-			// first and neither was greppable. Nothing here is model input.
+			// the task. Nothing here is model input.
 			w.traceGenerationRefusal(event.TaskID, err,
 				tasktrace.Hex("generation_params_digest", hex.EncodeToString(generationDigest)),
 				tasktrace.Uint("order_max_output_tokens", generation.Params.MaxOutputTokens),
 				tasktrace.Int("output_size_bytes", len(output)),
-				tasktrace.Int("trace_size_bytes", len(trace)),
-				tasktrace.Int("checkpoint_size_bytes", len(checkpoint)))
-			return nil, nil, nil, outputDescriptor{}, fmt.Errorf("model generation evidence: %w", err)
+				tasktrace.Int("generated_token_ids", len(ids.Generated)),
+				tasktrace.Int("position_values", len(values)))
+			return nil, nil, nil, outputDescriptor{}, fmt.Errorf("model generation material: %w", err)
 		}
-		if count != resp.GeneratedTokenCount || reason != resp.FinishReason {
+		if count != resp.GeneratedTokenCount {
 			// Deterministic for the same reason every check above it is: both
 			// sides of the comparison are values this node already holds.
 			mismatch := modelservice.Deterministic(modelservice.FaultCodeResponseEvidenceDisagreement,
-				fmt.Errorf("model generated token count or finish reason disagrees with evidence"),
+				fmt.Errorf("model generated token count disagrees with its token material"),
 				modelservice.FaultUint("response_generated_token_count", resp.GeneratedTokenCount),
-				modelservice.FaultUint("evidence_generated_token_count", count),
-				modelservice.FaultInt("response_finish_reason", int(resp.FinishReason)),
-				modelservice.FaultInt("evidence_finish_reason", int(reason)))
+				modelservice.FaultUint("material_generated_token_count", count))
 			w.traceGenerationRefusal(event.TaskID, mismatch)
 			return nil, nil, nil, outputDescriptor{}, mismatch
 		}
@@ -664,7 +678,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			tasktrace.Hex("generation_params_digest", hex.EncodeToString(generationDigest)),
 			tasktrace.Uint("max_output_tokens", generation.Params.MaxOutputTokens),
 			tasktrace.Uint("generated_token_count", count),
-			tasktrace.Int("output_size_bytes", len(output)), tasktrace.Int("finish_reason", int(reason)))
+			tasktrace.Int("output_size_bytes", len(output)), tasktrace.Int("finish_reason", int(resp.FinishReason)))
 	}
 
 	lengths, err := recorder.finish(ctx, output)
@@ -675,7 +689,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
-	packageHash := outputPackageHash(event.TaskID, resp.OutputRef, resp.TraceRef, resp.CheckpointRef, outputHash)
+	packageHash := outputPackageHash(event.TaskID, resp.OutputRef, resp.TokenIDsRef, resp.PositionValuesRef, outputHash)
 	// The fake output path stores a canonical package whose hash covers
 	// session/model/profile, which is not the same as the one above. package_hash has to
 	// be fixed **before** the receipt material takes shape: the package_hash in the
@@ -684,8 +698,8 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	// mismatch.
 	fakePkg := builderclient.OutputPackage{
 		SessionID: event.SessionID, TaskID: event.TaskID, ModelID: event.ModelID,
-		ProfileVersion: profileVersion, OutputRef: resp.OutputRef, TraceRef: resp.TraceRef,
-		CheckpointRef: resp.CheckpointRef, OutputHash: outputHash,
+		ProfileVersion: profileVersion, OutputRef: resp.OutputRef, TokenIDsRef: resp.TokenIDsRef,
+		PositionValuesRef: resp.PositionValuesRef, OutputHash: outputHash,
 		OutputChunkLengths: append([]uint64(nil), lengths...),
 	}
 	if w.cfg.FakeOutput {
@@ -738,8 +752,8 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	}
 
 	descriptor = outputDescriptor{
-		JobID: jobID, OutputRef: resp.OutputRef, TraceRef: resp.TraceRef,
-		CheckpointRef: resp.CheckpointRef, OutputHash: outputHash,
+		JobID: jobID, OutputRef: resp.OutputRef, TokenIDsRef: resp.TokenIDsRef,
+		PositionValuesRef: resp.PositionValuesRef, OutputHash: outputHash,
 		PackageHash: packageHash, OutputCID: outputCID,
 		FinishReason: resp.FinishReason, GeneratedTokenCount: resp.GeneratedTokenCount,
 		OutputChunkLengths: lengths,
@@ -749,12 +763,12 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 		return nil, nil, nil, outputDescriptor{}, fmt.Errorf("encode output descriptor: %w", err)
 	}
 	checkpointData := InferOutputCheckpoint{
-		JobID: jobID, OutputRef: resp.OutputRef, TraceRef: resp.TraceRef,
-		CheckpointRef: resp.CheckpointRef, OutputHash: outputHash,
+		JobID: jobID, OutputRef: resp.OutputRef, TokenIDsRef: resp.TokenIDsRef,
+		PositionValuesRef: resp.PositionValuesRef, OutputHash: outputHash,
 		PackageHash: packageHash, OutputCID: outputCID,
 		FinishReason: resp.FinishReason, DescriptorJSON: descriptorJSON,
 	}
-	if err := w.cfg.Persistence.CheckpointInferOutput(ctx, event.TaskID, output, trace, checkpoint, checkpointData); err != nil {
+	if err := w.cfg.Persistence.CheckpointInferOutput(ctx, event.TaskID, output, tokenIDs, positionValues, checkpointData); err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
 	if err := w.crashAt(CrashPointOutputFsync); err != nil {
@@ -767,8 +781,8 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			return nil, nil, nil, outputDescriptor{}, err
 		}
 		validationPkg = builderclient.OutputPackage{
-			TaskID: event.TaskID, OutputRef: resp.OutputRef, TraceRef: resp.TraceRef,
-			CheckpointRef: resp.CheckpointRef, OutputHash: outputHash,
+			TaskID: event.TaskID, OutputRef: resp.OutputRef, TokenIDsRef: resp.TokenIDsRef,
+			PositionValuesRef: resp.PositionValuesRef, OutputHash: outputHash,
 			OutputChunkLengths: append([]uint64(nil), lengths...),
 			PackageHash:        packageHash, ReceiptHash: receiptCommitHash, ReceiptPayload: legacyPayload,
 			WorkerSignature: append([]byte(nil), legacySigned.Signature...),
@@ -777,7 +791,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	if err := w.cfg.Builder.ValidateOutputPackage(ctx, validationPkg); err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
-	return output, trace, checkpoint, descriptor, nil
+	return output, tokenIDs, positionValues, descriptor, nil
 }
 
 func (w *Worker) loadOutputDescriptor(ctx context.Context, taskID string) (outputDescriptor, error) {
@@ -792,8 +806,8 @@ func (w *Worker) loadOutputDescriptor(ctx context.Context, taskID string) (outpu
 	return descriptor, nil
 }
 
-func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.AssignmentFinalized, descriptor outputDescriptor, output, trace, checkpoint []byte) (builderclient.SignedInferReceipt, InferResult, error) {
-	if err := w.validateGenerationOutput(ctx, event, output, trace, checkpoint, descriptor); err != nil {
+func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.AssignmentFinalized, descriptor outputDescriptor, output, tokenIDs, positionValues []byte) (builderclient.SignedInferReceipt, InferResult, error) {
+	if err := w.validateGenerationOutput(ctx, event, output, tokenIDs, positionValues, descriptor); err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
 	outputHash, err := codec.OutputMMRRootFromLengths(output, descriptor.OutputChunkLengths)
@@ -838,6 +852,16 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
+	if w.cfg.EvidenceSchemaHash == "" {
+		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("%w: evidence_schema_hash requires the locked Profile's verification_profile.evidence_schema_hash from hub.v1.Query/Profile", builderclient.ErrInferReceiptInputUnavailable)
+	}
+	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, tokenIDs, positionValues)
+	if err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
+	}
+	if derived.generatedCount != descriptor.GeneratedTokenCount {
+		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("generated token artifact count differs from model response")
+	}
 	inputs := preparedReceiptInputs{
 		event:                     event,
 		facts:                     facts,
@@ -845,64 +869,16 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 		serviceAuthorizationNonce: serviceAuthorizationNonce,
 		outputHash:                outputHash,
 		outputSizeBytes:           uint64(len(output)),
-		traceRoot:                 codec.HashBytes(trace),
-		traceSizeBytes:            uint64(len(trace)),
-		checkpointRoot:            codec.HashBytes(checkpoint),
-		checkpointSizeBytes:       uint64(len(checkpoint)),
+		outputLeafCount:           uint64(len(descriptor.OutputChunkLengths)),
+		evidence:                  derived,
 	}
-	if w.cfg.EvidenceSchemaHash == "" {
-		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("%w: evidence_schema_hash requires the locked Profile's verification_profile.evidence_schema_hash from hub.v1.Query/Profile", builderclient.ErrInferReceiptInputUnavailable)
+	if err := w.publishWorkerBundles(ctx, event, facts.AcceptedTaskHash.Hex(), derived); err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
-	inputIDs, generatedIDs, err := modelservice.TokenIDArtifacts(trace, checkpoint)
+	evidence, err := builderclient.WorkerEvidenceCommitments(w.workerEvidenceFacts(inputs))
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
-	inputs.generatedTokenCount = descriptor.GeneratedTokenCount
-	inputs.outputLeafCount = uint64(len(descriptor.OutputChunkLengths))
-	inputs.inputTokenIDsSizeBytes, inputs.generatedTokenIDsSizeBytes = uint64(len(inputIDs)), uint64(len(generatedIDs))
-	inputVector, err := nodewire.DecodeTokenIDs(inputIDs)
-	if err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	generatedVector, err := nodewire.DecodeTokenIDs(generatedIDs)
-	if err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	if uint64(len(generatedVector)) != descriptor.GeneratedTokenCount {
-		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("generated token artifact count differs from model response")
-	}
-	inputs.inputTokenIDsHash, err = nodewire.InputTokenIDsHash(inputVector)
-	if err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	inputs.generatedTokenIDsHash, err = nodewire.GeneratedTokenIDsHash(generatedVector)
-	if err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	for _, artifact := range []EvidenceRecord{{TaskID: event.TaskID, Kind: "worker-input_token_ids", Data: inputIDs}, {TaskID: event.TaskID, Kind: "worker-generated_token_ids", Data: generatedIDs}} {
-		if err := w.cfg.Persistence.WriteEvidence(ctx, artifact); err != nil {
-			return builderclient.SignedInferReceipt{}, InferResult{}, err
-		}
-	}
-	manifest := evidencebundle.Manifest{
-		Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("checkpoint", checkpoint), evidencebundle.NewArtifact("generated_token_ids", generatedIDs), evidencebundle.NewArtifact("input_token_ids", inputIDs), evidencebundle.NewArtifact("trace", trace)},
-		ChainID:   w.cfg.ChainID, EvidenceSchemaHash: w.cfg.EvidenceSchemaHash, Version: 1,
-		EvidenceKind: "WORKER_VALUE_OPENING",
-		ProducerKind: "WORKER", ProducerOperator: w.cfg.WorkerAddress,
-		TaskHash: facts.AcceptedTaskHash.Hex(), TaskID: event.TaskID, VerifyRound: 1,
-	}
-	manifestBytes, err := manifest.Encode()
-	if err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	if err := w.cfg.Persistence.WriteEvidence(ctx, EvidenceRecord{TaskID: event.TaskID, Kind: "worker-evidence-manifest", Data: manifestBytes}); err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	evidence, err := builderclient.WorkerValueEvidenceCommitment(w.workerValueEvidenceFacts(inputs))
-	if err != nil {
-		return builderclient.SignedInferReceipt{}, InferResult{}, err
-	}
-	inputs.generatedTokenCount = descriptor.GeneratedTokenCount
 	receipt, signingDigest, err := builderclient.BuildInferReceipt(
 		w.inferReceiptFacts(inputs, evidence, w.cfg.ProfileEvidenceRequirements),
 	)
@@ -928,19 +904,30 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	// framing has already been wrong once in a way that only a peer's value
 	// exposed (TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1), so they are printed rather
 	// than assumed.
+	listItems := make([]nodewire.EvidenceCommitmentV1, len(evidence))
+	for i, item := range evidence {
+		root := item.EvidenceHashOrRoot
+		listItems[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: root[:], EncodedSizeBytes: item.EncodedSizeBytes}
+	}
+	evidenceListRoot, err := nodewire.EvidenceCommitmentsHash(listItems)
+	if err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
+	}
 	w.cfg.Trace.Event("infer_receipt_built",
 		tasktrace.Str("task", event.TaskID), tasktrace.Str("session", event.SessionID),
 		tasktrace.Hash("output_hash", outputHash), tasktrace.Hash("package_hash", packageHash),
 		tasktrace.Hash("receipt_result_hash", receiptCommitHash),
 		tasktrace.Hash("signing_digest", signingDigest),
+		tasktrace.Hash("evidence_commitment_root", evidenceListRoot),
 		tasktrace.Hash("canonical_receipt_digest", canonicalDigest),
 		tasktrace.Hex("receipt_task_hash", receipt.TaskHash),
 		tasktrace.Hex("generation_params_digest", receipt.GenerationParamsDigest),
 		tasktrace.Hex("evidence_schema_hash", w.cfg.EvidenceSchemaHash),
-		tasktrace.Hash("evidence_commitment_root", evidence.EvidenceHashOrRoot),
-		tasktrace.Int("evidence_kind", int(evidence.EvidenceKind)),
-		tasktrace.Uint("evidence_encoded_size_bytes", evidence.EncodedSizeBytes),
-		tasktrace.Hash("trace_root", inputs.traceRoot), tasktrace.Hash("checkpoint_root", inputs.checkpointRoot),
+		tasktrace.Hash("worker_value_commitment", evidence[0].EvidenceHashOrRoot),
+		tasktrace.Uint("worker_values_encoded_size_bytes", evidence[0].EncodedSizeBytes),
+		tasktrace.Hash("worker_token_commitment", evidence[1].EvidenceHashOrRoot),
+		tasktrace.Uint("worker_token_ids_encoded_size_bytes", evidence[1].EncodedSizeBytes),
+		tasktrace.Hash("worker_value_root", derived.valueRoot),
 		tasktrace.Uint("output_size_bytes", uint64(len(output))),
 		tasktrace.Int("finish_reason", int(descriptor.FinishReason)),
 		tasktrace.Uint("service_authorization_nonce", serviceAuthorizationNonce),
@@ -949,7 +936,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 
 	produced := &producedOutput{
 		event: event, jobID: descriptor.JobID, output: append([]byte(nil), output...),
-		trace: append([]byte(nil), trace...), checkpoint: append([]byte(nil), checkpoint...),
+		tokenIDs: append([]byte(nil), tokenIDs...), positionValues: append([]byte(nil), positionValues...),
 		canonicalReceiptPayload: canonicalPayload,
 		canonicalReceiptDigest:  canonicalDigest, receipt: receipt,
 		workerValueEvidence: workerValueEvidence,
@@ -1034,12 +1021,14 @@ func (w *Worker) fetchInferArtifact(ctx context.Context, taskID, kind, ref strin
 	}
 	artifact, err := w.cfg.Model.FetchArtifact(ctx, modelservice.FetchArtifactRequest{
 		RequestID: "fetch-" + kind + "-" + taskID, ModelServiceID: w.cfg.ModelServiceID, Ref: ref,
-		AllowEmpty: kind == "output",
+		// Empty output text, and the empty PositionValuesV1 of a generation
+		// with no generated token, are both legal material.
+		AllowEmpty: kind == "output" || kind == "position_values",
 	})
 	if err != nil {
 		return modelservice.Artifact{}, err
 	}
-	if len(artifact.Data) == 0 && kind != "output" {
+	if len(artifact.Data) == 0 && kind != "output" && kind != "position_values" {
 		return modelservice.Artifact{}, fmt.Errorf("model infer %s artifact is empty", kind)
 	}
 	return artifact, nil
@@ -1083,11 +1072,11 @@ func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.As
 // fingerprint.
 func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, receipt builderclient.SignedInferReceipt, ref ReceivingBuilderRef, endpoint BuilderEndpoint) error {
 	ctx = builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash)
-	manifestBytes, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-evidence-manifest")
+	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
 	if err != nil {
-		return fmt.Errorf("read committed Worker manifest: %w", err)
+		return err
 	}
-	manifest, err := w.validateWorkerManifest(ctx, event, receipt, manifestBytes)
+	bundles, err := w.readWorkerBundles(ctx, event, receipt, descriptor)
 	if err != nil {
 		return err
 	}
@@ -1112,66 +1101,70 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 		return err
 	}
 	outputKey := builderclient.TaskDataKey{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput, ContentHash: receipt.OutputHash}
-	for _, artifact := range manifest.Artifacts {
-		data, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-"+artifact.ID)
+	// Each bundle is staged and finalized on its own: a finalize closes exactly
+	// one Worker evidence kind, and the Builder re-derives that kind's
+	// commitment from what it holds before it confirms.
+	var records []StorageConfirmationCheckpoint
+	for _, bundle := range bundles {
+		for _, artifact := range bundle.decoded.Artifacts {
+			key := builderclient.EvidenceObjectKey(receipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceArtifact, artifact.ContentHash, builderclient.EvidenceProducerWorker, 1, w.cfg.WorkerAddress, bundle.kind)
+			if err := w.stageObject(ctx, endpoint, key, "", bundle.artifacts[artifact.ID]); err != nil {
+				return err
+			}
+		}
+		bundleKey, err := workerBundleKey(receipt, event.SessionID, event.TaskID, bundle.kind)
 		if err != nil {
 			return err
 		}
-		size, err := artifact.SizeBytes()
-		if err != nil || uint64(len(data)) != size || codec.HashBytes(data).String() != artifact.ContentHash {
-			return fmt.Errorf("Worker artifact differs from manifest")
-		}
-		key := builderclient.EvidenceObjectKey(receipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceArtifact, artifact.ContentHash, builderclient.EvidenceProducerWorker, 1, w.cfg.WorkerAddress)
-		if err := w.stageObject(ctx, endpoint, key, "", data); err != nil {
+		if err := w.stageObject(ctx, endpoint, bundleKey, "", bundle.manifest); err != nil {
 			return err
 		}
-	}
-	bundleKey := builderclient.EvidenceObjectKey(receipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceManifest, receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String(), builderclient.EvidenceProducerWorker, 1, w.cfg.WorkerAddress)
-	if err := w.stageObject(ctx, endpoint, bundleKey, "", manifestBytes); err != nil {
-		return err
-	}
-	request := builderclient.FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Receipt: receipt}
-	digest, err := builderclient.TaskDataFinalizeResultBodyDigest(request)
-	if err != nil {
-		return err
-	}
-	request.Auth, err = w.cfg.TaskDataAuth.SignRequest(ctx, "FinalizeTaskResult", outputKey, endpoint.OperatorAddress, digest)
-	if err != nil {
-		return err
-	}
-	finalized, err := w.cfg.TaskData.FinalizeTaskResult(ctx, endpoint.Endpoint, request)
-	if err != nil {
-		return err
-	}
-	current, err := w.receivingBuilder(ctx, ref)
-	if err != nil {
-		return err
-	}
-	if len(finalized.EvidenceBundleConfirmations) != 1 {
-		return fmt.Errorf("finalization must confirm exactly one Worker bundle")
-	}
-	records := make([]StorageConfirmationCheckpoint, 0, 2)
-	for i, c := range []builderclient.StorageConfirmation{finalized.OutputConfirmation, finalized.EvidenceBundleConfirmations[0]} {
-		key, size, total := outputKey, uint64(len(output)), uint64(0)
-		if i == 1 {
-			key, size, total = bundleKey, uint64(len(manifestBytes)), manifest.TotalSize()
-		}
-		hash, err := verifyStorageConfirmation(c, w.cfg.ChainID, key, key.ContentHash, size, current)
+		request := builderclient.FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Receipt: receipt, EvidenceKind: bundle.kind}
+		digest, err := builderclient.TaskDataFinalizeResultBodyDigest(request)
 		if err != nil {
 			return err
 		}
-		if c.ArtifactTotalSizeBytes != total {
-			return fmt.Errorf("storage confirmation artifact total differs from manifest")
+		request.Auth, err = w.cfg.TaskDataAuth.SignRequest(ctx, "FinalizeTaskResult", outputKey, endpoint.OperatorAddress, digest)
+		if err != nil {
+			return err
 		}
-		record := StorageConfirmationCheckpoint{TaskID: event.TaskID, DataKind: key.Kind.String(), BuilderOperator: c.BuilderOperator, MaterialDigest: hash.String(), SemanticHash: key.ContentHash, SizeBytes: size, RetentionUntilHeight: c.RetentionUntilHeight, Signature: append([]byte(nil), c.Signature...), BuilderServicePubkey: current.ServicePubkey, VerifiedAt: time.Now().UTC(), Confirmation: &c}
-		records = append(records, record)
+		finalized, err := w.cfg.TaskData.FinalizeTaskResult(ctx, endpoint.Endpoint, request)
+		if err != nil {
+			return err
+		}
+		current, err := w.receivingBuilder(ctx, ref)
+		if err != nil {
+			return err
+		}
+		if len(finalized.EvidenceBundleConfirmations) != 1 {
+			return fmt.Errorf("finalization must confirm exactly one Worker bundle")
+		}
+		for i, c := range []builderclient.StorageConfirmation{finalized.OutputConfirmation, finalized.EvidenceBundleConfirmations[0]} {
+			key, size, total := outputKey, uint64(len(output)), uint64(0)
+			if i == 1 {
+				key, size, total = bundleKey, uint64(len(bundle.manifest)), bundle.decoded.TotalSize()
+			} else if len(records) > 0 {
+				// Every finalize re-confirms the output; one record of it is enough.
+				continue
+			}
+			hash, err := verifyStorageConfirmation(c, w.cfg.ChainID, key, key.ContentHash, size, current)
+			if err != nil {
+				return err
+			}
+			if c.ArtifactTotalSizeBytes != total {
+				return fmt.Errorf("storage confirmation artifact total differs from manifest")
+			}
+			records = append(records, StorageConfirmationCheckpoint{TaskID: event.TaskID, DataKind: key.Kind.String(), BuilderOperator: c.BuilderOperator, MaterialDigest: hash.String(), SemanticHash: key.ContentHash, SizeBytes: size, RetentionUntilHeight: c.RetentionUntilHeight, Signature: append([]byte(nil), c.Signature...), BuilderServicePubkey: current.ServicePubkey, VerifiedAt: time.Now().UTC(), Confirmation: &c})
+		}
 	}
 	for _, record := range records {
 		if err := w.cfg.Persistence.CheckpointStorageConfirmation(ctx, record); err != nil {
 			return err
 		}
 	}
-	w.cfg.Trace.Event("task_result_finalized", tasktrace.Str("task", event.TaskID), tasktrace.Hex("output_hash", receipt.OutputHash), tasktrace.Hash("evidence_bundle_hash", evidencebundle.Hash(manifestBytes)), tasktrace.Uint("output_size_bytes", receipt.OutputSizeBytes))
+	w.cfg.Trace.Event("task_result_finalized", tasktrace.Str("task", event.TaskID), tasktrace.Hex("output_hash", receipt.OutputHash),
+		tasktrace.Hash("worker_value_manifest_hash", evidencebundle.Hash(bundles[0].manifest)), tasktrace.Hash("worker_token_manifest_hash", evidencebundle.Hash(bundles[1].manifest)),
+		tasktrace.Uint("output_size_bytes", receipt.OutputSizeBytes))
 	return nil
 }
 
@@ -1471,13 +1464,13 @@ func (w *Worker) persistWorkerHandraise(ctx context.Context, taskID string, subj
 	})
 }
 
-func outputPackageHash(taskID, outputRef, traceRef, checkpointRef string, outputHash codec.Hash) codec.Hash {
+func outputPackageHash(taskID, outputRef, tokenIDsRef, positionValuesRef string, outputHash codec.Hash) codec.Hash {
 	return codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(taskID),
 		[]byte(outputRef),
-		[]byte(traceRef),
-		[]byte(checkpointRef),
+		[]byte(tokenIDsRef),
+		[]byte(positionValuesRef),
 		outputHash[:],
 	)
 }
@@ -1513,43 +1506,43 @@ func (w *Worker) ensureInput(ctx context.Context, event chainclient.AssignmentFi
 	return input, nil
 }
 
-func (w *Worker) ensureOutput(ctx context.Context, event chainclient.AssignmentFinalized, input []byte) (output, trace, checkpoint []byte, err error) {
+func (w *Worker) ensureOutput(ctx context.Context, event chainclient.AssignmentFinalized, input []byte) (output, tokenIDs, positionValues []byte, err error) {
 	_, derr := w.loadOutputDescriptor(ctx, event.TaskID)
 	if derr == nil {
 		output, err = w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-output")
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("output descriptor exists but worker-output artifact is missing for task %s: %w", event.TaskID, err)
 		}
-		trace, terr := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-trace")
+		tokenIDs, terr := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-token-ids-material")
 		if terr != nil {
-			return nil, nil, nil, fmt.Errorf("output descriptor exists but worker-trace artifact is missing for task %s: %w", event.TaskID, terr)
+			return nil, nil, nil, fmt.Errorf("output descriptor exists but worker-token-ids-material artifact is missing for task %s: %w", event.TaskID, terr)
 		}
-		checkpoint, cerr := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-checkpoint")
+		positionValues, cerr := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-position-values-material")
 		if cerr != nil {
-			return nil, nil, nil, fmt.Errorf("output descriptor exists but worker-checkpoint artifact is missing for task %s: %w", event.TaskID, cerr)
+			return nil, nil, nil, fmt.Errorf("output descriptor exists but worker-position-values-material artifact is missing for task %s: %w", event.TaskID, cerr)
 		}
-		return output, trace, checkpoint, nil
+		return output, tokenIDs, positionValues, nil
 	}
 	output, err = w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-output")
 	if err == nil {
-		trace, _ = w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-trace")
-		checkpoint, _ = w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-checkpoint")
-		return output, trace, checkpoint, nil
+		tokenIDs, _ = w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-token-ids-material")
+		positionValues, _ = w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-position-values-material")
+		return output, tokenIDs, positionValues, nil
 	}
 	event.Input = input
 	produced, err := w.prepareOutput(ctx, event)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return produced.output, produced.trace, produced.checkpoint, nil
+	return produced.output, produced.tokenIDs, produced.positionValues, nil
 }
 
-func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.AssignmentFinalized, output, trace, checkpoint []byte) (builderclient.SignedInferReceipt, InferResult, error) {
+func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.AssignmentFinalized, output, tokenIDs, positionValues []byte) (builderclient.SignedInferReceipt, InferResult, error) {
 	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("output descriptor missing, cannot rebuild receipt: %w", err)
 	}
-	if err := w.validateGenerationOutput(ctx, event, output, trace, checkpoint, descriptor); err != nil {
+	if err := w.validateGenerationOutput(ctx, event, output, tokenIDs, positionValues, descriptor); err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
 	receiptData, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-infer-receipt")
@@ -1577,7 +1570,7 @@ func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.A
 		}
 	}
 	// Receipt or result missing: rebuild from the durable artifacts and descriptor.
-	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, trace, checkpoint)
+	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, tokenIDs, positionValues)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
@@ -1621,131 +1614,51 @@ func (w *Worker) confirmedStorageObjects(ctx context.Context, event chainclient.
 	if err != nil {
 		return false, fmt.Errorf("read committed height for retained storage confirmation: %w", err)
 	}
-	manifestBytes, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-evidence-manifest")
+	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
 	if err != nil {
 		return false, err
 	}
-	manifest, err := w.validateWorkerManifest(ctx, event, receipt, manifestBytes)
+	bundles, err := w.readWorkerBundles(ctx, event, receipt, descriptor)
 	if err != nil {
 		return false, err
 	}
 	outputKey := builderclient.TaskDataKey{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput, ContentHash: receipt.OutputHash}
-	bundleKey := builderclient.EvidenceObjectKey(receipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceManifest, receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String(), builderclient.EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress)
-	output, bundle := false, false
+	type expected struct {
+		key         builderclient.TaskDataKey
+		size, total uint64
+	}
+	want := []expected{{key: outputKey, size: receipt.OutputSizeBytes}}
+	for _, bundle := range bundles {
+		key, err := workerBundleKey(receipt, event.SessionID, event.TaskID, bundle.kind)
+		if err != nil {
+			return false, err
+		}
+		want = append(want, expected{key: key, size: uint64(len(bundle.manifest)), total: bundle.decoded.TotalSize()})
+	}
+	confirmed := make([]bool, len(want))
 	for _, confirmation := range confirmations {
 		if confirmation.Confirmation == nil || confirmation.VerifiedAt.IsZero() || confirmation.BuilderServicePubkey == "" || confirmation.BuilderOperator != receivingBuilderRef(event).AssignedBuilderOperator {
 			continue
 		}
 		c := *confirmation.Confirmation
 		endpoint := BuilderEndpoint{OperatorAddress: confirmation.BuilderOperator, ServicePubkey: confirmation.BuilderServicePubkey, AuthorizationNonce: c.ServiceAuthorizationNonce, CurrentHeight: currentHeight}
-		key, size, total := outputKey, receipt.OutputSizeBytes, uint64(0)
-		if c.Key.Kind == builderclient.DataKindEvidenceManifest {
-			key, size, total = bundleKey, uint64(len(manifestBytes)), manifest.TotalSize()
-		}
-		digest, err := verifyStorageConfirmation(c, w.cfg.ChainID, key, key.ContentHash, size, endpoint)
-		if err != nil || digest.String() != confirmation.MaterialDigest || !bytes.Equal(c.Signature, confirmation.Signature) || c.ArtifactTotalSizeBytes != total || confirmation.TaskID != event.TaskID || confirmation.DataKind != key.Kind.String() || confirmation.SemanticHash != key.ContentHash || confirmation.SizeBytes != size || confirmation.RetentionUntilHeight != c.RetentionUntilHeight {
-			continue
-		}
-		if key.Kind == builderclient.DataKindOutput {
-			output = true
-		} else {
-			bundle = true
+		for i, expect := range want {
+			if c.Key != expect.key {
+				continue
+			}
+			digest, err := verifyStorageConfirmation(c, w.cfg.ChainID, expect.key, expect.key.ContentHash, expect.size, endpoint)
+			if err != nil || digest.String() != confirmation.MaterialDigest || !bytes.Equal(c.Signature, confirmation.Signature) || c.ArtifactTotalSizeBytes != expect.total || confirmation.TaskID != event.TaskID || confirmation.DataKind != expect.key.Kind.String() || confirmation.SemanticHash != expect.key.ContentHash || confirmation.SizeBytes != expect.size || confirmation.RetentionUntilHeight != c.RetentionUntilHeight {
+				continue
+			}
+			confirmed[i] = true
 		}
 	}
-	return output && bundle, nil
-}
-
-func (w *Worker) validateWorkerManifest(ctx context.Context, event chainclient.AssignmentFinalized, receipt builderclient.SignedInferReceipt, data []byte) (evidencebundle.Manifest, error) {
-	m, err := evidencebundle.Decode(data)
-	if err != nil {
-		return m, err
-	}
-	if m.ChainID != w.cfg.ChainID || m.TaskID != event.TaskID || m.TaskHash != receipt.TaskHash || m.ProducerKind != "WORKER" || m.ProducerOperator != w.cfg.WorkerAddress || m.ProducerOperator != receipt.WorkerOperatorAddress || m.VerifyRound != 1 || m.EvidenceSchemaHash != w.cfg.EvidenceSchemaHash {
-		return m, fmt.Errorf("Worker manifest scope differs from task or locked Profile")
-	}
-	if err := builderclient.ValidateProfileEvidenceCommitments(w.cfg.ProfileEvidenceRequirements, receipt.RequiredEvidenceCommitments); err != nil {
-		return m, err
-	}
-	if len(receipt.RequiredEvidenceCommitments) != 1 || receipt.RequiredEvidenceCommitments[0].EncodedSizeBytes != m.TotalSize() {
-		return m, fmt.Errorf("Worker manifest does not match signed receipt")
-	}
-	if m.EvidenceKind != "WORKER_VALUE_OPENING" || len(m.Artifacts) != 4 {
-		return m, fmt.Errorf("Worker manifest requires four WORKER_VALUE_OPENING artifacts")
-	}
-	for _, artifact := range m.Artifacts {
-		stored, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-"+artifact.ID)
-		if err != nil {
-			return m, err
-		}
-		size, err := artifact.SizeBytes()
-		if err != nil || size != uint64(len(stored)) || artifact.ContentHash != codec.HashBytes(stored).String() {
-			return m, fmt.Errorf("Worker artifact differs from manifest")
+	for _, ok := range confirmed {
+		if !ok {
+			return false, nil
 		}
 	}
-	trace, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-trace")
-	if err != nil {
-		return m, err
-	}
-	checkpoint, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-checkpoint")
-	if err != nil {
-		return m, err
-	}
-	inputRaw, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-input_token_ids")
-	if err != nil {
-		return m, err
-	}
-	generatedRaw, err := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-generated_token_ids")
-	if err != nil {
-		return m, err
-	}
-	if err := modelservice.ValidateTokenIDArtifacts(trace, checkpoint, inputRaw, generatedRaw); err != nil {
-		return m, err
-	}
-	inputVector, err := nodewire.DecodeTokenIDs(inputRaw)
-	if err != nil {
-		return m, err
-	}
-	generatedVector, err := nodewire.DecodeTokenIDs(generatedRaw)
-	if err != nil {
-		return m, err
-	}
-	inputHash, err := nodewire.InputTokenIDsHash(inputVector)
-	if err != nil {
-		return m, err
-	}
-	generatedHash, err := nodewire.GeneratedTokenIDsHash(generatedVector)
-	if err != nil {
-		return m, err
-	}
-	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
-	if err != nil {
-		return m, err
-	}
-	evidence, err := builderclient.WorkerValueEvidenceCommitment(builderclient.WorkerValueEvidenceFacts{ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest, EvidenceSchemaHash: m.EvidenceSchemaHash, OutputHash: descriptor.OutputHash, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount, FinishReason: descriptor.FinishReason, GeneratedTokenCount: receipt.GeneratedTokenCount, TraceRoot: codec.HashBytes(trace), TraceEncodedSizeBytes: uint64(len(trace)), CheckpointRoot: codec.HashBytes(checkpoint), CheckpointEncodedSizeBytes: uint64(len(checkpoint)), InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: uint64(len(inputRaw)), GeneratedTokenIDsSizeBytes: uint64(len(generatedRaw))})
-	if err != nil {
-		return m, err
-	}
-	if evidence != receipt.RequiredEvidenceCommitments[0] {
-		return m, fmt.Errorf("Worker V2 commitment differs from persisted artifacts")
-	}
-	return m, nil
-}
-
-// workerValueArtifacts reads the trace and checkpoint back from the durable
-// artifacts this task already wrote. They are read rather than threaded through
-// the call chain because ensureOutputAvailable is also the restart entry point:
-// a process that comes back after the receipt was persisted has the bytes on
-// disk and no InferResponse to take them from.
-func (w *Worker) workerValueArtifacts(ctx context.Context, taskID string) ([]byte, []byte, error) {
-	trace, err := w.cfg.Persistence.ReadArtifact(ctx, taskID, "worker-trace")
-	if err != nil {
-		return nil, nil, fmt.Errorf("worker-trace artifact missing, cannot upload worker value evidence for task %s: %w", taskID, err)
-	}
-	checkpoint, err := w.cfg.Persistence.ReadArtifact(ctx, taskID, "worker-checkpoint")
-	if err != nil {
-		return nil, nil, fmt.Errorf("worker-checkpoint artifact missing, cannot upload worker value evidence for task %s: %w", taskID, err)
-	}
-	return trace, checkpoint, nil
+	return true, nil
 }
 
 func (w *Worker) ensureOutputAvailable(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, result InferResult) error {

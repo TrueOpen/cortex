@@ -33,11 +33,29 @@ type OutputChunk struct {
 // ReplayChunks preserves the exact signed frame boundaries for reconnects.
 // Open checks the Builder's persisted prefix before resending missing frames.
 type OutputStreamRequest struct {
-	TaskHash     string
-	SessionID    string
-	TaskID       string
-	Auth         TaskDataRequestAuth
-	ReplayChunks []OutputChunk
+	TaskHash  string
+	SessionID string
+	TaskID    string
+	Auth      TaskDataRequestAuth
+	// HeaderSignature is the Worker's compact signature over
+	// OutputStreamHeaderDigest for this task, independent of Auth.
+	HeaderSignature []byte
+	ReplayChunks    []OutputChunk
+}
+
+// OutputStreamHeaderDigest is the digest a Worker signs to open its output
+// stream: the plaintext OutputStreamHeaderV2 for this task, with attempt 0,
+// stream_instance 1, no recipient key and ZERO32 key slots.
+func OutputStreamHeaderDigest(chainID, taskHash string) (codec.Hash, error) {
+	raw, err := taskDataHash("task_hash", taskHash)
+	if err != nil {
+		return codec.Hash{}, err
+	}
+	zero := make([]byte, 32)
+	return nodewire.OutputStreamHeaderSigningDigest(nodewire.OutputStreamHeaderV2{
+		ChainID: chainID, TaskHash: raw, Attempt: 0, StreamInstance: 1,
+		OutputKeyCommitment: zero, KeyPackageHash: zero,
+	})
 }
 
 // OutputStreamResult proves STORED output only. FinalizeTaskResult publishes it.
@@ -77,7 +95,13 @@ func validateOutputStreamRequest(request OutputStreamRequest) error {
 	if err != nil {
 		return err
 	}
-	return validateSignedTaskDataRequest(request.Auth, "UploadTaskOutputStream", digest)
+	if err := validateSignedTaskDataRequest(request.Auth, "UploadTaskOutputStream", digest); err != nil {
+		return err
+	}
+	if _, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash); err != nil {
+		return err
+	}
+	return validateCompactSignature(request.HeaderSignature)
 }
 
 type outputStreamState struct {
@@ -207,7 +231,12 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 		_ = stream.CloseRequest()
 		close(s.cancellationDone)
 	})
-	header := &nexusv1.OutputStreamHeaderV1{TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, RequestAuth: taskDataRequestAuthToProto(request.Auth)}
+	zero := make([]byte, 32)
+	header := &nexusv1.OutputStreamHeaderV2{
+		TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, RequestAuth: taskDataRequestAuthToProto(request.Auth),
+		Attempt: 0, StreamInstance: 1, OutputKeyCommitment: zero, KeyPackageHash: zero,
+		WorkerSignature: append([]byte(nil), request.HeaderSignature...),
+	}
 	if err := s.send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: header}}); err != nil {
 		return fail(err)
 	}

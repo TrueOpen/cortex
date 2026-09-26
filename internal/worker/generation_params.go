@@ -36,20 +36,24 @@ func (w *Worker) taskGeneration(ctx context.Context, event chainclient.Assignmen
 	return &generation, append([]byte(nil), facts.GenerationParamsDigest...), nil
 }
 
-func (w *Worker) validateGenerationOutput(ctx context.Context, event chainclient.AssignmentFinalized, output, trace, checkpoint []byte, descriptor outputDescriptor) error {
+// validateGenerationOutput re-checks the retained model material of a prepared
+// output against the frozen generation parameters and its descriptor, so a
+// restart signs nothing the order would not have allowed.
+func (w *Worker) validateGenerationOutput(ctx context.Context, event chainclient.AssignmentFinalized, output, tokenIDs, positionValues []byte, descriptor outputDescriptor) error {
 	generation, digest, err := w.taskGeneration(ctx, event)
 	if err != nil || generation == nil {
 		return err
 	}
-	count, reason, err := modelservice.ValidateGenerationEvidence(generation, digest, output, trace, checkpoint)
+	ids, values, err := decodeMaterial(tokenIDs, positionValues)
 	if err != nil {
-		return fmt.Errorf("validate retained generation evidence: %w", err)
+		return fmt.Errorf("validate retained generation material: %w", err)
 	}
-	if reason != descriptor.FinishReason {
-		return fmt.Errorf("retained generation evidence finish reason differs from descriptor")
+	count, err := modelservice.ValidateGenerationMaterial(generation, digest, ids, values)
+	if err != nil {
+		return fmt.Errorf("validate retained generation material: %w", err)
 	}
 	if count != descriptor.GeneratedTokenCount {
-		return fmt.Errorf("retained generated token count differs from evidence")
+		return fmt.Errorf("retained generated token count differs from material")
 	}
 	return nil
 }

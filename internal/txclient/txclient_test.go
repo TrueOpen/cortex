@@ -63,9 +63,9 @@ func validPayload(t testing.TB, kind Kind) []byte {
 	case MsgRegisterModelProfile:
 		value = validRegisterModelProfileMessage()
 	case MsgDeclareModelSupport:
-		value = DeclareModelSupportMessage{OperatorAddress: "trueopen1operator", ModelID: "model-1", ProfileVersion: 1, InferenceCapability: true}
+		value = DeclareModelSupportMessage{OperatorAddress: "trueopen1operator", ModelID: "0101010101010101010101010101010101010101010101010101010101010101", InferenceCapability: true}
 	case MsgBatchConfirmModelSupport:
-		value = BatchConfirmModelSupportMessage{SubmitterAddress: "trueopen1operator", EpochIndex: 1, Confirmations: []ModelSupportConfirmation{{OperatorAddress: "node-1", SupportedProfiles: []SupportedProfileRef{{ModelID: "model-1", ProfileVersion: 1}}, ServiceAuthorizationNonce: 3, ExpiryHeight: 101, ServiceSignature: ProtoBytes(sig)}}}
+		value = BatchConfirmModelSupportMessage{SubmitterAddress: "trueopen1operator", EpochIndex: 1, Confirmations: []ModelSupportConfirmation{{OperatorAddress: "node-1", SupportedModels: []ProtoBytes32{"0101010101010101010101010101010101010101010101010101010101010101"}, ServiceAuthorizationNonce: 3, ExpiryHeight: 101, ServiceSignature: ProtoBytes(sig)}}}
 	case MsgSubmitInferReceipt:
 		value = validSubmitInferReceiptMessage()
 	case MsgSubmitVerifyCommit:
@@ -96,32 +96,37 @@ func validRegisterModelProfileMessage() RegisterModelProfileMessage {
 	hash := ProtoBytes32(strings.Repeat("ab", 32))
 	return RegisterModelProfileMessage{
 		ProposerAddress: "trueopen1operator",
-		Profile: ModelProfileProjectionMessage{ModelID: "model-1", ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
+		Profile: ModelProfileProjectionMessage{ModelID: "0101010101010101010101010101010101010101010101010101010101010101", ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
 			RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1", RequiredTopK: 20, TaskTypes: []string{"TASK_TYPE_CHAT"}, GenerationType: "GENERATION_TYPE_SAMPLED",
 			ResourceTier: 2, MinStake: CoinMessage{Denom: "uusdc", Amount: 1_000_000}, ChallengeOpenWindowBlocks: 1_800,
 			VerificationProfile: VerificationProfileMessage{VerificationProfileID: 1, JudgmentFunctionVersion: "PREFILL_GENERATED_TOKEN_METRICS_V1", VerificationMode: "VERIFICATION_MODE_SINGLE_SAMPLE", TokenScope: "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
 				IncludeGeneratedSpecialTokens: true, RequireOutputTokenIDs: true, RequireFinishReason: true,
 				Metrics:                  MetricSpecMessage{CompareLogprobDiff: true, CompareRankDelta: true, CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"},
-				CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: WorkerValueEvidenceSchemaV2(1 << 30)},
+				CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: WorkerEvidenceSchemaV3(1<<30, 1<<30)},
 			VerificationThresholds:  VerificationThresholdsMessage{PassMinFiniteCount: 16, PassMeanAbsLogprobDiffMax: 50_000, RejectMeanAbsLogprobDiffMin: 300_000},
 			PricingProfile:          PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-			SchemaHash:              hash, RegistrationFee: CoinMessage{Denom: "uusdc", Amount: 10_000_000}},
+			SchemaHash:              hash, RegistrationFee: CoinMessage{Denom: "uusdc", Amount: 10_000_000},
+			Source: SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "org/model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1",
+				Revision: strings.Repeat("0a", 20), SourceURI: "hf://org/model@" + strings.Repeat("0a", 20)}},
 	}
 }
 
 func validSubmitInferReceiptMessage() SubmitInferReceiptMessage {
 	hash := ProtoBytes32(strings.Repeat("ab", 32))
+	zero := ProtoBytes32(strings.Repeat("00", 32))
 	return SubmitInferReceiptMessage{
 		Receipt: InferReceiptMessage{
-			SchemaVersion: InferReceiptSchemaVersionV2, ChainID: "trueopen-devnet-1",
+			SchemaVersion: InferReceiptSchemaVersionV3, ChainID: "trueopen-devnet-1",
 			TaskID: hash, TaskHash: hash, WorkerOperatorAddress: "trueopen1worker",
 			ServiceAuthorizationNonce: 7, GenerationParamsDigest: hash, OutputHash: hash,
 			OutputSizeBytes: 4_096, GeneratedTokenCount: 32, OutputLeafCount: 32,
 			RequiredEvidenceCommitments: []EvidenceCommitmentMessage{
 				{EvidenceKind: EvidenceKindWorkerValueOpening, EvidenceHashOrRoot: hash, EncodedSizeBytes: 512},
+				{EvidenceKind: EvidenceKindWorkerTokenOpening, EvidenceHashOrRoot: hash, EncodedSizeBytes: 136},
 			},
 			ExpiryHeight: 900, ServiceSignature: ProtoBytes(strings.Repeat("cd", 64)),
+			OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
 		},
 		SubmitterAddress: "trueopen1service",
 	}
@@ -144,12 +149,13 @@ func validSubmitVerifyResultMessage() SubmitVerifyResultMessage {
 	hash := ProtoBytes32(strings.Repeat("ab", 32))
 	return SubmitVerifyResultMessage{
 		Receipt: ResultReceiptMessage{
-			SchemaVersion: 2, ChainID: "trueopen-devnet-1", TaskID: hash,
+			SchemaVersion: ResultReceiptSchemaVersionV3, ChainID: "trueopen-devnet-1", TaskID: hash,
 			VerifyRound: VerifyRoundV1, VerifierOperatorAddress: "trueopen1verifier",
 			ServiceAuthorizationNonce: 7, GenerationParamsDigest: hash, MetricRoot: hash,
 			MetricSummary:      MetricSummaryMessage{FiniteCount: 16, ComparedTopkCount: 20, ComparedRankCount: 20},
 			AggregateProofHash: hash, VerifierEvidenceBundleHash: hash, VerifierEvidenceManifestSizeBytes: 512, Salt: hash, ExpiryHeight: 900,
-			ServiceSignature: ProtoBytes(strings.Repeat("cd", 64)),
+			ServiceSignature:  ProtoBytes(strings.Repeat("cd", 64)),
+			VerifierValueRoot: hash, MetricLeafCount: 16, VerifierEvidenceKeyCommitment: ProtoBytes32(strings.Repeat("00", 32)),
 		},
 		SubmitterAddress: "trueopen1service",
 	}

@@ -28,13 +28,17 @@ func completeInferReceiptFacts(t *testing.T) InferReceiptFacts {
 		OutputLeafCount:           1,
 		RequiredEvidenceCommitments: []EvidenceCommitment{{
 			EvidenceKind:       nodewire.EvidenceKindWorkerValueOpening,
-			EvidenceHashOrRoot: codec.HashBytes([]byte("trace")),
+			EvidenceHashOrRoot: codec.HashBytes([]byte("worker values")),
 			EncodedSizeBytes:   5,
+		}, {
+			EvidenceKind:       nodewire.EvidenceKindWorkerTokenOpening,
+			EvidenceHashOrRoot: codec.HashBytes([]byte("token ids")),
+			EncodedSizeBytes:   7,
 		}},
 		// The locked Profile's requirement set. Only max_encoded_size_bytes needs a
-		// real Profile read; the derived V1 shape at the contract ceiling keeps the
+		// real Profile read; the derived V3 shape at the contract ceiling keeps the
 		// per-field cases below about the field each one blanks.
-		ProfileEvidenceRequirements: WorkerValueEvidenceRequirementsV2(),
+		ProfileEvidenceRequirements: WorkerEvidenceRequirementsV3(),
 		ExpiryHeight:                1200,
 	}
 }
@@ -45,9 +49,9 @@ func TestBuildInferReceiptProducesTheFrozenWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildInferReceipt: %v", err)
 	}
-	if receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV2 {
+	if receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV3 {
 		t.Fatalf("schema_version = %d, want the frozen constant %d",
-			receipt.SchemaVersion, nodewire.InferReceiptSchemaVersionV2)
+			receipt.SchemaVersion, nodewire.InferReceiptSchemaVersionV3)
 	}
 	if receipt.OutputHash != hex.EncodeToString(facts.OutputHash[:]) {
 		t.Fatalf("output_hash = %q, want the hex of the committed output hash", receipt.OutputHash)
@@ -228,11 +232,9 @@ func TestBuildInferReceiptEnforcesEveryHandlerEvidencePrecondition(t *testing.T)
 			contains: "must exactly match the locked Profile requirement count",
 		},
 		{
-			// Both worker artifacts filed as two commitments. They belong in ONE
-			// WorkerValueCommitmentV2, so a second element is always a count error.
-			name: "both worker artifacts as two commitments",
+			name: "only the value commitment",
 			apply: func(f *InferReceiptFacts) {
-				f.RequiredEvidenceCommitments = []EvidenceCommitment{worker("trace", 5), worker("checkpoint", 10)}
+				f.RequiredEvidenceCommitments = f.RequiredEvidenceCommitments[:1]
 			},
 			contains: "must exactly match the locked Profile requirement count",
 		},
@@ -265,11 +267,8 @@ func TestBuildInferReceiptEnforcesEveryHandlerEvidencePrecondition(t *testing.T)
 		{
 			name: "encoded size above a tighter profile bound",
 			apply: func(f *InferReceiptFacts) {
-				f.ProfileEvidenceRequirements = []InferEvidenceRequirement{{
-					EvidenceKind:            nodewire.EvidenceKindWorkerValueOpening,
-					CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV2,
-					MaxEncodedSizeBytes:     4,
-				}}
+				f.ProfileEvidenceRequirements = WorkerEvidenceRequirementsV3()
+				f.ProfileEvidenceRequirements[0].MaxEncodedSizeBytes = 4
 				f.RequiredEvidenceCommitments[0].EncodedSizeBytes = 5
 			},
 			contains: "is outside the locked Profile's 1..4",
@@ -284,37 +283,29 @@ func TestBuildInferReceiptEnforcesEveryHandlerEvidencePrecondition(t *testing.T)
 			// opening asked of a Worker.
 			name: "requirement V1 does not support",
 			apply: func(f *InferReceiptFacts) {
-				f.ProfileEvidenceRequirements = []InferEvidenceRequirement{{
-					EvidenceKind:            nodewire.EvidenceKindVerifierValueOpening,
-					CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV2,
-					MaxEncodedSizeBytes:     nodewire.MaxEvidenceEncodedSizeBytesV1,
-				}}
-				f.RequiredEvidenceCommitments[0].EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
+				f.ProfileEvidenceRequirements = WorkerEvidenceRequirementsV3()
+				f.ProfileEvidenceRequirements[1].EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
+				f.RequiredEvidenceCommitments[1].EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
 			},
 			contains: "unsupported commitment schema",
 		},
 		{
 			name: "commitment schema version the handler rejects",
 			apply: func(f *InferReceiptFacts) {
-				f.ProfileEvidenceRequirements = []InferEvidenceRequirement{{
-					EvidenceKind:            nodewire.EvidenceKindWorkerValueOpening,
-					CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV2 + 1,
-					MaxEncodedSizeBytes:     nodewire.MaxEvidenceEncodedSizeBytesV1,
-				}}
+				f.ProfileEvidenceRequirements = WorkerEvidenceRequirementsV3()
+				f.ProfileEvidenceRequirements[0].CommitmentSchemaVersion = 2
 			},
 			contains: "unsupported commitment schema",
 		},
 		{
-			// Ordering is unreachable through a well-formed V1 profile, because a
-			// V1 requirement set holds exactly one kind. It stays checked as
-			// defence in depth against a malformed profile whose own requirement
-			// list repeats a kind: a duplicated kind must not be silently re-sorted
-			// into an ascending list the Keeper would then accept.
+			// A malformed profile whose requirement list repeats a kind: a
+			// duplicated kind must not be silently re-sorted into an ascending
+			// list the Keeper would then accept.
 			name: "duplicate kinds under a malformed requirement set",
 			apply: func(f *InferReceiptFacts) {
-				requirement := WorkerValueEvidenceRequirementsV2()[0]
+				requirement := WorkerEvidenceRequirementsV3()[0]
 				f.ProfileEvidenceRequirements = []InferEvidenceRequirement{requirement, requirement}
-				f.RequiredEvidenceCommitments = []EvidenceCommitment{worker("trace", 5), worker("checkpoint", 10)}
+				f.RequiredEvidenceCommitments = []EvidenceCommitment{worker("values", 5), worker("other values", 10)}
 			},
 			contains: "strictly ascending",
 		},
@@ -341,11 +332,8 @@ func TestBuildInferReceiptEnforcesEveryHandlerEvidencePrecondition(t *testing.T)
 // a bound the commitment respects is not a refusal.
 func TestBuildInferReceiptAcceptsATighterProfileBound(t *testing.T) {
 	facts := completeInferReceiptFacts(t)
-	facts.ProfileEvidenceRequirements = []InferEvidenceRequirement{{
-		EvidenceKind:            nodewire.EvidenceKindWorkerValueOpening,
-		CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV2,
-		MaxEncodedSizeBytes:     facts.RequiredEvidenceCommitments[0].EncodedSizeBytes,
-	}}
+	facts.ProfileEvidenceRequirements = WorkerEvidenceRequirementsV3()
+	facts.ProfileEvidenceRequirements[0].MaxEncodedSizeBytes = facts.RequiredEvidenceCommitments[0].EncodedSizeBytes
 	if _, _, err := BuildInferReceipt(facts); err != nil {
 		t.Fatalf("BuildInferReceipt refused a commitment exactly at the profile bound: %v", err)
 	}

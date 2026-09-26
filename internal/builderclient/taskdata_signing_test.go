@@ -4,11 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/TrueOpen/cortex/internal/codec"
-	"github.com/TrueOpen/cortex/internal/nodewire"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 const otherFixtureWorkerAddress = "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe"
@@ -132,17 +133,13 @@ func TestInferReceiptEmptyEvidenceListIsThePublishedDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	withEvidence, err := nodewire.InferReceiptSigningDigest(wire)
-	if err != nil {
+	if _, err := nodewire.InferReceiptSigningDigest(wire); err != nil {
 		t.Fatal(err)
 	}
+	// A V3 receipt carries exactly [value, token]; an empty list is refused.
 	wire.RequiredEvidenceCommitments = nil
-	withoutEvidence, err := nodewire.InferReceiptSigningDigest(wire)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if withoutEvidence == withEvidence {
-		t.Fatal("dropping every evidence commitment did not change the receipt digest")
+	if _, err := nodewire.InferReceiptSigningDigest(wire); err == nil {
+		t.Fatal("a V3 receipt without evidence commitments was hashed")
 	}
 
 	// The signer, unlike the hash, must refuse it: an empty list cannot become a
@@ -172,8 +169,8 @@ func TestInferReceiptSigningDigestBindsEveryPreimageField(t *testing.T) {
 		"output_size_bytes":           func(v *SignedInferReceipt) { v.OutputSizeBytes++ },
 		"output_leaf_count":           func(v *SignedInferReceipt) { v.OutputLeafCount++ },
 		"expiry_height":               func(v *SignedInferReceipt) { v.ExpiryHeight++ },
-		"evidence_kind": func(v *SignedInferReceipt) {
-			v.RequiredEvidenceCommitments[1].EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
+		"token_evidence_hash_or_root": func(v *SignedInferReceipt) {
+			v.RequiredEvidenceCommitments[1].EvidenceHashOrRoot = mustHash(t, strings.Repeat("6", 63)+"7")
 		},
 		"evidence_hash_or_root": func(v *SignedInferReceipt) {
 			v.RequiredEvidenceCommitments[0].EvidenceHashOrRoot = mustHash(t, strings.Repeat("4", 63)+"5")
@@ -181,9 +178,21 @@ func TestInferReceiptSigningDigestBindsEveryPreimageField(t *testing.T) {
 		"evidence_encoded_size_bytes": func(v *SignedInferReceipt) {
 			v.RequiredEvidenceCommitments[0].EncodedSizeBytes++
 		},
+	}
+	for name, mutate := range map[string]func(*SignedInferReceipt){
+		"evidence_kind": func(v *SignedInferReceipt) {
+			v.RequiredEvidenceCommitments[1].EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
+		},
 		"evidence_quantity": func(v *SignedInferReceipt) {
 			v.RequiredEvidenceCommitments = v.RequiredEvidenceCommitments[:1]
 		},
+	} {
+		changed := base
+		changed.RequiredEvidenceCommitments = append([]EvidenceCommitment(nil), base.RequiredEvidenceCommitments...)
+		mutate(&changed)
+		if _, err := InferReceiptSigningDigest(changed); err == nil {
+			t.Fatalf("%s: a receipt outside the V3 evidence shape was accepted", name)
+		}
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -232,8 +241,13 @@ func receiptFromFixture(t *testing.T, fixture fixtureReceipt) SignedInferReceipt
 			EncodedSizeBytes:   commitment.EncodedSizeBytes,
 		}
 	}
+	// The local fixture predates the token opening: its second commitment is
+	// re-kinded to WORKER_TOKEN_OPENING so the receipt has the V3 shape.
+	if len(commitments) == 2 {
+		commitments[1].EvidenceKind = nodewire.EvidenceKindWorkerTokenOpening
+	}
 	return SignedInferReceipt{
-		SchemaVersion:               nodewire.InferReceiptSchemaVersionV2,
+		SchemaVersion:               nodewire.InferReceiptSchemaVersionV3,
 		ChainID:                     fixture.ChainID,
 		TaskID:                      fixture.TaskID,
 		TaskHash:                    fixture.TaskHash,

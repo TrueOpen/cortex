@@ -133,14 +133,14 @@ func (s *FixtureOutputPackageStore) LoadOutputPackage(ctx context.Context, cid s
 }
 
 func encodeCanonicalOutputPackage(pkg OutputPackage) ([]byte, error) {
-	if pkg.SessionID == "" || pkg.TaskID == "" || pkg.ModelID == "" || pkg.ProfileVersion == "" || pkg.OutputRef == "" || pkg.TraceRef == "" || pkg.CheckpointRef == "" || pkg.OutputHash == (codec.Hash{}) {
+	if pkg.SessionID == "" || pkg.TaskID == "" || pkg.ModelID == "" || pkg.ProfileVersion == "" || pkg.OutputRef == "" || pkg.TokenIDsRef == "" || pkg.PositionValuesRef == "" || pkg.OutputHash == (codec.Hash{}) {
 		return nil, fmt.Errorf("canonical output package missing required fields")
 	}
 	var buf bytes.Buffer
 	buf.WriteString(outputPackageVersion)
 	for _, field := range [][]byte{
 		[]byte(pkg.SessionID), []byte(pkg.TaskID), []byte(pkg.ModelID), []byte(pkg.ProfileVersion),
-		[]byte(pkg.OutputRef), []byte(pkg.TraceRef), []byte(pkg.CheckpointRef), pkg.OutputHash[:],
+		[]byte(pkg.OutputRef), []byte(pkg.TokenIDsRef), []byte(pkg.PositionValuesRef), pkg.OutputHash[:],
 	} {
 		writeCanonicalField(&buf, field)
 	}
@@ -168,7 +168,7 @@ func decodeCanonicalOutputPackage(payload []byte) (OutputPackage, error) {
 	copy(outputHash[:], fields[7])
 	return OutputPackage{
 		SessionID: string(fields[0]), TaskID: string(fields[1]), ModelID: string(fields[2]), ProfileVersion: string(fields[3]),
-		OutputRef: string(fields[4]), TraceRef: string(fields[5]), CheckpointRef: string(fields[6]), OutputHash: outputHash,
+		OutputRef: string(fields[4]), TokenIDsRef: string(fields[5]), PositionValuesRef: string(fields[6]), OutputHash: outputHash,
 	}, nil
 }
 

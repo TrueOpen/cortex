@@ -2,10 +2,18 @@ package builderclient
 
 import (
 	"bytes"
-	"connectrpc.com/connect"
 	"context"
 	"encoding/hex"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
@@ -14,13 +22,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/proto"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
 type taskDataTestHandler struct {
@@ -198,7 +199,7 @@ func taskDataTestReceipt(t *testing.T, keyPair taskDataTestKeyPair, chainID stri
 		t.Fatal(err)
 	}
 	receipt := SignedInferReceipt{
-		SchemaVersion:             nodewire.InferReceiptSchemaVersionV2,
+		SchemaVersion:             nodewire.InferReceiptSchemaVersionV3,
 		ChainID:                   chainID,
 		TaskID:                    taskDataTestTaskID,
 		TaskHash:                  strings.Repeat("22", 32),
@@ -211,8 +212,13 @@ func taskDataTestReceipt(t *testing.T, keyPair taskDataTestKeyPair, chainID stri
 		RequiredEvidenceCommitments: []EvidenceCommitment{
 			{
 				EvidenceKind:       nodewire.EvidenceKindWorkerValueOpening,
-				EvidenceHashOrRoot: codec.HashBytes([]byte("trace")),
+				EvidenceHashOrRoot: codec.HashBytes([]byte("worker values")),
 				EncodedSizeBytes:   7,
+			},
+			{
+				EvidenceKind:       nodewire.EvidenceKindWorkerTokenOpening,
+				EvidenceHashOrRoot: codec.HashBytes([]byte("token ids")),
+				EncodedSizeBytes:   9,
 			},
 		},
 		ExpiryHeight: 400, GeneratedTokenCount: 3,
@@ -236,7 +242,7 @@ func taskDataTestRequestAuth(t *testing.T, keyPair taskDataTestKeyPair, method s
 }
 func taskDataTestUploadRequest(t *testing.T, keyPair taskDataTestKeyPair, data []byte) UploadTaskResultRequest {
 	t.Helper()
-	key := EvidenceObjectKey(strings.Repeat("22", 32), strings.Repeat("11", 32), taskDataTestTaskID, DataKindEvidenceArtifact, "", EvidenceProducerWorker, 1, keyPair.address(t))
+	key := EvidenceObjectKey(strings.Repeat("22", 32), strings.Repeat("11", 32), taskDataTestTaskID, DataKindEvidenceArtifact, "", EvidenceProducerWorker, 1, keyPair.address(t), nodewire.EvidenceKindWorkerValueOpening)
 	hash := codec.HashBytes(data)
 	key.ContentHash = hex.EncodeToString(hash[:])
 	digest, err := TaskDataUploadBodyDigest(key, uint64(len(data)), "")

@@ -52,9 +52,9 @@ func TestReceivingBuilderProviderRedirectsRelayUploadAndConfirmation(t *testing.
 			t.Fatalf("provider ref = %+v, want the finalized task identity", task)
 		}
 	}
-	// One receipt relay, four object uploads, and atomic finalization.
-	if len(h.taskData.endpoints) != 7 {
-		t.Fatalf("task-data endpoints = %v, want relay, five uploads and finalize", h.taskData.endpoints)
+	// One receipt relay, five object uploads, and one finalization per bundle.
+	if len(h.taskData.endpoints) != 8 {
+		t.Fatalf("task-data endpoints = %v, want relay, five uploads and two finalizes", h.taskData.endpoints)
 	}
 	for _, endpoint := range h.taskData.endpoints {
 		if endpoint != "https://other-builder.example" {
@@ -72,7 +72,7 @@ func TestReceivingBuilderProviderRedirectsRelayUploadAndConfirmation(t *testing.
 			t.Fatalf("upload auth Builder = %+v, want the provider's Builder", h.taskData.uploads)
 		}
 	}
-	if len(h.persistence.confirmations) != 2 {
+	if len(h.persistence.confirmations) != 3 {
 		t.Fatalf("confirmations = %#v, want one verified confirmation per uploaded object", h.persistence.confirmations)
 	}
 	confirmation := h.persistence.confirmations[0]
@@ -225,10 +225,10 @@ func TestRelayRetriesOnceWithTheRefreshedTLSPin(t *testing.T) {
 		stale.TLSPubkeyHash, fresh.TLSPubkeyHash,
 		fresh.TLSPubkeyHash, fresh.TLSPubkeyHash, fresh.TLSPubkeyHash,
 		fresh.TLSPubkeyHash, fresh.TLSPubkeyHash,
-		fresh.TLSPubkeyHash,
+		fresh.TLSPubkeyHash, fresh.TLSPubkeyHash,
 	}
 	if len(h.taskData.pins) != len(want) {
-		t.Fatalf("pins = %v, want stale relay then fresh relay, five uploads and finalize", h.taskData.pins)
+		t.Fatalf("pins = %v, want stale relay then fresh relay, five uploads and two finalizes", h.taskData.pins)
 	}
 	for i := range want {
 		if h.taskData.pins[i] != want[i] {

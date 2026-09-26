@@ -213,15 +213,15 @@ func TestWorkerHandlesRealVLLMInference(t *testing.T) {
 	for _, record := range h.persistence.evidence {
 		stored[record.Kind] = len(record.Data)
 	}
-	for _, kind := range []string{"worker-output", "worker-trace", "worker-checkpoint", "worker-infer-receipt"} {
+	for _, kind := range []string{"worker-output", "worker-token-ids-material", "worker-position-values-material", "worker-infer-receipt"} {
 		if stored[kind] == 0 {
 			t.Fatalf("persisted evidence %q is missing or empty; have %v", kind, stored)
 		}
 	}
 	const minRealTraceBytes = 8 << 10
-	if stored["worker-trace"] < minRealTraceBytes {
+	if stored["worker-token-ids-material"] < minRealTraceBytes {
 		t.Fatalf("worker-trace is %dB, want at least %dB of real logprob trace rather than a fixture",
-			stored["worker-trace"], minRealTraceBytes)
+			stored["worker-token-ids-material"], minRealTraceBytes)
 	}
 	if len(h.persistence.outbox) == 0 {
 		t.Fatal("no outbox record, want the OUTPUT_AVAILABLE publish queued")

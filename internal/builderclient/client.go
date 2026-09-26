@@ -13,18 +13,18 @@ import (
 )
 
 type OutputPackage struct {
-	SessionID       string     `json:"session_id,omitempty"`
-	TaskID          string     `json:"task_id"`
-	ModelID         string     `json:"model_id,omitempty"`
-	ProfileVersion  string     `json:"profile_version,omitempty"`
-	OutputRef       string     `json:"output_ref"`
-	TraceRef        string     `json:"trace_ref"`
-	CheckpointRef   string     `json:"checkpoint_ref"`
-	OutputHash      codec.Hash `json:"output_hash"`
-	PackageHash     codec.Hash `json:"package_hash"`
-	ReceiptHash     codec.Hash `json:"receipt_hash"`
-	ReceiptPayload  []byte     `json:"receipt_payload"`
-	WorkerSignature []byte     `json:"worker_signature,omitempty"`
+	SessionID         string     `json:"session_id,omitempty"`
+	TaskID            string     `json:"task_id"`
+	ModelID           string     `json:"model_id,omitempty"`
+	ProfileVersion    string     `json:"profile_version,omitempty"`
+	OutputRef         string     `json:"output_ref"`
+	TokenIDsRef       string     `json:"token_ids_ref"`
+	PositionValuesRef string     `json:"position_values_ref"`
+	OutputHash        codec.Hash `json:"output_hash"`
+	PackageHash       codec.Hash `json:"package_hash"`
+	ReceiptHash       codec.Hash `json:"receipt_hash"`
+	ReceiptPayload    []byte     `json:"receipt_payload"`
+	WorkerSignature   []byte     `json:"worker_signature,omitempty"`
 	// Output is the output body itself, present only when the package was
 	// confirmed by reading the OUTPUT object off the task-data plane rather than
 	// by loading a canonical package from a store the two nodes share. It is
@@ -236,7 +236,7 @@ const (
 )
 
 type EvidenceBundleSummary struct {
-	EvidenceBundleHash     string
+	EvidenceManifestHash   string // digest of the exact manifest bytes; metadata only
 	EvidenceSchemaHash     string
 	ArtifactCount          uint32
 	ArtifactTotalSizeBytes uint64
@@ -299,7 +299,10 @@ type FinalizeTaskResultRequest struct {
 	SessionID string
 	TaskID    string
 	Receipt   SignedInferReceipt
-	Auth      TaskDataRequestAuth
+	// EvidenceKind names the one Worker bundle this finalize closes: the
+	// A-level token bundle or the B-level value bundle.
+	EvidenceKind nodewire.EvidenceKind
+	Auth         TaskDataRequestAuth
 }
 
 type FinalizeTaskResultResponse struct {
@@ -314,7 +317,7 @@ type FinalizeVerifierEvidenceRequest struct {
 	TaskID           string
 	VerifyRound      uint32
 	VerifierOperator string
-	Receipt          nodewire.ResultReceiptV2
+	Receipt          nodewire.ResultReceiptV3
 	Auth             TaskDataRequestAuth
 }
 
@@ -325,7 +328,7 @@ type FinalizeVerifierEvidenceResponse struct {
 
 type SubmitInferReceiptRequest struct{ Receipt SignedInferReceipt }
 type SubmitVerifyCommitRequest struct{ Commit nodewire.VerifyCommitV1 }
-type SubmitVerifyResultRequest struct{ Receipt nodewire.ResultReceiptV2 }
+type SubmitVerifyResultRequest struct{ Receipt nodewire.ResultReceiptV3 }
 
 // VerifyRelayAck reports receipt by the Builder, not chain acceptance.
 type VerifyRelayAck struct {

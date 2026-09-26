@@ -1,12 +1,13 @@
 package builderclient
 
 import (
-	"connectrpc.com/connect"
 	"context"
+	"testing"
+
+	"connectrpc.com/connect"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	"google.golang.org/protobuf/proto"
-	"testing"
 )
 
 func TestMetadataRequiresExactObjectRefAndReadiness(t *testing.T) {
@@ -59,7 +60,7 @@ func TestWorkerManifestMetadataSeparatesLocatorAndIntegrityHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := evidencebundle.Hash(uploads[3].Data).String()
-	if metadata.EvidenceBundle.EvidenceBundleHash != want || want == key.ContentHash || metadata.EvidenceBundle.ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[0].EncodedSizeBytes {
+	if metadata.EvidenceBundle.EvidenceManifestHash != want || want == key.ContentHash || metadata.EvidenceBundle.ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[1].EncodedSizeBytes {
 		t.Fatalf("metadata=%+v key=%+v", metadata, key)
 	}
 	server := newTaskDataTestServer(t, &taskDataTestHandler{metadata: func(_ context.Context, r *connect.Request[nexusv1.GetTaskDataMetadataRequest]) (*connect.Response[nexusv1.GetTaskDataMetadataResponse], error) {
@@ -67,10 +68,10 @@ func TestWorkerManifestMetadataSeparatesLocatorAndIntegrityHash(t *testing.T) {
 			t.Error("typed manifest reference changed")
 		}
 		b := metadata.EvidenceBundle
-		return connect.NewResponse(&nexusv1.GetTaskDataMetadataResponse{Metadata: &nexusv1.TaskDataObjectMetadataV1{ObjectRef: taskDataKeyToProto(key), SizeBytes: metadata.SizeBytes, Readiness: nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_STORED}, EvidenceBundle: &nexusv1.EvidenceBundleSummaryV1{EvidenceBundleHash: b.EvidenceBundleHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}}), nil
+		return connect.NewResponse(&nexusv1.GetTaskDataMetadataResponse{Metadata: &nexusv1.TaskDataObjectMetadataV1{ObjectRef: taskDataKeyToProto(key), SizeBytes: metadata.SizeBytes, Readiness: nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_STORED}, EvidenceBundle: &nexusv1.EvidenceBundleSummaryV1{EvidenceManifestHash: b.EvidenceManifestHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}}), nil
 	}})
 	got, err := newTestTaskDataClient(server.Client(), "").GetTaskDataMetadata(context.Background(), server.URL, GetTaskDataMetadataRequest{Key: key, Auth: auth})
-	if err != nil || got.EvidenceBundle == nil || got.EvidenceBundle.EvidenceBundleHash != want {
+	if err != nil || got.EvidenceBundle == nil || got.EvidenceBundle.EvidenceManifestHash != want {
 		t.Fatalf("metadata=%+v err=%v", got, err)
 	}
 }

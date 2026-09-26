@@ -1,15 +1,16 @@
 package builderclient
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"encoding/hex"
+	"strings"
+	"testing"
+
+	"connectrpc.com/connect"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	"google.golang.org/protobuf/proto"
-	"strings"
-	"testing"
 )
 
 func taskDataTestConfirmation(t *testing.T, pair taskDataTestKeyPair, auth TaskDataRequestAuth, key TaskDataKey, size, total uint64) *nexusv1.BuilderStorageConfirmationV1 {
@@ -25,7 +26,7 @@ func taskDataTestConfirmation(t *testing.T, pair taskDataTestKeyPair, auth TaskD
 func TestV040FinalizeResultRequiresCompleteScopedConfirmations(t *testing.T) {
 	pair := newTaskDataTestKeyPair(t)
 	receipt := taskDataTestReceipt(t, pair, "chain-A", []byte("result"))
-	request := FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: strings.Repeat("11", 32), TaskID: receipt.TaskID, Receipt: receipt}
+	request := FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: strings.Repeat("11", 32), TaskID: receipt.TaskID, Receipt: receipt, EvidenceKind: nodewire.EvidenceKindWorkerValueOpening}
 	digest, err := TaskDataFinalizeResultBodyDigest(request)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +34,7 @@ func TestV040FinalizeResultRequiresCompleteScopedConfirmations(t *testing.T) {
 	outputKey := TaskDataKey{TaskHash: request.TaskHash, SessionID: request.SessionID, TaskID: request.TaskID, Kind: DataKindOutput, ContentHash: receipt.OutputHash}
 	request.Auth = taskDataTestRequestAuth(t, pair, "FinalizeTaskResult", outputKey, digest)
 	commitment := receipt.RequiredEvidenceCommitments[0]
-	bundleKey := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress)
+	bundleKey := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress, nodewire.EvidenceKindWorkerValueOpening)
 	base := &nexusv1.FinalizeTaskResultResponse{Accepted: true, Idempotent: true, OutputConfirmation: taskDataTestConfirmation(t, pair, request.Auth, outputKey, receipt.OutputSizeBytes, 0), EvidenceBundleConfirmations: []*nexusv1.BuilderStorageConfirmationV1{taskDataTestConfirmation(t, pair, request.Auth, bundleKey, 512, commitment.EncodedSizeBytes)}}
 	cases := map[string]func(*nexusv1.FinalizeTaskResultResponse){
 		"valid":          func(*nexusv1.FinalizeTaskResultResponse) {},
@@ -83,9 +84,9 @@ func TestV040FinalizeResultRequiresCompleteScopedConfirmations(t *testing.T) {
 	}
 }
 
-func taskDataTestResultReceipt(t *testing.T, pair taskDataTestKeyPair) nodewire.ResultReceiptV2 {
+func taskDataTestResultReceipt(t *testing.T, pair taskDataTestKeyPair) nodewire.ResultReceiptV3 {
 	t.Helper()
-	receipt := nodewire.ResultReceiptV2{SchemaVersion: 2, ChainID: "chain-A", TaskID: mustDecodeHex(t, taskDataTestTaskID), VerifyRound: 2, VerifierOperatorAddress: pair.address(t), ServiceAuthorizationNonce: 9, GenerationParamsDigest: mustDecodeHex(t, strings.Repeat("33", 32)), MetricRoot: mustDecodeHex(t, strings.Repeat("44", 32)), MetricSummary: nodewire.MetricSummaryV1{FiniteCount: 3}, AggregateProofHash: mustDecodeHex(t, strings.Repeat("55", 32)), VerifierEvidenceBundleHash: mustDecodeHex(t, strings.Repeat("66", 32)), VerifierEvidenceManifestSizeBytes: 512, Salt: mustDecodeHex(t, strings.Repeat("77", 32)), ExpiryHeight: 400}
+	receipt := nodewire.ResultReceiptV3{SchemaVersion: nodewire.ResultReceiptSchemaVersionV3, ChainID: "chain-A", TaskID: mustDecodeHex(t, taskDataTestTaskID), VerifyRound: 2, VerifierOperatorAddress: pair.address(t), ServiceAuthorizationNonce: 9, GenerationParamsDigest: mustDecodeHex(t, strings.Repeat("33", 32)), MetricRoot: mustDecodeHex(t, strings.Repeat("44", 32)), MetricSummary: nodewire.MetricSummaryV1{FiniteCount: 3}, AggregateProofHash: mustDecodeHex(t, strings.Repeat("55", 32)), VerifierEvidenceBundleHash: mustDecodeHex(t, strings.Repeat("66", 32)), VerifierEvidenceManifestSizeBytes: 512, Salt: mustDecodeHex(t, strings.Repeat("77", 32)), ExpiryHeight: 400, VerifierValueRoot: mustDecodeHex(t, strings.Repeat("88", 32)), MetricLeafCount: 3, VerifierEvidenceKeyCommitment: make([]byte, 32)}
 	digest, err := nodewire.ResultReceiptSigningDigest(receipt)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ func TestV040FinalizeVerifierBindsRoundProducerReceiptAndSignature(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(receipt.VerifierEvidenceBundleHash), EvidenceProducerVerifier, receipt.VerifyRound, receipt.VerifierOperatorAddress)
+	key := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(receipt.VerifierEvidenceBundleHash), EvidenceProducerVerifier, receipt.VerifyRound, receipt.VerifierOperatorAddress, nodewire.EvidenceKindVerifierValueOpening)
 	request.Auth = taskDataTestRequestAuth(t, pair, "FinalizeVerifierEvidence", key, digest)
 	server := newTaskDataTestServer(t, &taskDataTestHandler{finalizeVerifier: func(_ context.Context, r *connect.Request[nexusv1.FinalizeVerifierEvidenceRequest]) (*connect.Response[nexusv1.FinalizeVerifierEvidenceResponse], error) {
 		expected, err := ResultReceiptProto(receipt)

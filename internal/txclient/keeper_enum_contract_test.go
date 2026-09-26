@@ -31,7 +31,7 @@ func TestKeeperEnumPrefixContract(t *testing.T) {
 	server := newProfileABCIServer(t)
 	defer server.Close()
 
-	state, err := chainclient.NewKeeperABCIClient(server.URL).CurrentModelProfile(context.Background(), "hf/org/model", "7")
+	state, err := chainclient.NewKeeperABCIClient(server.URL).CurrentModelProfile(context.Background(), strings.Repeat("5a", 32), "7")
 	if err != nil {
 		t.Fatalf("CurrentModelProfile() error = %v", err)
 	}
@@ -64,13 +64,13 @@ func newProfileABCIServer(t testing.TB) *httptest.Server {
 		bytes32[i] = 0x5a
 	}
 	modelResponse := &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
-		ModelId: "hf/org/model", ProposerAddress: "trueopen1proposer",
+		ModelId: bytes32, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
 		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1,
-		LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_PROFILE,
+		LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
 		CreatedHeight: 40, UpdatedHeight: 41,
 	}}
 	profileResponse := &hubv1.QueryProfileResponse{Profile: &hubv1.ProfileState{
-		ModelId: "hf/org/model", ProfileVersion: 7,
+		ModelId: bytes32, ProfileVersion: 7,
 		ManifestHash: bytes32, TokenizerHash: bytes32, RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1",
 		RequiredTopK: 20, TaskTypes: []sharedv1.TaskType{1}, GenerationType: 1,
 		ResourceTier: 1, MinStake: 100, ChallengeOpenWindowBlocks: 1800,

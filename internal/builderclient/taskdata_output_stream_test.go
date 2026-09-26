@@ -26,6 +26,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 		t.Fatal(err)
 	}
 	request := OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: taskDataTestRequestAuth(t, pair, "UploadTaskOutputStream", key, body)}
+	request.HeaderSignature = signOutputStreamHeader(t, pair, request)
 	mmr, _ := codec.NewMMR("TRUEOPEN_OUTPUT_MMR_V1")
 	for i, text := range chunks {
 		if err := mmr.Append([]byte(text)); err != nil {
@@ -219,7 +220,7 @@ func TestOutputStreamRejectsInvalidFin(t *testing.T) {
 			case "unspecified":
 				finish.FinishReason = nodewire.FinishReasonV1Unspecified
 			case "unknown":
-				finish.FinishReason = nodewire.FinishReasonV1MaxOutputDuration + 1
+				finish.FinishReason = nodewire.FinishReasonV1StopToken + 1
 			case "signature":
 				finish.WorkerSignature = nil
 			}
@@ -515,4 +516,15 @@ func TestOutputStreamSealedBuilderEndsStreamBeforeFin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// signOutputStreamHeader is the Worker's signature over the plaintext
+// OutputStreamHeaderV2 of the request's task.
+func signOutputStreamHeader(t *testing.T, pair taskDataTestKeyPair, request OutputStreamRequest) []byte {
+	t.Helper()
+	digest, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pair.sign(t, digest)
 }

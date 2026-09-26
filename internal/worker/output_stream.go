@@ -182,6 +182,17 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 		return nil, err
 	}
 	key := builderclient.TaskDataKey{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput}
+	// The Worker signs the plaintext OutputStreamHeaderV2 once per stream.
+	// TODO(wire v0.3.0): rc.1 does not name the header's signing key; the
+	// service key that signs the frames and the fin is used.
+	headerDigest, err := builderclient.OutputStreamHeaderDigest(w.cfg.ChainID, taskHash.String())
+	if err != nil {
+		return nil, err
+	}
+	headerSignature, err := w.signDigest(ctx, headerDigest)
+	if err != nil {
+		return nil, fmt.Errorf("sign output stream header: %w", err)
+	}
 	streams := make([]builderclient.TaskOutputStream, 0, len(endpoints))
 	builders := make([]string, 0, len(endpoints))
 	closeOpened := func() {
@@ -197,7 +208,7 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 		}
 		stream, err := w.cfg.TaskData.OpenTaskOutputStream(
 			builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint,
-			builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, ReplayChunks: frames})
+			builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, HeaderSignature: headerSignature, ReplayChunks: frames})
 		if err != nil {
 			closeOpened()
 			return nil, fmt.Errorf("open output stream to Task Builder %s: %w", endpoint.OperatorAddress, err)

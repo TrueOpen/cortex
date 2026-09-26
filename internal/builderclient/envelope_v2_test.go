@@ -47,7 +47,7 @@ func testWorkerHandraisePayload(taskID string) *bustaskv1.WorkerHandraiseV1 {
 	return &bustaskv1.WorkerHandraiseV1{
 		SchemaVersion: 1, ChainId: "chain-1",
 		TaskId: raw, TaskHash: bytes.Repeat([]byte{0xcd}, 32),
-		ModelId: "model-a", ProfileVersion: 1,
+		ModelId: bytes.Repeat([]byte{0xa1}, 32), ProfileVersion: 1,
 		Member: &bustaskv1.CandidateMemberRefV1{
 			CandidatePoolSnapshotId: bytes.Repeat([]byte{0x11}, 32),
 			Slot:                    1, SlotVersion: 1, OperatorAddress: "trueopen1j7r6u8nwvw93l2tc0wd75v07vu89lxyfqf8fut",
@@ -101,7 +101,7 @@ func TestEnvelopeRoundTripAndSignature(t *testing.T) {
 	if err := envelope.DecodePayload(&decoded); err != nil {
 		t.Fatalf("DecodePayload: %v", err)
 	}
-	if decoded.GetModelId() != "model-a" {
+	if !bytes.Equal(decoded.GetModelId(), bytes.Repeat([]byte{0xa1}, 32)) {
 		t.Fatalf("payload round-trip mismatch: %+v", &decoded)
 	}
 }
