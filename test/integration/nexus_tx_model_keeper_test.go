@@ -27,7 +27,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	"github.com/TrueOpen/cortex/internal/identity"
-	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -67,7 +67,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	}
 
 	const (
-		modelID         = "adapter-llm-text"
+		modelID         = "9cb09da4605605802c0285affde0219b39e209b7c46370884662f0dd6016e88e"
 		modelSvcID      = "grpc-model-service"
 		chainID         = "chain-integration"
 		workerAddress   = "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
@@ -138,7 +138,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 			Signer: testDigestSigner(), ServiceKeyRef: "test-worker-key", ServiceAddress: workerAddress,
 			ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
 			GasPayer:        gasPayer, FeeCap: txclient.Coin{Amount: 5, Denom: "utrueopen"},
-			SupportedProfiles: []keepercontract.ProfileRef{{ModelID: modelID, ProfileVersion: 1}},
+			SupportedModels: []string{modelID},
 		}),
 	})
 
@@ -294,7 +294,8 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		// from hub.v1.Query/Profile and passes it to the Worker. This rig
 		// supplies the same V1 shape directly so the receipt can be signed.
 		EvidenceSchemaHash:          hex.EncodeToString(evidenceSchemaHash[:]),
-		ProfileEvidenceRequirements: builderclient.WorkerValueEvidenceRequirementsV2(),
+		ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(),
+		RequiredTopK:                integrationLockedProfile(modelID).Profile.RequiredTopK,
 		StreamLimits:                &chainclient.OutputStreamLimitsSnapshot{MaxOutputMMRLeaves: 65536, MinOutputStreamFrameBytes: 16},
 		// The fixture keeps the assignment's Builder as the only authority, the
 		// same binding daemon.receivingBuilders enforces in production.
@@ -400,10 +401,19 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		// verification cannot precede the acceptance that locked the set.
 	}
 	verifierState.ConfirmedOutput = persistence.artifacts[taskID+"/worker-output"]
-	verifierState.ConfirmedTrace = persistence.artifacts[taskID+"/worker-trace"]
-	verifierState.ConfirmedCheckpoint = persistence.artifacts[taskID+"/worker-checkpoint"]
-	verifierState.ConfirmedInputTokenIDs = persistence.artifacts[taskID+"/worker-input_token_ids"]
-	verifierState.ConfirmedGeneratedTokenIDs = persistence.artifacts[taskID+"/worker-generated_token_ids"]
+	// The Verifier reads the Worker's two published bundles, as the daemon's
+	// confirmer downloads them from the Builder.
+	_, tokenBundle, err := workerPersistence{persistence}.WorkerBundle(ctx, taskID, nodewire.EvidenceKindWorkerTokenOpening)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, valueBundle, err := workerPersistence{persistence}.WorkerBundle(ctx, taskID, nodewire.EvidenceKindWorkerValueOpening)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifierState.ConfirmedInputTokenIDs = tokenBundle[builderclient.EvidenceArtifactInputTokenIDs]
+	verifierState.ConfirmedGeneratedTokenIDs = tokenBundle[builderclient.EvidenceArtifactGeneratedTokenIDs]
+	verifierState.ConfirmedWorkerValues = valueBundle[builderclient.EvidenceArtifactWorkerValues]
 	var verifyTraceRecords []observability.LogRecord
 	verifierPrivate := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{0x71}, 32))
 	verifierPubkey := verifierPrivate.PubKey().SerializeCompressed()
@@ -451,7 +461,9 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		// generation_params_digest is a consensus value the verifier copies
 		// through, so the result credential refuses without this reader.
 		TaskFacts: taskfacts.ReaderFunc(generation.TaskFacts),
-		Trace:     &tasktrace.Trace{Emit: func(record observability.LogRecord) { verifyTraceRecords = append(verifyTraceRecords, record) }},
+		// The accepted order's generation parameters; the prefill runs under them.
+		GenerationReader: generation,
+		Trace:            &tasktrace.Trace{Emit: func(record observability.LogRecord) { verifyTraceRecords = append(verifyTraceRecords, record) }},
 		// The commit exit, over the same tx boundary the settlement stages below
 		// use. No relay is wired because none exists: the bus registers no
 		// VERIFY_COMMIT kind, so the signed commit reaches CommitState only from
@@ -673,6 +685,16 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		verifyResult.MetricMaterial.LeafCount == 0 {
 		t.Fatalf("verify produced no metric material: %#v", verifyResult.MetricMaterial)
 	}
+	facts, err := generation.TaskFacts(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertD1RootsAndCommitments(t, modelServer, d1Scenario{
+		chainID: chainID, taskID: taskID, workerAddress: workerAddress, verifierAddress: verifierAddr,
+		facts: facts, profile: integrationLockedProfile(modelID), finishReason: nodewire.FinishReasonV1EosToken,
+		inferReceipt: infer.TaskDataReceipt, workerBundle: workerPersistence{persistence}.WorkerBundle,
+		commit: verifyResult.CommitWire, salt: verifyResult.Salt, material: verifyResult.MetricMaterial, result: finalizedReceipt,
+	})
 
 	settlementManager := verifier.NewSettlementManager(verifier.SettlementConfig{
 		Tx:               tx,
@@ -1042,7 +1064,7 @@ type integrationVerifierEvidencePublisher struct {
 	builderOperator, builderPubkey, verifierPubkey string
 }
 
-func (p integrationVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Context, state verifier.TaskState, receipt nodewire.ResultReceiptV2, manifestBytes, proof []byte) error {
+func (p integrationVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Context, state verifier.TaskState, receipt nodewire.ResultReceiptV3, manifestBytes, proof []byte) error {
 	manifest, err := evidencebundle.Decode(manifestBytes)
 	if err != nil {
 		return err
@@ -1064,7 +1086,7 @@ func (p integrationVerifierEvidencePublisher) PublishVerifierEvidence(ctx contex
 	}
 	key := func(kind builderclient.DataKind, hash string) builderclient.TaskDataKey {
 		return builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, kind, hash,
-			builderclient.EvidenceProducerVerifier, manifest.VerifyRound, receipt.VerifierOperatorAddress)
+			builderclient.EvidenceProducerVerifier, manifest.VerifyRound, receipt.VerifierOperatorAddress, nodewire.EvidenceKindVerifierValueOpening)
 	}
 	manifestKey := key(builderclient.DataKindEvidenceManifest, bundleHash.String())
 	for _, object := range []struct {
@@ -1124,11 +1146,68 @@ type workerPersistence struct{ base *integrationPersistence }
 func (p workerPersistence) WriteEvidence(ctx context.Context, record worker.EvidenceRecord) error {
 	return p.base.writeEvidence(ctx, record.TaskID, record.Kind, record.Data)
 }
-func (p workerPersistence) CheckpointInferOutput(ctx context.Context, taskID string, output, trace, checkpoint []byte, cp worker.InferOutputCheckpoint) error {
+
+// PublishWorkerBundle stores one Worker bundle in the evidence store's bundle
+// layout, as the daemon does.
+func (p workerPersistence) PublishWorkerBundle(ctx context.Context, taskID string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error {
+	id, err := p.bundleID(taskID, kind)
+	if err != nil {
+		return err
+	}
+	_, err = p.base.evidence.PublishBundle(ctx, evidence.BundleRequest{ID: id, Manifest: manifest, Artifacts: artifacts})
+	return err
+}
+
+func (p workerPersistence) WorkerBundle(_ context.Context, taskID string, kind nodewire.EvidenceKind) ([]byte, map[string][]byte, error) {
+	id, err := p.bundleID(taskID, kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifestBytes, _, err := p.base.evidence.ReadBundleManifest(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifest, err := evidencebundle.Decode(manifestBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	artifacts := map[string][]byte{}
+	for _, artifact := range manifest.Artifacts {
+		raw, err := hex.DecodeString(artifact.ContentHash)
+		if err != nil || len(raw) != 32 {
+			return nil, nil, fmt.Errorf("artifact %s content hash is not Hash32", artifact.ID)
+		}
+		size, err := artifact.SizeBytes()
+		if err != nil {
+			return nil, nil, err
+		}
+		if artifacts[artifact.ID], err = p.base.evidence.ReadBundleArtifact(id, codec.Hash(raw), int64(size)); err != nil {
+			return nil, nil, err
+		}
+	}
+	return manifestBytes, artifacts, nil
+}
+
+// bundleID keys a Worker bundle by the task's accepted hash, the same
+// task-scoped layout the daemon uses.
+func (p workerPersistence) bundleID(taskID string, kind nodewire.EvidenceKind) (evidence.BundleID, error) {
+	_ = taskID
+	taskHash := p.base.taskHash
+	switch kind {
+	case nodewire.EvidenceKindWorkerTokenOpening:
+		return evidence.WorkerTokenBundle(taskHash), nil
+	case nodewire.EvidenceKindWorkerValueOpening:
+		return evidence.WorkerValueBundle(taskHash), nil
+	default:
+		return evidence.BundleID{}, fmt.Errorf("evidence kind %d is not a Worker bundle", kind)
+	}
+}
+
+func (p workerPersistence) CheckpointInferOutput(ctx context.Context, taskID string, output, tokenIDs, positionValues []byte, cp worker.InferOutputCheckpoint) error {
 	for _, rec := range []worker.EvidenceRecord{
 		{TaskID: taskID, Kind: "worker-output", Data: output},
-		{TaskID: taskID, Kind: "worker-trace", Data: trace},
-		{TaskID: taskID, Kind: "worker-checkpoint", Data: checkpoint},
+		{TaskID: taskID, Kind: "worker-token-ids-material", Data: tokenIDs},
+		{TaskID: taskID, Kind: "worker-position-values-material", Data: positionValues},
 		{TaskID: taskID, Kind: "worker-output-descriptor", Data: cp.DescriptorJSON},
 	} {
 		if err := p.WriteEvidence(ctx, rec); err != nil {
@@ -1470,6 +1549,9 @@ type integrationGRPCServer struct {
 	inferCalls  int
 	verifyCalls int
 	artifacts   map[string][]byte
+	// The raw model outputs of the last Infer and Verify, which D1 recomputes
+	// every published root and commitment from.
+	workerTokenIDs, workerPositionValues, verifierValues []byte
 }
 
 func newIntegrationGRPCServer(t *testing.T) *integrationGRPCServer {
@@ -1496,9 +1578,17 @@ func newIntegrationGRPCServer(t *testing.T) *integrationGRPCServer {
 }
 
 func (s *integrationGRPCServer) Infer(_ context.Context, req *cortexv1.InferRequest) (*cortexv1.InferResponse, error) {
+	modelID, err := identity.ModelIDHex(req.GetModelId())
+	if err != nil {
+		return nil, err
+	}
 	g, p, d := req.GetGeneration(), req.GetGeneration().GetParams(), req.GetGeneration().GetParams().GetDecodingParams()
+	generationModelID, err := identity.ModelIDHex(g.GetModelId())
+	if err != nil {
+		return nil, err
+	}
 	generation := nodewire.GenerationContext{
-		ModelID: g.GetModelId(), ProfileVersion: g.GetProfileVersion(), TaskType: g.GetTaskType(), OutputBudgetBucket: g.GetOutputBudgetBucket(),
+		ModelID: generationModelID, ProfileVersion: g.GetProfileVersion(), TaskType: g.GetTaskType(), OutputBudgetBucket: g.GetOutputBudgetBucket(),
 		Params: nodewire.GenerationParamsV1{SchemaVersion: p.GetGenerationParamsSchemaVersion(), MaxOutputTokens: p.GetMaxOutputTokens(), MaxOutputDuration: p.GetMaxOutputDuration(),
 			DecodingParams: nodewire.DecodingParamsV1{
 				SamplingEnabled: d.GetSamplingEnabled(), TemperatureMilli: d.GetTemperatureMilli(), TopPPPM: d.GetTopPPpm(), TopK: d.GetTopK(), Seed: d.GetSeed(),
@@ -1506,16 +1596,17 @@ func (s *integrationGRPCServer) Infer(_ context.Context, req *cortexv1.InferRequ
 				StopSequences: d.GetStopSequences(), StopTokenIDs: d.GetStopTokenIds(),
 			}},
 	}
-	trace, checkpoint, err := generationfixture.Evidence(modelservice.InferRequest{
-		ModelID: req.GetModelId(), ProfileVersion: req.GetProfileVersion(), Generation: &generation, GenerationParamsDigest: req.GetGenerationParamsDigest(),
-	}, []byte("artifact-output"), 2)
+	tokenIDs, positionValues, err := generationfixture.Material(modelservice.InferRequest{
+		ModelID: modelID, ProfileVersion: req.GetProfileVersion(), Generation: &generation, GenerationParamsDigest: req.GetGenerationParamsDigest(),
+	}, integrationGeneratedTokens)
 	if err != nil {
 		return nil, err
 	}
-	traceRef, checkpointRef := modelservice.NewArtifactRef("svc-1", trace).String(), modelservice.NewArtifactRef("svc-1", checkpoint).String()
+	tokenIDsRef, positionValuesRef := modelservice.NewArtifactRef("svc-1", tokenIDs).String(), modelservice.NewArtifactRef("svc-1", positionValues).String()
 	s.mu.Lock()
 	s.inferCalls++
-	s.artifacts[traceRef], s.artifacts[checkpointRef] = trace, checkpoint
+	s.artifacts[tokenIDsRef], s.artifacts[positionValuesRef] = tokenIDs, positionValues
+	s.workerTokenIDs, s.workerPositionValues = tokenIDs, positionValues
 	s.mu.Unlock()
 	return &cortexv1.InferResponse{
 		RequestId:              req.GetRequestId(),
@@ -1526,29 +1617,57 @@ func (s *integrationGRPCServer) Infer(_ context.Context, req *cortexv1.InferRequ
 		ProfileVersion:         req.GetProfileVersion(),
 		RequestDigest:          req.GetRequestDigest(),
 		OutputRef:              modelservice.NewArtifactRef("svc-1", []byte("artifact-output")).String(),
-		TraceRef:               traceRef,
-		CheckpointRef:          checkpointRef,
-		GeneratedTokenCount:    2,
+		TokenIdsRef:            tokenIDsRef,
+		PositionValuesRef:      positionValuesRef,
+		GeneratedTokenCount:    integrationGeneratedTokens,
 		GenerationParamsDigest: req.GetGenerationParamsDigest(),
 		FinishReason:           "eos_token",
 		WorkUnit:               1,
 	}, nil
 }
 
+// integrationGeneratedTokens is how many tokens the rig's model generates.
+const integrationGeneratedTokens = 2
+
+// Verify is the Verifier's prefill over the Worker's token ids. It answers
+// with its own values, a small deterministic drift away from the Worker's, so
+// the Verifier's value root differs from the Worker's while the metrics agree.
 func (s *integrationGRPCServer) Verify(_ context.Context, req *cortexv1.VerifyRequest) (*cortexv1.VerifyResponse, error) {
 	s.mu.Lock()
 	s.verifyCalls++
 	s.mu.Unlock()
-	sampleDigest := sha256.Sum256(req.GetSample())
-	var trace, checkpoint []byte
+	var tokenIDs *cortexv1.TokenIDsV1
 	for _, item := range req.GetEvidence() {
-		if item.GetEvidenceKind() == modelservice.EvidenceKindWorkerValueOpening {
-			trace = item.GetTrace()
-			checkpoint = item.GetCheckpoint()
-			break
+		if item.GetEvidenceKind() == modelservice.EvidenceKindWorkerTokenOpening {
+			tokenIDs = item.GetTokenIds()
 		}
 	}
-	materialDigest := sha256.Sum256(append(trace, checkpoint...))
+	if tokenIDs == nil {
+		return nil, fmt.Errorf("verify request carries no token ids")
+	}
+	values := make([]metric.PositionValue, len(tokenIDs.GetGeneratedTokenIds()))
+	for i, id := range tokenIDs.GetGeneratedTokenIds() {
+		logprob := -0.5 - 0.001*float64(i+1)
+		topK := make([]metric.TokenLogprob, generationfixture.FixtureTopK)
+		topK[0] = metric.TokenLogprob{TokenID: id, Logprob: logprob}
+		for rank := 1; rank < len(topK); rank++ {
+			topK[rank] = metric.TokenLogprob{TokenID: 100000 + uint32(rank), Logprob: logprob - float64(rank)}
+		}
+		values[i] = metric.PositionValue{TokenID: id, Logprob: logprob, Rank: 1, TopK: topK}
+	}
+	encoded, err := modelservice.EncodePositionValuesArtifact(values)
+	if err != nil {
+		return nil, err
+	}
+	var verifierValues cortexv1.PositionValuesV1
+	if err := proto.Unmarshal(encoded, &verifierValues); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.verifierValues = encoded
+	s.mu.Unlock()
+	sampleDigest := sha256.Sum256(req.GetSample())
+	materialDigest := sha256.Sum256(append(append([]byte(nil), req.GetSample()...), encoded...))
 	return &cortexv1.VerifyResponse{
 		RequestId:                      req.GetRequestId(),
 		ModelServiceId:                 req.GetModelServiceId(),
@@ -1557,25 +1676,19 @@ func (s *integrationGRPCServer) Verify(_ context.Context, req *cortexv1.VerifyRe
 		ModelId:                        req.GetModelId(),
 		ProfileVersion:                 req.GetProfileVersion(),
 		RequestDigest:                  req.GetRequestDigest(),
-		MainMismatchCount:              2,
-		SelectedPositionsOrCheckpoints: []int32{1, 3},
+		MainMismatchCount:              0,
+		SelectedPositionsOrCheckpoints: []int32{0, 1},
 		SampleValueSequenceRef:         modelservice.NewArtifactRef("svc-1", []byte("7")).String(),
 		SampleValueDigest:              sampleDigest[:],
 		ResultCommitMaterialDigest:     materialDigest[:],
 		GenerationParamsDigest:         req.GetGenerationParamsDigest(),
-		// The per-token comparison, carried over the model management RPC. It is
-		// what proves the grpc boundary maps the metric fields at all: the fake
-		// model service in internal/modelservice never crosses a transport, so
-		// only this rig can catch a dropped field there.
-		MetricSamples: integrationMetricSamples(),
+		VerifierValues:                 &verifierValues,
 	}, nil
 }
 
 func (s *integrationGRPCServer) FetchArtifact(req *cortexv1.FetchArtifactRequest, stream cortexv1.ModelManagementService_FetchArtifactServer) error {
 	dataByRef := map[string][]byte{
 		modelservice.NewArtifactRef("svc-1", []byte("artifact-output")).String(): []byte("artifact-output"),
-		modelservice.NewArtifactRef("svc-1", []byte("trace")).String():           []byte("trace"),
-		modelservice.NewArtifactRef("svc-1", []byte("checkpoint")).String():      []byte("checkpoint"),
 		modelservice.NewArtifactRef("svc-1", []byte("7")).String():               []byte("7"),
 	}
 	data := dataByRef[req.GetRef()]
@@ -1680,7 +1793,7 @@ func mustEvidenceStore(t *testing.T, root string) *evidence.Store {
 }
 
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {
-	return policy.OutputPackageSummary{TaskID: pkg.TaskID, OutputRef: pkg.OutputRef, TraceRef: pkg.TraceRef, CheckpointRef: pkg.CheckpointRef, OutputHash: pkg.OutputHash, PackageHash: pkg.PackageHash}
+	return policy.OutputPackageSummary{TaskID: pkg.TaskID, OutputRef: pkg.OutputRef, TokenIDsRef: pkg.TokenIDsRef, PositionValuesRef: pkg.PositionValuesRef, OutputHash: pkg.OutputHash, PackageHash: pkg.PackageHash}
 }
 
 func outputPackageKey(taskID string, packageHash codec.Hash) string {
