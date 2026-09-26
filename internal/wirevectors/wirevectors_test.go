@@ -46,6 +46,13 @@ func TestPrereleaseVectorsMatchTheirManifest(t *testing.T) {
 		"task/result_receipt_v3.json",
 		"task/metric_leaf_v3.json",
 		"task/result_metric_v3.json",
+		"task/task_order_v3.json",
+		"task/output_stream_header_v1.json",
+		"task/task_data_auth_v1.json",
+		"task/builder_confirmation_v1.json",
+		"task/canonical_json_v1.json",
+		"task/task_domains_v1.json",
+		"hub/model_id_v1.json",
 	} {
 		if _, err := PrereleaseFile(path); err != nil {
 			t.Fatalf("PrereleaseFile(%s): %v", path, err)
