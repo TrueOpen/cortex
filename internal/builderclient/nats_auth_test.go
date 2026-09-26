@@ -22,9 +22,9 @@ import (
 
 func applyNATSAuth(t *testing.T, auth NATSAuth) nats.Options {
 	t.Helper()
-	opts, err := natsAuthOptions(auth)
+	_, opts, err := natsConnectOptions(auth)
 	if err != nil {
-		t.Fatalf("natsAuthOptions: %v", err)
+		t.Fatalf("natsConnectOptions: %v", err)
 	}
 	applied := nats.GetDefaultOptions()
 	for _, opt := range opts {
@@ -104,10 +104,10 @@ func TestNATSAuthKeepsTokenForDev(t *testing.T) {
 }
 
 func TestNATSAuthRejectsMissingFiles(t *testing.T) {
-	if _, err := natsAuthOptions(NATSAuth{URL: "tls://n:4222", CredsFile: "/nonexistent/cortex.creds"}); err == nil || !strings.Contains(err.Error(), "nats_creds_file") {
+	if _, _, err := natsConnectOptions(NATSAuth{URL: "tls://n:4222", CredsFile: "/nonexistent/cortex.creds"}); err == nil || !strings.Contains(err.Error(), "nats_creds_file") {
 		t.Fatalf("missing creds = %v, want an error naming nats_creds_file", err)
 	}
-	if _, err := natsAuthOptions(NATSAuth{URL: "tls://n:4222", CAFile: "/nonexistent/ca.pem"}); err == nil || !strings.Contains(err.Error(), "nats_ca_file") {
+	if _, _, err := natsConnectOptions(NATSAuth{URL: "tls://n:4222", CAFile: "/nonexistent/ca.pem"}); err == nil || !strings.Contains(err.Error(), "nats_ca_file") {
 		t.Fatalf("missing ca = %v, want an error naming nats_ca_file", err)
 	}
 }

@@ -51,6 +51,9 @@ func TestRealModeRefusesWeakTransportSettings(t *testing.T) {
 	}{
 		{"plaintext nats", func(c *Config) { c.Nexus.NATSURL = "nats://nats.example:4222" }, "nexus.nats_url must use tls://"},
 		{"remote nats without ca file", func(c *Config) { c.Nexus.NATSCAFile = "" }, "nexus.nats_ca_file"},
+		{"creds file with a served address", func(c *Config) {
+			c.Nexus.NATSURL, c.Nexus.NATSCAFile, c.Nexus.NATSCredsFile = "", "", "/etc/cortex/nats.creds"
+		}, "nexus.nats_creds_file is retired"},
 		{"plaintext remote rpc", func(c *Config) { c.Node.RPCEndpoint = "http://node.example:26657" }, "node.rpc_endpoint"},
 		{"plaintext remote rest", func(c *Config) { c.Node.RESTEndpoint = "http://node.example:1317" }, "node.rest_endpoint"},
 		{"remote model service without tls", func(c *Config) { c.ModelManagement.TLS = ModelServiceTLSConfig{} }, "model_management.tls"},
@@ -68,6 +71,23 @@ func TestRealModeRefusesWeakTransportSettings(t *testing.T) {
 				t.Fatalf("Validate = %v, want an error naming %s", err, tc.want)
 			}
 		})
+	}
+}
+
+// With the on-chain identity the NATS address and certificate may come from a
+// Builder's sentinel (interface-and-topic-list §4.12): leaving both unset is a valid
+// real-mode config. Whether the Builder then serves a certificate is checked when
+// connecting, and a remote server with none is refused there. A configured remote
+// address still needs a configured certificate (the case above).
+func TestRealModeTakesNATSAddressAndCertificateFromSentinel(t *testing.T) {
+	cfg := hardenedRealConfig()
+	cfg.Nexus.NATSURL, cfg.Nexus.NATSCAFile = "", ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("real mode without nats_url and nats_ca_file rejected: %v", err)
+	}
+	cfg.Nexus.NATSUserKeyFile = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "nexus.nats_url is required unless nexus.nats_user_key_file") {
+		t.Fatalf("Validate = %v, want nats_url required without the on-chain identity", err)
 	}
 }
 

@@ -378,14 +378,14 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 	if opts.NexusPublisher != nil {
 		publisher = opts.NexusPublisher
 	} else if cfg.UsesRealDependencies() {
-		publisher, publisherErr = builderclient.NewNATSPublisherWithAuth(nexusNATSAuth(cfg.Nexus, token, chainIdentity))
+		publisher, publisherErr = builderclient.NewNATSPublisherWithAuth(nexusNATSAuth(cfg, token, chainIdentity))
 	}
 	var subscriber builderclient.Subscriber
 	var subscriberErr error
 	if opts.NexusSubscriber != nil {
 		subscriber = opts.NexusSubscriber
 	} else if cfg.UsesRealDependencies() {
-		subscriber, subscriberErr = builderclient.NewNATSSubscriberWithAuth(nexusNATSAuth(cfg.Nexus, token, chainIdentity), cfg.Nexus.JetStreamStream, nexusDurablePrefix(cfg))
+		subscriber, subscriberErr = builderclient.NewNATSSubscriberWithAuth(nexusNATSAuth(cfg, token, chainIdentity), cfg.Nexus.JetStreamStream, nexusDurablePrefix(cfg))
 	}
 	constructed = append(constructed, publisher, subscriber)
 

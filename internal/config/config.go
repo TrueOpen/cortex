@@ -883,7 +883,6 @@ func (c *Config) collectRequiredFields(modelTransport, inputResolver string) []r
 	if c.UsesRealDependencies() {
 		required = append(required,
 			requiredField{field: "nexus.ingress_url", value: c.Nexus.IngressURL, consumer: "nexus"},
-			requiredField{field: "nexus.nats_url", value: c.Nexus.NATSURL, consumer: "nexus"},
 			requiredField{field: "nexus.jetstream_stream", value: c.Nexus.JetStreamStream, consumer: "nexus"},
 			requiredField{field: "local_identity.operator_address", value: c.LocalIdentity.OperatorAddress, consumer: "taskdataauth"},
 			requiredField{field: "local_identity.service_key_ref", value: c.LocalIdentity.ServiceKeyRef, consumer: "signer"},
@@ -1017,6 +1016,9 @@ func (c *Config) Validate() error {
 	// exists precisely so that opting into them is a named deployment rather
 	// than an override smuggled past a real-mode config.
 	if c.UsesRealDependencies() {
+		if strings.TrimSpace(c.Nexus.NATSURL) == "" && strings.TrimSpace(c.Nexus.NATSUserKeyFile) == "" {
+			problems = append(problems, "nexus.nats_url is required unless nexus.nats_user_key_file is set: only the on-chain identity can take the NATS address from a Builder's sentinel (ADR-0016)")
+		}
 		if c.Mode == ModeReal {
 			if c.Nexus.TrustedNATSDev() {
 				problems = append(problems, "nexus.envelope_auth_mode must not be trusted_nats_dev in real mode")
@@ -1227,9 +1229,13 @@ func (t ModelServiceTLSConfig) validate() error {
 // realModeTransportProblems is the deployment security baseline's transport check
 // in real mode:
 //   - a remote nexus.nats_url must be tls:// and must supply nexus.nats_ca_file (the
-//     ADR-0016 transition state validates against the distributed certificate file
-//     and never falls back to the system root CAs); authentication accepts only the
-//     on-chain identity (§5.14), and the creds file is retired;
+//     ADR-0016 transition state never falls back to the system root CAs);
+//     authentication accepts only the on-chain identity (§5.14), and the creds file is
+//     retired;
+//   - leaving nexus.nats_url empty takes the address and the certificate from the
+//     Builder's sentinel (§4.12, ADR-0016 decision one item 1); nexus.nats_ca_file may
+//     then be empty too, and a remote server with no served certificate is refused
+//     when connecting;
 //   - a non-loopback node.rpc_endpoint / rest_endpoint must be https://;
 //   - a non-loopback grpc model service must configure model_management.tls, with no
 //     plaintext exemption (baseline items 4 and 5).
@@ -1243,17 +1249,20 @@ func (c *Config) realModeTransportProblems(modelTransport string) []string {
 		if !strings.HasPrefix(strings.ToLower(natsURL), "tls://") {
 			problems = append(problems, "nexus.nats_url must use tls:// in real mode for a remote NATS (ADR-0016)")
 		}
+		// A configured remote address is verified against a configured certificate; only
+		// leaving both empty hands the pair to the Builder's sentinel. Refusing here
+		// beats a node that starts and then fails every connect.
 		if strings.TrimSpace(c.Nexus.NATSCAFile) == "" {
-			problems = append(problems, "nexus.nats_ca_file is required in real mode for a remote NATS: verify the server against the distributed certificate, not the system roots (ADR-0016)")
+			problems = append(problems, "nexus.nats_ca_file is required in real mode for a remote nexus.nats_url: verify the server against the distributed certificate, not the system roots; or leave both empty to take them from the builder's sentinel (ADR-0016)")
 		}
-		// ADR-0016 decision three: real mode joins with the on-chain identity only, and
-		// the creds file is retired.
+		// ADR-0016 decision three: real mode joins with the on-chain identity only.
 		if strings.TrimSpace(c.Nexus.NATSUserKeyFile) == "" {
 			problems = append(problems, "nexus.nats_user_key_file is required in real mode for a remote NATS: cortex joins NATS with its on-chain identity (ADR-0016 decision three, §5.14)")
 		}
-		if strings.TrimSpace(c.Nexus.NATSCredsFile) != "" {
-			problems = append(problems, "nexus.nats_creds_file is retired in real mode: remove it and set nexus.nats_user_key_file (ADR-0016 decision three)")
-		}
+	}
+	// The creds file is retired whatever the address source.
+	if strings.TrimSpace(c.Nexus.NATSCredsFile) != "" {
+		problems = append(problems, "nexus.nats_creds_file is retired in real mode: remove it and set nexus.nats_user_key_file (ADR-0016 decision three)")
 	}
 	for _, endpoint := range []struct{ field, value string }{
 		{"node.rpc_endpoint", c.Node.RPCEndpoint}, {"node.rest_endpoint", c.Node.RESTEndpoint},

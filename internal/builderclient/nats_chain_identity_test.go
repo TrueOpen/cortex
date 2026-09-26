@@ -41,7 +41,7 @@ func TestNATSAuthOptionsUseSentinelJWTAndTokenHandlerForChainIdentity(t *testing
 		Token:         "trueopen-nub1.abc",
 		SentinelJWT:   "eyJ.sentinel.one",
 	}}
-	opts, err := natsAuthOptions(NATSAuth{URL: "tls://nats.example:4222", ChainIdentity: provider})
+	_, opts, err := natsConnectOptions(NATSAuth{URL: "tls://nats.example:4222", ChainIdentity: provider})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestNATSAuthOptionsUseSentinelJWTAndTokenHandlerForChainIdentity(t *testing
 
 // The nkey and the signing function do not change during one connection's lifetime:
 // the user key does not rotate with the binding, so the handshake uses the SignNonce
-// obtained at the moment natsAuthOptions ran.
+// obtained at the moment natsConnectOptions ran.
 func TestNATSAuthOptionsSignatureCallbackStaysTheInitialSigner(t *testing.T) {
 	provider := &fakeChainIdentity{cred: NATSChainCredential{
 		UserPublicKey: "UA5WUJ54Z23KILLCUOUNAKTPBVZWKMQVO4O6EQ5GHLAERIMLLHNCTYM5",
@@ -85,7 +85,7 @@ func TestNATSAuthOptionsSignatureCallbackStaysTheInitialSigner(t *testing.T) {
 		Token:         "trueopen-nub1.abc",
 		SentinelJWT:   "eyJ.sentinel.one",
 	}}
-	opts, err := natsAuthOptions(NATSAuth{URL: "tls://nats.example:4222", ChainIdentity: provider})
+	_, opts, err := natsConnectOptions(NATSAuth{URL: "tls://nats.example:4222", ChainIdentity: provider})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestNATSAuthOptionsTokenHandlerFallsBackToLastGoodToken(t *testing.T) {
 		Token:         "trueopen-nub1.abc",
 		SentinelJWT:   "eyJ.sentinel.one",
 	}}
-	opts, err := natsAuthOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
+	_, opts, err := natsConnectOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestNATSAuthOptionsUserJWTFallsBackToLastSentinel(t *testing.T) {
 		Token:         "trueopen-nub1.abc",
 		SentinelJWT:   "eyJ.sentinel.one",
 	}}
-	opts, err := natsAuthOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
+	_, opts, err := natsConnectOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestNATSAuthOptionsRefuseEmptySentinel(t *testing.T) {
 		SignNonce:     func([]byte) ([]byte, error) { return nil, nil },
 		Token:         "trueopen-nub1.abc",
 	}}
-	_, err := natsAuthOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
+	_, _, err := natsConnectOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
 	if err == nil || !strings.Contains(err.Error(), "sentinel") {
 		t.Fatalf("empty sentinel must fail the connect and name the cause, got %v", err)
 	}
@@ -159,7 +159,7 @@ func TestNATSAuthOptionsRefuseEmptySentinel(t *testing.T) {
 
 func TestNATSAuthOptionsChainIdentityWinsOverCredsAndToken(t *testing.T) {
 	provider := &fakeChainIdentity{cred: NATSChainCredential{UserPublicKey: "U", SignNonce: func([]byte) ([]byte, error) { return nil, nil }, Token: "t", SentinelJWT: "eyJ.sentinel.one"}}
-	opts, err := natsAuthOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider, CredsFile: "/nonexistent.creds", Token: "legacy"})
+	_, opts, err := natsConnectOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider, CredsFile: "/nonexistent.creds", Token: "legacy"})
 	if err != nil {
 		t.Fatalf("creds/token must be ignored when a chain identity is present: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestNATSAuthOptionsChainIdentityWinsOverCredsAndToken(t *testing.T) {
 
 func TestNATSAuthOptionsPropagateProviderFailure(t *testing.T) {
 	provider := &fakeChainIdentity{err: errors.New("chain unavailable")}
-	if _, err := natsAuthOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider}); err == nil || !errors.Is(err, provider.err) {
+	if _, _, err := natsConnectOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider}); err == nil || !errors.Is(err, provider.err) {
 		t.Fatalf("provider failure must fail the connect, got %v", err)
 	}
 }
@@ -223,7 +223,7 @@ func TestNATSAuthOptionsInvalidateOnRuntimeAuthErrors(t *testing.T) {
 		Token:         "trueopen-nub1.abc",
 		SentinelJWT:   "eyJ.sentinel.one",
 	}}
-	opts, err := natsAuthOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
+	_, opts, err := natsConnectOptions(NATSAuth{URL: "tls://x:4222", ChainIdentity: provider})
 	if err != nil {
 		t.Fatal(err)
 	}

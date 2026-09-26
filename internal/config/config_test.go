@@ -1974,7 +1974,7 @@ func TestIntegrationModeEnforcesTheSameDependencyRulesAsRealMode(t *testing.T) {
 		want   string
 	}{
 		{name: "nexus ingress required", mutate: func(c *Config) { c.Nexus.IngressURL = "" }, want: "nexus.ingress_url"},
-		{name: "nats url required", mutate: func(c *Config) { c.Nexus.NATSURL = "" }, want: "nexus.nats_url"},
+		{name: "nats url required without the on-chain identity", mutate: func(c *Config) { c.Nexus.NATSURL, c.Nexus.NATSUserKeyFile = "", "" }, want: "nexus.nats_url"},
 		{name: "operator address required", mutate: func(c *Config) { c.LocalIdentity.OperatorAddress = "" }, want: "local_identity.operator_address"},
 		{name: "signer uri validated", mutate: func(c *Config) { c.Signer.URI = "ftp://signer" }, want: "signer.uri"},
 		{name: "retry delay required", mutate: func(c *Config) { c.TaskExecution.RetryDelayMS = 0 }, want: "task_execution.retry_delay_ms"},
