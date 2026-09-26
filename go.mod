@@ -14,6 +14,7 @@ require (
 	github.com/nats-io/nkeys v0.4.7
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/crypto v0.24.0
+	golang.org/x/term v0.21.0
 	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1

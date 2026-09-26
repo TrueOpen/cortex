@@ -91,6 +91,8 @@ func newRootCommand(stdout io.Writer) *cobra.Command {
 		newEarningsCommand(stdout),
 		newEvidenceCommand(client, stdout),
 		newTaskCommand(client, stdout),
+		// onboard runs before cortexd exists, so it takes no admin client.
+		newOnboardCommand(stdout),
 	)
 	return root
 }
