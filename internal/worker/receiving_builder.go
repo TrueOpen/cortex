@@ -31,9 +31,21 @@ func receivingBuilderRef(event chainclient.AssignmentFinalized) ReceivingBuilder
 // ReceivingBuilderProvider yields the receiving Builder's operator address,
 // Nexus endpoint, current service pubkey and the chain height those were pinned
 // at. It is the single switch point for where per-task Builder authority is
-// read from; see ReceivingBuilderRef and TrueOpen/node#92.
+// read from; see ReceivingBuilderRef.
+//
+// Two methods because the two paths genuinely differ, not because one is a
+// leftover. Output frames go to every Task Builder (04-任务/02 §9.2: 逐帧向全部
+// Task Builders 推送), so a Builder that is down cannot strand the task and a
+// Verifier can obtain data from any of them. The receipt and evidence upload
+// still targets one Builder; widening that is a separate change with its own
+// finalization and storage-confirmation semantics.
 type ReceivingBuilderProvider interface {
 	ResolveReceivingBuilder(ctx context.Context, task ReceivingBuilderRef) (BuilderEndpoint, error)
+	// ResolveReceivingBuilders returns every Task Builder of this task in the
+	// order the chain froze, which is also the order
+	// MsgReportDataUnavailable's bitmap is defined against. Callers must not
+	// reorder it.
+	ResolveReceivingBuilders(ctx context.Context, task ReceivingBuilderRef) ([]BuilderEndpoint, error)
 }
 
 // ReceivingBuilderRefresher is an optional capability: re-read the descriptor once,
@@ -52,6 +64,23 @@ func (f ReceivingBuilderFunc) ResolveReceivingBuilder(
 	task ReceivingBuilderRef,
 ) (BuilderEndpoint, error) {
 	return f(ctx, task)
+}
+
+// ResolveReceivingBuilders answers with the one Builder the function knows. A
+// caller that has only a function has no task-to-Builder-list read to offer, so
+// the honest answer is the single-element list rather than an error: the frame
+// path then behaves exactly as it did before, which is what a test fixture or a
+// fake wants. Production wires daemon.receivingBuilders, which reads the frozen
+// selection from the chain.
+func (f ReceivingBuilderFunc) ResolveReceivingBuilders(
+	ctx context.Context,
+	task ReceivingBuilderRef,
+) ([]BuilderEndpoint, error) {
+	endpoint, err := f(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	return []BuilderEndpoint{endpoint}, nil
 }
 
 // BuilderEndpoint is the resolved receiving-Builder identity a Worker needs to
@@ -77,6 +106,32 @@ func (w *Worker) receivingBuilder(ctx context.Context, ref ReceivingBuilderRef) 
 		return BuilderEndpoint{}, fmt.Errorf("receiving Builder provider is required")
 	}
 	return w.checkReceivingBuilder(w.cfg.ReceivingBuilder.ResolveReceivingBuilder(ctx, ref))
+}
+
+// receivingBuilders resolves every Task Builder for one task. Each is checked
+// the same way the single receiving Builder is, and an unusable member fails the
+// whole resolution rather than being skipped: relaying to a subset while
+// believing it is the whole set is the failure this read exists to remove.
+func (w *Worker) receivingBuilders(ctx context.Context, ref ReceivingBuilderRef) ([]BuilderEndpoint, error) {
+	if w.cfg.ReceivingBuilder == nil {
+		return nil, fmt.Errorf("receiving Builder provider is required")
+	}
+	builders, err := w.cfg.ReceivingBuilder.ResolveReceivingBuilders(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if len(builders) == 0 {
+		return nil, fmt.Errorf("task has no resolved Task Builders")
+	}
+	checked := make([]BuilderEndpoint, 0, len(builders))
+	for _, builder := range builders {
+		endpoint, err := w.checkReceivingBuilder(builder, nil)
+		if err != nil {
+			return nil, err
+		}
+		checked = append(checked, endpoint)
+	}
+	return checked, nil
 }
 
 // refreshReceivingBuilder re-reads past the cache; a provider without refresh support

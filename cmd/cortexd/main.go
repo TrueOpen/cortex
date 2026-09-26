@@ -261,7 +261,7 @@ func receivingBuilderProvider(rt *daemon.Runtime) worker.ReceivingBuilderProvide
 	if rt == nil {
 		return nil
 	}
-	return daemon.NewReceivingBuilders(rt.BuilderEndpoints)
+	return daemon.NewReceivingBuilders(rt.BuilderEndpoints, rt.SelectedTaskBuilders)
 }
 
 // taskFactsReader exposes the Keeper's frozen section 16.2 Task reads to the
