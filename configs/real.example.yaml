@@ -53,6 +53,13 @@ task_execution:
   # model_management transport `fake` and is not a production shape.
   input_resolver: nexus
 nexus:
+  # ingress_url is optional. No Nexus call dials it: the address comes from the
+  # Builder's on-chain service descriptor. Setting it asks for one extra startup
+  # check -- that the Builder you think you configured is the one the chain
+  # published -- which catches a stale or wrong-network config before the first
+  # dial rather than after. Leave it out and that check is skipped; the node
+  # resolves the descriptor either way. A value that is set must use https:// or
+  # grpcs:// unless allow_insecure_descriptor is on.
   ingress_url: https://nexus.trueopen.example.org
   # nats_url and nats_ca_file are optional with nats_user_key_file below: leave
   # both out and they come from the Builder's GET /v1/nats/sentinel response,
