@@ -1,0 +1,283 @@
+{
+  "notes": [
+    "The V3 commit binds only the Verifier value root and salt, not the reveal payload hash.",
+    "The V3 result signature binds the Verifier value root, metric leaf count and zero plaintext encryption commitment.",
+    "The V2 reveal payload retains a separate integrity digest and includes the InferReceiptV3 digest."
+  ],
+  "schema": "trueopen.task.result_receipt.v3",
+  "source": "Result commitment, receipt and reveal payload wire contract",
+  "vectors": [
+    {
+      "contract_section": "Public ResultReceiptV3 metric and signing projection",
+      "digest_hex": "9790987ab9c449018d2732afa71414d25fe268022f7566b6dac28dc80cbfd037",
+      "domain": "TRUEOPEN_METRIC_SUMMARY_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "name": "finite_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "missing_compared_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "mean_abs_logprob_diff_fp_1e6",
+              "type": "uint32",
+              "value": 50000
+            },
+            {
+              "name": "abs_logprob_diff_p95_fp_1e6",
+              "type": "uint32",
+              "value": 50000
+            },
+            {
+              "name": "abs_logprob_diff_p99_fp_1e6",
+              "type": "uint32",
+              "value": 50000
+            },
+            {
+              "name": "rank_delta_nonzero_rate_fp_1e6",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_mean_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_p99_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "compared_topk_count",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "compared_rank_count",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "metric_summary",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "metric_summary_v1",
+      "preimage_hex": "000000000000001a545255454f50454e5f4d45545249435f53554d4d4152595f5631000000000000007200000000000000040000000200000000000000040000000100000000000000040000c35000000000000000040000c35000000000000000040000c350000000000000000400000000000000000000000100000000000000000100000000000000000400000000000000000000000400000002",
+      "preimage_size_bytes": 156,
+      "producer": "MetricSummaryHash"
+    },
+    {
+      "contract_section": "Public ResultReceiptV3 metric and signing projection",
+      "digest_hex": "b3e33424514fe1e552b1a4578793d08c42cb9f5df3501d077ace1c5e4ee74192",
+      "domain": "TRUEOPEN_RESULT_COMMITMENT_V3",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "2b753f1e4d4bf656f8bdce49c18362c4aa1a25f2",
+          "name": "verifier_operator_address",
+          "type": "address"
+        },
+        {
+          "hex": "58e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+          "name": "verifier_value_root",
+          "type": "bytes"
+        },
+        {
+          "hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "salt",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "result_commitment_v3",
+      "preimage_hex": "000000000000001d545255454f50454e5f524553554c545f434f4d4d49544d454e545f56330000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f2000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea0000000000000020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "preimage_size_bytes": 262,
+      "producer": "ResultCommitHash"
+    },
+    {
+      "contract_section": "Public ResultReceiptV3 metric and signing projection",
+      "digest_hex": "bba2363794eaf8068fdcd4839da3c71860f21082ba89b7921258cea01e9d4be1",
+      "domain": "TRUEOPEN_RESULT_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "2b753f1e4d4bf656f8bdce49c18362c4aa1a25f2",
+          "name": "verifier_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "6e5fd01c9cf8c5e5eb8a5d593e526c74846418b0903c84264cb231fd2f65cb51",
+          "name": "metric_root",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "name": "finite_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "missing_compared_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "mean_abs_logprob_diff_fp_1e6",
+              "type": "uint32",
+              "value": 50000
+            },
+            {
+              "name": "abs_logprob_diff_p95_fp_1e6",
+              "type": "uint32",
+              "value": 50000
+            },
+            {
+              "name": "abs_logprob_diff_p99_fp_1e6",
+              "type": "uint32",
+              "value": 50000
+            },
+            {
+              "name": "rank_delta_nonzero_rate_fp_1e6",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_mean_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_p99_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "compared_topk_count",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "compared_rank_count",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "metric_summary",
+          "type": "frame"
+        },
+        {
+          "hex": "6a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db2",
+          "name": "aggregate_proof_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "9b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d341",
+          "name": "verifier_evidence_bundle_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "verifier_evidence_manifest_size_bytes",
+          "type": "uint64",
+          "value": 556
+        },
+        {
+          "hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "salt",
+          "type": "bytes"
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "hex": "58e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+          "name": "verifier_value_root",
+          "type": "bytes"
+        },
+        {
+          "name": "metric_leaf_count",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "verifier_evidence_key_commitment",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "result_v3_signing_digest",
+      "preimage_hex": "0000000000000012545255454f50454e5f524553554c545f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000100000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f2000000000000000800000000000000070000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000206e5fd01c9cf8c5e5eb8a5d593e526c74846418b0903c84264cb231fd2f65cb51000000000000007200000000000000040000000200000000000000040000000100000000000000040000c35000000000000000040000c35000000000000000040000c35000000000000000040000000000000000000000010000000000000000010000000000000000040000000000000000000000040000000200000000000000206a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db200000000000000209b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d3410000000000000008000000000000022c0000000000000020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000800000000000007d0000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea00000000000000040000000300000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 605,
+      "producer": "ResultReceiptSigningDigest"
+    },
+    {
+      "digest_hex": "db8b24edd376e7a930da645c10a003af430db17cce0de8bd1921b9fa878ce526",
+      "domain": "TRUEOPEN_VERIFIER_RESULT_PAYLOAD_V2",
+      "framing": "H_V1",
+      "name": "verifier_result_payload_v2",
+      "payload_hex": "000000000000001956455249464945525f524553554c545f52455645414c5f56320000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000040000000000000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f2000000000000002015e29d03a8c636d37ec0b133c92db3c2fe7407bff68c7fec9a6980a54ca832470000000000000020444444444444444444444444444444444444444444444444444444444444444400000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea00000000000000206e5fd01c9cf8c5e5eb8a5d593e526c74846418b0903c84264cb231fd2f65cb5100000000000000040000000300000000000000209790987ab9c449018d2732afa71414d25fe268022f7566b6dac28dc80cbfd03700000000000000206a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db200000000000000209b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d3410000000000000008000000000000022c00000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_hex": "545255454f50454e5f4652414d455f563100000023545255454f50454e5f56455249464945525f524553554c545f5041594c4f41445f56320000000000000242000000000000001956455249464945525f524553554c545f52455645414c5f56320000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000040000000000000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f2000000000000002015e29d03a8c636d37ec0b133c92db3c2fe7407bff68c7fec9a6980a54ca832470000000000000020444444444444444444444444444444444444444444444444444444444444444400000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea00000000000000206e5fd01c9cf8c5e5eb8a5d593e526c74846418b0903c84264cb231fd2f65cb5100000000000000040000000300000000000000209790987ab9c449018d2732afa71414d25fe268022f7566b6dac28dc80cbfd03700000000000000206a54c75efb90d4fb60f16fa685633e634e3ce8a3c1d3ab68f5ff600eb1952db200000000000000209b568692f6d7f01cbc7d6d8fa79d37c73c5e24e6e1f533fe7620be6ea2c9d3410000000000000008000000000000022c00000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 642
+    }
+  ]
+}
