@@ -155,7 +155,11 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	if err := bond.Validate(); err != nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, err
 	}
-	if bond.OperatorAddress != e.cfg.OperatorAddress || !strings.EqualFold(bond.Status, "ACTIVE") || bond.ActiveBond.Uint64() < projection.Profile.MinStake.Uint64() {
+	// Same admission set as the readiness gate and as the chain: a REGISTERED bond
+	// hand-raises, which is the only way it ever becomes ACTIVE. Relaxing readiness
+	// alone would move the deadlock here rather than remove it. The stake floor
+	// below is the substantive test and is unchanged.
+	if bond.OperatorAddress != e.cfg.OperatorAddress || !bond.CandidateEligible() || bond.ActiveBond.Uint64() < projection.Profile.MinStake.Uint64() {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("Keeper service bond is not eligible for handraise")
 	}
 	if !committedScope {
