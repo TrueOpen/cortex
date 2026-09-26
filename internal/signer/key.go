@@ -115,6 +115,63 @@ func identityFor(public *secp256k1.PublicKey, hrp string) (identity, error) {
 	return identity{CompressedPubkeyHex: hex.EncodeToString(compressed), Address: address}, nil
 }
 
+// GeneratedKey is a freshly created service key: the secret to encrypt, and the
+// public identity to register on chain.
+type GeneratedKey struct {
+	// PrivateKeyHex is 64 hex characters, the form EncryptKeystoreV3 takes. It
+	// is the only copy; nothing here persists it.
+	PrivateKeyHex    string
+	CompressedPubkey string
+	Address          string
+}
+
+// GenerateServiceKey creates a new secp256k1 service key and derives the
+// identity it will be registered under.
+//
+// The key comes from crypto/rand through the curve library's own generator
+// rather than from raw bytes, so a value outside the group order is rejected by
+// construction instead of being reduced into a weaker key.
+//
+// Deriving the public identity here, from the private key just generated, is
+// what makes the caller's later claims checkable: the address printed for
+// funding and the pubkey put in the registration are the same key the keystore
+// holds, not three values assembled from different places.
+func GenerateServiceKey(hrp string) (GeneratedKey, error) {
+	private, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		return GeneratedKey{}, fmt.Errorf("generate service key: %w", err)
+	}
+	if private.Key.IsZero() {
+		return GeneratedKey{}, fmt.Errorf("generated service key is zero")
+	}
+	derived, err := identityFor(private.PubKey(), hrp)
+	if err != nil {
+		return GeneratedKey{}, err
+	}
+	secret := private.Serialize()
+	defer func() {
+		for i := range secret {
+			secret[i] = 0
+		}
+	}()
+	return GeneratedKey{
+		PrivateKeyHex:    hex.EncodeToString(secret),
+		CompressedPubkey: derived.CompressedPubkeyHex,
+		Address:          derived.Address,
+	}, nil
+}
+
+// SignDigestWithPrivateKeyHex signs a digest with a key that is not loaded into
+// a signer. Onboarding is the only caller: the registration proof has to be
+// produced before the key exists anywhere a LocalSigner could read it from.
+func SignDigestWithPrivateKeyHex(privateKeyHex string, digest codec.Hash) ([]byte, error) {
+	private, err := parsePrivateKeyHex(privateKeyHex)
+	if err != nil {
+		return nil, err
+	}
+	return signCompact(private, digest)
+}
+
 func parsePrivateKeyHex(raw string) (*secp256k1.PrivateKey, error) {
 	trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "0x"))
 	if len(trimmed) != 64 {
