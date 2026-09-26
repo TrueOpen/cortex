@@ -126,13 +126,14 @@ func TestResultRevealIsTheVerifierResultPayload(t *testing.T) {
 	var taskIDHash codec.Hash
 	copy(taskIDHash[:], taskIDBytes)
 	facts := servedTaskFacts(state.TaskID)
-	want, err := revealcontract.CanonicalVerifierResultPayload(revealcontract.VerifierResultPayloadV1{
+	want, err := revealcontract.CanonicalVerifierResultPayload(revealcontract.VerifierResultPayloadV2{
 		ChainID:                           "chain-A",
 		TaskID:                            taskIDHash,
 		TaskHash:                          codec.Hash(facts.AcceptedTaskHash),
 		VerifyRound:                       uint32(state.VerifyRound),
 		VerifierOperatorAddress:           fixtureVerifierAddress,
 		InferReceiptHash:                  state.InferReceiptHash,
+		VerifierValueRoot:                 result.MetricMaterial.VerifierValueRoot,
 		MetricRoot:                        result.MetricMaterial.Root,
 		MetricLeafCount:                   uint32(result.MetricMaterial.LeafCount),
 		MetricSummaryHash:                 metricSummaryHash,
@@ -148,15 +149,14 @@ func TestResultRevealIsTheVerifierResultPayload(t *testing.T) {
 	if !bytes.Equal(result.ResultReveal, want) {
 		t.Fatalf("result reveal = %x\nwant the VerifierResult payload %x", result.ResultReveal, want)
 	}
-	// The commit binds it through result_reveal_hash, frozen field 5.
-	revealHash := nodewire.ResultPayloadHash(result.ResultReveal)
-	wantCommit, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV2{
+	// The V3 commit binds verifier_value_root and the salt, not the payload.
+	wantCommit, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{
 		ChainID:                 "chain-A",
 		TaskID:                  taskIDBytes,
 		TaskHash:                facts.AcceptedTaskHash,
 		VerifyRound:             uint32(state.VerifyRound),
 		VerifierOperatorAddress: fixtureVerifierAddress,
-		ResultPayloadHash:       revealHash[:],
+		VerifierValueRoot:       result.MetricMaterial.VerifierValueRoot[:],
 		Salt:                    result.Salt[:],
 	})
 	if err != nil {
@@ -174,13 +174,14 @@ func TestResultRevealIsTheVerifierResultPayload(t *testing.T) {
 // different result_reveal_hash values by construction. Anything that groups
 // verifiers by that hash can never reach a quorum.
 func TestPayloadBindsVerifierAndSelectedIndex(t *testing.T) {
-	base := revealcontract.VerifierResultPayloadV1{
+	base := revealcontract.VerifierResultPayloadV2{
 		ChainID:                           "chain-A",
 		TaskID:                            codec.HashWithDomain("TEST_TASK", []byte("t")),
 		TaskHash:                          codec.HashWithDomain("TEST_ACCEPTED", []byte("t")),
 		VerifyRound:                       1,
 		VerifierOperatorAddress:           fixtureVerifierAddress,
 		InferReceiptHash:                  codec.HashWithDomain("TEST_RECEIPT", []byte("t")),
+		VerifierValueRoot:                 codec.HashWithDomain("TEST_VALUE_ROOT", []byte("t")),
 		MetricRoot:                        codec.HashWithDomain("TEST_ROOT", []byte("t")),
 		MetricLeafCount:                   8,
 		MetricSummaryHash:                 codec.HashWithDomain("TEST_SUMMARY", []byte("t")),

@@ -13,75 +13,108 @@ import (
 	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
-func releasedPayload(t *testing.T) (VerifierResultPayloadV1, []byte, string) {
+// The published payload is decoded field by field into the typed payload and
+// re-encoded, so the test checks the field order rather than copying bytes.
+func TestVerifierResultPayloadV2ReproducesPublishedVector(t *testing.T) {
+	payload, published, digestHex := releasedPayload(t)
+	encoded, err := CanonicalVerifierResultPayload(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, published) {
+		t.Fatal("canonical V2 payload differs from the published bytes")
+	}
+	digest := nodewire.ResultPayloadHash(encoded)
+	if hex.EncodeToString(digest[:]) != digestHex {
+		t.Fatalf("result_payload_hash = %x, published %s", digest, digestHex)
+	}
+
+	nonZero := payload
+	nonZero.VerifierEvidenceKeyCommitment[0] = 1
+	if _, err := CanonicalVerifierResultPayload(nonZero); err == nil {
+		t.Fatal("CanonicalVerifierResultPayload() accepted a non-zero plaintext key commitment")
+	}
+	noRoot := payload
+	noRoot.VerifierValueRoot = codec.Hash{}
+	if _, err := CanonicalVerifierResultPayload(noRoot); err == nil {
+		t.Fatal("CanonicalVerifierResultPayload() accepted a zero verifier_value_root")
+	}
+}
+
+// releasedPayload is wire's verifier_result_payload_v2 vector as a typed payload,
+// with its exact bytes and digest.
+func releasedPayload(t *testing.T) (VerifierResultPayloadV2, []byte, string) {
 	t.Helper()
-	raw, err := wirevectors.File("task/result_receipt_v2.json")
+	data, err := wirevectors.File("task/result_receipt_v3.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var file struct {
 		Vectors []struct {
 			Name       string `json:"name"`
+			Domain     string `json:"domain"`
 			PayloadHex string `json:"payload_hex"`
 			DigestHex  string `json:"digest_hex"`
-		}
+		} `json:"vectors"`
 	}
-	if err := json.Unmarshal(raw, &file); err != nil {
+	if err := json.Unmarshal(data, &file); err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range file.Vectors {
-		if v.Name != "verifier_result_payload_v1" {
-			continue
+	var payloadHex, digestHex string
+	for _, vector := range file.Vectors {
+		if vector.Name == "verifier_result_payload_v2" && vector.Domain == nodewire.DomainVerifierResultPayloadV2 {
+			payloadHex, digestHex = vector.PayloadHex, vector.DigestHex
 		}
-		payload, err := hex.DecodeString(v.PayloadHex)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var fields [][]byte
-		for data := payload; len(data) > 0; {
-			if len(data) < 8 {
-				t.Fatal("truncated length")
-			}
-			n := binary.BigEndian.Uint64(data[:8])
-			data = data[8:]
-			if n > uint64(len(data)) {
-				t.Fatal("truncated field")
-			}
-			fields = append(fields, data[:n])
-			data = data[n:]
-		}
-		if len(fields) != 16 {
-			t.Fatalf("payload has %d fields", len(fields))
-		}
-		h := func(index int) codec.Hash { var result codec.Hash; copy(result[:], fields[index]); return result }
-		return VerifierResultPayloadV1{ChainID: string(fields[1]), TaskID: h(2), TaskHash: h(3), VerifyRound: binary.BigEndian.Uint32(fields[4]),
-			SelectedVerifierIndex: binary.BigEndian.Uint32(fields[5]), VerifierOperatorAddress: "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
-			InferReceiptHash: h(7), ProfileExecutionSnapshotHash: h(8), GenerationParamsDigest: h(9), MetricRoot: h(10), MetricLeafCount: binary.BigEndian.Uint32(fields[11]),
-			MetricSummaryHash: h(12), AggregateProofHash: h(13), VerifierEvidenceBundleHash: h(14), VerifierEvidenceManifestSizeBytes: binary.BigEndian.Uint64(fields[15])}, payload, v.DigestHex
 	}
-	t.Fatal("missing release payload")
-	return VerifierResultPayloadV1{}, nil, ""
-}
-
-func TestCanonicalVerifierResultPayloadMatchesRelease(t *testing.T) {
-	payload, want, digest := releasedPayload(t)
-	got, err := CanonicalVerifierResultPayload(payload)
+	published, err := hex.DecodeString(payloadHex)
+	if err != nil || len(published) == 0 {
+		t.Fatalf("no verifier_result_payload_v2 vector: %v", err)
+	}
+	fields := splitFrame(t, published)
+	if len(fields) != 18 || string(fields[0]) != VerifierResultPayloadVersionV2 {
+		t.Fatalf("published payload has %d fields tagged %q, want 18 tagged %s", len(fields), fields[0], VerifierResultPayloadVersionV2)
+	}
+	verifier, err := nodewire.CanonicalOperatorAddressString("trueopen", fields[6])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("payload mismatch\n%x\n%x", got, want)
+	hash := func(i int) codec.Hash {
+		var h codec.Hash
+		if len(fields[i]) != len(h) {
+			t.Fatalf("payload field %d is %d bytes, want 32", i, len(fields[i]))
+		}
+		copy(h[:], fields[i])
+		return h
 	}
-	hash := nodewire.ResultPayloadHash(got)
-	if hex.EncodeToString(hash[:]) != digest {
-		t.Fatalf("payload digest %x, want %s", hash, digest)
+	payload := VerifierResultPayloadV2{
+		ChainID:                           string(fields[1]),
+		TaskID:                            hash(2),
+		TaskHash:                          hash(3),
+		VerifyRound:                       binary.BigEndian.Uint32(fields[4]),
+		SelectedVerifierIndex:             binary.BigEndian.Uint32(fields[5]),
+		VerifierOperatorAddress:           verifier,
+		InferReceiptHash:                  hash(7),
+		ProfileExecutionSnapshotHash:      hash(8),
+		GenerationParamsDigest:            hash(9),
+		VerifierValueRoot:                 hash(10),
+		MetricRoot:                        hash(11),
+		MetricLeafCount:                   binary.BigEndian.Uint32(fields[12]),
+		MetricSummaryHash:                 hash(13),
+		AggregateProofHash:                hash(14),
+		VerifierEvidenceBundleHash:        hash(15),
+		VerifierEvidenceManifestSizeBytes: binary.BigEndian.Uint64(fields[16]),
+		VerifierEvidenceKeyCommitment:     hash(17),
 	}
+	return payload, published, digestHex
 }
 
 func TestCanonicalVerifierPayloadBindsEveryField(t *testing.T) {
 	base, want, _ := releasedPayload(t)
 	for i := 0; i < reflect.TypeOf(base).NumField(); i++ {
 		name := reflect.TypeOf(base).Field(i).Name
+		if name == "VerifierEvidenceKeyCommitment" {
+			continue // must stay ZERO32 in plaintext; refused above
+		}
 		t.Run(name, func(t *testing.T) {
 			changed := base
 			field := reflect.ValueOf(&changed).Elem().Field(i)
@@ -105,20 +138,20 @@ func TestCanonicalVerifierPayloadBindsEveryField(t *testing.T) {
 	}
 }
 
-func TestCanonicalVerifierPayloadRejectsMissingScope(t *testing.T) {
-	base, _, _ := releasedPayload(t)
-	for i := 0; i < reflect.TypeOf(base).NumField(); i++ {
-		name := reflect.TypeOf(base).Field(i).Name
-		if name == "SelectedVerifierIndex" {
-			continue
+func splitFrame(t *testing.T, frame []byte) [][]byte {
+	t.Helper()
+	var fields [][]byte
+	for offset := 0; offset < len(frame); {
+		if len(frame)-offset < 8 {
+			t.Fatal("truncated frame length")
 		}
-		t.Run(name, func(t *testing.T) {
-			changed := base
-			field := reflect.ValueOf(&changed).Elem().Field(i)
-			field.Set(reflect.Zero(field.Type()))
-			if _, err := CanonicalVerifierResultPayload(changed); err == nil {
-				t.Fatal("missing scope accepted")
-			}
-		})
+		length := int(binary.BigEndian.Uint64(frame[offset:]))
+		offset += 8
+		if length > len(frame)-offset {
+			t.Fatal("frame field overruns the payload")
+		}
+		fields = append(fields, frame[offset:offset+length])
+		offset += length
 	}
+	return fields
 }

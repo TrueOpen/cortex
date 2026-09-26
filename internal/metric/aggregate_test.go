@@ -144,16 +144,19 @@ func TestZeroSamplesProduceAZeroSummaryAndAMatchingRoot(t *testing.T) {
 	binding := fixtureBinding()
 	// compare_topk_jaccard / compare_union_js are set in the fixture profile, so
 	// the samples must still measure them; everything else is zeroed.
+	// A V3 leaf carries ratios only when it is finite, so the one sample is a
+	// finite position whose every value is zero.
 	samples := []Sample{{
 		OutputPosition: 0,
 		TopKJaccard:    PresentFP(0),
 		UnionJS:        PresentFP(0),
+		Finite:         true,
 	}}
 	material, err := Build(binding, samples)
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
 	}
-	if material.Summary.FiniteCount != 0 || material.Summary.ComparedRankCount != 0 {
+	if material.Summary.FiniteCount != 1 || material.Summary.MeanAbsLogprobDiffFP1e6 != 0 || material.Summary.ComparedRankCount != 0 {
 		t.Fatalf("summary %#v does not describe the zero samples it was built from", material.Summary)
 	}
 	// And it is still a real commitment: the root is over the leaf that recorded

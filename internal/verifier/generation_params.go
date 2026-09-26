@@ -4,31 +4,39 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-func (v *Verifier) generationForEvidence(ctx context.Context, state TaskState, output, trace, checkpoint []byte) (*nodewire.GenerationContext, []byte, error) {
-	if v.cfg.FakeOutput {
+// GenerationReader reads the frozen generation parameters of an accepted task
+// from the order it was accepted under.
+type GenerationReader interface {
+	TaskGeneration(context.Context, string, codec.Hash) (nodewire.GenerationContext, error)
+}
+
+// taskGeneration is the generation context the prefill runs under. It comes
+// from the accepted order, never from Worker evidence: the Worker's values are
+// no longer a verify input, and the order is what generation_params_digest
+// commits.
+func (v *Verifier) taskGeneration(ctx context.Context, state TaskState) (*nodewire.GenerationContext, []byte, error) {
+	if v.cfg.FakeOutput && v.cfg.GenerationReader == nil {
 		return nil, nil, nil
 	}
 	facts, err := v.taskFacts(ctx, state.TaskID)
 	if err != nil {
 		return nil, nil, err
 	}
-	generation, err := modelservice.GenerationContextFromTrace(trace)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Worker evidence generation parameters: %w", err)
+	if v.cfg.GenerationReader == nil {
+		return nil, nil, fmt.Errorf("frozen task generation parameter reader is required")
 	}
-	if err := modelservice.ValidateGenerationContext(generation, facts.GenerationParamsDigest, state.ModelID, fmt.Sprint(state.ProfileVersion)); err != nil {
+	generation, err := v.cfg.GenerationReader.TaskGeneration(ctx, state.TaskID, codec.Hash(facts.AcceptedTaskHash))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read frozen task generation parameters: %w", err)
+	}
+	if err := modelservice.ValidateGenerationContext(&generation, facts.GenerationParamsDigest, state.ModelID, fmt.Sprint(state.ProfileVersion)); err != nil {
 		return nil, nil, err
 	}
-	_, reason, err := modelservice.ValidateGenerationEvidence(generation, facts.GenerationParamsDigest, output, trace, checkpoint)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Worker generation evidence: %w", err)
-	}
-	if reason != state.ConfirmedFinishReason {
-		return nil, nil, fmt.Errorf("Worker generation evidence finish reason differs from receipt commitment")
-	}
-	return generation, append([]byte(nil), facts.GenerationParamsDigest...), nil
+	generation = generation.Clone()
+	return &generation, append([]byte(nil), facts.GenerationParamsDigest...), nil
 }

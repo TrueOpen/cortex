@@ -35,6 +35,7 @@ import (
 const (
 	fixtureVerifierAddress      = "trueopen1c5mpzp95cwm4syklatc07u2p2knan53rl38lmx"
 	fixtureOtherVerifierAddress = "trueopen1zjfm0d6rcnc8jmkqlkllhw7gkf6kdr2pft0s6y"
+	fixtureWorkerAddress        = "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
 	fixtureThirdVerifierAddress = "trueopen13twauuzs7swcd2hxxa4e0detz9exzwegj5hncc"
 	fixtureResultReveal         = "p000000=42|salt=001122"
 )
@@ -113,7 +114,7 @@ func TestVerifierHandraisePersistsBeforePublishing(t *testing.T) {
 		hex.EncodeToString(handraise.GetTaskId()) != state.TaskID ||
 		handraise.GetVerifyRound() != uint32(state.VerifyRound) ||
 		!bytes.Equal(handraise.GetInferReceiptHash(), state.InferReceiptHash[:]) ||
-		!bytes.Equal(handraise.GetOutputHash(), state.OutputPackage.OutputHash[:]) || handraise.GetModelId() != state.ModelID ||
+		!bytes.Equal(handraise.GetOutputHash(), state.OutputPackage.OutputHash[:]) || hex.EncodeToString(handraise.GetModelId()) != state.ModelID ||
 		handraise.GetProfileVersion() != state.ProfileVersion ||
 		hex.EncodeToString(handraise.GetMember().GetCandidatePoolSnapshotId()) != state.Member.CandidatePoolSnapshotID ||
 		handraise.GetDuty() != 2 ||
@@ -168,8 +169,8 @@ func TestTrustedNATSDevEncodesUnsignedVerifierEnvelope(t *testing.T) {
 		SenderOperatorAddress: fixtureVerifierAddress, SenderParticipantType: builderclient.ParticipantCortex,
 		ServiceAuthorizationNonce: 11,
 	}
-	message, err := builderclient.ResultReceiptProto(nodewire.ResultReceiptV2{
-		SchemaVersion: 2, ChainID: "chain-A", TaskID: bytes.Repeat([]byte{0xab}, 32),
+	message, err := builderclient.ResultReceiptProto(nodewire.ResultReceiptV3{
+		SchemaVersion: nodewire.ResultReceiptSchemaVersionV3, ChainID: "chain-A", TaskID: bytes.Repeat([]byte{0xab}, 32),
 		VerifyRound: 1, VerifierOperatorAddress: fixtureVerifierAddress,
 		ServiceAuthorizationNonce:         11,
 		GenerationParamsDigest:            bytes.Repeat([]byte{0x01}, 32),
@@ -180,6 +181,7 @@ func TestTrustedNATSDevEncodesUnsignedVerifierEnvelope(t *testing.T) {
 		VerifierEvidenceManifestSizeBytes: 123,
 		Salt:                              bytes.Repeat([]byte{0x06}, 32),
 		ExpiryHeight:                      9, ServiceSignature: bytes.Repeat([]byte{0x05}, 64),
+		VerifierValueRoot: bytes.Repeat([]byte{0x07}, 32), MetricLeafCount: 1, VerifierEvidenceKeyCommitment: make([]byte, 32),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -410,8 +412,8 @@ func TestOutputPackageMustMatchTaskState(t *testing.T) {
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(state.OutputPackage.TaskID),
 		[]byte(state.OutputPackage.OutputRef),
-		[]byte(state.OutputPackage.TraceRef),
-		[]byte(state.OutputPackage.CheckpointRef),
+		[]byte(state.OutputPackage.TokenIDsRef),
+		[]byte(state.OutputPackage.PositionValuesRef),
 		state.OutputPackage.OutputHash[:],
 	)
 
@@ -958,7 +960,7 @@ func TestNoMetricMaterialStopsTheCommitNotJustTheReveal(t *testing.T) {
 	if !errors.Is(err, ErrVerifyCommitInputUnavailable) {
 		t.Fatalf("verify error = %v, want the commit refused for a missing frozen input", err)
 	}
-	if !strings.Contains(err.Error(), "aggregate_proof_hash") {
+	if !strings.Contains(err.Error(), "verifier_value_root") {
 		t.Fatalf("commit refusal %q does not name the field it cannot source", err)
 	}
 	if len(h.tx.Requests()) != 0 {
@@ -1004,10 +1006,10 @@ func TestVerifyRefusesAModelServiceThatReturnsNoMetricSamples(t *testing.T) {
 	state.OpenVerifyAccepted = true
 
 	_, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if !errors.Is(err, ErrResultReceiptInputUnavailable) {
-		t.Fatalf("verify error = %v, want the missing metric samples reported as a frozen input gap", err)
+	if err == nil {
+		t.Fatal("verify accepted a model service that returned no verifier values")
 	}
-	if !strings.Contains(err.Error(), "metric samples") {
+	if !strings.Contains(err.Error(), "verifier values") {
 		t.Fatalf("verify error %q does not say what was missing", err)
 	}
 }
@@ -1145,11 +1147,11 @@ func (r *fixtureProfileReader) CurrentModelProfile(_ context.Context, _, _ strin
 // compares it. A hard-coded hash would either be wrong forever or freeze the
 // projection this fixture is not the owner of.
 func fixtureLockedProfile() chainclient.CurrentModelProfileSnapshot {
-	schemaHash := codec.HashWithDomain("TEST_PROFILE_SCHEMA_HASH_V1", []byte("fake-llm-text"))
-	tokenizerHash := codec.HashWithDomain("TEST_TOKENIZER_HASH_V1", []byte("fake-llm-text"))
+	schemaHash := codec.HashWithDomain("TEST_PROFILE_SCHEMA_HASH_V1", []byte(modelservice.FakeModelID))
+	tokenizerHash := codec.HashWithDomain("TEST_TOKENIZER_HASH_V1", []byte(modelservice.FakeModelID))
 	profile := chainclient.CurrentModelProfileSnapshot{
 		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID:        "fake-llm-text",
+			ModelID:        modelservice.FakeModelID,
 			ProfileVersion: chainclient.ProfileVersion("1"),
 			SchemaHash:     chainclient.ProtoBytes32(schemaHash[:]),
 			TokenizerHash:  chainclient.ProtoBytes32(tokenizerHash[:]),
@@ -1173,7 +1175,11 @@ func fixtureLockedProfile() chainclient.CurrentModelProfileSnapshot {
 					SchemaVersion: 1,
 					RequiredInferEvidence: []chainclient.CurrentInferEvidenceRequirementSnapshot{{
 						EvidenceKind:            int32(nodewire.EvidenceKindWorkerValueOpening),
-						CommitmentSchemaVersion: 2,
+						CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV3,
+						MaxEncodedSizeBytes:     chainclient.Uint64String(1 << 20),
+					}, {
+						EvidenceKind:            int32(nodewire.EvidenceKindWorkerTokenOpening),
+						CommitmentSchemaVersion: nodewire.WorkerTokenCommitmentSchemaVersionV1,
 						MaxEncodedSizeBytes:     chainclient.Uint64String(1 << 20),
 					}},
 				},
@@ -1278,18 +1284,18 @@ func (h harness) validTask() TaskState {
 	taskID := canonicalTaskID("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 9)
 	outputHash, _ := codec.OutputMMRRoot([][]byte{[]byte("worker output")})
 	pkg := policy.OutputPackageSummary{
-		TaskID:        taskID,
-		OutputRef:     h.model.PutArtifactForTest([]byte("worker output")),
-		TraceRef:      h.model.PutArtifactForTest([]byte("trace material")),
-		CheckpointRef: h.model.PutArtifactForTest([]byte("checkpoint material")),
-		OutputHash:    outputHash,
+		TaskID:            taskID,
+		OutputRef:         h.model.PutArtifactForTest([]byte("worker output")),
+		TokenIDsRef:       h.model.PutArtifactForTest(testTokenIDsMaterial()),
+		PositionValuesRef: h.model.PutArtifactForTest(testPositionValuesMaterial()),
+		OutputHash:        outputHash,
 	}
 	pkg.PackageHash = codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(pkg.TaskID),
 		[]byte(pkg.OutputRef),
-		[]byte(pkg.TraceRef),
-		[]byte(pkg.CheckpointRef),
+		[]byte(pkg.TokenIDsRef),
+		[]byte(pkg.PositionValuesRef),
 		pkg.OutputHash[:],
 	)
 	return TaskState{
@@ -1305,10 +1311,10 @@ func (h harness) validTask() TaskState {
 			CandidatePoolSnapshotID: strings.Repeat("31", 32), Slot: 1, SlotVersion: 1,
 			OperatorAddress: fixtureVerifierAddress,
 		},
-		ModelID:                     "fake-llm-text",
+		ModelID:                     modelservice.FakeModelID,
 		ProfileVersion:              1,
 		Capability:                  modelservice.CapabilityLLMTextV1,
-		WorkerAddress:               "worker-1",
+		WorkerAddress:               fixtureWorkerAddress,
 		OutputPackage:               pkg,
 		OutputConfirmed:             true,
 		ConfirmedOutputChunkLengths: []uint64{uint64(len("worker output"))},
@@ -1340,14 +1346,14 @@ func outputPackageFromState(t *testing.T, state TaskState) builderclient.OutputP
 		t.Fatalf("EncodeInferReceiptMaterial returned error: %v", err)
 	}
 	return builderclient.OutputPackage{
-		TaskID:         state.TaskID,
-		OutputRef:      state.OutputPackage.OutputRef,
-		TraceRef:       state.OutputPackage.TraceRef,
-		CheckpointRef:  state.OutputPackage.CheckpointRef,
-		OutputHash:     state.OutputPackage.OutputHash,
-		PackageHash:    state.OutputPackage.PackageHash,
-		ReceiptHash:    receiptHash,
-		ReceiptPayload: receiptPayload,
+		TaskID:            state.TaskID,
+		OutputRef:         state.OutputPackage.OutputRef,
+		TokenIDsRef:       state.OutputPackage.TokenIDsRef,
+		PositionValuesRef: state.OutputPackage.PositionValuesRef,
+		OutputHash:        state.OutputPackage.OutputHash,
+		PackageHash:       state.OutputPackage.PackageHash,
+		ReceiptHash:       receiptHash,
+		ReceiptPayload:    receiptPayload,
 	}
 }
 
@@ -1363,7 +1369,7 @@ func canonicalTaskID(sessionID string, orderSequence uint64) string {
 // about what was PUBLISHED. A body that was assembled correctly and then
 // published as something else is precisely the failure a returned struct cannot
 // see.
-func publishedResultReceipt(t *testing.T, h harness) nodewire.ResultReceiptV2 {
+func publishedResultReceipt(t *testing.T, h harness) nodewire.ResultReceiptV3 {
 	t.Helper()
 	if len(h.builder.Published) != 1 {
 		t.Fatalf("published messages = %d, want exactly the result credential", len(h.builder.Published))
@@ -1372,9 +1378,9 @@ func publishedResultReceipt(t *testing.T, h harness) nodewire.ResultReceiptV2 {
 	if err != nil {
 		t.Fatalf("DecodeBusEnvelope: %v", err)
 	}
-	var wire bustaskv1.ResultReceiptV2
+	var wire bustaskv1.ResultReceiptV3
 	if err := proto.Unmarshal(envelope.Payload, &wire); err != nil {
-		t.Fatalf("unmarshal published ResultReceiptV2: %v", err)
+		t.Fatalf("unmarshal published ResultReceiptV3: %v", err)
 	}
 	optional := func(value *uint32) nodewire.OptionalUint32 {
 		if value == nil {
@@ -1383,7 +1389,7 @@ func publishedResultReceipt(t *testing.T, h harness) nodewire.ResultReceiptV2 {
 		return nodewire.PresentUint32(*value)
 	}
 	summary := wire.GetMetricSummary()
-	return nodewire.ResultReceiptV2{
+	return nodewire.ResultReceiptV3{
 		SchemaVersion:             wire.GetSchemaVersion(),
 		ChainID:                   wire.GetChainId(),
 		TaskID:                    wire.GetTaskId(),
@@ -1410,6 +1416,9 @@ func publishedResultReceipt(t *testing.T, h harness) nodewire.ResultReceiptV2 {
 		Salt:                              wire.GetSalt(),
 		ExpiryHeight:                      wire.GetExpiryHeight(),
 		ServiceSignature:                  wire.GetServiceSignature(),
+		VerifierValueRoot:                 wire.GetVerifierValueRoot(),
+		MetricLeafCount:                   wire.GetMetricLeafCount(),
+		VerifierEvidenceKeyCommitment:     wire.GetVerifierEvidenceKeyCommitment(),
 	}
 }
 
@@ -1443,7 +1452,7 @@ func (m *countingModel) Verify(ctx context.Context, req modelservice.VerifyReque
 	resp, err := m.FakeService.Verify(ctx, req)
 	resp.MainMismatchCount = m.MainMismatchCount
 	if m.DropMetricSamples {
-		resp.MetricSamples = nil
+		resp.VerifierValues = nil
 	}
 	if len(m.SampleValueEnvelope) > 0 && err == nil {
 		resp.SampleValueSequenceRef = envelopeSampleValueRef
@@ -1506,14 +1515,14 @@ func (r *recordingPersistence) record(event string) {
 // Cortex producer - so the signing and submission halves of the path are
 // exercised from here. The four Hash32 fields carry deliberately distinct
 // patterns so a swap between any two of them changes the digest.
-func completeResultReceipt(t *testing.T) nodewire.ResultReceiptV2 {
+func completeResultReceipt(t *testing.T) nodewire.ResultReceiptV3 {
 	t.Helper()
 	taskID, err := hex.DecodeString(canonicalTaskID("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 9))
 	if err != nil {
 		t.Fatalf("decode canonical task id: %v", err)
 	}
-	return nodewire.ResultReceiptV2{
-		SchemaVersion:             nodewire.ResultReceiptSchemaVersionV2,
+	return nodewire.ResultReceiptV3{
+		SchemaVersion:             nodewire.ResultReceiptSchemaVersionV3,
 		ChainID:                   "chain-A",
 		TaskID:                    taskID,
 		VerifyRound:               1,
@@ -1538,6 +1547,9 @@ func completeResultReceipt(t *testing.T) nodewire.ResultReceiptV2 {
 		VerifierEvidenceManifestSizeBytes: 123,
 		Salt:                              bytes.Repeat([]byte{0x75}, 32),
 		ExpiryHeight:                      300,
+		VerifierValueRoot:                 bytes.Repeat([]byte{0x76}, 32),
+		MetricLeafCount:                   1031,
+		VerifierEvidenceKeyCommitment:     make([]byte, 32),
 	}
 }
 
@@ -1545,7 +1557,7 @@ func completeResultReceipt(t *testing.T) nodewire.ResultReceiptV2 {
 // alone. Like frozenCommitFromSubmitted it deliberately shares no production
 // helper: the point is to derive the digest from what was SUBMITTED, not from
 // what was signed, so the two can be compared.
-func frozenResultFromSubmitted(t *testing.T, receipt txclient.ResultReceiptMessage) nodewire.ResultReceiptV2 {
+func frozenResultFromSubmitted(t *testing.T, receipt txclient.ResultReceiptMessage) nodewire.ResultReceiptV3 {
 	t.Helper()
 	decode := func(name string, value txclient.ProtoBytes32) []byte {
 		raw, err := hex.DecodeString(value.Hex())
@@ -1561,7 +1573,7 @@ func frozenResultFromSubmitted(t *testing.T, receipt txclient.ResultReceiptMessa
 		return nodewire.PresentUint32(uint32(*value))
 	}
 	summary := receipt.MetricSummary
-	return nodewire.ResultReceiptV2{
+	return nodewire.ResultReceiptV3{
 		SchemaVersion:             uint32(receipt.SchemaVersion),
 		ChainID:                   receipt.ChainID,
 		TaskID:                    decode("task_id", receipt.TaskID),
@@ -1587,12 +1599,15 @@ func frozenResultFromSubmitted(t *testing.T, receipt txclient.ResultReceiptMessa
 		VerifierEvidenceManifestSizeBytes: uint64(receipt.VerifierEvidenceManifestSizeBytes),
 		Salt:                              decode("salt", receipt.Salt),
 		ExpiryHeight:                      uint64(receipt.ExpiryHeight),
+		VerifierValueRoot:                 decode("verifier_value_root", receipt.VerifierValueRoot),
+		MetricLeafCount:                   uint32(receipt.MetricLeafCount),
+		VerifierEvidenceKeyCommitment:     decode("verifier_evidence_key_commitment", receipt.VerifierEvidenceKeyCommitment),
 	}
 }
 
 // submitResultReceipt runs the production sign-then-marshal sequence and decodes
 // what came out, so every assertion below is made against submitted bytes.
-func submitResultReceipt(t *testing.T, h harness, receipt nodewire.ResultReceiptV2) txclient.SubmitVerifyResultMessage {
+func submitResultReceipt(t *testing.T, h harness, receipt nodewire.ResultReceiptV3) txclient.SubmitVerifyResultMessage {
 	t.Helper()
 	if err := h.verifier.signResultReceipt(context.Background(), &receipt); err != nil {
 		t.Fatalf("signResultReceipt: %v", err)
@@ -1643,39 +1658,39 @@ func TestSubmittedVerifyResultSignatureCoversTheFrozenPreimage(t *testing.T) {
 
 	// Every field the frozen preimage carries must move the digest, otherwise the
 	// signature would authorize a body that differs in that field.
-	for name, mutate := range map[string]func(*nodewire.ResultReceiptV2){
-		"schema_version":                        func(r *nodewire.ResultReceiptV2) { r.SchemaVersion++ },
-		"chain_id":                              func(r *nodewire.ResultReceiptV2) { r.ChainID += "-other" },
-		"task_id":                               func(r *nodewire.ResultReceiptV2) { r.TaskID[0] ^= 0xff },
-		"verify_round":                          func(r *nodewire.ResultReceiptV2) { r.VerifyRound++ },
-		"verifier_operator_address":             func(r *nodewire.ResultReceiptV2) { r.VerifierOperatorAddress = fixtureOtherVerifierAddress },
-		"service_authorization_nonce":           func(r *nodewire.ResultReceiptV2) { r.ServiceAuthorizationNonce++ },
-		"generation_params_digest":              func(r *nodewire.ResultReceiptV2) { r.GenerationParamsDigest[0] ^= 0xff },
-		"metric_root":                           func(r *nodewire.ResultReceiptV2) { r.MetricRoot[0] ^= 0xff },
-		"aggregate_proof_hash":                  func(r *nodewire.ResultReceiptV2) { r.AggregateProofHash[0] ^= 0xff },
-		"verifier_evidence_bundle_hash":         func(r *nodewire.ResultReceiptV2) { r.VerifierEvidenceBundleHash[0] ^= 0xff },
-		"verifier_evidence_manifest_size_bytes": func(r *nodewire.ResultReceiptV2) { r.VerifierEvidenceManifestSizeBytes++ },
-		"salt":                                  func(r *nodewire.ResultReceiptV2) { r.Salt[0] ^= 0xff },
-		"expiry_height":                         func(r *nodewire.ResultReceiptV2) { r.ExpiryHeight++ },
+	for name, mutate := range map[string]func(*nodewire.ResultReceiptV3){
+		"schema_version":                        func(r *nodewire.ResultReceiptV3) { r.SchemaVersion++ },
+		"chain_id":                              func(r *nodewire.ResultReceiptV3) { r.ChainID += "-other" },
+		"task_id":                               func(r *nodewire.ResultReceiptV3) { r.TaskID[0] ^= 0xff },
+		"verify_round":                          func(r *nodewire.ResultReceiptV3) { r.VerifyRound++ },
+		"verifier_operator_address":             func(r *nodewire.ResultReceiptV3) { r.VerifierOperatorAddress = fixtureOtherVerifierAddress },
+		"service_authorization_nonce":           func(r *nodewire.ResultReceiptV3) { r.ServiceAuthorizationNonce++ },
+		"generation_params_digest":              func(r *nodewire.ResultReceiptV3) { r.GenerationParamsDigest[0] ^= 0xff },
+		"metric_root":                           func(r *nodewire.ResultReceiptV3) { r.MetricRoot[0] ^= 0xff },
+		"aggregate_proof_hash":                  func(r *nodewire.ResultReceiptV3) { r.AggregateProofHash[0] ^= 0xff },
+		"verifier_evidence_bundle_hash":         func(r *nodewire.ResultReceiptV3) { r.VerifierEvidenceBundleHash[0] ^= 0xff },
+		"verifier_evidence_manifest_size_bytes": func(r *nodewire.ResultReceiptV3) { r.VerifierEvidenceManifestSizeBytes++ },
+		"salt":                                  func(r *nodewire.ResultReceiptV3) { r.Salt[0] ^= 0xff },
+		"expiry_height":                         func(r *nodewire.ResultReceiptV3) { r.ExpiryHeight++ },
 
-		"metric_summary.finite_count":                   func(r *nodewire.ResultReceiptV2) { r.MetricSummary.FiniteCount++ },
-		"metric_summary.missing_compared_count":         func(r *nodewire.ResultReceiptV2) { r.MetricSummary.MissingComparedCount++ },
-		"metric_summary.mean_abs_logprob_diff_fp_1e6":   func(r *nodewire.ResultReceiptV2) { r.MetricSummary.MeanAbsLogprobDiffFP1e6++ },
-		"metric_summary.abs_logprob_diff_p95_fp_1e6":    func(r *nodewire.ResultReceiptV2) { r.MetricSummary.AbsLogprobDiffP95FP1e6++ },
-		"metric_summary.abs_logprob_diff_p99_fp_1e6":    func(r *nodewire.ResultReceiptV2) { r.MetricSummary.AbsLogprobDiffP99FP1e6++ },
-		"metric_summary.rank_delta_nonzero_rate_fp_1e6": func(r *nodewire.ResultReceiptV2) { r.MetricSummary.RankDeltaNonzeroRateFP1e6++ },
-		"metric_summary.topk_jaccard_mean_fp_1e6": func(r *nodewire.ResultReceiptV2) {
+		"metric_summary.finite_count":                   func(r *nodewire.ResultReceiptV3) { r.MetricSummary.FiniteCount++; r.MetricLeafCount++ },
+		"metric_summary.missing_compared_count":         func(r *nodewire.ResultReceiptV3) { r.MetricSummary.MissingComparedCount++; r.MetricLeafCount++ },
+		"metric_summary.mean_abs_logprob_diff_fp_1e6":   func(r *nodewire.ResultReceiptV3) { r.MetricSummary.MeanAbsLogprobDiffFP1e6++ },
+		"metric_summary.abs_logprob_diff_p95_fp_1e6":    func(r *nodewire.ResultReceiptV3) { r.MetricSummary.AbsLogprobDiffP95FP1e6++ },
+		"metric_summary.abs_logprob_diff_p99_fp_1e6":    func(r *nodewire.ResultReceiptV3) { r.MetricSummary.AbsLogprobDiffP99FP1e6++ },
+		"metric_summary.rank_delta_nonzero_rate_fp_1e6": func(r *nodewire.ResultReceiptV3) { r.MetricSummary.RankDeltaNonzeroRateFP1e6++ },
+		"metric_summary.topk_jaccard_mean_fp_1e6": func(r *nodewire.ResultReceiptV3) {
 			r.MetricSummary.TopkJaccardMeanFP1e6 = nodewire.PresentUint32(1)
 		},
-		"metric_summary.union_js_p99_fp_1e6": func(r *nodewire.ResultReceiptV2) {
+		"metric_summary.union_js_p99_fp_1e6": func(r *nodewire.ResultReceiptV3) {
 			r.MetricSummary.UnionJSP99FP1e6 = nodewire.PresentUint32(1)
 		},
-		"metric_summary.compared_topk_count": func(r *nodewire.ResultReceiptV2) { r.MetricSummary.ComparedTopkCount++ },
-		"metric_summary.compared_rank_count": func(r *nodewire.ResultReceiptV2) { r.MetricSummary.ComparedRankCount++ },
-		"metric_summary.topk_jaccard_mean_fp_1e6 presence": func(r *nodewire.ResultReceiptV2) {
+		"metric_summary.compared_topk_count": func(r *nodewire.ResultReceiptV3) { r.MetricSummary.ComparedTopkCount++ },
+		"metric_summary.compared_rank_count": func(r *nodewire.ResultReceiptV3) { r.MetricSummary.ComparedRankCount++ },
+		"metric_summary.topk_jaccard_mean_fp_1e6 presence": func(r *nodewire.ResultReceiptV3) {
 			r.MetricSummary.TopkJaccardMeanFP1e6 = nodewire.OptionalUint32{}
 		},
-		"metric_summary.union_js_p99_fp_1e6 presence": func(r *nodewire.ResultReceiptV2) {
+		"metric_summary.union_js_p99_fp_1e6 presence": func(r *nodewire.ResultReceiptV3) {
 			r.MetricSummary.UnionJSP99FP1e6 = nodewire.OptionalUint32{}
 		},
 	} {
@@ -2062,6 +2077,8 @@ func TestSubmittedResultGenerationParamsDigestIsTheServedValue(t *testing.T) {
 	receipt.MetricRoot = fixture.MetricRoot
 	receipt.MetricSummary = fixture.MetricSummary
 	receipt.AggregateProofHash = fixture.AggregateProofHash
+	receipt.VerifierValueRoot = fixture.VerifierValueRoot
+	receipt.MetricLeafCount = fixture.MetricLeafCount
 
 	submitted := submitResultReceipt(t, h, receipt)
 	if submitted.Receipt.GenerationParamsDigest.Hex() != served.GenerationParamsDigest.Hex() {
@@ -2129,6 +2146,19 @@ func fixtureProtoBytes32(domain string) chainclient.ProtoBytes32 {
 	return chainclient.ProtoBytes32(digest[:])
 }
 
+// evidenceCommitmentSchemaFor is the commitment schema wire v0.3.0 pairs with
+// each Worker evidence kind.
+func evidenceCommitmentSchemaFor(kind int32) uint32 {
+	switch nodewire.EvidenceKind(kind) {
+	case nodewire.EvidenceKindWorkerValueOpening:
+		return nodewire.WorkerValueCommitmentSchemaVersionV3
+	case nodewire.EvidenceKindWorkerTokenOpening:
+		return nodewire.WorkerTokenCommitmentSchemaVersionV1
+	default:
+		return 2
+	}
+}
+
 // newProfileStub builds a locked profile snapshot with the supplied evidence kinds.
 // The evidence_schema_hash is left unset (or set to override if provided) so tests
 // can exercise both valid and invalid schemas.
@@ -2137,13 +2167,13 @@ func newProfileStub(kinds []int32, maxSize uint64, evidenceSchemaHash chainclien
 	for i, kind := range kinds {
 		requirements[i] = chainclient.CurrentInferEvidenceRequirementSnapshot{
 			EvidenceKind:            kind,
-			CommitmentSchemaVersion: 2,
+			CommitmentSchemaVersion: evidenceCommitmentSchemaFor(kind),
 			MaxEncodedSizeBytes:     chainclient.NewUint64String(maxSize),
 		}
 	}
 	return chainclient.CurrentModelProfileSnapshot{
 		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID:        "test-model",
+			ModelID:        modelservice.FakeModelID,
 			ProfileVersion: chainclient.NewProfileVersion(1),
 			// Non-zero on purpose. keeper §10.0.2 requires schema_hash and tokenizer_hash
 			// to be "exactly 32 bytes and not all zero", and tokenizer_hash enters every
@@ -2214,28 +2244,6 @@ func newHarnessWithProfileReader(t *testing.T, reader ProfileReader) harness {
 	return harness{model: h.model, builder: h.builder, persistence: h.persistence, tx: h.tx, verifier: v}
 }
 
-// TestVerifierDerivesRequiredEvidenceFromProfile checks that the verifier passes
-// the locked profile's required evidence set to the model service instead of the
-// previous hardcoded single requirement.
-func TestVerifierDerivesRequiredEvidenceFromProfile(t *testing.T) {
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidence(int32(nodewire.EvidenceKindWorkerValueOpening))})
-	state := h.validTask()
-	state.OpenVerifyAccepted = true
-
-	verifyLocally(t, h, state)
-
-	if h.model.VerifyCalls != 1 {
-		t.Fatalf("Verify calls = %d, want 1", h.model.VerifyCalls)
-	}
-	req := h.model.verifyRequests[0]
-	if len(req.RequiredEvidence) != 1 || req.RequiredEvidence[0].Kind != modelservice.EvidenceKindWorkerValueOpening {
-		t.Fatalf("RequiredEvidence = %#v, want worker value opening", req.RequiredEvidence)
-	}
-	if len(req.RequiredEvidence[0].ExpectedRoot) == 0 || req.RequiredEvidence[0].EncodedSizeBytes == 0 {
-		t.Fatalf("RequiredEvidence root/size not populated")
-	}
-}
-
 // TestVerifierRejectsProfileRequiringUnsupportedEvidenceKind checks that a
 // locked profile requiring an evidence kind the verifier cannot yet fetch is
 // refused rather than silently ignored.
@@ -2258,7 +2266,7 @@ func TestVerifierRejectsProfileWithEmptyEvidenceSchema(t *testing.T) {
 	state.OpenVerifyAccepted = true
 
 	_, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if err == nil || !strings.Contains(err.Error(), "no evidence schema") {
+	if err == nil || !strings.Contains(err.Error(), "must require exactly the Worker value and token evidence") {
 		t.Fatalf("expected no evidence schema error, got: %v", err)
 	}
 }
@@ -2297,7 +2305,7 @@ func TestVerifierRejectsUnsupportedEvidenceKindBeforeFetch(t *testing.T) {
 // TestVerifierRejectsOversizedTrace checks that a trace larger than the
 // profile's per-kind max_encoded_size_bytes is refused.
 func TestVerifierRejectsOversizedTrace(t *testing.T) {
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(1, []int32{int32(nodewire.EvidenceKindWorkerValueOpening)})})
+	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(1, []int32{int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening)})})
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
 
@@ -2307,19 +2315,19 @@ func TestVerifierRejectsOversizedTrace(t *testing.T) {
 	}
 }
 
-func TestVerifierRejectsOversizedCheckpoint(t *testing.T) {
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(100, []int32{int32(nodewire.EvidenceKindWorkerValueOpening)})})
+func TestVerifierRejectsOversizedPositionValues(t *testing.T) {
+	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(100, []int32{int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening)})})
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
-	// Trace fits within the bound, checkpoint exceeds it.
-	state.OutputPackage.TraceRef = h.model.PutArtifactForTest(make([]byte, 50))
-	state.OutputPackage.CheckpointRef = h.model.PutArtifactForTest(make([]byte, 101))
+	// Token-id material fits within the bound, position-value material exceeds it.
+	state.OutputPackage.TokenIDsRef = h.model.PutArtifactForTest(make([]byte, 50))
+	state.OutputPackage.PositionValuesRef = h.model.PutArtifactForTest(make([]byte, 101))
 	state.OutputPackage.PackageHash = codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(state.OutputPackage.TaskID),
 		[]byte(state.OutputPackage.OutputRef),
-		[]byte(state.OutputPackage.TraceRef),
-		[]byte(state.OutputPackage.CheckpointRef),
+		[]byte(state.OutputPackage.TokenIDsRef),
+		[]byte(state.OutputPackage.PositionValuesRef),
 		state.OutputPackage.OutputHash[:],
 	)
 
@@ -2351,20 +2359,20 @@ func (m *boundedRefModel) FetchArtifact(ctx context.Context, req modelservice.Fe
 func TestVerifierRejectsOversizedArtifactBeforeBuffering(t *testing.T) {
 	fake := modelservice.NewFakeService()
 	model := &boundedRefModel{FakeService: fake}
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(10, []int32{int32(nodewire.EvidenceKindWorkerValueOpening)})})
+	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(10, []int32{int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening)})})
 	// Replace the model with the bounded-ref wrapper while keeping counters.
 	h.verifier.cfg.Model = model
 	h.model.FakeService = fake
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
-	// Trace is 14 bytes, exceeding the 10-byte bound.
-	state.OutputPackage.TraceRef = fake.PutArtifactForTest(make([]byte, 14))
+	// The token-id material is 14 bytes, exceeding the 10-byte bound.
+	state.OutputPackage.TokenIDsRef = fake.PutArtifactForTest(make([]byte, 14))
 	state.OutputPackage.PackageHash = codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(state.OutputPackage.TaskID),
 		[]byte(state.OutputPackage.OutputRef),
-		[]byte(state.OutputPackage.TraceRef),
-		[]byte(state.OutputPackage.CheckpointRef),
+		[]byte(state.OutputPackage.TokenIDsRef),
+		[]byte(state.OutputPackage.PositionValuesRef),
 		state.OutputPackage.OutputHash[:],
 	)
 
@@ -2414,12 +2422,12 @@ func TestVerificationValuesFetchCarriesTheProfileBound(t *testing.T) {
 
 // The output is fetched before its hash can reject anything, so an unbounded
 // fetch lets a model service stream arbitrarily many individually valid chunks
-// into this node's memory. Unlike trace and checkpoint, no profile field sizes
+// into this node's memory. Unlike the Worker evidence, no profile field sizes
 // the output, which is why the bound is configured rather than derived.
 func TestOutputFetchCarriesTheConfiguredBound(t *testing.T) {
 	fake := modelservice.NewFakeService()
 	recorder := &fetchBoundRecorder{FakeService: fake}
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(4096, []int32{int32(nodewire.EvidenceKindWorkerValueOpening)})})
+	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(4096, []int32{int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening)})})
 	h.verifier.cfg.Model = recorder
 	h.verifier.cfg.MaxOutputBytes = 12345
 	h.model.FakeService = fake
@@ -2455,7 +2463,7 @@ func TestNewAppliesTheDefaultOutputBound(t *testing.T) {
 // evidence_schema does not re-derive to its evidence_schema_hash is refused before
 // any artifact is downloaded.
 func TestVerifierRejectsMismatchedEvidenceSchemaHash(t *testing.T) {
-	profile := profileWithRequiredEvidence(int32(nodewire.EvidenceKindWorkerValueOpening))
+	profile := profileWithRequiredEvidence(int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening))
 	profile.Profile.VerificationProfile.EvidenceSchemaHash = chainclient.ProtoBytes32(make([]byte, 32))
 	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profile})
 	state := h.validTask()
@@ -2496,4 +2504,40 @@ func TestVerifierRejectsDuplicateEvidenceRequirements(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "required_infer_evidence must be known, sorted, unique, and bounded") {
 		t.Fatalf("expected required_infer_evidence uniqueness error, got: %v", err)
 	}
+}
+
+// testGeneratedTokenIDs is the generation the harness Worker reports; the fake
+// model service scores tokens counted up from 1000.
+var testGeneratedTokenIDs = []uint32{1000, 1001, 1002}
+
+// testTokenIDsMaterial is the model service's TokenIDsV1 material for the
+// harness generation.
+func testTokenIDsMaterial() []byte {
+	data, err := modelservice.EncodeTokenIDsArtifact(modelservice.TokenIDs{Input: []uint32{1, 2}, Generated: testGeneratedTokenIDs})
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+// testPositionValuesMaterial is the Worker's PositionValuesV1 material: each
+// generated token at rank 1 with a ranked top-k list.
+func testPositionValuesMaterial() []byte {
+	values := make([]metric.PositionValue, len(testGeneratedTokenIDs))
+	for i, id := range testGeneratedTokenIDs {
+		// The same alternatives the fake model service ranks, so the two sides
+		// agree up to the fake's small drift.
+		logprob := -0.5 - float64(i)/64
+		topK := make([]metric.TokenLogprob, 32)
+		topK[0] = metric.TokenLogprob{TokenID: id, Logprob: logprob}
+		for rank := 1; rank < len(topK); rank++ {
+			topK[rank] = metric.TokenLogprob{TokenID: 900000 + id*64 + uint32(rank), Logprob: logprob - float64(rank)}
+		}
+		values[i] = metric.PositionValue{TokenID: id, Logprob: logprob, Rank: 1, TopK: topK}
+	}
+	data, err := modelservice.EncodePositionValuesArtifact(values)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }

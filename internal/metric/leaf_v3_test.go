@@ -32,7 +32,7 @@ type v3Vector struct {
 
 func loadV3Vectors(t *testing.T, path string) []v3Vector {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile(path)
+	data, err := wirevectors.File(path)
 	if err != nil {
 		t.Fatal(err)
 	}

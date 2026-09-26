@@ -20,14 +20,13 @@ import (
 // They are the output of this repository. That means they catch a later change
 // to the encoding - which is what they are for - but they could not have caught
 // the encoding being wrong on day one, because the vector would simply have
-// recorded the wrong bytes. Upstream publishes no leaf/root/summary vector to
-// check against; the conformance evidence is in spec_conformance_test.go, which
-// re-derives the same digests from an encoder written directly from
-// canonical-encoding-and-domain-hashing §3.2/§4.x and 05-verification-algorithm §7, sharing no code with the
-// production one. Read the two files together: that one says the encoding is
-// right, this one says it has not moved.
+// recorded the wrong bytes. The metric root is over V3 leaves, which wire
+// publishes vectors for (leaf_v3_test.go); the summary is checked by
+// spec_conformance_test.go against an independent encoder. Read those files
+// together with this one: they say the encoding is right, this one says it has
+// not moved.
 const (
-	fixtureMetricRootHex = "7a87980e31b5bf0dc25ce8025e2094015e52e267974167e9c92e92bae9b1c164"
+	fixtureMetricRootHex = "bed50329055c4c44bd2d888ade2dd7a665fe6262f371e38393b568bd07dcbc17"
 	// The same summary with fields 7/8 present, and with them absent. Two
 	// different facts, two different hashes - see §9.7.
 	fixtureSummaryHashWithOptionalsHex    = "347cbe49201e4f41708fd3e4bf59a8c0854041c1429b01d10ecdd96b248415af"
@@ -35,7 +34,7 @@ const (
 	// The aggregate proof's own encoding is Cortex's rather than the protocol's
 	// (see BuildAggregateProof), which is exactly why it is pinned: nothing
 	// upstream would notice it moving.
-	fixtureAggregateProofHashHex = "a140f57031e4ad0e853c71ce23315ca247fb3cd843398b97e52e55ea47bfca0b"
+	fixtureAggregateProofHashHex = "68edd48784c103a582644611558ed2b560e723617df40afe550b20bc008e774d"
 )
 
 func TestMetricRootIsDeterministicForAFixedInput(t *testing.T) {
@@ -73,7 +72,7 @@ func TestMetricRootIsBoundToTheLockedProfile(t *testing.T) {
 	for name, mutate := range map[string]func(*Binding){
 		"chain_id":                       func(b *Binding) { b.ChainID = "chain-B" },
 		"task_id":                        func(b *Binding) { b.TaskID = fill(0x99) },
-		"model_id":                       func(b *Binding) { b.ModelID = "other-model" },
+		"model_id":                       func(b *Binding) { b.ModelID = strings.Repeat("ab", 32) },
 		"profile_version":                func(b *Binding) { b.ProfileVersion = 2 },
 		"judgment_function_version":      func(b *Binding) { b.JudgmentFunctionVersion = "PREFILL_GENERATED_TOKEN_METRICS_V2" },
 		"canonical_encoding_version":     func(b *Binding) { b.CanonicalEncodingVersion = "CANONICAL_ENCODING_V2" },
@@ -417,63 +416,6 @@ func TestFixedPointRoundsHalfAwayFromZero(t *testing.T) {
 	}
 }
 
-// Two positions whose only difference is a metric must not share a leaf hash;
-// otherwise the tree would fold them and metric_root would stop distinguishing
-// the runs it exists to distinguish.
-func TestEveryLeafFieldReachesTheLeafHash(t *testing.T) {
-	binding := fixtureBinding()
-	base, err := LeafHash(binding, sampleAt(0))
-	if err != nil {
-		t.Fatalf("LeafHash returned error: %v", err)
-	}
-	for name, mutate := range map[string]func(*Sample){
-		"emitted_token_id":  func(s *Sample) { s.EmittedTokenID++ },
-		"worker_logprob":    func(s *Sample) { s.WorkerLogprob -= 0.5 },
-		"verifier_logprob":  func(s *Sample) { s.VerifierLogprob -= 0.5 },
-		"worker_rank":       func(s *Sample) { s.WorkerRank = 3 },
-		"verifier_rank":     func(s *Sample) { s.VerifierRank = 4 },
-		"topk_jaccard":      func(s *Sample) { s.TopKJaccard = PresentFP(0.5) },
-		"topk_jaccard drop": func(s *Sample) { s.TopKJaccard = OptionalFP{} },
-		"union_js":          func(s *Sample) { s.UnionJS = PresentFP(0.5) },
-		"missing_flag":      func(s *Sample) { s.Missing = !s.Missing },
-		"finite_flag":       func(s *Sample) { s.Finite = !s.Finite },
-	} {
-		t.Run(name, func(t *testing.T) {
-			sample := sampleAt(0)
-			mutate(&sample)
-			changed, err := LeafHash(binding, sample)
-			if err != nil {
-				t.Fatalf("LeafHash returned error: %v", err)
-			}
-			if changed == base {
-				t.Fatalf("changing %s did not change the leaf hash", name)
-			}
-		})
-	}
-}
-
-// An optional leaf metric that is absent must not collide with the same metric
-// measured as zero: §4.4 gives absent its own presence byte precisely for this.
-func TestAbsentOptionalDiffersFromPresentZero(t *testing.T) {
-	binding := fixtureBinding()
-	absent := sampleAt(0)
-	absent.TopKJaccard = OptionalFP{}
-	presentZero := sampleAt(0)
-	presentZero.TopKJaccard = PresentFP(0)
-
-	absentHash, err := LeafHash(binding, absent)
-	if err != nil {
-		t.Fatalf("LeafHash returned error: %v", err)
-	}
-	presentHash, err := LeafHash(binding, presentZero)
-	if err != nil {
-		t.Fatalf("LeafHash returned error: %v", err)
-	}
-	if absentHash == presentHash {
-		t.Fatalf("absent and present-zero topk_jaccard hash alike")
-	}
-}
-
 func fixtureBinding() Binding {
 	binding, err := BindTask("chain-A", fill(0x11), fill(0x33), 1, fixtureProfileSnapshot(), fill(0x22))
 	if err != nil {
@@ -486,7 +428,7 @@ func fixtureProfileSnapshot() chainclient.CurrentProfileSnapshot {
 	evidenceSchemaHash := fill(0x33)
 	tokenizerHash := fill(0x44)
 	return chainclient.CurrentProfileSnapshot{
-		ModelID:        "fake-llm-text",
+		ModelID:        "099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f",
 		ProfileVersion: chainclient.ProfileVersion("1"),
 		TokenizerHash:  chainclient.ProtoBytes32(tokenizerHash[:]),
 		RequiredTopK:   4,

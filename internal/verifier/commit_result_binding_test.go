@@ -54,14 +54,14 @@ func TestSubmittedCommitReDerivesFromThePublishedCredential(t *testing.T) {
 	receipt := publishedResultReceipt(t, h)
 
 	// Rule 5, performed exactly as the Keeper performs it.
-	payloadHash := nodewire.ResultPayloadHash(result.ResultReveal)
-	reDerived, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV2{
+	_ = result
+	reDerived, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{
 		ChainID:                 receipt.ChainID,
 		TaskID:                  receipt.TaskID,
 		TaskHash:                servedTaskFacts(state.TaskID).AcceptedTaskHash,
 		VerifyRound:             receipt.VerifyRound,
 		VerifierOperatorAddress: receipt.VerifierOperatorAddress,
-		ResultPayloadHash:       payloadHash[:],
+		VerifierValueRoot:       receipt.VerifierValueRoot,
 		Salt:                    receipt.Salt,
 	})
 	if err != nil {
@@ -79,33 +79,33 @@ func TestSubmittedCommitReDerivesFromThePublishedCredential(t *testing.T) {
 // commit. Otherwise "the commit commits to the reveal" would be a claim about
 // the formula rather than about the value.
 func TestEachBoundFieldChangesTheCommitHash(t *testing.T) {
-	base := nodewire.ResultCommitmentV2{
+	base := nodewire.ResultCommitmentV3{
 		ChainID:                 "chain-A",
 		TaskID:                  bytes.Repeat([]byte{0x11}, 32),
 		TaskHash:                bytes.Repeat([]byte{0x44}, 32),
 		VerifyRound:             1,
 		VerifierOperatorAddress: fixtureVerifierAddress,
-		ResultPayloadHash:       bytes.Repeat([]byte{0x22}, 32),
+		VerifierValueRoot:       bytes.Repeat([]byte{0x22}, 32),
 		Salt:                    bytes.Repeat([]byte{0x33}, 32),
 	}
 	unchanged, err := nodewire.ResultCommitmentHash(base)
 	if err != nil {
 		t.Fatalf("ResultCommitmentHash returned error: %v", err)
 	}
-	for name, mutate := range map[string]func(*nodewire.ResultCommitmentV2){
-		"chain_id":                  func(c *nodewire.ResultCommitmentV2) { c.ChainID = "chain-B" },
-		"task_id":                   func(c *nodewire.ResultCommitmentV2) { c.TaskID[0] ^= 0xff },
-		"verify_round":              func(c *nodewire.ResultCommitmentV2) { c.VerifyRound = 2 },
-		"verifier_operator_address": func(c *nodewire.ResultCommitmentV2) { c.VerifierOperatorAddress = fixtureOtherVerifierAddress },
-		"task_hash":                 func(c *nodewire.ResultCommitmentV2) { c.TaskHash[0] ^= 0xff },
-		"result_payload_hash":       func(c *nodewire.ResultCommitmentV2) { c.ResultPayloadHash[0] ^= 0xff },
-		"salt":                      func(c *nodewire.ResultCommitmentV2) { c.Salt[0] ^= 0xff },
+	for name, mutate := range map[string]func(*nodewire.ResultCommitmentV3){
+		"chain_id":                  func(c *nodewire.ResultCommitmentV3) { c.ChainID = "chain-B" },
+		"task_id":                   func(c *nodewire.ResultCommitmentV3) { c.TaskID[0] ^= 0xff },
+		"verify_round":              func(c *nodewire.ResultCommitmentV3) { c.VerifyRound = 2 },
+		"verifier_operator_address": func(c *nodewire.ResultCommitmentV3) { c.VerifierOperatorAddress = fixtureOtherVerifierAddress },
+		"task_hash":                 func(c *nodewire.ResultCommitmentV3) { c.TaskHash[0] ^= 0xff },
+		"verifier_value_root":       func(c *nodewire.ResultCommitmentV3) { c.VerifierValueRoot[0] ^= 0xff },
+		"salt":                      func(c *nodewire.ResultCommitmentV3) { c.Salt[0] ^= 0xff },
 	} {
 		t.Run(name, func(t *testing.T) {
 			mutated := base
 			mutated.TaskID = append([]byte(nil), base.TaskID...)
 			mutated.TaskHash = append([]byte(nil), base.TaskHash...)
-			mutated.ResultPayloadHash = append([]byte(nil), base.ResultPayloadHash...)
+			mutated.VerifierValueRoot = append([]byte(nil), base.VerifierValueRoot...)
 			mutated.Salt = append([]byte(nil), base.Salt...)
 			mutate(&mutated)
 			changed, err := nodewire.ResultCommitmentHash(mutated)

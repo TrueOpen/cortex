@@ -59,6 +59,9 @@ type Config struct {
 	// the required evidence set from the Profile's evidence_schema instead of
 	// hard-coding it. A nil reader is only allowed in fake/dev mode.
 	ProfileReader ProfileReader
+	// GenerationReader reads the frozen generation parameters of the accepted
+	// order; the prefill runs under them.
+	GenerationReader GenerationReader
 	// MaxOutputBytes bounds the output artifact fetch. The output is not evidence,
 	// so no profile field sizes it, and the fetch happens before the output hash
 	// can reject anything - so without a bound a model service that streams
@@ -84,7 +87,7 @@ type Config struct {
 // EvidencePublisher finalizes the committed verifier bundle before its receipt
 // can be delivered to the Builder.
 type EvidencePublisher interface {
-	PublishVerifierEvidence(context.Context, TaskState, nodewire.ResultReceiptV2, []byte, []byte) error
+	PublishVerifierEvidence(context.Context, TaskState, nodewire.ResultReceiptV3, []byte, []byte) error
 }
 
 // ProfileReader reads the locked model profile for a task.
@@ -177,15 +180,15 @@ type TaskState struct {
 	ConfirmedOutput             []byte
 	ConfirmedOutputChunkLengths []uint64
 	ConfirmedInferReceipt       *builderclient.SignedInferReceipt
-	// All four artifacts are bound by TRUEOPEN_WORKER_VALUE_COMMITMENT_V2. The
-	// daemon confirms them after download and the Verifier rechecks them before
-	// scoring. Artifact refs remain local to the Worker's model service.
-	ConfirmedTrace             []byte
-	ConfirmedCheckpoint        []byte
+	// The token-id artifacts are bound by the receipt's
+	// TRUEOPEN_WORKER_TOKEN_COMMITMENT_V1 and worker_values by its
+	// TRUEOPEN_WORKER_VALUE_COMMITMENT_V3. The daemon confirms them after
+	// download and the Verifier rechecks them before scoring.
 	ConfirmedInputTokenIDs     []byte
 	ConfirmedGeneratedTokenIDs []byte
-	// ConfirmedFinishReason is recovered from the same receipt-bound
-	// WORKER_VALUE_OPENING commitment as the trace and checkpoint.
+	ConfirmedWorkerValues      []byte
+	// ConfirmedFinishReason is recovered from the receipt-bound
+	// WORKER_TOKEN_OPENING commitment.
 	ConfirmedFinishReason      nodewire.FinishReasonV1
 	OpenVerifyAccepted         bool
 	AssignedVerifiers          []string
@@ -211,8 +214,8 @@ type VerifyResult struct {
 	Started                bool
 	VerificationSampleSeed codec.Hash
 	ResultDigest           codec.Hash
-	// ResultReveal stores the canonical 16-field VerifierResultPayloadV1 bytes.
-	// Salt is committed separately by ResultCommitmentV2.
+	// ResultReveal stores the canonical 18-field VerifierResultPayloadV2 bytes.
+	// The commit binds verifier_value_root and the salt, not this payload.
 	ResultReveal     []byte
 	EvidenceManifest []byte
 	CommitHash       codec.Hash
@@ -278,12 +281,16 @@ func (v *Verifier) EvaluateAndHandraise(ctx context.Context, state TaskState) (H
 	if err != nil {
 		return HandraiseResult{}, err
 	}
+	modelID, err := identity.ModelIDBytes(state.ModelID)
+	if err != nil {
+		return HandraiseResult{}, err
+	}
 	handraise := nodewire.VerifierHandraiseV1{
 		SchemaVersion: nodewire.VerifierHandraiseSchemaVersionV1, ChainID: v.cfg.ChainID,
 		TaskID: taskID[:], VerifyRound: uint32(state.VerifyRound),
 		InferReceiptHash: append([]byte(nil), state.InferReceiptHash[:]...),
 		OutputHash:       append([]byte(nil), state.OutputPackage.OutputHash[:]...),
-		ModelID:          state.ModelID, ProfileVersion: state.ProfileVersion, Member: member,
+		ModelID:          modelID, ProfileVersion: state.ProfileVersion, Member: member,
 		Duty:                      nodewire.DutyVerifier,
 		ServiceAuthorizationNonce: v.cfg.ServiceAuthorizationNonce,
 		ExpiryHeight:              state.HandraiseExpiryHeight,
@@ -358,18 +365,9 @@ func (v *Verifier) persistHandraise(ctx context.Context, taskID string, payload 
 // profileEvidenceRequirement is a required evidence kind together with the
 // profile's per-kind size bound. ExpectedRoot/EncodedSizeBytes are filled in
 // after the artifact is fetched.
-type profileEvidenceRequirement struct {
-	kind    string
-	maxSize uint64
-}
-
-// profileRequiredEvidence reads the locked model profile and returns the
-// evidence kinds the profile declares as required. It fails closed for an
-// absent reader, an empty evidence schema, or an kind the verifier cannot yet
-// resolve. No artifact content is downloaded.
 // lockedProfile reads the profile snapshot the task was assigned under, once
-// per verify. Two independent consumers need it - the required evidence set and
-// the metric binding - and reading it twice would let them disagree about which
+// per verify. Two independent consumers need it - the evidence bounds and the
+// metric binding - and reading it twice would let them disagree about which
 // profile this round ran under.
 //
 // The nil reader is the fake/dev configuration, reported as such rather than as
@@ -389,67 +387,34 @@ func (v *Verifier) lockedProfile(ctx context.Context, state TaskState) (chaincli
 	return profile, true, nil
 }
 
-func (v *Verifier) profileRequiredEvidence(state TaskState, profile chainclient.CurrentModelProfileSnapshot, served bool) ([]profileEvidenceRequirement, error) {
+// profileEvidenceLimits reads the locked profile's evidence schema and returns
+// each Worker evidence kind's max_encoded_size_bytes. It fails closed for an
+// evidence schema that does not re-derive, and for any requirement other than
+// the two v0.3.0 Worker commitments.
+func (v *Verifier) profileEvidenceLimits(state TaskState, profile chainclient.CurrentModelProfileSnapshot, served bool) (map[nodewire.EvidenceKind]uint64, error) {
 	if !served {
-		return []profileEvidenceRequirement{{kind: modelservice.EvidenceKindWorkerValueOpening, maxSize: math.MaxUint64}}, nil
+		return map[nodewire.EvidenceKind]uint64{
+			nodewire.EvidenceKindWorkerValueOpening: math.MaxUint64, nodewire.EvidenceKindWorkerTokenOpening: math.MaxUint64,
+		}, nil
 	}
 	if _, err := keepercontract.EvidenceSchemaHashFromCurrentModelProfile(profile); err != nil {
 		return nil, fmt.Errorf("locked profile evidence_schema does not re-derive to evidence_schema_hash for task %s: %w", state.TaskID, err)
 	}
 	schema := profile.Profile.VerificationProfile.EvidenceSchema
-	if schema.SchemaVersion == 0 || len(schema.RequiredInferEvidence) == 0 {
-		return nil, fmt.Errorf("locked profile has no evidence schema")
-	}
-	var reqs []profileEvidenceRequirement
+	limits := map[nodewire.EvidenceKind]uint64{}
 	for _, req := range schema.RequiredInferEvidence {
-		if uint32(req.CommitmentSchemaVersion) != nodewire.WorkerValueCommitmentSchemaVersionV2 {
-			return nil, fmt.Errorf("locked profile requires unsupported Worker commitment schema")
+		kind := nodewire.EvidenceKind(req.EvidenceKind)
+		supported := kind == nodewire.EvidenceKindWorkerValueOpening && req.CommitmentSchemaVersion == nodewire.WorkerValueCommitmentSchemaVersionV3 ||
+			kind == nodewire.EvidenceKindWorkerTokenOpening && req.CommitmentSchemaVersion == nodewire.WorkerTokenCommitmentSchemaVersionV1
+		if !supported {
+			return nil, fmt.Errorf("locked profile requires unsupported evidence kind %d at commitment schema %d", req.EvidenceKind, req.CommitmentSchemaVersion)
 		}
-		kind, err := modelserviceEvidenceKindString(req.EvidenceKind)
-		if err != nil {
-			return nil, err
-		}
-		reqs = append(reqs, profileEvidenceRequirement{kind: kind, maxSize: req.MaxEncodedSizeBytes.Uint64()})
+		limits[kind] = req.MaxEncodedSizeBytes.Uint64()
 	}
-	if len(reqs) == 0 {
-		return nil, fmt.Errorf("locked profile requires no infer evidence")
+	if len(limits) != 2 {
+		return nil, fmt.Errorf("locked profile must require exactly the Worker value and token evidence")
 	}
-	return reqs, nil
-}
-
-// requiredEvidenceWithTrace turns the profile-derived kind set into the model
-// service requirement set, using the fetched trace for worker-value-opening.
-//
-// The bound is enforced during FetchArtifact for each artifact (trace and
-// checkpoint) under the evidence kind. The after-fetch check here is a
-// defensive guard that refuses a trace that somehow exceeded its bound.
-func maxEncodedSizeForKind(reqs []profileEvidenceRequirement, kind string) (uint64, error) {
-	for _, req := range reqs {
-		if req.kind == kind {
-			return req.maxSize, nil
-		}
-	}
-	return 0, fmt.Errorf("no size bound for evidence kind %s", kind)
-}
-
-func requiredEvidenceWithTrace(reqs []profileEvidenceRequirement, trace modelservice.Artifact) ([]modelservice.EvidenceRequirement, error) {
-	traceRoot := codec.HashBytes(trace.Data)
-	traceSize := uint64(len(trace.Data))
-	out := make([]modelservice.EvidenceRequirement, len(reqs))
-	for i, req := range reqs {
-		if req.kind != modelservice.EvidenceKindWorkerValueOpening {
-			return nil, fmt.Errorf("unsupported evidence kind required by profile: %s", req.kind)
-		}
-		if traceSize > req.maxSize {
-			return nil, fmt.Errorf("evidence kind %s size %d exceeds profile max_encoded_size_bytes %d", req.kind, traceSize, req.maxSize)
-		}
-		out[i] = modelservice.EvidenceRequirement{
-			Kind:             req.kind,
-			ExpectedRoot:     traceRoot[:],
-			EncodedSizeBytes: traceSize,
-		}
-	}
-	return out, nil
+	return limits, nil
 }
 
 // metricBinding projects the locked profile and the Keeper-served
@@ -492,83 +457,6 @@ func (v *Verifier) metricBinding(ctx context.Context, state TaskState, profile c
 	return binding, true, nil
 }
 
-func modelserviceEvidenceKindString(kind int32) (string, error) {
-	switch nodewire.EvidenceKind(kind) {
-	case nodewire.EvidenceKindWorkerValueOpening:
-		return modelservice.EvidenceKindWorkerValueOpening, nil
-	default:
-		return "", fmt.Errorf("unsupported evidence kind %d", kind)
-	}
-}
-
-// workerValueEvidence returns the trace and the checkpoint the local
-// re-verification opens.
-//
-// There are two ways to get them and they are not fallbacks for each other. The
-// confirmed pair arrives already bound to the receipt's on-chain evidence
-// commitment, which is what a real chain gives: the artifact refs a confirmed
-// package carries are empty there, because they are Worker-local model-service
-// addresses no wire transports. The ref path is the fake model transport's,
-// where the Worker and the Verifier share one model service that can actually
-// resolve them.
-//
-// The pair is required to be complete. One confirmed artifact plus one fetched
-// by ref would mix a bound value with an unbound one under a single commitment
-// that covers both, so a half-filled pair is a refusal rather than a partial
-// fill from the other path.
-func (v *Verifier) workerValueEvidence(
-	ctx context.Context,
-	state TaskState,
-	evidenceSizeLimit uint64,
-) (modelservice.Artifact, modelservice.Artifact, error) {
-	confirmedTrace, confirmedCheckpoint := len(state.ConfirmedTrace) > 0, len(state.ConfirmedCheckpoint) > 0
-	if confirmedTrace != confirmedCheckpoint {
-		return modelservice.Artifact{}, modelservice.Artifact{}, fmt.Errorf(
-			"confirmed worker value evidence is incomplete for task %s: trace=%d bytes checkpoint=%d bytes; "+
-				"the WORKER_VALUE_OPENING commitment covers both roots, so half the pair binds nothing",
-			state.TaskID, len(state.ConfirmedTrace), len(state.ConfirmedCheckpoint))
-	}
-	if confirmedTrace {
-		// The confirmer bounded these against the chain-committed
-		// encoded_size_bytes, which the Keeper already checked against the locked
-		// Profile's max_encoded_size_bytes. This node's own bound is re-applied
-		// anyway, for the same reason ConfirmedOutput re-applies MaxOutputBytes:
-		// the guarantee must not depend on which caller assembled the state.
-		for _, artifact := range [...]struct {
-			name string
-			data []byte
-		}{{"trace", state.ConfirmedTrace}, {"checkpoint", state.ConfirmedCheckpoint}} {
-			if uint64(len(artifact.data)) > evidenceSizeLimit {
-				return modelservice.Artifact{}, modelservice.Artifact{}, fmt.Errorf(
-					"confirmed %s is %d bytes, above the locked profile bound %d",
-					artifact.name, len(artifact.data), evidenceSizeLimit)
-			}
-		}
-		return modelservice.Artifact{Data: state.ConfirmedTrace}, modelservice.Artifact{Data: state.ConfirmedCheckpoint}, nil
-	}
-	trace, err := v.cfg.Model.FetchArtifact(ctx, modelservice.FetchArtifactRequest{
-		RequestID:      "verifier-fetch-trace-" + state.TaskID,
-		ModelServiceID: v.cfg.ModelServiceID,
-		Ref:            state.OutputPackage.TraceRef,
-		SizeLimitBytes: evidenceSizeLimit,
-		Kind:           modelservice.EvidenceKindWorkerValueOpening,
-	})
-	if err != nil {
-		return modelservice.Artifact{}, modelservice.Artifact{}, err
-	}
-	checkpoint, err := v.cfg.Model.FetchArtifact(ctx, modelservice.FetchArtifactRequest{
-		RequestID:      "verifier-fetch-checkpoint-" + state.TaskID,
-		ModelServiceID: v.cfg.ModelServiceID,
-		Ref:            state.OutputPackage.CheckpointRef,
-		SizeLimitBytes: evidenceSizeLimit,
-		Kind:           modelservice.EvidenceKindWorkerValueOpening,
-	})
-	if err != nil {
-		return modelservice.Artifact{}, modelservice.Artifact{}, err
-	}
-	return trace, checkpoint, nil
-}
-
 func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState) (VerifyResult, error) {
 	if state.ModelID == "" || state.ProfileVersion == 0 || strings.TrimSpace(state.Capability) == "" {
 		return VerifyResult{}, fmt.Errorf("task model id, profile version, and capability are required")
@@ -596,7 +484,7 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if err != nil {
 		return VerifyResult{}, fmt.Errorf("verifier precheck rejected: PROFILE: %w", err)
 	}
-	requiredKinds, err := v.profileRequiredEvidence(state, lockedProfile, profileServed)
+	evidenceLimits, err := v.profileEvidenceLimits(state, lockedProfile, profileServed)
 	if err != nil {
 		return VerifyResult{}, fmt.Errorf("verifier precheck rejected: PROFILE evidence schema: %w", err)
 	}
@@ -639,22 +527,30 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if got != state.OutputPackage.OutputHash {
 		return VerifyResult{}, fmt.Errorf("output artifact hash mismatch")
 	}
-	evidenceSizeLimit, err := maxEncodedSizeForKind(requiredKinds, modelservice.EvidenceKindWorkerValueOpening)
+	facts, err := v.taskFacts(ctx, state.TaskID)
 	if err != nil {
-		return VerifyResult{}, fmt.Errorf("verifier precheck rejected: evidence %w", err)
+		return VerifyResult{}, fmt.Errorf("%w: accepted_task_hash: %w", ErrVerifyCommitInputUnavailable, err)
 	}
-	trace, checkpoint, err := v.workerValueEvidence(ctx, state, evidenceSizeLimit)
-	if err != nil {
-		return VerifyResult{}, err
+	requiredTopK := uint32(0)
+	if metricBound {
+		requiredTopK = metricBinding.RequiredTopK
 	}
-	generation, generationDigest, err := v.generationForEvidence(ctx, state, output.Data, trace.Data, checkpoint.Data)
+	evidence, err := v.workerEvidence(ctx, state, evidenceLimits, requiredTopK, facts.AcceptedTaskHash)
 	if err != nil {
 		return VerifyResult{}, err
 	}
 	if !v.cfg.FakeOutput {
-		if err := v.validateAcceptedWorkerEvidence(ctx, state, lockedProfile, evidenceSizeLimit, output.Data, trace.Data, checkpoint.Data); err != nil {
+		if err := v.validateAcceptedWorkerEvidence(ctx, state, lockedProfile, evidenceLimits, output.Data, evidence); err != nil {
 			return VerifyResult{}, err
 		}
+	}
+	tokenIDs, err := evidence.tokenIDs()
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	generation, generationDigest, err := v.taskGeneration(ctx, state)
+	if err != nil {
+		return VerifyResult{}, err
 	}
 	seed := state.VerificationSampleSeed
 	if seed == (codec.Hash{}) {
@@ -677,12 +573,9 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if err := v.persistModelServiceJob(ctx, jobID, state.TaskID, "running", "verify"); err != nil {
 		return VerifyResult{}, err
 	}
-	requiredEvidence, err := requiredEvidenceWithTrace(requiredKinds, trace)
-	if err != nil {
-		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
-		return VerifyResult{}, fmt.Errorf("verifier precheck rejected: evidence %w", err)
-	}
-	traceRoot := codec.HashBytes(trace.Data)
+	// The prefill takes the Worker's token ids only. The Worker's values are not
+	// a model-service input: this Verifier's own values, and the root it commits
+	// to, must be fixed by its own prefill.
 	resp, err := v.cfg.Model.Verify(ctx, modelservice.VerifyRequest{
 		Generation: generation, GenerationParamsDigest: generationDigest,
 		RequestID:      "verifier-verify-" + state.TaskID,
@@ -694,15 +587,7 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 		RequestDigest:  seed[:],
 		Capability:     state.Capability,
 		Sample:         seed[:],
-		Evidence: map[string]modelservice.VerifyEvidence{
-			modelservice.EvidenceKindWorkerValueOpening: {
-				Trace:            trace.Data,
-				Checkpoint:       checkpoint.Data,
-				ExpectedRoot:     traceRoot[:],
-				EncodedSizeBytes: uint64(len(trace.Data)),
-			},
-		},
-		RequiredEvidence: requiredEvidence,
+		TokenIDs:       tokenIDs,
 	})
 	if err != nil {
 		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
@@ -715,30 +600,40 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if generation != nil && !bytes.Equal(resp.GenerationParamsDigest, generationDigest) {
 		return VerifyResult{}, fmt.Errorf("model verification generation_params_digest missing or mismatched")
 	}
+	if len(resp.VerifierValues) != len(tokenIDs.Generated) {
+		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
+		return VerifyResult{}, fmt.Errorf("model service returned %d verifier values for %d generated tokens", len(resp.VerifierValues), len(tokenIDs.Generated))
+	}
 	values, err := v.fetchVerificationValues(ctx, state.TaskID, resp.SampleValueSequenceRef)
 	if err != nil {
 		return VerifyResult{}, err
 	}
 	// The metric pipeline runs on the values this same Verify call produced, not
-	// on a re-read of the persisted artifact: metric_root and the compact reveal
-	// have to describe one run, and a second read is a second source that can
-	// disagree with the first.
-	//
-	// The result payload commits to the metric material and its evidence bundle.
-	metricMaterial, err := buildMetricMaterial(metricBinding, metricBound, resp)
-	if err != nil {
-		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
-		return VerifyResult{}, err
+	// on a re-read of the persisted artifact: the value root, metric_root and the
+	// reveal have to describe one run, and a second read is a second source that
+	// can disagree with the first.
+	var metricMaterial metric.Material
+	if metricBound {
+		verifierLeaves, verifierValueRoot, err := v.verifierValueLeaves(state, facts.AcceptedTaskHash, requiredTopK, resp.VerifierValues)
+		if err != nil {
+			_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
+			return VerifyResult{}, err
+		}
+		metricMaterial, err = buildMetricMaterial(metricBinding, metricBound, verifierValueRoot, evidence.workerLeaves, verifierLeaves)
+		if err != nil {
+			_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
+			return VerifyResult{}, err
+		}
 	}
 	if !hasMetricMaterial(metricMaterial) {
-		// Fail closed rather than reaching for the old local formula. A commit
-		// derived without aggregate_proof_hash is one the chain accepts now and
-		// rejects at full reveal - the most expensive shape of wrong - and there
-		// is no substitute value that makes it re-derivable.
+		// Fail closed rather than reaching for a substitute. The commit binds
+		// verifier_value_root and the reveal carries metric material; without a
+		// locked profile neither exists, and there is no value that makes them
+		// re-derivable.
 		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
 		return VerifyResult{}, fmt.Errorf(
-			"%w: commit_hash needs aggregate_proof_hash in the canonical V2 result payload and this "+
-				"run produced no metric material, so no commit this Keeper can re-derive at full reveal exists",
+			"%w: the commit needs verifier_value_root and the reveal needs metric material, and this run "+
+				"produced neither, so no commit this Keeper can re-derive at full reveal exists",
 			ErrVerifyCommitInputUnavailable)
 	}
 	// The task identity enters the commitment as raw Hash32 bytes.
@@ -755,22 +650,17 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	commitVerifyRound := uint32(state.VerifyRound)
 	if metricMaterial.LeafCount < 0 || metricMaterial.LeafCount > math.MaxUint32 {
 		return VerifyResult{}, fmt.Errorf(
-			"%w: metric_leaf_count %d does not fit the uint32 the reveal and the VERIFIER_VALUE_OPENING carry",
+			"%w: metric_leaf_count %d does not fit the uint32 the reveal and the receipt carry",
 			ErrVerifyCommitInputUnavailable, metricMaterial.LeafCount)
 	}
 	salt := codec.HashWithDomain("TRUEOPEN_RESULT_COMMIT_SALT_V1", []byte(state.TaskID), []byte(v.cfg.VerifierAddress), seed[:], resp.MaterialDigest)
-	// Consensus task facts are copied into the payload; sample-value artifacts
-	// remain local evidence and are not embedded in the normal result receipt.
-	facts, err := v.taskFacts(ctx, state.TaskID)
-	if err != nil {
-		return VerifyResult{}, fmt.Errorf("%w: result_reveal accepted_task_hash: %w", ErrVerifyCommitInputUnavailable, err)
-	}
 	manifest, err := (evidencebundle.Manifest{
 		Version: 1, ChainID: v.cfg.ChainID, TaskID: state.TaskID,
 		TaskHash: hex.EncodeToString(facts.AcceptedTaskHash), VerifyRound: commitVerifyRound,
+		EvidenceKind: evidencebundle.KindVerifierValueOpening,
 		ProducerKind: "VERIFIER", ProducerOperator: v.cfg.VerifierAddress,
 		EvidenceSchemaHash: metricBinding.EvidenceSchemaHash.String(),
-		Artifacts:          []evidencebundle.Artifact{evidencebundle.NewArtifact("aggregate_proof", metricMaterial.AggregateProof.Bytes)},
+		Artifacts:          []evidencebundle.Artifact{evidencebundle.NewArtifact(builderclient.EvidenceArtifactAggregateProof, metricMaterial.AggregateProof.Bytes)},
 	}).Encode()
 	if err != nil {
 		return VerifyResult{}, fmt.Errorf("build verifier evidence manifest: %w", err)
@@ -780,14 +670,13 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 		return VerifyResult{}, fmt.Errorf("%w: %w", ErrVerifyCommitInputUnavailable, err)
 	}
 	resultDigest := codec.HashBytes(resultReveal)
-	resultPayloadHash := nodewire.ResultPayloadHash(resultReveal)
-	commitHash, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV2{
+	commitHash, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{
 		ChainID:                 v.cfg.ChainID,
 		TaskID:                  commitTaskID,
 		TaskHash:                facts.AcceptedTaskHash,
 		VerifyRound:             commitVerifyRound,
 		VerifierOperatorAddress: v.cfg.VerifierAddress,
-		ResultPayloadHash:       resultPayloadHash[:],
+		VerifierValueRoot:       metricMaterial.VerifierValueRoot[:],
 		Salt:                    salt[:],
 	})
 	if err != nil {
@@ -821,7 +710,8 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 		tasktrace.Hash("infer_receipt_hash", state.InferReceiptHash),
 		tasktrace.Hash("verification_sample_seed", seed),
 		tasktrace.Bool("seed_from_keeper", state.VerificationSampleSeed != codec.Hash{}),
-		tasktrace.Hash("trace_root", traceRoot),
+		tasktrace.Hash("worker_value_root", evidence.workerValueRoot),
+		tasktrace.Hash("verifier_value_root", metricMaterial.VerifierValueRoot),
 		tasktrace.Hash("salt", salt), tasktrace.Hash("result_digest", resultDigest),
 		tasktrace.Hash("commit_hash", commitHash),
 		tasktrace.Hash("commit_signing_digest", commitSigningDigest),
@@ -1302,9 +1192,9 @@ func commitMessage(cfg Config, result VerifyResult) (txclient.SubmitVerifyCommit
 // is resultReceiptCredential rather than this function.
 func resultReceiptWire(
 	cfg Config, state TaskState, facts taskfacts.Facts, resultReveal []byte, material metric.Material, manifest []byte, salt codec.Hash,
-) (nodewire.ResultReceiptV2, error) {
+) (nodewire.ResultReceiptV3, error) {
 	if cfg.ServiceAuthorizationNonce == 0 {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: verify result needs the current ServiceKey binding's service_authorization_nonce "+
 				"(frozen preimage field 6) and no daemon path publishes it into the task plane yet",
 			ErrResultReceiptInputUnavailable)
@@ -1313,14 +1203,14 @@ func resultReceiptWire(
 	// the Cortex task plane passes around.
 	taskID, err := hex.DecodeString(state.TaskID)
 	if err != nil || len(taskID) != 32 {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: verify result task_id must be canonical 32-byte hex, got %q",
 			ErrResultReceiptInputUnavailable, state.TaskID)
 	}
 	// verify_round is uint32 on the wire; narrowing silently would let two
 	// distinct rounds share one digest.
 	if state.VerifyRound > math.MaxUint32 {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: verify result verify_round %d does not fit the frozen uint32 field",
 			ErrResultReceiptInputUnavailable, state.VerifyRound)
 	}
@@ -1328,7 +1218,7 @@ func resultReceiptWire(
 	// deadline (x/task/keeper/verification_runtime.go:230), so that height
 	// is the expiry_height the body must carry.
 	if state.RevealDeadlineHeight == 0 {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: verify result expiry_height requires the Keeper verifier reveal deadline height",
 			ErrResultReceiptInputUnavailable)
 	}
@@ -1336,20 +1226,20 @@ func resultReceiptWire(
 	// for, and an absent or all-zero generation_params_digest is refused rather
 	// than signed. Validate keeps those three reasons apart.
 	if err := facts.Validate(state.TaskID); err != nil {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: verify result generation_params_digest: %w", ErrResultReceiptInputUnavailable, err)
 	}
 	if len(resultReveal) == 0 {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: verify result result_reveal bytes are required for frozen preimage field 11",
 			ErrResultReceiptInputUnavailable)
 	}
 	if len(manifest) == 0 || salt.IsZero() {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf("%w: verifier evidence manifest and salt are required", ErrResultReceiptInputUnavailable)
+		return nodewire.ResultReceiptV3{}, fmt.Errorf("%w: verifier evidence manifest and salt are required", ErrResultReceiptInputUnavailable)
 	}
 	bundleHash := evidencebundle.Hash(manifest)
-	receipt := nodewire.ResultReceiptV2{
-		SchemaVersion:                     nodewire.ResultReceiptSchemaVersionV2,
+	receipt := nodewire.ResultReceiptV3{
+		SchemaVersion:                     nodewire.ResultReceiptSchemaVersionV3,
 		ChainID:                           cfg.ChainID,
 		TaskID:                            taskID,
 		VerifyRound:                       uint32(state.VerifyRound),
@@ -1360,6 +1250,8 @@ func resultReceiptWire(
 		VerifierEvidenceManifestSizeBytes: uint64(len(manifest)),
 		Salt:                              append([]byte(nil), salt[:]...),
 		ExpiryHeight:                      state.RevealDeadlineHeight,
+		// Plaintext results carry no verifier evidence key.
+		VerifierEvidenceKeyCommitment: make([]byte, 32),
 	}
 	// The metric values are copied in only when the run really produced them.
 	// An absent material leaves the three fields zero, and the gate below is
@@ -1369,6 +1261,8 @@ func resultReceiptWire(
 		receipt.MetricRoot = append([]byte(nil), material.Root[:]...)
 		receipt.MetricSummary = material.Summary
 		receipt.AggregateProofHash = append([]byte(nil), material.AggregateProof.Hash[:]...)
+		receipt.VerifierValueRoot = append([]byte(nil), material.VerifierValueRoot[:]...)
+		receipt.MetricLeafCount = uint32(material.LeafCount)
 	}
 	return receipt, nil
 }
@@ -1389,13 +1283,13 @@ func resultReceiptWire(
 // distinct from the retired compact reveal's plain SHA-256.
 func resultReceiptCredential(
 	cfg Config, state TaskState, facts taskfacts.Facts, resultReveal []byte, material metric.Material, manifest []byte, salt codec.Hash,
-) (nodewire.ResultReceiptV2, error) {
+) (nodewire.ResultReceiptV3, error) {
 	receipt, err := resultReceiptWire(cfg, state, facts, resultReveal, material, manifest, salt)
 	if err != nil {
-		return nodewire.ResultReceiptV2{}, err
+		return nodewire.ResultReceiptV3{}, err
 	}
 	if unsourced := resultReceiptUnsourced(receipt); len(unsourced) > 0 {
-		return nodewire.ResultReceiptV2{}, fmt.Errorf(
+		return nodewire.ResultReceiptV3{}, fmt.Errorf(
 			"%w: %s reached the frozen result body as zeros; the verify run produced no metric material "+
 				"for this task, so metric_root, the ten typed MetricSummaryV1 members and "+
 				"aggregate_proof_hash cannot be sourced",
@@ -1408,7 +1302,7 @@ func resultReceiptCredential(
 // assembled body as zeros. The frozen wire gives none of them an absent
 // encoding, so a zero here is a claim rather than a gap marker and must never be
 // signed.
-func resultReceiptUnsourced(receipt nodewire.ResultReceiptV2) []string {
+func resultReceiptUnsourced(receipt nodewire.ResultReceiptV3) []string {
 	unsourced := make([]string, 0, 4)
 	if isZeroHash32(receipt.MetricRoot) {
 		unsourced = append(unsourced, "metric_root")
@@ -1425,6 +1319,9 @@ func resultReceiptUnsourced(receipt nodewire.ResultReceiptV2) []string {
 	if isZeroHash32(receipt.Salt) {
 		unsourced = append(unsourced, "salt")
 	}
+	if isZeroHash32(receipt.VerifierValueRoot) || receipt.MetricLeafCount == 0 {
+		unsourced = append(unsourced, "verifier_value_root")
+	}
 	return unsourced
 }
 
@@ -1440,13 +1337,13 @@ func isZeroHash32(value []byte) bool {
 	return true
 }
 
-// signResultReceipt derives the TRUEOPEN_RESULT_V2 digest of the assembled body and
+// signResultReceipt derives the TRUEOPEN_RESULT_V3 digest of the assembled body and
 // writes the signature back into that same struct.
 //
 // Taking a pointer is the point. The commit path's retired bug was a signature
 // derived from one value and attached to another, so the only body that can be
 // submitted here is the body that was hashed.
-func (v *Verifier) signResultReceipt(ctx context.Context, receipt *nodewire.ResultReceiptV2) error {
+func (v *Verifier) signResultReceipt(ctx context.Context, receipt *nodewire.ResultReceiptV3) error {
 	digest, err := nodewire.ResultReceiptSigningDigest(*receipt)
 	if err != nil {
 		return fmt.Errorf("derive frozen result receipt signing digest: %w", err)
@@ -1467,7 +1364,7 @@ func (v *Verifier) signResultReceipt(ctx context.Context, receipt *nodewire.Resu
 // re-read from Config or TaskState: a second read would be a second chance for
 // the submitted body to differ from the signed one. commit_key and
 // metric_summary_hash are Keeper-recomputed and are deliberately absent.
-func resultPayload(cfg Config, receipt nodewire.ResultReceiptV2) ([]byte, error) {
+func resultPayload(cfg Config, receipt nodewire.ResultReceiptV3) ([]byte, error) {
 	if len(receipt.ServiceSignature) == 0 {
 		return nil, fmt.Errorf("verify result service_signature is missing: the frozen body was never signed")
 	}
@@ -1487,6 +1384,9 @@ func resultPayload(cfg Config, receipt nodewire.ResultReceiptV2) ([]byte, error)
 			VerifierEvidenceManifestSizeBytes: txclient.ProtoUint64(receipt.VerifierEvidenceManifestSizeBytes),
 			Salt:                              txclient.ProtoBytes32(hex.EncodeToString(receipt.Salt)),
 			ExpiryHeight:                      txclient.ProtoUint64(receipt.ExpiryHeight),
+			VerifierValueRoot:                 txclient.ProtoBytes32(hex.EncodeToString(receipt.VerifierValueRoot)),
+			MetricLeafCount:                   txclient.ProtoUint32(receipt.MetricLeafCount),
+			VerifierEvidenceKeyCommitment:     txclient.ProtoBytes32(hex.EncodeToString(receipt.VerifierEvidenceKeyCommitment)),
 			ServiceSignature:                  txclient.ProtoBytes(hex.EncodeToString(receipt.ServiceSignature)),
 		},
 		SubmitterAddress: cfg.SignerAddress,
