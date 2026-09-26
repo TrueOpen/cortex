@@ -365,6 +365,11 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 		_ = server.Shutdown(context.Background())
 		return err
 	}
+	// Appended here rather than inside runtimeRunners because it is the only
+	// runner that needs the model registry, which is built in this function.
+	if renewer := newSupportRenewer(cfg, runtime, registry); renewer != nil {
+		runners = append(runners, renewer.Run)
+	}
 	if len(runners) > 0 {
 		go func() {
 			defer close(runtimeDone)
@@ -1244,6 +1249,54 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 		rt.Reconciler.SetRegistry(registry)
 	}
 	return registry
+}
+
+// registrySupportConfirmer renews through the same Registry call
+// `cortexctl daily-support` reaches over the admin socket, so the automatic
+// path and the manual one cannot diverge in what they submit.
+type registrySupportConfirmer struct {
+	registry *modelregistry.Registry
+}
+
+func (c registrySupportConfirmer) RenewDailySupport(ctx context.Context, modelID string) error {
+	_, err := c.registry.DailySupport(ctx, modelregistry.DailySupportRequest{ModelID: modelID, Enabled: true})
+	return err
+}
+
+// newSupportRenewer wires the automatic renewal of declared model support.
+//
+// Nil outside real mode, or without a registry or a Keeper that can read
+// identity: renewal submits a transaction against chain state, and there is
+// nothing meaningful to do with a fake one.
+func newSupportRenewer(cfg config.Config, rt *daemon.Runtime, registry *modelregistry.Registry) *daemon.SupportRenewer {
+	if !cfg.UsesRealDependencies() || rt == nil || registry == nil {
+		return nil
+	}
+	keeper, ok := rt.Dependencies.Keeper.(daemon.KeeperIdentityReader)
+	if !ok {
+		return nil
+	}
+	return daemon.NewSupportRenewer(daemon.SupportRenewerConfig{
+		Identity:  cfg.LocalIdentity,
+		Keeper:    keeper,
+		Confirmer: registrySupportConfirmer{registry: registry},
+		Height: func(ctx context.Context) (uint64, error) {
+			return rt.Dependencies.Keeper.ChainHeight(ctx)
+		},
+		// Checked on the Keeper poll cadence. The check is three cheap reads
+		// and renewal only fires near the end of a window measured in epochs,
+		// so the frequency costs nothing and bounds how long a missed renewal
+		// goes unnoticed.
+		Interval: intervalFromMillis(cfg.Keeper.PollIntervalMS),
+		OnRenewal: func(modelID string, remaining uint64) {
+			slog.Info("renewed daily model support",
+				slog.String("model", modelID), slog.Uint64("remaining_before_renewal", remaining))
+		},
+		OnFailure: func(modelID string, err error) {
+			slog.Error("daily model support renewal failed",
+				slog.String("model", modelID), slog.Any("error", err))
+		},
+	})
 }
 
 // dailySupportProfiles lists every profile in local_identity.supported_model_profiles.
