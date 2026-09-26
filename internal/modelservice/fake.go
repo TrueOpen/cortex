@@ -35,8 +35,33 @@ type FakeService struct {
 // configured, so existing fixtures and tests are unaffected.
 const fakeModelID = "fake-llm-text"
 
-// The fake emits one deterministic synthetic result token per inference.
-const fakeGeneratedTokenCount uint64 = 1
+// The fake emits fakeGeneratedTokenCount deterministic synthetic result tokens per
+// inference: enough to meet the pass_min_finite_count of the shipped localnet
+// Verification Profile (16), so a fake-model run can reach PASS against the same
+// thresholds a real deployment uses instead of every Verifier judging INCONCLUSIVE.
+const fakeGeneratedTokenCount uint64 = 16
+
+// fakeFirstTokenID is the id of the first synthetic token; position p emits
+// fakeFirstTokenID+p, matching fakeMetricSamples.
+const fakeFirstTokenID = 1000
+
+// fakeGeneratedTokens is the synthetic token sequence and its per-token logprobs.
+func fakeGeneratedTokens() ([]int, []float64, []tokenLogprob) {
+	ids := make([]int, 0, fakeGeneratedTokenCount)
+	logprobs := make([]float64, 0, fakeGeneratedTokenCount)
+	tokens := make([]tokenLogprob, 0, fakeGeneratedTokenCount)
+	for position := 0; position < int(fakeGeneratedTokenCount); position++ {
+		id := fakeFirstTokenID + position
+		logprob := -0.5 - float64(position)/64
+		ids = append(ids, id)
+		logprobs = append(logprobs, logprob)
+		tokens = append(tokens, tokenLogprob{
+			TokenID: id, Logprob: logprob, Rank: 1,
+			TopLogprobs: map[string]float64{fmt.Sprintf("token_id:%d", id): logprob},
+		})
+	}
+	return ids, logprobs, tokens
+}
 
 // advertisesModelID keeps GetModelDetails consistent with ListCapabilities.
 // A service that claims to support a model must also describe it.
@@ -238,6 +263,7 @@ func (f *FakeService) Infer(ctx context.Context, req InferRequest) (InferRespons
 	if err != nil {
 		return InferResponse{}, err
 	}
+	generatedIDs, generatedLogprobs, generatedTokens := fakeGeneratedTokens()
 	var trace, checkpoint []byte
 	{
 		var generation *nodewire.GenerationContext
@@ -248,8 +274,8 @@ func (f *FakeService) Infer(ctx context.Context, req InferRequest) (InferRespons
 		env := traceEnvelope{
 			Generation: generation, ModelID: req.ModelID, ProfileVersion: req.ProfileVersion, Output: string(output),
 			InputTokenIDs: []int{1}, InputTokenIDsHash: hashTokenIDs([]int{1}),
-			GeneratedTokenIDsHash: hashTokenIDs([]int{1000}), GeneratedTokenCount: int(fakeGeneratedTokenCount),
-			FinishReason: "stop", OutTokens: []tokenLogprob{{TokenID: 1000, Logprob: -0.5, Rank: 1, TopLogprobs: map[string]float64{"token_id:1000": -0.5}}},
+			GeneratedTokenIDsHash: hashTokenIDs(generatedIDs), GeneratedTokenCount: int(fakeGeneratedTokenCount),
+			FinishReason: "stop", OutTokens: generatedTokens,
 		}
 		trace, err = json.Marshal(env)
 		if err != nil {
@@ -270,7 +296,7 @@ func (f *FakeService) Infer(ctx context.Context, req InferRequest) (InferRespons
 		return InferResponse{}, err
 	}
 	if observer, ok := ctx.Value(inferStreamObserverKey{}).(InferStreamObserver); ok {
-		frame := InferStreamFrame{RequestID: req.RequestID, JobID: req.JobID, TaskID: req.TaskID, ModelID: req.ModelID, TextDelta: string(output), TokenIDs: []int{1000}, TokenLogprobs: []float64{-0.5}}
+		frame := InferStreamFrame{RequestID: req.RequestID, JobID: req.JobID, TaskID: req.TaskID, ModelID: req.ModelID, TextDelta: string(output), TokenIDs: generatedIDs, TokenLogprobs: generatedLogprobs}
 		if observer.ObserveInferFrame(ctx, frame) == nil {
 			_ = observer.ObserveInferFrame(ctx, InferStreamFrame{RequestID: req.RequestID, JobID: req.JobID, TaskID: req.TaskID, ModelID: req.ModelID, Done: true, FinishReason: "stop"})
 		}
@@ -352,7 +378,7 @@ func fakeMetricSamples(materialDigest codec.Hash) []metric.Sample {
 		worker := -0.5 - float64(position)/64
 		samples = append(samples, metric.Sample{
 			OutputPosition:  uint32(position),
-			EmittedTokenID:  uint32(1000 + position),
+			EmittedTokenID:  uint32(fakeFirstTokenID + position),
 			WorkerLogprob:   worker,
 			VerifierLogprob: worker - drift,
 			WorkerRank:      1,
