@@ -76,8 +76,14 @@ func checkKeeperCoreServiceKey(ctx context.Context, identity config.LocalIdentit
 	if bond.OperatorAddress != operator {
 		return chainclient.ServiceKeySnapshot{}, fmt.Errorf("Keeper service bond operator does not match configured operator")
 	}
-	if !strings.EqualFold(bond.Status, "ACTIVE") {
-		return chainclient.ServiceKeySnapshot{}, fmt.Errorf("Keeper service bond status %q is not ACTIVE", bond.Status)
+	// Not "is it ACTIVE" but "does the chain admit it as a candidate". A node
+	// staked today is REGISTERED, and it reaches ACTIVE only by completing a duty
+	// it would never be allowed to start under the stricter test. See
+	// chainclient.CandidateEligible.
+	if !bond.CandidateEligible() {
+		return chainclient.ServiceKeySnapshot{}, fmt.Errorf(
+			"Keeper service bond status %q does not admit work (need one of: %s)",
+			bond.Status, chainclient.CandidateEligibleBondStatuses())
 	}
 	if bond.ActiveBond.Uint64() == 0 {
 		return chainclient.ServiceKeySnapshot{}, fmt.Errorf("Keeper service bond has no active bond")

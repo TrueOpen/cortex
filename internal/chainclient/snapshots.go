@@ -61,6 +61,47 @@ func (s ServiceBondSnapshot) Validate() error {
 	return nil
 }
 
+// candidateEligibleBondStatuses mirrors the chain's IsCandidateEligibleBondStatus
+// (node x/hub/types/service_support.go): the live statuses REGISTERED and ACTIVE,
+// plus JAILED.
+//
+// REGISTERED is the one that matters. A freshly staked bond is REGISTERED, and it
+// only becomes ACTIVE once a model support activates, which needs ActivationKind
+// set, which is only set when the node completes a first duty. Requiring ACTIVE
+// before working is therefore not a stricter version of the same rule, it is a
+// cycle: the node can never reach the state its own gate demands. The spec names
+// this and carves it out -- 04-任务/03 §"REGISTERED 冷启动例外" admits a node with
+// fresh declared_support and sufficient stake into the first candidate set
+// precisely 为避免首单死锁.
+//
+// JAILED is admissible for a different reason, and deliberately: the candidate
+// selection hard filter tests jail_count against the pool-ejection threshold
+// rather than the status, so the chain has already excluded a node that jailed
+// too often. The same spec section forbids rejecting a node 仅因
+// ServiceBond.status=JAILED. A narrower local test would only refuse work the
+// chain would have accepted.
+//
+// UNBONDING, EXITED and TOMBSTONED stay out: those are exits, not starts.
+var candidateEligibleBondStatuses = []string{"REGISTERED", "ACTIVE", "JAILED"}
+
+// CandidateEligible reports whether this bond's status admits taking on work.
+// It exists so the readiness gate and the handraise gate cannot drift apart or
+// from the chain; see candidateEligibleBondStatuses for why the set is what it is.
+func (s ServiceBondSnapshot) CandidateEligible() bool {
+	for _, status := range candidateEligibleBondStatuses {
+		if strings.EqualFold(s.Status, status) {
+			return true
+		}
+	}
+	return false
+}
+
+// CandidateEligibleBondStatuses is the admissible set, for an error message that
+// tells an operator which statuses would have worked.
+func CandidateEligibleBondStatuses() string {
+	return strings.Join(candidateEligibleBondStatuses, ", ")
+}
+
 type ServiceKeySnapshot struct {
 	CurrentDescriptorVersion Uint64String `json:"current_descriptor_version"`
 	ParticipantType          string       `json:"participant_type"`

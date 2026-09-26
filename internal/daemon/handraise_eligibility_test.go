@@ -231,6 +231,38 @@ func TestKeeperHandraiseEligibilityRejectsCurrentNodeAdmissionMismatches(t *test
 	}
 }
 
+// TestKeeperHandraiseEligibilityAdmitsCandidateEligibleBonds keeps this gate on
+// the same admission set as readiness and as the chain.
+//
+// Relaxing readiness alone would not have fixed the cold-start deadlock, it would
+// have relocated it: the node would boot and then be refused here, with a message
+// about handraise eligibility instead of one about readiness. This test is what
+// stops the two gates from drifting apart again.
+func TestKeeperHandraiseEligibilityAdmitsCandidateEligibleBonds(t *testing.T) {
+	for _, status := range []string{"REGISTERED", "ACTIVE", "JAILED"} {
+		t.Run("admits "+status, func(t *testing.T) {
+			keeper := activeHandraiseKeeper()
+			keeper.bond.Status = status
+			resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
+				ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: modelservice.NewFakeService(),
+				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
+			})
+			if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
+				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
+				ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+			}); err != nil {
+				t.Fatalf("Worker eligibility refused bond status %q: %v", status, err)
+			}
+			if _, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
+				TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
+			}); err != nil {
+				t.Fatalf("Verifier eligibility refused bond status %q: %v", status, err)
+			}
+		})
+	}
+}
+
 func TestKeeperHandraiseEligibilityRejectsExpiredWorkerDeadline(t *testing.T) {
 	resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: activeHandraiseKeeper(), Model: modelservice.NewFakeService(),

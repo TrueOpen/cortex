@@ -207,6 +207,44 @@ func TestCheckKeeperIdentityAllowsDeclaredColdStartSupport(t *testing.T) {
 	}
 }
 
+// TestCheckKeeperIdentityAdmitsCandidateEligibleBonds pins the readiness gate to
+// the chain's candidate admission set rather than to ACTIVE alone.
+//
+// It is written from both ends on purpose. Asserting only that REGISTERED passes
+// would still pass if the gate were deleted outright, and the gate is what keeps
+// an exited or tombstoned bond from taking work.
+func TestCheckKeeperIdentityAdmitsCandidateEligibleBonds(t *testing.T) {
+	// REGISTERED is the cold-start case: a bond that has just been staked cannot
+	// reach ACTIVE without first completing a duty, so refusing it here is a
+	// deadlock rather than a stricter rule.
+	for _, status := range []string{"REGISTERED", "ACTIVE", "JAILED"} {
+		t.Run("admits "+status, func(t *testing.T) {
+			reader := readyKeeperIdentityReader()
+			reader.bond.Status = status
+
+			serviceAddress, err := checkKeeperIdentity(context.Background(), readyLocalIdentity(), reader, 200)
+			if err != nil {
+				t.Fatalf("checkKeeperIdentity() error = %v, want bond status %q admitted", err, status)
+			}
+			if serviceAddress != reader.key.ServiceAddress {
+				t.Fatalf("service address = %q, want %q", serviceAddress, reader.key.ServiceAddress)
+			}
+		})
+	}
+	// The exits stay refused: these are bonds on their way out, not on their way in.
+	for _, status := range []string{"UNBONDING", "EXITED", "TOMBSTONED"} {
+		t.Run("refuses "+status, func(t *testing.T) {
+			reader := readyKeeperIdentityReader()
+			reader.bond.Status = status
+
+			if _, err := checkKeeperIdentity(context.Background(), readyLocalIdentity(), reader, 200); err == nil ||
+				!strings.Contains(err.Error(), "does not admit work") {
+				t.Fatalf("checkKeeperIdentity() error = %v, want bond status %q refused", err, status)
+			}
+		})
+	}
+}
+
 func readyLocalIdentity() config.LocalIdentityConfig {
 	return config.LocalIdentityConfig{
 		OperatorAddress:        "trueopen1operator",
