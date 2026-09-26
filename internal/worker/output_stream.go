@@ -161,8 +161,19 @@ func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.Assign
 	return r, nil
 }
 
+// openOutputStream opens one stream per Task Builder and returns them as a
+// single fan-out stream, so every frame reaches every Builder (04-任务/02 §9.2).
+//
+// The request authorization is per Builder, not shared: SignRequest binds the
+// recipient's operator address, so each Builder gets a token naming itself. The
+// body digest and the replay frames are the same for all of them.
+//
+// A Builder that cannot be opened fails the whole open. §9.5 allows sending to
+// continue while at least one Builder receives, but acting on that needs the
+// per-Builder liveness tracking this change does not add yet; failing here keeps
+// the behaviour honest rather than silently streaming to a subset.
 func (w *Worker) openOutputStream(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk) (builderclient.TaskOutputStream, error) {
-	endpoint, err := w.receivingBuilder(ctx, receivingBuilderRef(event))
+	endpoints, err := w.receivingBuilders(ctx, receivingBuilderRef(event))
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +182,35 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 		return nil, err
 	}
 	key := builderclient.TaskDataKey{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput}
-	auth, err := w.cfg.TaskDataAuth.SignRequest(ctx, "UploadTaskOutputStream", key, endpoint.OperatorAddress, digest)
+	streams := make([]builderclient.TaskOutputStream, 0, len(endpoints))
+	builders := make([]string, 0, len(endpoints))
+	closeOpened := func() {
+		for _, opened := range streams {
+			_ = opened.Close()
+		}
+	}
+	for _, endpoint := range endpoints {
+		auth, err := w.cfg.TaskDataAuth.SignRequest(ctx, "UploadTaskOutputStream", key, endpoint.OperatorAddress, digest)
+		if err != nil {
+			closeOpened()
+			return nil, err
+		}
+		stream, err := w.cfg.TaskData.OpenTaskOutputStream(
+			builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint,
+			builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, ReplayChunks: frames})
+		if err != nil {
+			closeOpened()
+			return nil, fmt.Errorf("open output stream to Task Builder %s: %w", endpoint.OperatorAddress, err)
+		}
+		streams = append(streams, stream)
+		builders = append(builders, endpoint.OperatorAddress)
+	}
+	fanOut, err := newFanOutOutputStream(streams, builders)
 	if err != nil {
+		closeOpened()
 		return nil, err
 	}
-	return w.cfg.TaskData.OpenTaskOutputStream(builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint, builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, ReplayChunks: frames})
+	return fanOut, nil
 }
 
 func (r *outputStreamRecorder) ObserveInferFrame(ctx context.Context, frame modelservice.InferStreamFrame) error {

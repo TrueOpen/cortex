@@ -31,11 +31,16 @@ type Runtime struct {
 	Store *store.Store
 	// BuilderEndpoints resolves the Nexus endpoint of a Builder operator, so
 	// task material goes to the Builder that owns the task.
-	BuilderEndpoints  BuilderEndpointResolver
-	Dependencies      Dependencies
-	KeeperEvents      KeeperEventClient
-	TaskInputResolver TaskInputResolver
-	TaskDataAuth      *taskdataauth.Authenticator
+	BuilderEndpoints BuilderEndpointResolver
+	// SelectedTaskBuilders reads the task's frozen Task Builder list, which the
+	// Worker streams output frames to in full. Nil when the configured Keeper
+	// client cannot serve TaskBuilders, which the frame path refuses on rather
+	// than falling back to a single Builder.
+	SelectedTaskBuilders chainclient.SelectedTaskBuildersReader
+	Dependencies         Dependencies
+	KeeperEvents         KeeperEventClient
+	TaskInputResolver    TaskInputResolver
+	TaskDataAuth         *taskdataauth.Authenticator
 	// OutputConfirmer proves a task's output is held by the receiving Builder
 	// before the Verifier commits to it. Nil when the task-data plane is not
 	// fully configured, which the Verifier paths refuse on.
@@ -723,6 +728,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		builderDirectory:            builderDirectory,
 		builderMembers:              builderMembers,
 		BuilderEndpoints:            builderEndpointResolver,
+		SelectedTaskBuilders:        selectedTaskBuildersReader(keeperClient),
 	}
 	envelopeRuntime = runtime
 	runtime.setDiagnosticsSnapshot(deps.Diagnostics)

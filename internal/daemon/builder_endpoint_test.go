@@ -329,7 +329,7 @@ func TestBuilderEndpointsRefusesBootstrapWhenCurrentKeyPublishesDescriptor(t *te
 // address on the finalized assignment) is bound here and nowhere else.
 func TestReceivingBuildersResolvesTheAssignedBuilder(t *testing.T) {
 	resolver := descriptorBackedEndpoints(t, "https://nexus.example.org")
-	provider := NewReceivingBuilders(resolver)
+	provider := NewReceivingBuilders(resolver, nil)
 
 	builder, err := provider.ResolveReceivingBuilder(context.Background(), worker.ReceivingBuilderRef{
 		SessionID: "session-1", TaskID: "session-1/7", AssignedBuilderOperator: endpointTestBuilder,
@@ -343,9 +343,73 @@ func TestReceivingBuildersResolvesTheAssignedBuilder(t *testing.T) {
 	}
 }
 
+// echoingEndpoints resolves any operator to an endpoint naming it, so a test can
+// tell which Builders a resolution covered and in what order.
+type echoingEndpoints struct{}
+
+func (echoingEndpoints) ResolveBuilderEndpoint(_ context.Context, operator string) (BuilderEndpoint, error) {
+	return BuilderEndpoint{
+		OperatorAddress: operator, Endpoint: "https://" + operator + ".example",
+		ServicePubkey: builderServiceKey().ServicePubkey, SnapshotHeight: 900, AuthorizationNonce: 4,
+	}, nil
+}
+
+type staticSelection struct {
+	builders []string
+	err      error
+}
+
+func (s staticSelection) SelectedTaskBuilders(context.Context, string) ([]string, error) {
+	return s.builders, s.err
+}
+
+// TestReceivingBuildersResolvesEveryTaskBuilderInChainOrder is the read issue #13
+// needs. The order is asserted, not just the membership: it is the order
+// MsgReportDataUnavailable's Builder bitmap is defined against, and that message
+// rejects a bitmap whose bits fall outside the frozen order, so a resolver that
+// sorted or grouped the list would produce a rejected tx rather than a degraded
+// one.
+func TestReceivingBuildersResolvesEveryTaskBuilderInChainOrder(t *testing.T) {
+	frozen := []string{"trueopen1cbuilder", "trueopen1abuilder", "trueopen1bbuilder"}
+	provider := NewReceivingBuilders(echoingEndpoints{}, staticSelection{builders: frozen})
+
+	builders, err := provider.ResolveReceivingBuilders(context.Background(), worker.ReceivingBuilderRef{
+		SessionID: "session-1", TaskID: "session-1/7", AssignedBuilderOperator: frozen[0],
+	})
+	if err != nil {
+		t.Fatalf("ResolveReceivingBuilders: %v", err)
+	}
+	if len(builders) != len(frozen) {
+		t.Fatalf("resolved %d Builders, want %d", len(builders), len(frozen))
+	}
+	for i, want := range frozen {
+		if builders[i].OperatorAddress != want {
+			t.Fatalf("builder[%d] = %q, want %q -- the chain's order must survive resolution", i, builders[i].OperatorAddress, want)
+		}
+		if builders[i].Endpoint != "https://"+want+".example" || builders[i].CurrentHeight != 900 {
+			t.Fatalf("builder[%d] = %+v, want each member resolved through its own descriptor", i, builders[i])
+		}
+	}
+}
+
+// TestReceivingBuildersRefusesWithoutASelectionReader pins the refusal rather
+// than a fallback. Answering with the single assigned Builder would hand back a
+// one-element list that a caller cannot distinguish from a task that genuinely
+// has one Builder, which is the silent-subset failure this read exists to end.
+func TestReceivingBuildersRefusesWithoutASelectionReader(t *testing.T) {
+	provider := NewReceivingBuilders(echoingEndpoints{}, nil)
+
+	_, err := provider.ResolveReceivingBuilders(context.Background(), worker.ReceivingBuilderRef{
+		SessionID: "session-1", TaskID: "session-1/7", AssignedBuilderOperator: endpointTestBuilder,
+	})
+	if err == nil || !strings.Contains(err.Error(), "can serve TaskBuilders") {
+		t.Fatalf("err = %v, want a refusal naming the missing TaskBuilders read", err)
+	}
+}
+
 func TestReceivingBuildersRequiresACanonicalAssignedOperator(t *testing.T) {
 	resolver := descriptorBackedEndpoints(t, "https://nexus.example.org")
-	provider := NewReceivingBuilders(resolver)
+	provider := NewReceivingBuilders(resolver, nil)
 
 	for name, operator := range map[string]string{
 		"empty":   "",
@@ -368,7 +432,7 @@ func TestReceivingBuildersRequiresACanonicalAssignedOperator(t *testing.T) {
 // provider fails closed instead of handing back an unverified endpoint.
 func TestReceivingBuildersFailsClosedForAnUnknownBuilder(t *testing.T) {
 	keeper := &endpointKeeper{descriptorErr: fmt.Errorf("no descriptor"), key: builderServiceKey()}
-	provider := NewReceivingBuilders(newBuilderEndpoints(nil, keeper, "", "", true))
+	provider := NewReceivingBuilders(newBuilderEndpoints(nil, keeper, "", "", true), nil)
 
 	_, err := provider.ResolveReceivingBuilder(context.Background(), worker.ReceivingBuilderRef{
 		SessionID: "session-1", TaskID: "session-1/7", AssignedBuilderOperator: "trueopen1unknownbuilder",
@@ -384,7 +448,7 @@ func TestReceivingBuildersRefusesAMismatchedResolvedIdentity(t *testing.T) {
 	provider := NewReceivingBuilders(misdirectedEndpoints{endpoint: BuilderEndpoint{
 		OperatorAddress: "trueopen1otherbuilder", Endpoint: "https://other.example",
 		ServicePubkey: builderServiceKey().ServicePubkey, SnapshotHeight: 900, AuthorizationNonce: 4,
-	}})
+	}}, nil)
 
 	_, err := provider.ResolveReceivingBuilder(context.Background(), worker.ReceivingBuilderRef{
 		SessionID: "session-1", TaskID: "session-1/7", AssignedBuilderOperator: endpointTestBuilder,
@@ -407,7 +471,7 @@ func (m misdirectedEndpoints) ResolveBuilderEndpoint(context.Context, string) (B
 // A daemon with no endpoint resolver yields no provider, so the Worker fails
 // closed rather than relaying to an unverified Builder.
 func TestNewReceivingBuildersWithoutAResolverYieldsNoProvider(t *testing.T) {
-	if provider := NewReceivingBuilders(nil); provider != nil {
+	if provider := NewReceivingBuilders(nil, nil); provider != nil {
 		t.Fatalf("provider = %#v, want no provider without an endpoint resolver", provider)
 	}
 }

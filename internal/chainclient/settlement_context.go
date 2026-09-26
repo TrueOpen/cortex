@@ -6,10 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"strings"
 
 	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
-	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
@@ -116,15 +114,8 @@ func (c *KeeperABCIClient) SettlementContext(ctx context.Context, taskID string)
 		return SettlementContext{}, err
 	}
 	selection := builders.Selection
-	if selection == nil || !bytes.Equal(selection.TaskId, taskIDBytes) || selection.BodyStatus != sharedv1.StoredBodyStatus_STORED_BODY_STATUS_ACTIVE || selection.SelectedTaskBuilderCount == 0 || uint64(len(selection.SelectedTaskBuilders)) != uint64(selection.SelectedTaskBuilderCount) {
-		return SettlementContext{}, fmt.Errorf("settlement TaskBuilders identity, active body or selected count is invalid")
-	}
-	seen := make(map[string]bool, len(selection.SelectedTaskBuilders))
-	for _, builder := range selection.SelectedTaskBuilders {
-		if builder == "" || strings.TrimSpace(builder) != builder || seen[builder] {
-			return SettlementContext{}, fmt.Errorf("settlement TaskBuilders contains an empty, non-canonical or duplicate member")
-		}
-		seen[builder] = true
+	if _, err := validateSelectedTaskBuilders(selection, taskIDBytes); err != nil {
+		return SettlementContext{}, fmt.Errorf("settlement %w", err)
 	}
 	var params hubv1.QueryHubParamsResponse
 	if err := c.query(ctx, hubQuery+"Params", height, &hubv1.QueryHubParamsRequest{}, &params); err != nil {

@@ -42,29 +42,50 @@ func (e BuilderEndpoint) PinnedContext(ctx context.Context) context.Context {
 	return builderclient.WithTLSPubkeyHash(ctx, e.TLSPubkeyHash)
 }
 
+// selectedTaskBuildersReader narrows a Keeper client to the TaskBuilders read,
+// following this package's capability-narrowing convention: KeeperClient is the
+// minimum every client must satisfy, and richer reads are asked for by
+// assertion. A client that cannot serve it yields nil, and the frame path
+// refuses rather than streaming to a subset.
+func selectedTaskBuildersReader(keeper KeeperClient) chainclient.SelectedTaskBuildersReader {
+	reader, ok := keeper.(chainclient.SelectedTaskBuildersReader)
+	if !ok {
+		return nil
+	}
+	return reader
+}
+
 // BuilderEndpointResolver resolves the Nexus endpoint of a Builder operator.
 type BuilderEndpointResolver interface {
 	ResolveBuilderEndpoint(ctx context.Context, operatorAddress string) (BuilderEndpoint, error)
 }
 
-// receivingBuilders is the single place that answers "which Builder receives
-// this task's material". Today it reads the one compatibility operator persisted
-// from an authenticated data-ready control sender and resolves that Builder's
-// descriptor. The frozen contract publishes the authoritative per-task list in
-// TaskBuilderSelectionState.selected_task_builders instead; when QueryTaskBuilders
-// is serveable, this implementation changes and the Worker relay path does not.
+// receivingBuilders is the single place that answers "which Builders receive
+// this task's material".
+//
+// It answers twice, because the two questions differ. The output frame path
+// wants every Task Builder, which comes from the chain's frozen
+// TaskBuilderSelectionState.selected_task_builders via QueryTaskBuilders. The
+// receipt and evidence upload path still targets the one Builder persisted from
+// an authenticated data-ready control sender.
 type receivingBuilders struct {
 	endpoints BuilderEndpointResolver
+	selection chainclient.SelectedTaskBuildersReader
 }
 
 // NewReceivingBuilders adapts the Builder endpoint resolver into the Worker's
 // receiving-Builder seam. A nil resolver yields a nil provider, so the Worker
 // fails closed rather than relaying to an unverified endpoint.
-func NewReceivingBuilders(endpoints BuilderEndpointResolver) worker.ReceivingBuilderProvider {
+//
+// A nil selection reader leaves only the single-Builder path usable; the frame
+// path then refuses rather than quietly streaming to one Builder, because a
+// caller asking for every Task Builder cannot tell a complete list of one from
+// an incomplete list of one.
+func NewReceivingBuilders(endpoints BuilderEndpointResolver, selection chainclient.SelectedTaskBuildersReader) worker.ReceivingBuilderProvider {
 	if endpoints == nil {
 		return nil
 	}
-	return receivingBuilders{endpoints: endpoints}
+	return receivingBuilders{endpoints: endpoints, selection: selection}
 }
 
 func (r receivingBuilders) ResolveReceivingBuilder(
@@ -87,13 +108,51 @@ func (r receivingBuilders) RefreshReceivingBuilder(
 	return r.resolve(ctx, task, r.endpoints.ResolveBuilderEndpoint)
 }
 
+// ResolveReceivingBuilders reads the task's frozen Task Builder selection from
+// the chain and resolves each member's descriptor, preserving the chain's order.
+//
+// This is the read the single-Builder path was a placeholder for. Without a
+// selection reader there is nothing to fall back to that would be correct --
+// answering with the one assigned Builder would claim a complete list while
+// returning a subset -- so the resolver refuses instead.
+func (r receivingBuilders) ResolveReceivingBuilders(
+	ctx context.Context,
+	task worker.ReceivingBuilderRef,
+) ([]worker.BuilderEndpoint, error) {
+	if r.selection == nil {
+		return nil, fmt.Errorf("resolving every Task Builder requires a Keeper that can serve TaskBuilders")
+	}
+	operators, err := r.selection.SelectedTaskBuilders(ctx, task.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("read Task Builders for task %s/%s: %w", task.SessionID, task.TaskID, err)
+	}
+	endpoints := make([]worker.BuilderEndpoint, 0, len(operators))
+	for _, operator := range operators {
+		endpoint, err := r.resolveOperator(ctx, task, operator, r.endpoints.ResolveBuilderEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		endpoints = append(endpoints, endpoint)
+	}
+	return endpoints, nil
+}
+
 func (r receivingBuilders) resolve(
 	ctx context.Context,
 	task worker.ReceivingBuilderRef,
 	lookup func(context.Context, string) (BuilderEndpoint, error),
 ) (worker.BuilderEndpoint, error) {
-	operator := strings.TrimSpace(task.AssignedBuilderOperator)
-	if operator == "" || operator != task.AssignedBuilderOperator {
+	return r.resolveOperator(ctx, task, task.AssignedBuilderOperator, lookup)
+}
+
+func (r receivingBuilders) resolveOperator(
+	ctx context.Context,
+	task worker.ReceivingBuilderRef,
+	wanted string,
+	lookup func(context.Context, string) (BuilderEndpoint, error),
+) (worker.BuilderEndpoint, error) {
+	operator := strings.TrimSpace(wanted)
+	if operator == "" || operator != wanted {
 		return worker.BuilderEndpoint{}, fmt.Errorf(
 			"receiving Builder operator is required and must be canonical",
 		)

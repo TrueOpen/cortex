@@ -184,6 +184,10 @@ func (p *refreshingProvider) ResolveReceivingBuilder(context.Context, ReceivingB
 	return p.cached, nil
 }
 
+func (p *refreshingProvider) ResolveReceivingBuilders(context.Context, ReceivingBuilderRef) ([]BuilderEndpoint, error) {
+	return []BuilderEndpoint{p.cached}, nil
+}
+
 func (p *refreshingProvider) RefreshReceivingBuilder(context.Context, ReceivingBuilderRef) (BuilderEndpoint, error) {
 	p.refreshes++
 	p.cached = p.fresh
