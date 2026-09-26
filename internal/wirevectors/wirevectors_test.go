@@ -33,3 +33,21 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 		t.Fatal("HubDomain() error = nil, want a refusal for an unpublished domain")
 	}
 }
+
+// The pre-release set must be the unreleased commit's bytes, checked the same
+// way as the released set.
+func TestPrereleaseVectorsMatchTheirManifest(t *testing.T) {
+	for _, path := range []string{
+		"task/worker_token_commitment_v1.json",
+		"task/worker_value_commitment_v3.json",
+		"task/worker_value_leaf_v1.json",
+		"task/verifier_value_leaf_v1.json",
+	} {
+		if _, err := PrereleaseFile(path); err != nil {
+			t.Fatalf("PrereleaseFile(%s): %v", path, err)
+		}
+	}
+	if _, err := PrereleaseFile("task/infer_receipt_v3.json"); err == nil {
+		t.Fatal("PrereleaseFile() error = nil for a file that was not copied")
+	}
+}

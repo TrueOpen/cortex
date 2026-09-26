@@ -1,0 +1,63 @@
+{
+  "notes": [
+    "B-level commitment binds the Worker value Merkle root and exact encoded artifact size."
+  ],
+  "schema": "trueopen.task.worker_value_commitment.v3",
+  "source": "Worker value commitment wire contract",
+  "vectors": [
+    {
+      "contract_section": "Worker evidence commitment wire contract",
+      "digest_hex": "17b4b66711beba88ab8ea07f28d21576daa206c78583ec4f3023aaaa1fd7f44d",
+      "domain": "TRUEOPEN_WORKER_VALUE_COMMITMENT_V3",
+      "expected_encoded_size_bytes": 817,
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "accepted_task_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "worker_operator_address",
+          "type": "address"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "evidence_schema_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "26436a419e76afb3d88ef3435346b34399abae22f62346c19bf63e9be0737281",
+          "name": "worker_value_root",
+          "type": "bytes"
+        },
+        {
+          "name": "worker_values_encoded_size_bytes",
+          "type": "uint64",
+          "value": 817
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "worker_value_commitment_v3",
+      "preimage_hex": "0000000000000023545255454f50454e5f574f524b45525f56414c55455f434f4d4d49544d454e545f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000002026436a419e76afb3d88ef3435346b34399abae22f62346c19bf63e9be073728100000000000000080000000000000331",
+      "preimage_size_bytes": 284,
+      "producer": "worker_value_commitment_v3"
+    }
+  ]
+}
