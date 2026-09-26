@@ -370,7 +370,7 @@ func TestRevealHalfSkipsOutputConfirmationTheModelAndTheCommitExit(t *testing.T)
 	task := store.VerifyTask{
 		TaskID: taskID, SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("accepted-order")),
-		ModelID:     "model-1", ProfileVersion: 1, Capability: "llm-text",
+		ModelID:     testModelID, ProfileVersion: 1, Capability: "llm-text",
 		WorkerAddress: "worker-1", BuilderOperatorAddress: "builder-1",
 		InferReceiptDigest: receiptHash,
 		VerifyRound:        1, OpenVerifyHeight: 10, CommitDeadlineHeight: 30,

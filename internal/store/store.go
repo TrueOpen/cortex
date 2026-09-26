@@ -131,8 +131,8 @@ type VerifyTask struct {
 	InferReceiptDigest         codec.Hash `json:"infer_receipt_digest,omitempty"`
 	KeeperReceiptJSON          []byte     `json:"keeper_receipt_json,omitempty"`
 	OutputRef                  string     `json:"output_ref"`
-	TraceRef                   string     `json:"trace_ref"`
-	CheckpointRef              string     `json:"checkpoint_ref"`
+	TokenIDsRef                string     `json:"token_ids_ref"`
+	PositionValuesRef          string     `json:"position_values_ref"`
 	// BuilderSetID and BuilderSetHash are TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12
 	// for this task (interface-and-topic-list.md §5.2 fields 11-12). A verify
 	// responsibility exists only after the first proposal was accepted, so the

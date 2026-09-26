@@ -13,6 +13,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -63,7 +64,7 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	data := &fakeProfileReceiptRelay{FakeClient: builderclient.NewFakeClient(), err: stopAtRelay}
 	input := []byte("resolved input")
 	sessionID := strings.Repeat("ab", 32)
-	signedOrder, _ := testSignedOrderProto(t, outputTestChainID, "fake-llm-text", sessionID, 1, 230)
+	signedOrder, _ := testSignedOrderProto(t, outputTestChainID, modelservice.FakeModelID, sessionID, 1, 230)
 	inputHash := codec.HashBytes(input)
 	signedOrder.Order.InputHash = inputHash[:]
 	signedOrder.Order.InputSizeBytes = uint64(len(input))
@@ -88,7 +89,7 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	task := store.InferTask{
 		TaskID: identity.TaskIDString(sessionID, 1), SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("order")), WorkerAddress: inputTestOperator,
-		BuilderOperatorAddress: inputTestBuilder, ModelID: "fake-llm-text", ProfileVersion: 1,
+		BuilderOperatorAddress: inputTestBuilder, ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, InputDigest: codec.HashBytes(input),
 		WinnerConfirmHeight: 100, DeadlineHeight: 230, Stage: string(layout.StageQueued),
 	}
@@ -124,44 +125,61 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 		t.Fatalf("relayed receipts = %d, want 1", len(data.receipts))
 	}
 	receipt := data.receipts[0]
-	if receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV2 || receipt.OutputLeafCount == 0 || receipt.GeneratedTokenCount == 0 {
-		t.Fatalf("receipt does not carry V2 output commitments: %+v", receipt)
+	if receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV3 || receipt.OutputLeafCount == 0 || receipt.GeneratedTokenCount == 0 {
+		t.Fatalf("receipt does not carry V3 output commitments: %+v", receipt)
 	}
-	if len(receipt.RequiredEvidenceCommitments) != 1 || receipt.RequiredEvidenceCommitments[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening ||
-		receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot == (codec.Hash{}) || receipt.RequiredEvidenceCommitments[0].EncodedSizeBytes == 0 {
-		t.Fatalf("receipt lacks required Worker opening: %+v", receipt.RequiredEvidenceCommitments)
-	}
-	read := func(kind string) []byte {
-		t.Helper()
-		data, err := evidenceStore.ReadTaskKind(ctx, taskHash, "worker-"+kind)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return data
+	if err := nodewire.RequireWorkerEvidenceCommitmentsV3(receiptCommitmentsForTest(receipt.RequiredEvidenceCommitments)); err != nil {
+		t.Fatalf("receipt lacks the Worker openings: %v", err)
 	}
 	if receipt.OutputLeafCount != 1 {
 		t.Fatalf("fake output should be one signed chunk, got %d", receipt.OutputLeafCount)
 	}
-	schemaHash := codec.HashWithDomain("CORTEX_FAKE_EVIDENCE_SCHEMA_V1", []byte(task.ModelID), codec.Uint64Bytes(uint64(task.ProfileVersion)))
-	fixture := evidenceFixture{
-		Trace: read("trace"), Checkpoint: read("checkpoint"), Manifest: read("evidence-manifest"),
-		InputTokenIDs: read("input_token_ids"), GeneratedTokenIDs: read("generated_token_ids"),
-		Commitments: EvidenceCommitments{SessionID: task.SessionID, TaskID: task.TaskID, BuilderOperatorAddress: inputTestBuilder,
-			Receipt: receipt, EvidenceSchemaHash: schemaHash.String(), Output: read("output"),
-			OutputChunkLengths: []uint64{receipt.OutputSizeBytes}, MaxEncodedSizeBytes: 1 << 30},
-	}
-	confirmed, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: fixture.objects()}).ConfirmWorkerValueEvidence(ctx, fixture.Commitments)
-	if err != nil {
-		t.Fatalf("Verifier rejected fake Worker evidence: %v", err)
-	}
-	generation, err := modelservice.GenerationContextFromTrace(confirmed.Trace)
+	output, err := evidenceStore.ReadTaskKind(ctx, taskHash, "worker-output")
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotDigest, err := generation.Digest()
-	if err != nil || gotDigest != generationDigest || generation.Params.MaxOutputTokens != 1024 {
-		t.Fatalf("fake evidence lost the accepted generation parameters: %+v, %v", generation, err)
+	bundle := func(id evidence.BundleID) ([]byte, map[string][]byte) {
+		t.Helper()
+		manifestBytes, _, err := evidenceStore.ReadBundleManifest(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := evidencebundle.Decode(manifestBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifacts := map[string][]byte{}
+		for _, artifact := range manifest.Artifacts {
+			digest, err := decodeCanonicalHash(artifact.ContentHash, "content_hash")
+			if err != nil {
+				t.Fatal(err)
+			}
+			size, _ := artifact.SizeBytes()
+			if artifacts[artifact.ID], err = evidenceStore.ReadBundleArtifact(id, digest, int64(size)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return manifestBytes, artifacts
 	}
+	valueManifest, valueArtifacts := bundle(evidence.WorkerValueBundle(taskHash))
+	tokenManifest, tokenArtifacts := bundle(evidence.WorkerTokenBundle(taskHash))
+	schemaHash := codec.HashWithDomain("CORTEX_FAKE_EVIDENCE_SCHEMA_V1", []byte(task.ModelID), codec.Uint64Bytes(uint64(task.ProfileVersion)))
+	fixture := evidenceFixture{
+		WorkerValues: valueArtifacts["worker_values"], ValueManifest: valueManifest, TokenManifest: tokenManifest,
+		InputTokenIDs: tokenArtifacts["input_token_ids"], GeneratedTokenIDs: tokenArtifacts["generated_token_ids"],
+		Commitments: EvidenceCommitments{SessionID: task.SessionID, TaskID: task.TaskID, BuilderOperatorAddress: inputTestBuilder,
+			Receipt: receipt, EvidenceSchemaHash: schemaHash.String(), Output: output,
+			OutputChunkLengths: []uint64{receipt.OutputSizeBytes}, RequiredTopK: fakeRequiredTopK,
+			MaxEncodedSizeBytes: map[nodewire.EvidenceKind]uint64{nodewire.EvidenceKindWorkerValueOpening: 1 << 30, nodewire.EvidenceKindWorkerTokenOpening: 1 << 30}},
+	}
+	confirmed, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: fixture.objects()}).ConfirmWorkerEvidence(ctx, fixture.Commitments)
+	if err != nil {
+		t.Fatalf("Verifier rejected fake Worker evidence: %v", err)
+	}
+	if confirmed.FinishReason == nodewire.FinishReasonV1Unspecified || len(confirmed.WorkerValues) == 0 {
+		t.Fatalf("confirmed evidence = %+v", confirmed)
+	}
+	_ = generationDigest
 	// Resume through the production persistence adapter after the relay recovers.
 	// The first Fin must be created even though other artifacts already exist.
 	data.err = nil
@@ -185,4 +203,13 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 		t.Fatalf("Fin replay changed persisted bytes: %v", err)
 	}
 
+}
+
+func receiptCommitmentsForTest(items []builderclient.EvidenceCommitment) []nodewire.EvidenceCommitmentV1 {
+	out := make([]nodewire.EvidenceCommitmentV1, len(items))
+	for i, item := range items {
+		root := item.EvidenceHashOrRoot
+		out[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: root[:], EncodedSizeBytes: item.EncodedSizeBytes}
+	}
+	return out
 }

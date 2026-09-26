@@ -10,7 +10,7 @@ import (
 // The three published manifests are decoded, re-encoded and hashed exactly as
 // transmitted; a relay must hash what it received.
 func TestManifestsV3ReproducePublishedVectors(t *testing.T) {
-	data, err := wirevectors.PrereleaseFile("task/canonical_json_v1.json")
+	data, err := wirevectors.File("task/canonical_json_v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestManifestsV3ReproducePublishedVectors(t *testing.T) {
 		if v.Domain != Domain {
 			continue
 		}
-		m, err := DecodeV3([]byte(v.PayloadUTF8))
+		m, err := Decode([]byte(v.PayloadUTF8))
 		if err != nil {
 			t.Fatalf("%s: %v", v.Name, err)
 		}
@@ -43,11 +43,10 @@ func TestManifestsV3ReproducePublishedVectors(t *testing.T) {
 		t.Fatalf("published manifests cover %d kinds, want 3", len(kinds))
 	}
 
-	// V2 Encode keeps refusing the split Worker bundles, and V3 accepts only
-	// each kind's exact artifact set.
+	// Each kind accepts only its exact artifact set.
 	worker := kinds[KindWorkerValueOpening]
-	if _, err := worker.Encode(); err == nil {
-		t.Fatal("V2 Encode accepted a B-level Worker manifest")
+	if _, err := worker.Encode(); err != nil {
+		t.Fatalf("Encode refused the published B-level Worker manifest: %v", err)
 	}
 	for name, mutate := range map[string]func(*Manifest){
 		"missing evidence kind":      func(m *Manifest) { m.EvidenceKind = "" },
@@ -61,13 +60,13 @@ func TestManifestsV3ReproducePublishedVectors(t *testing.T) {
 		bad := worker
 		bad.Artifacts = append([]Artifact(nil), worker.Artifacts...)
 		mutate(&bad)
-		if _, err := bad.EncodeV3(); err == nil {
+		if _, err := bad.Encode(); err == nil {
 			t.Errorf("%s: EncodeV3() error = nil", name)
 		}
 	}
 	verifier := kinds[KindVerifierValueOpening]
 	verifier.EvidenceKind = ""
-	if _, err := verifier.EncodeV3(); err == nil {
+	if _, err := verifier.Encode(); err == nil {
 		t.Fatal("EncodeV3() accepted a Verifier manifest without evidence_kind")
 	}
 }

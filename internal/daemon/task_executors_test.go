@@ -67,7 +67,7 @@ func TestProductionVerifyExecutorUsesKeeperInferReceiptDigest(t *testing.T) {
 	task := store.VerifyTask{
 		TaskID: taskID, SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("accepted-order")),
-		ModelID:     "model-1", ProfileVersion: 1, Capability: "llm-text",
+		ModelID:     testModelID, ProfileVersion: 1, Capability: "llm-text",
 		WorkerAddress: "worker-1", BuilderOperatorAddress: "builder-1",
 		OutputDigest: outputHash, InferReceiptDigest: receiptHash,
 		VerifyRound: 1, OpenVerifyHeight: 10, CommitDeadlineHeight: 30, DeadlineHeight: 40,
@@ -148,7 +148,7 @@ func TestVerifyExecutorReadsTheFrozenWindowRatherThanTheHandraiseWindow(t *testi
 	task := store.VerifyTask{
 		TaskID: taskID, SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("accepted-order")),
-		ModelID:     "model-1", ProfileVersion: 1, Capability: "llm-text",
+		ModelID:     testModelID, ProfileVersion: 1, Capability: "llm-text",
 		WorkerAddress: "worker-1", BuilderOperatorAddress: "builder-1",
 		OutputDigest: outputHash, InferReceiptDigest: receiptHash,
 		VerifyRound: 1, OpenVerifyHeight: 586, CommitDeadlineHeight: 886, DeadlineHeight: 1286,
@@ -402,14 +402,14 @@ func TestCheckpointInferOutputSetsFinishReasonAndArtifacts(t *testing.T) {
 	checkpoint := []byte("checkpoint")
 	descriptor := []byte(`{"finish_reason":1}`)
 	cp := worker.InferOutputCheckpoint{
-		JobID: "job-1", OutputRef: "output-ref", TraceRef: "trace-ref",
-		CheckpointRef: "checkpoint-ref", FinishReason: 1, DescriptorJSON: descriptor,
+		JobID: "job-1", OutputRef: "output-ref", TokenIDsRef: "trace-ref",
+		PositionValuesRef: "checkpoint-ref", FinishReason: 1, DescriptorJSON: descriptor,
 	}
 	if err := p.CheckpointInferOutput(ctx, "task-1", output, trace, checkpoint, cp); err != nil {
 		t.Fatalf("CheckpointInferOutput: %v", err)
 	}
 
-	for _, kind := range []string{"worker-output", "worker-trace", "worker-checkpoint", "worker-output-descriptor"} {
+	for _, kind := range []string{"worker-output", "worker-token-ids-material", "worker-position-values-material", "worker-output-descriptor"} {
 		data, err := p.ReadArtifact(ctx, "task-1", kind)
 		if err != nil {
 			t.Fatalf("ReadArtifact(%s): %v", kind, err)

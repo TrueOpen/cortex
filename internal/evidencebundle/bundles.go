@@ -1,10 +1,8 @@
 package evidencebundle
 
-// The wire v0.3.0 manifest rules (TrueOpen/wire#14, task/canonical_json_v1.json).
-// The JSON shape and hash are unchanged; what changes is which bundles exist.
-// Every manifest now names its evidence_kind, and a Worker round has two
-// bundles instead of one four-artifact bundle. Added beside Validate/Encode/
-// Decode; nothing calls these yet.
+// The wire v0.3.0 manifest rules (task/canonical_json_v1.json): every manifest
+// names its evidence_kind, and each kind's bundle holds exactly its own
+// artifact set.
 
 import (
 	"bytes"
@@ -31,10 +29,9 @@ var artifactsV3 = map[string][]string{
 	KindVerifierValueOpening: {"aggregate_proof"},
 }
 
-// ValidateV3 applies the V2 scope and artifact rules plus the v0.3.0 bundle
-// rules: the evidence kind must match the producer, and the artifacts must be
+// Validate applies the scope and artifact rules plus the bundle rules: the evidence kind must match the producer, and the artifacts must be
 // exactly that kind's set.
-func (m Manifest) ValidateV3() error {
+func (m Manifest) Validate() error {
 	if m.Version != 1 || m.ChainID == "" || !utf8.ValidString(m.ChainID) {
 		return fmt.Errorf("invalid manifest scope")
 	}
@@ -73,9 +70,9 @@ func (m Manifest) ValidateV3() error {
 	return nil
 }
 
-// EncodeV3 returns the canonical manifest bytes after ValidateV3.
-func (m Manifest) EncodeV3() ([]byte, error) {
-	if err := m.ValidateV3(); err != nil {
+// Encode returns the canonical manifest bytes after Validate.
+func (m Manifest) Encode() ([]byte, error) {
+	if err := m.Validate(); err != nil {
 		return nil, err
 	}
 	var b bytes.Buffer
@@ -91,8 +88,8 @@ func (m Manifest) EncodeV3() ([]byte, error) {
 	return data, nil
 }
 
-// DecodeV3 parses exact canonical V3 manifest bytes.
-func DecodeV3(data []byte) (Manifest, error) {
+// Decode parses exact canonical manifest bytes.
+func Decode(data []byte) (Manifest, error) {
 	var m Manifest
 	if len(data) == 0 || len(data) > MaxManifestBytes {
 		return m, fmt.Errorf("invalid manifest byte size")
@@ -106,7 +103,7 @@ func DecodeV3(data []byte) (Manifest, error) {
 	if err := d.Decode(&extra); err != io.EOF {
 		return m, fmt.Errorf("manifest has trailing JSON")
 	}
-	canonical, err := m.EncodeV3()
+	canonical, err := m.Encode()
 	if err != nil {
 		return m, err
 	}
@@ -114,4 +111,19 @@ func DecodeV3(data []byte) (Manifest, error) {
 		return m, fmt.Errorf("manifest is not exact canonical JSON")
 	}
 	return m, nil
+}
+
+// KindToken is the manifest spelling of an evidence kind, or "" for a kind
+// that has no bundle.
+func KindToken(kind nodewire.EvidenceKind) string {
+	switch kind {
+	case nodewire.EvidenceKindWorkerValueOpening:
+		return KindWorkerValueOpening
+	case nodewire.EvidenceKindWorkerTokenOpening:
+		return KindWorkerTokenOpening
+	case nodewire.EvidenceKindVerifierValueOpening:
+		return KindVerifierValueOpening
+	default:
+		return ""
+	}
 }

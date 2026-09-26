@@ -81,7 +81,7 @@ func TestPublishBundleLaysOutEveryBundleIndependently(t *testing.T) {
 		}
 	}
 	// A legacy flat artifact of the same task coexists with the bundles.
-	if _, err := store.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: "worker-trace", Data: []byte("trace")}); err != nil {
+	if _, err := store.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: "worker-token-ids-material", Data: []byte("trace")}); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	for _, req := range bundles {

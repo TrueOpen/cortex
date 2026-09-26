@@ -42,7 +42,7 @@ func TestRunOnceStopsATaskWhoseCommittedLocalObjectsAreGoneAndRunsOneThatIsIntac
 		intactHash: []byte("worker trace that survives the restart"),
 	} {
 		if _, err := evidenceStore.Write(ctx, evidence.WriteRequest{
-			TaskHash: hash, Kind: string(layout.ArtifactWorkerTrace), Data: data,
+			TaskHash: hash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data,
 		}); err != nil {
 			t.Fatalf("evidence Write returned error: %v", err)
 		}
@@ -121,7 +121,7 @@ func TestRunOnceVerifiesLocalObjectsAtMostOncePerTask(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("repeatedly-polled-task"))
 	trace := []byte("worker trace")
 	if _, err := evidenceStore.Write(ctx, evidence.WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: trace,
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: trace,
 	}); err != nil {
 		t.Fatalf("evidence Write returned error: %v", err)
 	}

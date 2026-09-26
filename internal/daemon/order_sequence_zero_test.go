@@ -40,7 +40,7 @@ func TestHandleNexusMessageAdmitsSessionFirstOrderSequenceZero(t *testing.T) {
 	runner := NewTaskRunner(TaskRunnerConfig{
 		Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain",
 		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{"model\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
 		TaskDataAuth:         taskRunnerTaskDataAuth(t),
 		SignerAddress:        "service", SignerKeyRef: "key",
@@ -74,7 +74,7 @@ func TestKeeperHandraiseEligibilityAcceptsSessionFirstOrderSequenceZero(t *testi
 	})
 
 	input, expires, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString(session, 0), SessionID: session, OrderSequence: 0, ModelID: "fake-llm-text",
+		TaskID: identity.TaskIDString(session, 0), SessionID: session, OrderSequence: 0, ModelID: modelservice.FakeModelID,
 		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func TestKeeperHandraiseEligibilityAcceptsSessionFirstOrderSequenceZero(t *testi
 	// from a different sequence must be refused, or dropping the zero check
 	// would have replaced one bug with a hole.
 	if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString(session, 1), SessionID: session, OrderSequence: 0, ModelID: "fake-llm-text",
+		TaskID: identity.TaskIDString(session, 1), SessionID: session, OrderSequence: 0, ModelID: modelservice.FakeModelID,
 		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 	}); err == nil {
 		t.Fatal("Worker eligibility accepted a task_id that does not derive from order_sequence 0")

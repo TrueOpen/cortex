@@ -763,7 +763,7 @@ func validateStage(stage RoleStage) error {
 func validateFinishReason(reason FinishReasonV1) error {
 	switch reason {
 	case FinishReasonEOS, FinishReasonStopSequence, FinishReasonMaxOutputTokens,
-		FinishReasonMaxOutputDuration, FinishReasonUnknown:
+		FinishReasonMaxOutputDuration, FinishReasonUserStop, FinishReasonStopToken, FinishReasonUnknown:
 		return nil
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidFinishReason, reason)
@@ -772,8 +772,8 @@ func validateFinishReason(reason FinishReasonV1) error {
 
 func isSingletonKind(kind ArtifactKind) bool {
 	switch kind {
-	case ArtifactTaskInput, ArtifactWorkerOutput, ArtifactWorkerTrace,
-		ArtifactWorkerCheckpoint, ArtifactWorkerBatchLog, ArtifactInferReceipt:
+	case ArtifactTaskInput, ArtifactWorkerOutput, ArtifactWorkerTokenIDsMaterial,
+		ArtifactWorkerPositionValuesMaterial, ArtifactWorkerBatchLog, ArtifactInferReceipt:
 		return true
 	default:
 		return false
@@ -785,8 +785,8 @@ func validateArtifactKind(kind ArtifactKind) error {
 		return fmt.Errorf("%w: empty kind", ErrInvalidArtifactKind)
 	}
 	switch kind {
-	case ArtifactTaskInput, ArtifactWorkerOutput, ArtifactWorkerTrace,
-		ArtifactWorkerCheckpoint, ArtifactWorkerBatchLog, ArtifactInferReceipt,
+	case ArtifactTaskInput, ArtifactWorkerOutput, ArtifactWorkerTokenIDsMaterial,
+		ArtifactWorkerPositionValuesMaterial, ArtifactWorkerBatchLog, ArtifactInferReceipt,
 		ArtifactWorkerOutputDescriptor, ArtifactWorkerResult:
 		return nil
 	}

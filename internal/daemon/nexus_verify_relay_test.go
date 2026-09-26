@@ -2,13 +2,14 @@ package daemon
 
 import (
 	"bytes"
-	"connectrpc.com/connect"
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/TrueOpen/cortex/internal/codec"
 	"strings"
 	"testing"
+
+	"connectrpc.com/connect"
+	"github.com/TrueOpen/cortex/internal/codec"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/nodewire"

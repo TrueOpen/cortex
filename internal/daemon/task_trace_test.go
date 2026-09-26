@@ -96,7 +96,7 @@ func TestAdmittedOrderTracesTheTaskHashAndTheHandraiseItSigned(t *testing.T) {
 	runner := NewTaskRunner(TaskRunnerConfig{
 		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker", ChainID: "chain",
 		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{"model\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
 		TaskDataAuth:         taskRunnerTaskDataAuth(t),
 		SignerAddress:        "service", SignerKeyRef: "key",
@@ -112,7 +112,7 @@ func TestAdmittedOrderTracesTheTaskHashAndTheHandraiseItSigned(t *testing.T) {
 	}
 
 	requireTraceFields(t, trace.event(t, "order_broadcast"),
-		"task_hash="+taskHash.String(), `model="model"`, "profile_version=1", "order_expire_height=")
+		"task_hash="+taskHash.String(), `model="`+testModelID+`"`, "profile_version=1", "order_expire_height=")
 
 	handraise := trace.event(t, "worker_handraise")
 	admission, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash))
@@ -189,7 +189,7 @@ func TestInferStartedTraceIsErrorOnlyWhenInputResolutionFails(t *testing.T) {
 	}, nil)
 	taskHash := codec.HashBytes([]byte("task-hash"))
 	task := store.InferTask{
-		TaskID: "task-1", SessionID: "session-1", ModelID: "model-1", ProfileVersion: 1,
+		TaskID: "task-1", SessionID: "session-1", ModelID: testModelID, ProfileVersion: 1,
 		InputDigest: codec.HashBytes([]byte("input")), Stage: string(layout.StageQueued),
 	}
 
@@ -224,7 +224,7 @@ func TestInferStartedTraceIsInfoWhenInputResolutionSucceeds(t *testing.T) {
 	task := store.InferTask{
 		TaskID: identity.TaskIDString(sessionID, 1), SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("order")), WorkerAddress: "worker-1",
-		ModelID: "model-1", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1,
+		ModelID: testModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1,
 		InputDigest: codec.HashBytes(input), DeadlineHeight: 10, Stage: string(layout.StageQueued),
 	}
 

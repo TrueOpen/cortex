@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -251,7 +252,9 @@ func TestOpenVerifyContradictionsNeverPersistTheDataReadyBuilder(t *testing.T) {
 			wrong := codec.HashBytes([]byte("wrong-task-hash"))
 			call.TaskHash = append([]byte(nil), wrong[:]...)
 		}},
-		{name: "wrong model", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) { call.ModelId = "other-model" }},
+		{name: "wrong model", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) {
+			call.ModelId = bytes.Repeat([]byte{0x0f}, 32)
+		}},
 		{name: "wrong profile", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) { call.ProfileVersion = 2 }},
 		{name: "wrong round", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) { call.VerifyRound = 2 }},
 	}

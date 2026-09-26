@@ -52,7 +52,7 @@ func seedAssignedInferTask(t *testing.T, ctx context.Context, r *TaskRunner) cod
 	taskHash := mustHash32(t, notifyAcceptedTaskHashHex)
 	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 		TaskID: notifyTaskIDHex, SessionID: "session-1", OrderSequence: chainclient.NewUint64String(0),
-		SelectedWorker: notifyWinner, ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+		SelectedWorker: notifyWinner, ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 		WinnerConfirmHeight:      chainclient.NewUint64String(notifyConfirmHeight),
 		InferDeadlineHeight:      chainclient.NewUint64String(112601),
 		AcceptedOrderPayloadHash: chainclient.HexHash(mustHash32(t, notifyAcceptedInputHashHex)),

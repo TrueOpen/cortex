@@ -11,6 +11,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
+	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
@@ -44,7 +45,7 @@ func (c *evidenceTaskDataClient) GetTaskDataMetadata(ctx context.Context, _ stri
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
-		metadata.EvidenceBundle = &builderclient.EvidenceBundleSummary{EvidenceBundleHash: evidencebundle.Hash(data).String(), EvidenceSchemaHash: manifest.EvidenceSchemaHash,
+		metadata.EvidenceBundle = &builderclient.EvidenceBundleSummary{EvidenceManifestHash: evidencebundle.Hash(data).String(), EvidenceSchemaHash: manifest.EvidenceSchemaHash,
 			ArtifactCount: uint32(len(manifest.Artifacts)), ArtifactTotalSizeBytes: manifest.TotalSize(), ManifestSizeBytes: uint64(len(data))}
 	}
 	if c.metadataMutation != nil {
@@ -74,15 +75,18 @@ func (c *evidenceTaskDataClient) FetchTaskData(ctx context.Context, _ string, re
 }
 
 type evidenceFixture struct {
-	Trace, Checkpoint, Manifest      []byte
-	InputTokenIDs, GeneratedTokenIDs []byte
-	Commitments                      EvidenceCommitments
+	InputTokenIDs, GeneratedTokenIDs, WorkerValues []byte
+	ValueManifest, TokenManifest                   []byte
+	FinishReason                                   nodewire.FinishReasonV1
+	Commitments                                    EvidenceCommitments
 }
+
+const evidenceTestTopK = 16
 
 func newEvidenceFixture(t *testing.T) evidenceFixture {
 	t.Helper()
 	generation := &nodewire.GenerationContext{
-		ModelID: "model-a", ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 4,
+		ModelID: modelservice.FakeModelID, ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 4,
 		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: 256, MaxOutputDuration: 30000,
 			DecodingParams: nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 700, TopPPPM: 950000, RepetitionPenaltyPPM: 1000000}},
 	}
@@ -97,17 +101,19 @@ func newEvidenceFixture(t *testing.T) evidenceFixture {
 		t.Fatal(err)
 	}
 	artifacts := make([][]byte, 0, 3)
-	for _, ref := range []string{result.OutputRef, result.TraceRef, result.CheckpointRef} {
+	for _, ref := range []string{result.OutputRef, result.TokenIDsRef, result.PositionValuesRef} {
 		artifact, err := model.FetchArtifact(context.Background(), modelservice.FetchArtifactRequest{Ref: ref})
 		if err != nil {
 			t.Fatal(err)
 		}
 		artifacts = append(artifacts, artifact.Data)
 	}
-	f := evidenceFixture{Trace: artifacts[1], Checkpoint: artifacts[2], Commitments: EvidenceCommitments{
+	f := evidenceFixture{FinishReason: result.FinishReason, Commitments: EvidenceCommitments{
 		SessionID: strings.Repeat("11", 32), TaskID: outputTestTaskID, BuilderOperatorAddress: inputTestBuilder,
-		EvidenceSchemaHash: evidenceTestSchemaHash, Output: artifacts[0], OutputChunkLengths: []uint64{uint64(len(artifacts[0]))}, MaxEncodedSizeBytes: 256 << 20,
-		Receipt: builderclient.SignedInferReceipt{SchemaVersion: 2, ChainID: outputTestChainID, TaskID: outputTestTaskID,
+		EvidenceSchemaHash: evidenceTestSchemaHash, Output: artifacts[0], OutputChunkLengths: []uint64{uint64(len(artifacts[0]))},
+		MaxEncodedSizeBytes: map[nodewire.EvidenceKind]uint64{nodewire.EvidenceKindWorkerValueOpening: 256 << 20, nodewire.EvidenceKindWorkerTokenOpening: 256 << 20},
+		RequiredTopK:        evidenceTestTopK,
+		Receipt: builderclient.SignedInferReceipt{SchemaVersion: nodewire.InferReceiptSchemaVersionV3, ChainID: outputTestChainID, TaskID: outputTestTaskID,
 			TaskHash: codec.HashBytes([]byte("accepted-task")).String(), WorkerOperatorAddress: inputTestOperator,
 			ServiceAuthorizationNonce: 1, GenerationParamsDigest: digest.String(),
 			OutputSizeBytes: uint64(len(artifacts[0])), OutputLeafCount: 1, GeneratedTokenCount: result.GeneratedTokenCount, ExpiryHeight: 1200},
@@ -117,11 +123,46 @@ func newEvidenceFixture(t *testing.T) evidenceFixture {
 		t.Fatal(err)
 	}
 	f.Commitments.Receipt.OutputHash = root.String()
-	f.InputTokenIDs, f.GeneratedTokenIDs, err = modelservice.TokenIDArtifacts(f.Trace, f.Checkpoint)
+	ids, err := modelservice.DecodeTokenIDsArtifact(artifacts[1])
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.rebuildManifest(t, nil)
+	if f.InputTokenIDs, f.GeneratedTokenIDs, err = modelservice.ProtocolTokenIDs(ids); err != nil {
+		t.Fatal(err)
+	}
+	values, err := modelservice.DecodePositionValuesArtifact(artifacts[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves, err := metric.ValueLeaves(values, evidenceTestTopK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.WorkerValues, err = nodewire.EncodeWorkerValues(f.valueBinding(t), leaves); err != nil {
+		t.Fatal(err)
+	}
+	f.rebuildManifests(t, nil)
+	f.sign(t)
+	return f
+}
+
+func (f evidenceFixture) valueBinding(t *testing.T) nodewire.WorkerValueBindingV1 {
+	t.Helper()
+	r := f.Commitments.Receipt
+	taskID, err := decodeCanonicalHash(r.TaskID, "task_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskHash, err := decodeCanonicalHash(r.TaskHash, "task_hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return nodewire.WorkerValueBindingV1{ChainID: r.ChainID, TaskID: taskID[:], AcceptedTaskHash: taskHash[:],
+		WorkerOperatorAddress: r.WorkerOperatorAddress, RequiredTopK: evidenceTestTopK}
+}
+
+func (f *evidenceFixture) sign(t *testing.T) {
+	t.Helper()
 	signing, binding := localInputServiceSigner(t)
 	receiptDigest, err := builderclient.InferReceiptSigningDigest(f.Commitments.Receipt)
 	if err != nil {
@@ -132,21 +173,29 @@ func newEvidenceFixture(t *testing.T) evidenceFixture {
 		t.Fatal(err)
 	}
 	f.Commitments.Receipt.ServiceSignature = hex.EncodeToString(signature)
-	return f
 }
 
-func (f *evidenceFixture) rebuildManifest(t *testing.T, mutate func(*evidencebundle.Manifest)) {
+// rebuildManifests encodes both Worker manifests, applying mutate to each, and
+// re-derives the receipt's two commitments from the artifacts.
+func (f *evidenceFixture) rebuildManifests(t *testing.T, mutate func(*evidencebundle.Manifest)) {
 	t.Helper()
 	r := f.Commitments.Receipt
-	m := evidencebundle.Manifest{Version: 1, ChainID: r.ChainID, TaskID: r.TaskID, TaskHash: r.TaskHash, VerifyRound: 1,
-		ProducerKind: "WORKER", ProducerOperator: r.WorkerOperatorAddress, EvidenceSchemaHash: f.Commitments.EvidenceSchemaHash, EvidenceKind: "WORKER_VALUE_OPENING",
-		Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("checkpoint", f.Checkpoint), evidencebundle.NewArtifact("generated_token_ids", f.GeneratedTokenIDs), evidencebundle.NewArtifact("input_token_ids", f.InputTokenIDs), evidencebundle.NewArtifact("trace", f.Trace)}}
+	scope := func(kind string, artifacts ...evidencebundle.Artifact) evidencebundle.Manifest {
+		return evidencebundle.Manifest{Version: 1, ChainID: r.ChainID, TaskID: r.TaskID, TaskHash: r.TaskHash, VerifyRound: 1,
+			ProducerKind: "WORKER", ProducerOperator: r.WorkerOperatorAddress, EvidenceSchemaHash: f.Commitments.EvidenceSchemaHash,
+			EvidenceKind: kind, Artifacts: artifacts}
+	}
+	value := scope(evidencebundle.KindWorkerValueOpening, evidencebundle.NewArtifact("worker_values", f.WorkerValues))
+	token := scope(evidencebundle.KindWorkerTokenOpening, evidencebundle.NewArtifact("generated_token_ids", f.GeneratedTokenIDs), evidencebundle.NewArtifact("input_token_ids", f.InputTokenIDs))
 	if mutate != nil {
-		mutate(&m)
+		mutate(&value)
+		mutate(&token)
 	}
 	var err error
-	f.Manifest, err = m.Encode()
-	if err != nil {
+	if f.ValueManifest, err = value.Encode(); err != nil {
+		t.Fatal(err)
+	}
+	if f.TokenManifest, err = token.Encode(); err != nil {
 		t.Fatal(err)
 	}
 	input, err := nodewire.DecodeTokenIDs(f.InputTokenIDs)
@@ -163,43 +212,48 @@ func (f *evidenceFixture) rebuildManifest(t *testing.T, mutate func(*evidencebun
 	if err != nil {
 		t.Fatal(err)
 	}
-	generation, err := modelservice.GenerationContextFromTrace(f.Trace)
+	leaves, err := nodewire.DecodeWorkerValues(f.valueBinding(t), f.WorkerValues)
 	if err != nil {
 		t.Fatal(err)
 	}
-	genDigest, _ := decodeCanonicalHash(r.GenerationParamsDigest, "generation_params_digest")
-	_, reason, err := modelservice.ValidateGenerationEvidence(generation, genDigest[:], f.Commitments.Output, f.Trace, f.Checkpoint)
+	valueRoot, err := nodewire.WorkerValueRoot(f.valueBinding(t), leaves)
 	if err != nil {
 		t.Fatal(err)
 	}
-	commitment, err := builderclient.WorkerValueEvidenceCommitment(builderclient.WorkerValueEvidenceFacts{
+	commitments, err := builderclient.WorkerEvidenceCommitments(builderclient.WorkerEvidenceFacts{
 		ChainID: r.ChainID, TaskID: r.TaskID, AcceptedTaskHash: r.TaskHash, WorkerOperatorAddress: r.WorkerOperatorAddress,
 		GenerationParamsDigest: r.GenerationParamsDigest, EvidenceSchemaHash: f.Commitments.EvidenceSchemaHash,
-		OutputHash: outputHash, OutputSizeBytes: r.OutputSizeBytes, OutputLeafCount: r.OutputLeafCount, GeneratedTokenCount: r.GeneratedTokenCount, FinishReason: reason,
-		TraceRoot: codec.HashBytes(f.Trace), TraceEncodedSizeBytes: uint64(len(f.Trace)), CheckpointRoot: codec.HashBytes(f.Checkpoint), CheckpointEncodedSizeBytes: uint64(len(f.Checkpoint)),
-		InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: uint64(len(f.InputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(f.GeneratedTokenIDs)),
+		OutputHash: outputHash, OutputSizeBytes: r.OutputSizeBytes, OutputLeafCount: r.OutputLeafCount, GeneratedTokenCount: r.GeneratedTokenCount,
+		FinishReason: f.FinishReason, InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash,
+		InputTokenIDsSizeBytes: uint64(len(f.InputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(f.GeneratedTokenIDs)),
+		WorkerValueRoot: valueRoot, WorkerValuesEncodedSizeBytes: uint64(len(f.WorkerValues)),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Commitments.Receipt.RequiredEvidenceCommitments = []builderclient.EvidenceCommitment{commitment}
+	f.Commitments.Receipt.RequiredEvidenceCommitments = commitments
 }
 
+// keys are, in fetch order: value manifest, worker_values, token manifest,
+// generated_token_ids, input_token_ids.
 func (f evidenceFixture) keys() []builderclient.TaskDataKey {
 	r := f.Commitments.Receipt
-	key := func(kind builderclient.DataKind, hash string) builderclient.TaskDataKey {
-		return builderclient.EvidenceObjectKey(r.TaskHash, f.Commitments.SessionID, r.TaskID, kind, hash, builderclient.EvidenceProducerWorker, 1, r.WorkerOperatorAddress)
+	key := func(dataKind builderclient.DataKind, hash string, kind nodewire.EvidenceKind) builderclient.TaskDataKey {
+		return builderclient.EvidenceObjectKey(r.TaskHash, f.Commitments.SessionID, r.TaskID, dataKind, hash, builderclient.EvidenceProducerWorker, 1, r.WorkerOperatorAddress, kind)
 	}
-	return []builderclient.TaskDataKey{key(builderclient.DataKindEvidenceManifest, r.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String()),
-		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.Checkpoint).String()),
-		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.GeneratedTokenIDs).String()),
-		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.InputTokenIDs).String()),
-		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.Trace).String())}
+	value, token := nodewire.EvidenceKindWorkerValueOpening, nodewire.EvidenceKindWorkerTokenOpening
+	return []builderclient.TaskDataKey{
+		key(builderclient.DataKindEvidenceManifest, r.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String(), value),
+		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.WorkerValues).String(), value),
+		key(builderclient.DataKindEvidenceManifest, r.RequiredEvidenceCommitments[1].EvidenceHashOrRoot.String(), token),
+		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.GeneratedTokenIDs).String(), token),
+		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.InputTokenIDs).String(), token),
+	}
 }
 
 func (f evidenceFixture) objects() map[builderclient.TaskDataKey][]byte {
 	keys := f.keys()
-	return map[builderclient.TaskDataKey][]byte{keys[0]: f.Manifest, keys[1]: f.Checkpoint, keys[2]: f.GeneratedTokenIDs, keys[3]: f.InputTokenIDs, keys[4]: f.Trace}
+	return map[builderclient.TaskDataKey][]byte{keys[0]: f.ValueManifest, keys[1]: f.WorkerValues, keys[2]: f.TokenManifest, keys[3]: f.GeneratedTokenIDs, keys[4]: f.InputTokenIDs}
 }
 
 func evidenceAuth(t *testing.T) (*taskdataauth.Authenticator, signer.Signer) {
@@ -228,18 +282,20 @@ func newEvidenceConfirmer(t *testing.T, client builderclient.TaskDataClient) *Ne
 func TestNexusEvidenceConfirmerFetchesManifestBeforeFullArtifactReferences(t *testing.T) {
 	f := newEvidenceFixture(t)
 	client := &evidenceTaskDataClient{objects: f.objects()}
-	result, err := newEvidenceConfirmer(t, client).ConfirmWorkerValueEvidence(context.Background(), f.Commitments)
+	result, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(result.Trace, f.Trace) || !bytes.Equal(result.Checkpoint, f.Checkpoint) || result.FinishReason == nodewire.FinishReasonV1Unspecified {
+	if !bytes.Equal(result.WorkerValues, f.WorkerValues) || !bytes.Equal(result.GeneratedTokenIDs, f.GeneratedTokenIDs) ||
+		!bytes.Equal(result.InputTokenIDs, f.InputTokenIDs) || result.FinishReason != f.FinishReason {
 		t.Fatal("confirmed evidence differs from the manifest")
 	}
 	keys := f.keys()
 	if len(client.metadataRequests) != 5 || len(client.fetches) != 5 {
 		t.Fatalf("manifest/artifact requests=%d/%d", len(client.metadataRequests), len(client.fetches))
 	}
-	if keys[0].ContentHash == evidencebundle.Hash(f.Manifest).String() || keys[0].ContentHash != f.Commitments.Receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String() {
+	if keys[0].ContentHash == evidencebundle.Hash(f.ValueManifest).String() || keys[0].ContentHash != f.Commitments.Receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String() ||
+		keys[2].ContentHash != f.Commitments.Receipt.RequiredEvidenceCommitments[1].EvidenceHashOrRoot.String() {
 		t.Fatal("Worker manifest locator must be the typed commitment, independent of manifest hash")
 	}
 	for i, request := range client.metadataRequests {
@@ -264,15 +320,15 @@ func TestNexusEvidenceConfirmerRejectsUnboundManifestAndArtifacts(t *testing.T) 
 			client := &evidenceTaskDataClient{objects: f.objects()}
 			switch name {
 			case "manifest hash":
-				client.objects[f.keys()[0]] = append(append([]byte(nil), f.Manifest...), ' ')
+				client.objects[f.keys()[2]] = append(append([]byte(nil), f.TokenManifest...), ' ')
 			case "artifact hash":
-				data := append([]byte(nil), f.Trace...)
-				data[0] ^= 1
-				client.objects[f.keys()[4]] = data
+				data := append([]byte(nil), f.WorkerValues...)
+				data[len(data)-1] ^= 1
+				client.objects[f.keys()[1]] = data
 			case "missing artifact":
-				delete(client.objects, f.keys()[1])
+				delete(client.objects, f.keys()[4])
 			case "schema", "chain", "task", "task hash", "producer", "artifact limit":
-				f.rebuildManifest(t, func(m *evidencebundle.Manifest) {
+				f.rebuildManifests(t, func(m *evidencebundle.Manifest) {
 					switch name {
 					case "schema":
 						m.EvidenceSchemaHash = strings.Repeat("aa", 32)
@@ -304,7 +360,7 @@ func TestNexusEvidenceConfirmerRejectsUnboundManifestAndArtifacts(t *testing.T) 
 			case "manifest size":
 				f.Commitments.Receipt.RequiredEvidenceCommitments[0].EncodedSizeBytes = evidencebundle.MaxManifestBytes + 1
 			}
-			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerValueEvidence(context.Background(), f.Commitments); err == nil {
+			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil {
 				t.Fatalf("accepted mismatched %s", name)
 			}
 		})
@@ -328,7 +384,7 @@ func TestNexusEvidenceConfirmerRejectsMetadataAndStreamMismatch(t *testing.T) {
 					m.EvidenceBundle = nil
 				case "bundle hash":
 					if m.EvidenceBundle != nil {
-						m.EvidenceBundle.EvidenceBundleHash = strings.Repeat("aa", 32)
+						m.EvidenceBundle.EvidenceManifestHash = strings.Repeat("aa", 32)
 					}
 				case "bundle size":
 					if m.EvidenceBundle != nil {
@@ -362,7 +418,7 @@ func TestNexusEvidenceConfirmerRejectsMetadataAndStreamMismatch(t *testing.T) {
 					return []builderclient.TaskDataChunk{{Data: data, EOF: true}}
 				}
 			}
-			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerValueEvidence(context.Background(), f.Commitments); err == nil {
+			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil {
 				t.Fatalf("accepted %s", name)
 			}
 		})

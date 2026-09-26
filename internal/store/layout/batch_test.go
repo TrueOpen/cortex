@@ -159,7 +159,7 @@ func TestMergeEvidenceArtifacts(t *testing.T) {
 
 	e2 := Evidence{
 		Artifacts: []EvidenceArtifact{
-			{Kind: ArtifactWorkerTrace, Digest: hash("trace1"), Size: 5},
+			{Kind: ArtifactWorkerTokenIDsMaterial, Digest: hash("trace1"), Size: 5},
 		},
 	}
 	if err := MergeEvidence(ctx, s, taskHash, e2); err != nil {

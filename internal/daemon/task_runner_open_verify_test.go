@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"strings"
@@ -18,7 +19,7 @@ func (f *outputAvailableFixture) openVerifyCall() *busv1.OpenVerifyV1 {
 	taskHash := codec.Hash(f.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
 	taskID, _ := hex.DecodeString(f.taskID)
 	return &busv1.OpenVerifyV1{
-		TaskId: taskID, TaskHash: append([]byte(nil), taskHash[:]...), ModelId: "model-1", ProfileVersion: 1,
+		TaskId: taskID, TaskHash: append([]byte(nil), taskHash[:]...), ModelId: bytes.Repeat([]byte{0x01}, 32), ProfileVersion: 1,
 		InferReceiptHash:      append([]byte(nil), receiptHash[:]...),
 		OutputHash:            append([]byte(nil), f.pkg.OutputHash[:]...),
 		WorkerOperatorAddress: "worker-1", VerifyRound: 1,

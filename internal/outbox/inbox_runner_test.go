@@ -3,6 +3,7 @@ package outbox
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"slices"
 	"strings"
@@ -23,7 +24,7 @@ func orderBroadcastFrame(t *testing.T, modelID, messageID string) []byte {
 	t.Helper()
 	payload, err := proto.Marshal(&busv1.OrderBroadcastV1{
 		SignedOrder: &bustaskv1.SignedOrderV2{
-			Order:           &bustaskv1.TaskOrderV2{SchemaVersion: 2, ChainId: "chain-1", ModelId: modelID},
+			Order:           &bustaskv1.TaskOrderV3{SchemaVersion: 3, ChainId: "chain-1", ModelId: func() []byte { raw, _ := hex.DecodeString(modelID); return raw }()},
 			SignatureScheme: "eip712",
 			UserSignature:   append(bytes.Repeat([]byte{0x01}, 64), 27),
 		},
@@ -68,11 +69,11 @@ func (fakeSubscription) Unsubscribe() error { return nil }
 func TestInboxRunnerProcessesBeforeAcknowledgingAndDeduplicatesSuccess(t *testing.T) {
 	sub := &fakeSubscriber{}
 	calls := 0
-	r := NewInboxRunner(sub, InboxRunnerConfig{ModelIDs: []string{"model"}, Process: func(context.Context, builderclient.NATSMessage) error { calls++; return nil }})
+	r := NewInboxRunner(sub, InboxRunnerConfig{ModelIDs: []string{strings.Repeat("0e", 32)}, Process: func(context.Context, builderclient.NATSMessage) error { calls++; return nil }})
 	if _, err := r.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	msg := builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject("model"), Data: []byte("frame"), JetStream: true}
+	msg := builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject(strings.Repeat("0e", 32)), Data: []byte("frame"), JetStream: true}
 	if err := sub.handlers[0](context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestInboxRunnerReportsSuccessfulMessageCompletion(t *testing.T) {
 	sub := &fakeSubscriber{}
 	var completions []InboxMessageCompletion
 	r := NewInboxRunner(sub, InboxRunnerConfig{
-		ModelIDs: []string{"model"},
+		ModelIDs: []string{strings.Repeat("0e", 32)},
 		Process:  func(context.Context, builderclient.NATSMessage) error { return nil },
 		OnCompletion: func(completion InboxMessageCompletion) {
 			completions = append(completions, completion)
@@ -99,8 +100,8 @@ func TestInboxRunnerReportsSuccessfulMessageCompletion(t *testing.T) {
 	}
 	// A V2 wire frame: the completion record is derived at decode, so this frame
 	// doubles as a check that the decoder reads the fields the log reports.
-	data := orderBroadcastFrame(t, "model", "message-1")
-	msg := builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject("model"), Data: data, JetStream: true}
+	data := orderBroadcastFrame(t, strings.Repeat("0e", 32), "message-1")
+	msg := builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject(strings.Repeat("0e", 32)), Data: data, JetStream: true}
 	if err := sub.handlers[0](context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func TestInboxRunnerReportsSuccessfulMessageCompletion(t *testing.T) {
 		t.Fatalf("completions = %#v, want one successful completion", completions)
 	}
 	got := completions[0]
-	if got.Subject != "trueopen.task.open.model" || got.Kind != builderclient.KindOrderBroadcast || got.MessageID != "message-1" {
+	if got.Subject != "trueopen.task.open."+strings.Repeat("0e", 32) || got.Kind != builderclient.KindOrderBroadcast || got.MessageID != "message-1" {
 		t.Fatalf("completion identity = %#v", got)
 	}
 	if !got.JetStream || got.SizeBytes != len(data) || got.Result != InboxMessageResultProcessed || got.Duration <= 0 {
@@ -121,7 +122,7 @@ func TestInboxRunnerReportsDeduplicatedMessageCompletion(t *testing.T) {
 	processCalls := 0
 	var completions []InboxMessageCompletion
 	r := NewInboxRunner(sub, InboxRunnerConfig{
-		ModelIDs: []string{"model"},
+		ModelIDs: []string{strings.Repeat("0e", 32)},
 		Process: func(context.Context, builderclient.NATSMessage) error {
 			processCalls++
 			return nil
@@ -138,7 +139,7 @@ func TestInboxRunnerReportsDeduplicatedMessageCompletion(t *testing.T) {
 	// decode, so this frame doubles as a check that the decoder reads the fields
 	// the log reports.
 	data := []byte(`{"schema_version":1,"chain_id":"chain-1","subject":"trueopen.task.open.model","kind":"OPEN_TASK","sender_participant_type":"BUILDER","sender_operator_address":"builder-1","service_authorization_nonce":1,"sender_role":"BUILDER","session_id":"session-1","task_id":"task-1","builder_set_id":"1","builder_set_hash":"0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a","stage":"OPEN_TASK","source_snapshot_height":1,"message_id":"message-1","nonce":"0x01","issued_at_unix_ms":1700000000000,"expires_at_unix_ms":4102444800000,"payload_codec":"trueopen-cjson-v1","payload_digest":"0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a","payload":{},"signature":"0x01"}`)
-	msg := builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject("model"), Data: data}
+	msg := builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject(strings.Repeat("0e", 32)), Data: data}
 	if err := sub.handlers[0](context.Background(), msg); err != nil {
 		t.Fatal(err)
 	}
@@ -220,13 +221,13 @@ func TestInboxRunnerNeverAcknowledgesMissingAuthenticatorOrRecognizedVerifierFai
 		name, subject string
 		err           error
 	}{
-		{name: "missing authenticator", subject: builderclient.NATSTaskOpenSubject("model"), err: builderclient.ErrBusEnvelopeAuthenticationUnavailable},
+		{name: "missing authenticator", subject: builderclient.NATSTaskOpenSubject(strings.Repeat("0e", 32)), err: builderclient.ErrBusEnvelopeAuthenticationUnavailable},
 		{name: "output available", subject: builderclient.NATSOutputAvailableSubject("task"), err: errors.New("verifier admission unavailable")},
 		{name: "verify select", subject: builderclient.NATSVerifierAssignmentSubject("task"), err: errors.New("verifier checkpoint unavailable")},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			sub := &fakeSubscriber{}
-			r := NewInboxRunner(sub, InboxRunnerConfig{ModelIDs: []string{"model"}, TaskIDs: []string{"task"}, Process: func(context.Context, builderclient.NATSMessage) error { return testCase.err }})
+			r := NewInboxRunner(sub, InboxRunnerConfig{ModelIDs: []string{strings.Repeat("0e", 32)}, TaskIDs: []string{"task"}, Process: func(context.Context, builderclient.NATSMessage) error { return testCase.err }})
 			_, _ = r.Start(context.Background())
 			for i, subject := range sub.subjects {
 				if subject != testCase.subject {
@@ -257,7 +258,7 @@ func TestInboxAcknowledgesAssertedPermanentRefusalOnVerifierFrames(t *testing.T)
 			var refused error
 			sub := &fakeSubscriber{}
 			r := NewInboxRunner(sub, InboxRunnerConfig{
-				ModelIDs: []string{"model"}, TaskIDs: []string{"task"},
+				ModelIDs: []string{strings.Repeat("0e", 32)}, TaskIDs: []string{"task"},
 				Process: func(context.Context, builderclient.NATSMessage) error {
 					calls++
 					return builderclient.Permanent(conflict)
@@ -296,10 +297,10 @@ func TestInboxAcknowledgesAssertedPermanentRefusalOnVerifierFrames(t *testing.T)
 // handraise reached nobody, the handraise window expired, and the chain swept
 // every task as TASK_FAILURE_CLASS_INSUFFICIENT_VERIFIER.
 func TestInboxSubjectsCoverBothResponsibilitiesForEveryNode(t *testing.T) {
-	subjects := InboxSubjects(InboxRunnerConfig{ModelIDs: []string{"model"}, TaskIDs: []string{"task"}})
+	subjects := InboxSubjects(InboxRunnerConfig{ModelIDs: []string{strings.Repeat("0e", 32)}, TaskIDs: []string{"task"}})
 
 	for _, want := range []string{
-		builderclient.NATSTaskOpenSubject("model"),
+		builderclient.NATSTaskOpenSubject(strings.Repeat("0e", 32)),
 		builderclient.NATSWorkerAssignmentSubject("task"),
 		builderclient.NATSOutputAvailableSubject("task"),
 		builderclient.NATSVerifyOpenSubject("task"),
