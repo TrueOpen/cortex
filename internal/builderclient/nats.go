@@ -207,7 +207,7 @@ func natsConnectOptions(auth NATSAuth) (string, []nats.Option, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		opts = append(opts, servedTLS(auth.ChainIdentity, pool))
+		opts = append(opts, servedTLS(auth.ChainIdentity, pool, natsHosts(natsURL)))
 	case auth.RequireServerTLS && !allLoopbackNATS(natsURL):
 		return "", nil, fmt.Errorf("nexus nats: no certificate to verify the server: set nexus.nats_ca_file or have the builder serve nats_ca_pem with the sentinel (ADR-0016); the system roots are not used in real mode")
 	}
@@ -257,7 +257,12 @@ func resolveServedNATS(auth NATSAuth, cred NATSChainCredential) (string, string,
 // otherwise be retried for ever. On a mismatch the identity is invalidated (dropping
 // the cached sentinel), the credential fetched again, and the chain verified against
 // the fresh certificate; only if that fails too is the handshake refused.
-func servedTLS(provider ChainIdentityProvider, initial *x509.CertPool) nats.Option {
+//
+// hosts are the hosts of the servers being dialled. crypto/tls leaves
+// ConnectionState.ServerName empty for an IP literal, so for those the leaf must be
+// valid for one of these hosts instead (the served or configured address list is the
+// authorised set); otherwise any certificate chaining to the same root would pass.
+func servedTLS(provider ChainIdentityProvider, initial *x509.CertPool, hosts []string) nats.Option {
 	var mu sync.Mutex
 	current := initial
 	return func(o *nats.Options) error {
@@ -269,12 +274,14 @@ func servedTLS(provider ChainIdentityProvider, initial *x509.CertPool) nats.Opti
 				mu.Lock()
 				pool := current
 				mu.Unlock()
-				first := verifyServedChain(state, pool)
+				first := verifyServedChain(state, pool, hosts)
 				if first == nil {
 					return nil
 				}
 				provider.Invalidate()
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				// Well inside the 5s nats.Timeout that bounds the whole connect, so the
+				// rotation can succeed in this handshake rather than the next reconnect.
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
 				cred, err := provider.Credential(ctx)
 				if err != nil || strings.TrimSpace(cred.NATSCAPEM) == "" {
@@ -284,7 +291,7 @@ func servedTLS(provider ChainIdentityProvider, initial *x509.CertPool) nats.Opti
 				if err != nil {
 					return first
 				}
-				if err := verifyServedChain(state, fresh); err != nil {
+				if err := verifyServedChain(state, fresh, hosts); err != nil {
 					return err
 				}
 				mu.Lock()
@@ -299,8 +306,9 @@ func servedTLS(provider ChainIdentityProvider, initial *x509.CertPool) nats.Opti
 }
 
 // verifyServedChain is the check crypto/tls would make: the leaf chains to roots
-// through the presented intermediates and is valid for the dialled host.
-func verifyServedChain(state tls.ConnectionState, roots *x509.CertPool) error {
+// through the presented intermediates and is valid for the dialled host. For an IP
+// literal ServerName is empty, and the leaf must be valid for one of hosts.
+func verifyServedChain(state tls.ConnectionState, roots *x509.CertPool, hosts []string) error {
 	if len(state.PeerCertificates) == 0 {
 		return errors.New("nats server presented no certificate")
 	}
@@ -308,10 +316,33 @@ func verifyServedChain(state tls.ConnectionState, roots *x509.CertPool) error {
 	for _, certificate := range state.PeerCertificates[1:] {
 		intermediates.AddCert(certificate)
 	}
-	_, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{
+	leaf := state.PeerCertificates[0]
+	if _, err := leaf.Verify(x509.VerifyOptions{
 		Roots: roots, Intermediates: intermediates, DNSName: state.ServerName,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	if state.ServerName != "" {
+		return nil
+	}
+	var last error = errors.New("no nats server host to check the certificate against")
+	for _, host := range hosts {
+		if last = leaf.VerifyHostname(host); last == nil {
+			return nil
+		}
+	}
+	return last
+}
+
+// natsHosts lists the hosts of a comma-separated server list.
+func natsHosts(servers string) []string {
+	var hosts []string
+	for _, server := range strings.Split(servers, ",") {
+		if parsed, err := url.Parse(strings.TrimSpace(server)); err == nil && parsed.Hostname() != "" {
+			hosts = append(hosts, parsed.Hostname())
+		}
+	}
+	return hosts
 }
 
 func servedCertPool(caPEM string) (*x509.CertPool, error) {

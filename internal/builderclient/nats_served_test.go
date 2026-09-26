@@ -116,6 +116,35 @@ func TestServedCertificateRotationIsPickedUpOnReconnect(t *testing.T) {
 	}
 }
 
+// For an IP literal crypto/tls leaves ServerName empty: the leaf must still be valid
+// for one of the dialled hosts, or a certificate of another server under the same
+// root would pass.
+func TestServedCertificateIsCheckedAgainstDialledIP(t *testing.T) {
+	certPEM := servedCertPEM(t) // IP SAN 203.0.113.10
+	for name, c := range map[string]struct {
+		servers []string
+		ok      bool
+	}{
+		"matching ip":       {[]string{"tls://203.0.113.10:4222"}, true},
+		"one of several":    {[]string{"tls://198.51.100.7:4222", "tls://203.0.113.10:4222"}, true},
+		"ip not in the san": {[]string{"tls://198.51.100.7:4222"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			provider := servedIdentity(c.servers, certPEM)
+			_, opts, err := natsConnectOptions(NATSAuth{ChainIdentity: provider, RequireServerTLS: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := presented(t, certPEM)
+			state.ServerName = ""
+			err = applyOptions(t, opts).TLSConfig.VerifyConnection(state)
+			if (err == nil) != c.ok {
+				t.Fatalf("err = %v, want ok=%v", err, c.ok)
+			}
+		})
+	}
+}
+
 // Configured values win over served ones.
 func TestNATSConnectPrefersConfiguredValues(t *testing.T) {
 	caFile := filepath.Join(t.TempDir(), "ca.pem")
