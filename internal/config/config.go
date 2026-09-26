@@ -881,8 +881,16 @@ func (c *Config) collectRequiredFields(modelTransport, inputResolver string) []r
 	}
 	// Integration mode dials the same dependencies, so it needs the same fields.
 	if c.UsesRealDependencies() {
+		// nexus.ingress_url is deliberately absent from this list. No Nexus call
+		// takes it as a target any more -- the dial address comes from the
+		// Builder's on-chain service descriptor -- so its only remaining job is
+		// the startup cross-check against that descriptor
+		// (Runtime.checkBuilderDescriptorReadiness). Requiring a value whose sole
+		// purpose is to be compared with the authoritative one made an operator
+		// supply a fact the node can already read. Set it and the cross-check
+		// runs; leave it out and it is skipped, the same shape nexus.nats_url
+		// already has.
 		required = append(required,
-			requiredField{field: "nexus.ingress_url", value: c.Nexus.IngressURL, consumer: "nexus"},
 			requiredField{field: "nexus.jetstream_stream", value: c.Nexus.JetStreamStream, consumer: "nexus"},
 			requiredField{field: "local_identity.operator_address", value: c.LocalIdentity.OperatorAddress, consumer: "taskdataauth"},
 			requiredField{field: "local_identity.service_key_ref", value: c.LocalIdentity.ServiceKeyRef, consumer: "signer"},
@@ -1058,7 +1066,12 @@ func (c *Config) Validate() error {
 		// endpoint, so gating on the https prefix alone refused a secure
 		// configuration. The plaintext spellings, http:// and grpc://, stay
 		// behind allow_insecure_descriptor.
-		if c.Nexus.VerifiesBuilderDescriptor() && !c.Nexus.AllowInsecureDescriptor &&
+		// An absent ingress_url is not an insecure one. The check below asks
+		// whether a configured value names a secure transport; with no value
+		// there is nothing to dial and nothing to cross-check, and the
+		// descriptor's own endpoint still goes through the same scheme rules in
+		// builderdirectory.
+		if c.Nexus.IngressURL != "" && c.Nexus.VerifiesBuilderDescriptor() && !c.Nexus.AllowInsecureDescriptor &&
 			!strings.HasPrefix(c.Nexus.IngressURL, "https://") && !strings.HasPrefix(c.Nexus.IngressURL, "grpcs://") {
 			problems = append(problems, "nexus.ingress_url must use https or grpcs when nexus.builder_operator_address is set and nexus.allow_insecure_descriptor is false")
 		}

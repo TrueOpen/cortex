@@ -1185,11 +1185,55 @@ func TestValidateRealModeRequiresIntegrationEndpoints(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Validate() error = nil, want missing integration endpoint error")
 	}
-	for _, want := range []string{"nexus.ingress_url", "nexus.nats_url", "local_identity.model_service_id", "local_identity.operator_address", "local_identity.service_key_ref", "local_identity.supported_model_profiles"} {
+	// nexus.ingress_url is not here: it is optional now that the dial address
+	// comes from the Builder's on-chain descriptor. TestRealModeAcceptsAnAbsent
+	// NexusIngressURL covers that from the other side.
+	for _, want := range []string{"nexus.nats_url", "local_identity.model_service_id", "local_identity.operator_address", "local_identity.service_key_ref", "local_identity.supported_model_profiles"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %q, want field %q", err.Error(), want)
 		}
 	}
+}
+
+// TestRealModeAcceptsAnAbsentNexusIngressURL pins the half of the contract the
+// removal from the required list creates. No Nexus call takes the configured
+// value as a target -- the dial address comes from the Builder's on-chain
+// descriptor -- so an operator who has not been handed one can still start.
+//
+// Written from both ends, because "optional" must not mean "ignored". A
+// configured value is still a real assertion: it is cross-checked against the
+// descriptor at startup, and it still has to name a secure transport.
+func TestRealModeAcceptsAnAbsentNexusIngressURL(t *testing.T) {
+	t.Run("absent is accepted", func(t *testing.T) {
+		cfg := validRealConfig()
+		cfg.Nexus.IngressURL = ""
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("Validate() error = %v, want an absent ingress_url accepted", err)
+		}
+	})
+
+	t.Run("absent does not read as insecure", func(t *testing.T) {
+		// The scheme check must not fire on the empty string: having no value is
+		// not the same as having a plaintext one.
+		cfg := validRealConfig()
+		cfg.Nexus.IngressURL = ""
+		cfg.Nexus.BuilderOperatorAddress = "trueopen1builderoperator"
+		cfg.Nexus.AllowInsecureDescriptor = false
+		if err := cfg.Validate(); err != nil && strings.Contains(err.Error(), "nexus.ingress_url must use https") {
+			t.Fatalf("Validate() error = %v, want no scheme complaint for an absent value", err)
+		}
+	})
+
+	t.Run("a configured value is still checked", func(t *testing.T) {
+		cfg := validRealConfig()
+		cfg.Nexus.IngressURL = "http://nexus.example.org"
+		cfg.Nexus.BuilderOperatorAddress = "trueopen1builderoperator"
+		cfg.Nexus.AllowInsecureDescriptor = false
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "nexus.ingress_url must use https") {
+			t.Fatalf("Validate() error = %v, want a plaintext configured ingress refused", err)
+		}
+	})
 }
 
 func TestLoadFileDefaultsTaskExecutionRetryPolicy(t *testing.T) {
@@ -1973,7 +2017,6 @@ func TestIntegrationModeEnforcesTheSameDependencyRulesAsRealMode(t *testing.T) {
 		mutate func(*Config)
 		want   string
 	}{
-		{name: "nexus ingress required", mutate: func(c *Config) { c.Nexus.IngressURL = "" }, want: "nexus.ingress_url"},
 		{name: "nats url required without the on-chain identity", mutate: func(c *Config) { c.Nexus.NATSURL, c.Nexus.NATSUserKeyFile = "", "" }, want: "nexus.nats_url"},
 		{name: "operator address required", mutate: func(c *Config) { c.LocalIdentity.OperatorAddress = "" }, want: "local_identity.operator_address"},
 		{name: "signer uri validated", mutate: func(c *Config) { c.Signer.URI = "ftp://signer" }, want: "signer.uri"},

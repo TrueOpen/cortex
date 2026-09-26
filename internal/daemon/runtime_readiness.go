@@ -294,8 +294,16 @@ func (r *Runtime) checkBuilderDescriptorReadiness(ctx context.Context) diagnosti
 	if err != nil {
 		return builderDescriptorStatus(r.cfg, false, "resolve Builder service descriptor: "+err.Error())
 	}
-	if err := identity.SameEndpoint(r.cfg.Nexus.IngressURL); err != nil {
-		return builderDescriptorStatus(r.cfg, false, err.Error())
+	// The cross-check is opt-in, because the descriptor is the authority and the
+	// configured value only ever agreed or disagreed with it. An operator who
+	// sets it is asking "is the Builder I think I configured the one the chain
+	// published", which catches a stale or wrong-network config at startup
+	// instead of at the first dial; an operator who leaves it out has simply not
+	// asked, and the node uses the descriptor either way.
+	if r.cfg.Nexus.IngressURL != "" {
+		if err := identity.SameEndpoint(r.cfg.Nexus.IngressURL); err != nil {
+			return builderDescriptorStatus(r.cfg, false, err.Error())
+		}
 	}
 	status := builderDescriptorStatus(r.cfg, true, "")
 	status.Endpoint = identity.Endpoint
