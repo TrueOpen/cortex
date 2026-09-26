@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"time"
@@ -153,7 +154,24 @@ type connectOutputStream struct {
 	cancellationDone chan struct{}
 	chainID          string
 	taskHash         string
+	// heldOnOpen is how many leading frames the Builder reported holding when the
+	// stream opened; outputStreamPrefix has checked its root against ours.
+	heldOnOpen uint64
+	// early is a Receive started right after opening a stream whose frames the
+	// Builder already holds in full; see watchForSealedOnOpen.
+	early    chan outputReply
+	endpoint string
 }
+
+type outputReply struct {
+	response *nexusv1.UploadTaskOutputStreamResponse
+	err      error
+}
+
+// sealedOnOpenWait is how long Finish waits, before sending the Fin, for a
+// Builder that holds every frame to end the stream as already sealed. It is
+// only spent on a reconnect that finds every frame already held.
+var sealedOnOpenWait = time.Second
 
 var errOutputStreamIOTimeout = errors.New("output stream network I/O deadline exceeded")
 
@@ -177,7 +195,7 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 	streamCtx, cancel := context.WithCancelCause(ctx)
 	stream := client.UploadTaskOutputStream(streamCtx)
 	c.authorize(stream.RequestHeader())
-	s := &connectOutputStream{outputStreamState: state, stream: stream, ctx: streamCtx, cancel: cancel, timeout: c.outputIOTimeout, chainID: request.Auth.ChainID, taskHash: request.TaskHash}
+	s := &connectOutputStream{outputStreamState: state, stream: stream, ctx: streamCtx, cancel: cancel, timeout: c.outputIOTimeout, chainID: request.Auth.ChainID, taskHash: request.TaskHash, endpoint: endpoint}
 	fail := func(err error) (TaskOutputStream, error) { _ = s.Close(); return nil, err }
 	// Send(nil) starts Connect's HTTP request without writing a message. It
 	// initializes the request-body pipe before a timer can close its write side.
@@ -202,12 +220,31 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 		return fail(err)
 	}
 	s.short = response.GetProgress().LastFrameShort
+	s.heldOnOpen = count
 	for _, chunk := range state.chunks[count:] {
 		if err := s.send(outputChunkFrame(chunk)); err != nil {
 			return fail(err)
 		}
 	}
+	if count > 0 && count == uint64(len(state.chunks)) {
+		s.watchForSealedOnOpen()
+	}
 	return s, nil
+}
+
+// watchForSealedOnOpen starts the next Receive in the background when the
+// Builder already holds every frame. A Builder that has sealed the output ends
+// the stream right after its progress, before reading anything more; a Builder
+// that has not waits for the Fin. Reading ahead lets Finish tell the two apart
+// before it sends the Fin.
+func (s *connectOutputStream) watchForSealedOnOpen() {
+	early := make(chan outputReply, 1)
+	stream := s.stream
+	go func() {
+		response, err := stream.Receive()
+		early <- outputReply{response: response, err: err}
+	}()
+	s.early = early
 }
 
 // Bidirectional Connect requires HTTP/2. Use a separate pool so HTTP/1 unary
@@ -295,6 +332,15 @@ func (s *connectOutputStream) networkIO(operation string, call func() error) err
 }
 
 func (s *connectOutputStream) receive(operation string) (*nexusv1.UploadTaskOutputStreamResponse, error) {
+	if early := s.early; early != nil {
+		s.early = nil
+		var reply outputReply
+		err := s.networkIO(operation, func() error {
+			reply = <-early
+			return reply.err
+		})
+		return reply.response, err
+	}
 	var response *nexusv1.UploadTaskOutputStreamResponse
 	err := s.networkIO(operation, func() error {
 		var err error
@@ -358,13 +404,34 @@ func (s *connectOutputStream) Finish(fin OutputFin) (OutputStreamResult, error) 
 	if err != nil {
 		return OutputStreamResult{}, err
 	}
-	if err := s.send(frame); err != nil {
+	if sealed, err := s.sealedOnOpen(count); err != nil {
 		return OutputStreamResult{}, err
+	} else if sealed {
+		return s.alreadyDelivered(root, count), nil
+	}
+	if err := s.networkIO("send frame", func() error { return s.stream.Send(frame) }); err != nil {
+		s.failed = true
+		if !errors.Is(err, io.EOF) {
+			return OutputStreamResult{}, classifyOutputStreamError(err)
+		}
+		// io.EOF: the Builder ended the stream before the Fin reached it.
+		_, answer := s.receive("send error response")
+		if answer == nil {
+			return OutputStreamResult{}, classifyOutputStreamError(err)
+		}
+		answer = classifyOutputStreamError(answer)
+		if connect.CodeOf(answer) == connect.CodeAlreadyExists && s.heldOnOpen == count {
+			return s.alreadyDelivered(root, count), nil
+		}
+		return OutputStreamResult{}, answer
 	}
 	s.closed = true
 	if err := s.networkIO("close request", s.stream.CloseRequest); err != nil {
 		return OutputStreamResult{}, classifyOutputStreamError(err)
 	}
+	// An AlreadyExists read here came after the Fin and may mean the Fin was
+	// refused (task data deleted, stream superseded, blob conflict), so it stays
+	// an error; the reconnect finds out whether the Builder really sealed.
 	response, err := s.receive("Fin acknowledgement")
 	if err != nil {
 		return OutputStreamResult{}, classifyOutputStreamError(err)
@@ -380,6 +447,58 @@ func (s *connectOutputStream) Finish(fin OutputFin) (OutputStreamResult, error) 
 		return OutputStreamResult{}, fmt.Errorf("output stream continued after final acknowledgement")
 	}
 	return OutputStreamResult{LastSeq: count - 1, LeafCount: count, OutputMMRRoot: root}, nil
+}
+
+// sealedOnOpen reports whether a Builder that held every frame of this stream
+// on open ended it as already sealed before the Fin was sent.
+//
+// A Builder that has sealed a task's output answers a reopened stream with its
+// progress and then ends it with AlreadyExists; the Worker is meant to decide
+// from the root whether that is its own output (Nexus UploadTaskOutputStream).
+// That happens whenever a Finish reached this Builder but not the Worker's
+// bookkeeping: a lost Fin acknowledgement, or a fan-out Finish that sealed one
+// Task Builder and then failed on another. Treating it as an error makes every
+// retry fail on this Builder, so the Builders after it never receive the Fin.
+//
+// Only an end that arrives before the Fin counts. Nexus also answers
+// AlreadyExists to a Fin it refuses, and a refused Fin has not sealed anything.
+// The progress message carries no sealed flag, so "held every frame with our
+// root, then ended before reading the Fin" is the test. A Builder holding fewer
+// frames, or an OUTPUT committed by the whole-object path, which reports no
+// frames, never gets here.
+func (s *connectOutputStream) sealedOnOpen(count uint64) (bool, error) {
+	early := s.early
+	if early == nil || s.heldOnOpen != count {
+		return false, nil
+	}
+	select {
+	case reply := <-early:
+		s.early = nil
+		s.failed = true
+		if reply.err == nil {
+			return false, fmt.Errorf("output stream answered before the Fin")
+		}
+		err := classifyOutputStreamError(reply.err)
+		if connect.CodeOf(err) == connect.CodeAlreadyExists {
+			return true, nil
+		}
+		return false, err
+	case <-time.After(sealedOnOpenWait):
+		return false, nil
+	}
+}
+
+// alreadyDelivered is the result for a Builder that already sealed this exact
+// output.
+//
+// Known limit: if the Fin that Builder sealed with carries a different
+// finish_reason, that Builder rejects the later FinalizeTaskResult, which
+// recomputes the Worker commitment from its stored Fin, so the mismatch is
+// refused there rather than passed; the other Builders are unaffected.
+func (s *connectOutputStream) alreadyDelivered(root codec.Hash, count uint64) OutputStreamResult {
+	slog.Info("output stream already sealed by the Builder with this output; treating it as delivered",
+		"endpoint", s.endpoint, "task_hash", s.taskHash, "leaf_count", count, "output_mmr_root", root.String()[:16])
+	return OutputStreamResult{LastSeq: count - 1, LeafCount: count, OutputMMRRoot: root}
 }
 
 func (s *connectOutputStream) Close() error {

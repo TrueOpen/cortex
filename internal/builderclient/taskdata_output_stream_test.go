@@ -71,7 +71,7 @@ func outputTestServer(t *testing.T, plaintext bool, handler nexusv1connect.Ingre
 
 func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 	for _, plaintext := range []bool{false, true} {
-		for _, mode := range []string{"fresh", "resume", "finished", "wrong prefix", "ahead", "short", "wrong root", "wrong count", "rejected", "transient"} {
+		for _, mode := range []string{"fresh", "resume", "finished", "wrong prefix", "ahead", "short", "wrong root", "wrong count", "rejected", "transient", "sealed", "sealed after fin", "sealed partial", "sealed whole object"} {
 			t.Run(mode+map[bool]string{true: " h2c", false: " TLS"}[plaintext], func(t *testing.T) {
 				request := outputStreamFixture(t, "first long chunk", "last")
 				finish := outputFinFixture(t, request, nodewire.FinishReasonV1EosToken)
@@ -88,8 +88,11 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 					if mode == "resume" || mode == "wrong prefix" || mode == "short" {
 						start = 1
 					}
-					if mode == "finished" {
+					if mode == "finished" || mode == "sealed" || mode == "sealed after fin" {
 						start = 2
+					}
+					if mode == "sealed partial" {
+						start = 1
 					}
 					if mode == "ahead" {
 						seq := uint64(5)
@@ -112,6 +115,11 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 					if mode == "wrong prefix" || mode == "ahead" || mode == "short" {
 						return nil
 					}
+					// A Builder that already sealed this task's output reports its progress
+					// and ends the stream, as Nexus does for a reopened sealed stream.
+					if strings.HasPrefix(mode, "sealed") && mode != "sealed after fin" {
+						return connect.NewError(connect.CodeAlreadyExists, errors.New("NEXUS_DATA_CONFLICT: output stream is sealed"))
+					}
 					for i := start; i < len(request.ReplayChunks); i++ {
 						frame, err := s.Receive()
 						if err != nil {
@@ -127,6 +135,11 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 					fin, err := s.Receive()
 					if err != nil {
 						return err
+					}
+					if mode == "sealed after fin" {
+						// Nexus answers AlreadyExists to a Fin it refuses too (task data
+						// deleted, stream superseded), so this is not proof of delivery.
+						return connect.NewError(connect.CodeAlreadyExists, errors.New("NEXUS_DATA_CONFLICT: output stream is sealed"))
 					}
 					expectedFin, _ := outputFinFrame(request.Auth.ChainID, request.TaskHash, request.ReplayChunks[1].MMRRoot, 2, finish)
 					if !proto.Equal(fin, expectedFin) {
@@ -148,9 +161,12 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				result, err := newTestTaskDataClient(server.Client(), "").UploadTaskOutputStream(ctx, server.URL, request, finish)
-				wantOK := mode == "fresh" || mode == "resume" || mode == "finished"
+				wantOK := mode == "fresh" || mode == "resume" || mode == "finished" || mode == "sealed"
 				if (err == nil) != wantOK {
 					t.Fatalf("result=%+v err=%v", result, err)
+				}
+				if wantOK && (result.LastSeq != 1 || result.LeafCount != 2 || result.OutputMMRRoot != request.ReplayChunks[1].MMRRoot) {
+					t.Fatalf("result=%+v, want the uploaded root and leaf count", result)
 				}
 				if mode == "transient" && !IsRetryable(err) {
 					t.Fatalf("transient not retryable: %v", err)
@@ -442,5 +458,61 @@ func TestOutputStreamUsesExistingClientTimeoutPerOperation(t *testing.T) {
 		if client.outputIOTimeout != want || client.outputHTTPClient.(*http.Client).Timeout != 0 {
 			t.Fatalf("network timeout=%s, whole-stream timeout=%s", client.outputIOTimeout, client.outputHTTPClient.(*http.Client).Timeout)
 		}
+	}
+}
+
+// A Builder that sealed the output ends the stream right after its progress,
+// before the Fin. Finish sees that either by reading ahead before sending the
+// Fin, or, without the read-ahead, by the send failing on the ended stream; both
+// count as delivered because the Builder held every frame and never read a Fin.
+func TestOutputStreamSealedBuilderEndsStreamBeforeFin(t *testing.T) {
+	for _, path := range []string{"read ahead", "send fails"} {
+		t.Run(path, func(t *testing.T) {
+			request := outputStreamFixture(t, "first long chunk", "last")
+			finish := outputFinFixture(t, request, nodewire.FinishReasonV1EosToken)
+			ended := make(chan struct{})
+			server := outputTestServer(t, false, &taskDataTestHandler{output: func(_ context.Context, s *connect.BidiStream[nexusv1.UploadTaskOutputStreamRequest, nexusv1.UploadTaskOutputStreamResponse]) error {
+				defer close(ended)
+				if _, err := s.Receive(); err != nil {
+					return err
+				}
+				last := uint64(1)
+				progress := &nexusv1.OutputStreamProgressV1{LastSeq: &last, MmrRoot: request.ReplayChunks[1].MMRRoot[:]}
+				if err := s.Send(&nexusv1.UploadTaskOutputStreamResponse{Reply: &nexusv1.UploadTaskOutputStreamResponse_Progress{Progress: progress}}); err != nil {
+					return err
+				}
+				return connect.NewError(connect.CodeAlreadyExists, errors.New("NEXUS_DATA_CONFLICT: output stream is sealed"))
+			}})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			opened, err := newTestTaskDataClient(server.Client(), "").OpenTaskOutputStream(ctx, server.URL, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer opened.Close()
+			stream := opened.(*connectOutputStream)
+			if stream.early == nil {
+				t.Fatal("no read-ahead on a stream whose frames the Builder holds in full")
+			}
+			<-ended
+			if path == "send fails" {
+				// Hold back the Builder's end past the read-ahead check, so the Fin
+				// goes out on the ended stream and the send fails.
+				reply := <-stream.early
+				late := make(chan outputReply, 1)
+				stream.early = late
+				saved := sealedOnOpenWait
+				sealedOnOpenWait = 0
+				defer func() { sealedOnOpenWait = saved }()
+				time.AfterFunc(20*time.Millisecond, func() { late <- reply })
+			}
+			result, err := stream.Finish(finish)
+			if err != nil {
+				t.Fatalf("Finish() error = %v, want the sealed Builder counted as delivered", err)
+			}
+			if result.LeafCount != 2 || result.LastSeq != 1 || result.OutputMMRRoot != request.ReplayChunks[1].MMRRoot {
+				t.Fatalf("result = %+v", result)
+			}
+		})
 	}
 }
