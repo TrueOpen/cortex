@@ -24,7 +24,7 @@ func TestKeeperHandraiseEligibilityUsesAuthoritativeSingleNodeFacts(t *testing.T
 	})
 
 	workerInput, expires, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: "fake-llm-text",
+		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID,
 		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 	})
 	if err != nil {
@@ -36,7 +36,7 @@ func TestKeeperHandraiseEligibilityUsesAuthoritativeSingleNodeFacts(t *testing.T
 	}
 
 	verifierInput, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
-		TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
+		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 	})
 	if err != nil {
 		t.Fatalf("Verifier eligibility error = %v", err)
@@ -65,12 +65,12 @@ func TestKeeperHandraiseEligibilityRejectsMissingOrExhaustedModelCapacity(t *tes
 			})
 			if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
 				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-				ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+				ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 			}); err == nil {
 				t.Fatal("Worker eligibility accepted unavailable model capacity")
 			}
 			if _, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
-				TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+				TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 			}); err == nil {
 				t.Fatal("Verifier eligibility accepted unavailable model capacity")
@@ -100,7 +100,7 @@ func TestKeeperHandraiseEligibilityRejectsInactiveSupport(t *testing.T) {
 		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: modelservice.NewFakeService(),
 		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
 	})
-	if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140}); err == nil {
+	if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140}); err == nil {
 		t.Fatal("Worker eligibility accepted inactive Keeper support")
 	}
 }
@@ -108,10 +108,10 @@ func TestKeeperHandraiseEligibilityRejectsInactiveSupport(t *testing.T) {
 func TestKeeperHandraiseEligibilityUsesAuthoritativeSupportFreshness(t *testing.T) {
 	worker := WorkerHandraiseCandidate{
 		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-		ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+		ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 	}
 	verifier := VerifierHandraiseCandidate{
-		TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 	}
 
@@ -178,10 +178,10 @@ func TestKeeperHandraiseEligibilityAllowsCurrentNodeColdStart(t *testing.T) {
 	})
 	workerInput, _, workerErr := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
 		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-		ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+		ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 	})
 	verifierInput, verifierErr := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
-		TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 	})
 	if workerErr != nil || verifierErr != nil || workerInput.SupportState != policy.SupportDeclaredBootstrap || !workerInput.P30ColdStartCandidate || !workerInput.RewardEligible || verifierInput.SupportState != policy.SupportDeclaredBootstrap {
@@ -218,10 +218,10 @@ func TestKeeperHandraiseEligibilityRejectsCurrentNodeAdmissionMismatches(t *test
 			})
 			_, _, workerErr := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
 				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-				ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+				ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 			})
 			_, verifierErr := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
-				TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+				TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 			})
 			if workerErr == nil || verifierErr == nil {
@@ -249,12 +249,12 @@ func TestKeeperHandraiseEligibilityAdmitsCandidateEligibleBonds(t *testing.T) {
 			})
 			if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
 				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-				ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+				ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 			}); err != nil {
 				t.Fatalf("Worker eligibility refused bond status %q: %v", status, err)
 			}
 			if _, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
-				TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+				TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 			}); err != nil {
 				t.Fatalf("Verifier eligibility refused bond status %q: %v", status, err)
@@ -269,7 +269,7 @@ func TestKeeperHandraiseEligibilityRejectsExpiredWorkerDeadline(t *testing.T) {
 		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
 	})
 	_, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: "fake-llm-text",
+		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID,
 		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 120,
 	})
 	if err == nil {
@@ -291,7 +291,7 @@ func TestKeeperHandraiseEligibilityRejectsCapabilityDutyMismatch(t *testing.T) {
 		}(), Model: modelservice.NewFakeService(),
 		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
 	})
-	if _, _, err := workerResolver.Worker(context.Background(), WorkerHandraiseCandidate{TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140}); err == nil {
+	if _, _, err := workerResolver.Worker(context.Background(), WorkerHandraiseCandidate{TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140}); err == nil {
 		t.Fatal("Worker eligibility accepted verifier-only Keeper capability")
 	}
 
@@ -303,7 +303,7 @@ func TestKeeperHandraiseEligibilityRejectsCapabilityDutyMismatch(t *testing.T) {
 		}(), Model: modelservice.NewFakeService(),
 		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
 	})
-	if _, err := verifierResolver.Verifier(context.Background(), VerifierHandraiseCandidate{TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115}); err == nil {
+	if _, err := verifierResolver.Verifier(context.Background(), VerifierHandraiseCandidate{TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115}); err == nil {
 		t.Fatal("Verifier eligibility accepted worker-only Keeper capability")
 	}
 }
@@ -346,26 +346,26 @@ func (k handraiseKeeper) CurrentServiceKey(context.Context, string, string, uint
 	return chainclient.ServiceKeySnapshot{}, nil
 }
 
-func (k handraiseKeeper) ModelCapability(context.Context, string, string, string) (chainclient.ModelCapabilitySnapshot, error) {
+func (k handraiseKeeper) ModelCapability(context.Context, string, string) (chainclient.ModelCapabilitySnapshot, error) {
 	return k.capability, nil
 }
 
 func activeHandraiseCapability() chainclient.ModelCapabilitySnapshot {
 	return chainclient.ModelCapabilitySnapshot{
-		OperatorAddress: "cortex-node-1", ModelID: "fake-llm-text", ProfileVersion: chainclient.NewProfileVersion(1),
+		OperatorAddress: "cortex-node-1", ModelID: modelservice.FakeModelID,
 		InferenceCapability: true, VerificationCapability: true, CapabilityVersion: chainclient.NewUint64String(1),
 	}
 }
 
-func (k handraiseKeeper) ModelSupport(context.Context, string, string, string) (chainclient.ModelSupportSnapshot, error) {
+func (k handraiseKeeper) ModelSupport(context.Context, string, string) (chainclient.ModelSupportSnapshot, error) {
 	return k.support, nil
 }
 
 func activeHandraiseSupport() chainclient.ModelSupportSnapshot {
 	return chainclient.ModelSupportSnapshot{
-		OperatorAddress: "cortex-node-1", ModelID: "fake-llm-text", ProfileVersion: chainclient.NewProfileVersion(1),
+		OperatorAddress: "cortex-node-1", ModelID: modelservice.FakeModelID,
 		DeclaredSupport: true, SupportActive: true, SupportVersion: chainclient.NewUint64String(1),
-		LastRefreshHeight: chainclient.NewUint64String(119), ActiveSupportStakeSnapshot: chainclient.NewUint64String(100), EligibleSupportStakeSnapshot: chainclient.NewUint64String(100),
+		LastRefreshHeight: chainclient.NewUint64String(119), ActiveSupportStakeSnapshot: chainclient.NewUint64String(100),
 	}
 }
 
@@ -377,9 +377,9 @@ func activeHandraiseKeeper() handraiseKeeper {
 	return handraiseKeeper{
 		params: activeHandraiseParams(),
 		projection: chainclient.CurrentModelProfileSnapshot{
-			Model: chainclient.CurrentModelSnapshot{ModelID: "fake-llm-text", Status: "ACTIVE"},
+			Model: chainclient.CurrentModelSnapshot{ModelID: modelservice.FakeModelID, Status: "ACTIVE"},
 			Profile: chainclient.CurrentProfileSnapshot{
-				ModelID: "fake-llm-text", ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
+				ModelID: modelservice.FakeModelID, ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
 			},
 		},
 		node: chainclient.CortexNodeSnapshot{

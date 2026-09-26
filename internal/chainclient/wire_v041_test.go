@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 
 	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
@@ -100,7 +101,7 @@ func TestWireV041TaskReadsReceiptLeafCountAtCommittedHeight(t *testing.T) {
 				switch path {
 				case taskQuery + "Task":
 					return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{Value: &taskv1.TaskViewV1_Active{Active: &taskv1.TaskActiveBundleV1{
-						Core:       &taskv1.TaskCoreState{TaskId: id, SessionId: session, AcceptedTaskHash: id, AcceptedInputHash: id, ModelId: "model", ProfileVersion: 1, ReceiptStatus: taskv1.ReceiptStatus_RECEIPT_STATUS_RECEIPT_ACCEPTED, UpdatedHeight: abciTestCommittedHeight},
+						Core:       &taskv1.TaskCoreState{TaskId: id, SessionId: session, AcceptedTaskHash: id, AcceptedInputHash: id, ModelId: bytes.Repeat([]byte{0x0c}, 32), ProfileVersion: 1, ReceiptStatus: taskv1.ReceiptStatus_RECEIPT_STATUS_RECEIPT_ACCEPTED, UpdatedHeight: abciTestCommittedHeight},
 						Assignment: &taskv1.TaskAssignmentViewV1{TaskId: id, WinnerWorker: testPointer("worker")},
 					}}}}, 0, ""
 				case taskQuery + "InferReceipt":
@@ -145,7 +146,7 @@ func TestWireV041ModelSupportPreservesP30SourcePresence(t *testing.T) {
 		{"false bootstrap", func(s *hubv1.ModelSupportState) { s.P30Source = &hubv1.ModelSupportState_P30Bootstrap{} }, true, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			state := &hubv1.ModelSupportState{OperatorAddress: "worker", ModelId: "model", ProfileVersion: 1, DeclaredSupport: true, SupportActive: true, ActivationKind: hubv1.ModelSupportActivationKind_MODEL_SUPPORT_ACTIVATION_KIND_WORKER_P30_ORDER_VALUE, FirstActivationDuty: sharedv1.Duty_DUTY_WORKER, SupportVersion: 1}
+			state := &hubv1.ModelSupportState{OperatorAddress: "worker", ModelId: bytes.Repeat([]byte{0x0c}, 32), DeclaredSupport: true, SupportActive: true, ActivationKind: hubv1.ModelSupportActivationKind_MODEL_SUPPORT_ACTIVATION_KIND_WORKER_P30_ORDER_VALUE, FirstActivationDuty: sharedv1.Duty_DUTY_WORKER, SupportVersion: 1}
 			state.FirstSupportTaskId = bytes.Repeat([]byte{1}, 32)
 			state.LastRefreshTaskId = bytes.Repeat([]byte{2}, 32)
 			test.setSource(state)
@@ -156,7 +157,7 @@ func TestWireV041ModelSupportPreservesP30SourcePresence(t *testing.T) {
 				return &hubv1.QueryModelSupportResponse{Support: state}, 0, ""
 			})
 			defer server.Close()
-			got, err := NewKeeperABCIClient(server.URL).ModelSupport(context.Background(), "worker", "model", "1")
+			got, err := NewKeeperABCIClient(server.URL).ModelSupport(context.Background(), "worker", strings.Repeat("0c", 32))
 			if (err != nil) != test.wantError {
 				t.Fatalf("support=%+v error=%v", got, err)
 			}
@@ -210,7 +211,7 @@ func TestWireV041IdentityReadsRejectMissingState(t *testing.T) {
 	if _, err := client.ServiceBond(context.Background(), "worker"); err == nil {
 		t.Fatal("accepted missing bond")
 	}
-	if _, err := client.ModelSupport(context.Background(), "worker", "model", "1"); err == nil {
+	if _, err := client.ModelSupport(context.Background(), "worker", strings.Repeat("0c", 32)); err == nil {
 		t.Fatal("accepted missing support")
 	}
 }

@@ -142,7 +142,7 @@ func (r *SupportRenewer) RunOnce(ctx context.Context) {
 // a renewer using a different rule from the one that judges staleness would
 // report support as fresh right up until the handraise that refuses it.
 func (r *SupportRenewer) remainingFreshness(ctx context.Context, modelID string, profileVersion uint32, height, window uint64) (uint64, bool, error) {
-	support, err := r.cfg.Keeper.ModelSupport(ctx, r.cfg.Identity.OperatorAddress, modelID, fmt.Sprintf("%d", profileVersion))
+	support, err := r.cfg.Keeper.ModelSupport(ctx, r.cfg.Identity.OperatorAddress, modelID)
 	if err != nil {
 		return 0, false, err
 	}

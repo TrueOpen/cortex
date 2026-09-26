@@ -169,8 +169,9 @@ func (m *nodeServiceBondResponse) Reset()         { *m = nodeServiceBondResponse
 func (m *nodeServiceBondResponse) String() string { return proto.CompactTextString(m) }
 func (*nodeServiceBondResponse) ProtoMessage()    {}
 
-func TestKeeperABCIClientQueriesModelIDContainingSlash(t *testing.T) {
-	const modelID = "MODEL_PROFILE_STATUS_hf/ad410/dream-7b"
+func TestKeeperABCIClientQueriesModelByHash32(t *testing.T) {
+	const modelID = "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f"
+	rawModelID, _ := hex.DecodeString(modelID)
 	server := newABCITestServer(t, func(path, height string, data []byte) (proto.Message, uint32, string) {
 		if path != hubQuery+"Model" {
 			t.Fatalf("ABCI path = %q", path)
@@ -182,14 +183,14 @@ func TestKeeperABCIClientQueriesModelIDContainingSlash(t *testing.T) {
 		if err := unmarshalTestProto(data, &request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if request.ModelId != modelID {
-			t.Fatalf("model_id = %q", request.ModelId)
+		if !bytes.Equal(request.ModelId, rawModelID) {
+			t.Fatalf("model_id = %x", request.ModelId)
 		}
 		return &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
-			ModelId: modelID, ProposerAddress: "trueopen1proposer",
+			ModelId: rawModelID, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
 			Status:             hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
 			ActiveProfileCount: 1, LatestProfileVersion: 2,
-			StatusSource:        hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_PROFILE,
+			StatusSource:        hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
 			RegistrationFeePaid: 100, CreatedHeight: 40, UpdatedHeight: 41,
 		}}, 0, ""
 	})
@@ -199,7 +200,7 @@ func TestKeeperABCIClientQueriesModelIDContainingSlash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentModel() error = %v", err)
 	}
-	if model.ModelID != modelID || model.LatestProfileVersion.Uint32() != 2 || model.Status != "ACTIVE" {
+	if model.ModelID != modelID || model.LatestProfileVersion.Uint32() != 2 || model.Status != "ACTIVE" || model.RepoID != "org/model" {
 		t.Fatalf("CurrentModel() = %#v", model)
 	}
 }
@@ -219,9 +220,9 @@ func TestKeeperABCIClientReadsCurrentProfileTypedEvidenceSchema(t *testing.T) {
 			var request hubv1.QueryModelRequest
 			mustUnmarshalProto(t, data, &request)
 			return &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
-				ModelId: request.ModelId, ProposerAddress: "trueopen1proposer",
+				ModelId: request.ModelId, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
 				Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1,
-				LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_PROFILE,
+				LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
 				CreatedHeight: 40, UpdatedHeight: 41,
 			}}, 0, ""
 		case hubQuery + "Profile":
@@ -261,7 +262,7 @@ func TestKeeperABCIClientReadsCurrentProfileTypedEvidenceSchema(t *testing.T) {
 					InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50,
 					CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000,
 				},
-				SchemaHash: schemaHash, Status: 2, StatusSource: 1,
+				SchemaHash: schemaHash, Status: 2, StatusSource: 2,
 				ProposerAddress: "trueopen1proposer", RegistrationDigest: registrationDigest, CreatedHeight: 40, UpdatedHeight: 41,
 			}}, 0, ""
 		default:
@@ -271,12 +272,12 @@ func TestKeeperABCIClientReadsCurrentProfileTypedEvidenceSchema(t *testing.T) {
 	})
 	defer server.Close()
 
-	state, err := NewKeeperABCIClient(server.URL).CurrentModelProfile(context.Background(), "hf/org/model", "7")
+	state, err := NewKeeperABCIClient(server.URL).CurrentModelProfile(context.Background(), "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f", "7")
 	if err != nil {
 		t.Fatalf("CurrentModelProfile() error = %v", err)
 	}
 	schema := state.Profile.VerificationProfile.EvidenceSchema
-	if state.Profile.ModelID != "hf/org/model" || state.Profile.ProfileVersion.Uint32() != 7 ||
+	if state.Profile.ModelID != "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f" || state.Profile.ProfileVersion.Uint32() != 7 ||
 		state.Profile.ManifestHash.Hex() != hex.EncodeToString(manifestHash) ||
 		state.Profile.TokenizerHash.Hex() != hex.EncodeToString(tokenizerHash) ||
 		state.Profile.SchemaHash.Hex() != hex.EncodeToString(schemaHash) ||
@@ -294,7 +295,7 @@ func TestKeeperABCIClientReadsCurrentProfileTypedEvidenceSchema(t *testing.T) {
 		t.Fatalf("CurrentModelProfile() = %#v", state)
 	}
 	if state.Model.Status != "ACTIVE" || state.Profile.Status != "ACTIVE" ||
-		state.Profile.StatusSource != "AUTO_SUPPORT" || state.Model.StatusSource != "AUTO_PROFILE" {
+		state.Profile.StatusSource != "GOVERNANCE" || state.Model.StatusSource != "AUTO_SUPPORT" {
 
 		t.Fatalf("status = model/profile %q/%q source %q/%q", state.Model.Status, state.Profile.Status, state.Model.StatusSource, state.Profile.StatusSource)
 	}
@@ -304,22 +305,22 @@ func TestKeeperABCIClientReadsCurrentCapabilityAndSupportShapes(t *testing.T) {
 	hashB := bytes.Repeat([]byte{0xb2}, 32)
 	server := newABCITestServer(t, func(path, _ string, data []byte) (proto.Message, uint32, string) {
 		switch path {
-		case hubQuery + "ProfileCapability":
-			var request hubv1.QueryProfileCapabilityRequest
+		case hubQuery + "ModelCapability":
+			var request hubv1.QueryModelCapabilityRequest
 			mustUnmarshalProto(t, data, &request)
-			return &hubv1.QueryProfileCapabilityResponse{Capability: &hubv1.ProfileCapabilityState{
-				OperatorAddress: request.OperatorAddress, ModelId: request.ModelId, ProfileVersion: request.ProfileVersion,
+			return &hubv1.QueryModelCapabilityResponse{Capability: &hubv1.ModelCapabilityState{
+				OperatorAddress: request.OperatorAddress, ModelId: request.ModelId,
 				InferenceCapability: true, VerificationCapability: false, CapabilityVersion: 7,
 			}}, 0, ""
 		case hubQuery + "ModelSupport":
 			var request hubv1.QueryModelSupportRequest
 			mustUnmarshalProto(t, data, &request)
 			return &hubv1.QueryModelSupportResponse{Support: &hubv1.ModelSupportState{
-				OperatorAddress: request.OperatorAddress, ModelId: request.ModelId, ProfileVersion: request.ProfileVersion,
+				OperatorAddress: request.OperatorAddress, ModelId: request.ModelId,
 				DeclaredSupport: true, SupportActive: true, ActivationKind: 2, FirstActivationDuty: 1,
 				FirstSupportTaskId: hashA, FirstSupportOrderValue: 30, P30Source: &hubv1.ModelSupportState_P30CutoffEpoch{P30CutoffEpoch: 9},
 				SupportFreshUntilEpoch: 12, LastRefreshTaskId: hashB, LastRefreshHeight: 800,
-				ActiveSupportStakeSnapshot: 100, EligibleSupportStakeSnapshot: 120, SupportVersion: 4,
+				ActiveSupportStakeSnapshot: 100, SupportVersion: 4,
 			}}, 0, ""
 		default:
 			t.Fatalf("path = %q", path)
@@ -328,20 +329,20 @@ func TestKeeperABCIClientReadsCurrentCapabilityAndSupportShapes(t *testing.T) {
 	})
 	defer server.Close()
 	client := NewKeeperABCIClient(server.URL)
-	capability, err := client.ModelCapability(context.Background(), "trueopen1operator", "model-a", "3")
+	capability, err := client.ModelCapability(context.Background(), "trueopen1operator", strings.Repeat("0a", 32))
 	if err != nil {
 		t.Fatalf("ModelCapability() error = %v", err)
 	}
 	if !capability.InferenceCapability || capability.VerificationCapability || capability.CapabilityVersion.Uint64() != 7 {
 		t.Fatalf("capability = %#v", capability)
 	}
-	support, err := client.ModelSupport(context.Background(), "trueopen1operator", "model-a", "3")
+	support, err := client.ModelSupport(context.Background(), "trueopen1operator", strings.Repeat("0a", 32))
 	if err != nil {
 		t.Fatalf("ModelSupport() error = %v", err)
 	}
 	if !support.DeclaredSupport || !support.SupportActive || support.SupportFreshUntilEpoch.Uint64() != 12 ||
 		support.FirstSupportTaskID.Hex() != hex.EncodeToString(hashA) || support.LastRefreshTaskID.Hex() != hex.EncodeToString(hashB) ||
-		support.EligibleSupportStakeSnapshot.Uint64() != 120 || support.SupportVersion.Uint64() != 4 {
+		support.ActiveSupportStakeSnapshot.Uint64() != 100 || support.SupportVersion.Uint64() != 4 {
 		t.Fatalf("support = %#v", support)
 	}
 }
@@ -437,7 +438,7 @@ func TestKeeperABCIClientReadsFrozenTaskView(t *testing.T) {
 			Core: &taskv1.TaskCoreState{
 				TaskId: request.TaskId, SessionId: sessionBytes, OrderSequence: 1,
 				AcceptedTaskHash: hashBytes, AcceptedInputHash: hashBytes,
-				ModelId: "hf-model", ProfileVersion: 1,
+				ModelId: bytes.Repeat([]byte{0x0b}, 32), ProfileVersion: 1,
 			},
 			Assignment: &taskv1.TaskAssignmentViewV1{
 				WinnerWorker: testPointer("trueopen1worker"), WinnerConfirmHeight: testPointer(uint64(20)), InferDeadlineHeight: testPointer(uint64(30)),
@@ -466,7 +467,7 @@ func TestKeeperABCIClientReadsFrozenTerminalTask(t *testing.T) {
 		mustUnmarshalProto(t, data, &request)
 		return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{Value: &taskv1.TaskViewV1_Terminal{Terminal: &taskv1.TaskTerminalSummaryState{
 			TaskId: request.TaskId, SessionId: sessionBytes, OrderSequence: 1, TaskHash: taskBytes,
-			TerminalPhase: 8, Verdict: 1, ModelId: "hf-model", ProfileVersion: 1,
+			TerminalPhase: 8, Verdict: 1, ModelId: bytes.Repeat([]byte{0x0b}, 32), ProfileVersion: 1,
 			WinnerWorker: testPointer("trueopen1worker"), SettlementHeight: 40, CompactedHeight: 50,
 		}}}}, 0, ""
 	})
@@ -497,7 +498,7 @@ func TestKeeperABCIClientDoesNotConflateOrderDigestWithAcceptedTaskHash(t *testi
 			Core: &taskv1.TaskCoreState{
 				TaskId: request.TaskId, SessionId: sessionBytes, OrderSequence: 1,
 				AcceptedTaskHash: acceptedHash, AcceptedInputHash: bytes.Repeat([]byte{0x22}, 32),
-				ModelId: "hf-model", ProfileVersion: 1,
+				ModelId: bytes.Repeat([]byte{0x0b}, 32), ProfileVersion: 1,
 			},
 			Assignment: &taskv1.TaskAssignmentViewV1{
 				WinnerWorker: testPointer("trueopen1worker"), WinnerConfirmHeight: testPointer(uint64(20)), InferDeadlineHeight: testPointer(uint64(30)),
@@ -530,7 +531,7 @@ func TestKeeperABCIClientTerminalTaskDoesNotConflateOrderDigestWithAcceptedTaskH
 		mustUnmarshalProto(t, data, &request)
 		return &taskv1.QueryTaskResponse{Task: &taskv1.TaskViewV1{Value: &taskv1.TaskViewV1_Terminal{Terminal: &taskv1.TaskTerminalSummaryState{
 			TaskId: request.TaskId, SessionId: sessionBytes, OrderSequence: 1, TaskHash: taskBytes,
-			TerminalPhase: 8, Verdict: 1, ModelId: "hf-model", ProfileVersion: 1,
+			TerminalPhase: 8, Verdict: 1, ModelId: bytes.Repeat([]byte{0x0b}, 32), ProfileVersion: 1,
 			WinnerWorker: testPointer("trueopen1worker"), SettlementHeight: 40, CompactedHeight: 50,
 		}}}}, 0, ""
 	})
@@ -601,7 +602,7 @@ func TestKeeperABCIClientClassifiesErrors(t *testing.T) {
 			return &hubv1.QueryModelResponse{}, 22, "rpc error: code = NotFound desc = model not found"
 		})
 		defer server.Close()
-		_, err := NewKeeperABCIClient(server.URL).CurrentModel(context.Background(), "missing/model")
+		_, err := NewKeeperABCIClient(server.URL).CurrentModel(context.Background(), strings.Repeat("0d", 32))
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("error = %v, want ErrNotFound", err)
 		}
@@ -610,7 +611,7 @@ func TestKeeperABCIClientClassifiesErrors(t *testing.T) {
 	t.Run("http unavailable", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
 		defer server.Close()
-		_, err := NewKeeperABCIClient(server.URL).CurrentModel(context.Background(), "model")
+		_, err := NewKeeperABCIClient(server.URL).CurrentModel(context.Background(), strings.Repeat("0d", 32))
 		if !IsRetryable(err) {
 			t.Fatalf("error = %v, want retryable", err)
 		}
@@ -621,7 +622,7 @@ func TestKeeperABCIClientClassifiesErrors(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": -1, "result": map[string]any{"response": map[string]any{"code": 0, "value": "%%%"}}})
 		}))
 		defer server.Close()
-		_, err := NewKeeperABCIClient(server.URL).CurrentModel(context.Background(), "model")
+		_, err := NewKeeperABCIClient(server.URL).CurrentModel(context.Background(), strings.Repeat("0d", 32))
 		if err == nil || !strings.Contains(err.Error(), "ABCI value") {
 			t.Fatalf("error = %v", err)
 		}
@@ -822,7 +823,7 @@ func TestKeeperABCIClientHonorsContextCancellation(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()
-	_, err := NewKeeperABCIClient(server.URL).CurrentModel(ctx, "model")
+	_, err := NewKeeperABCIClient(server.URL).CurrentModel(ctx, strings.Repeat("0d", 32))
 	if err == nil || !IsRetryable(err) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want retryable deadline", err)
 	}

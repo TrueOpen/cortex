@@ -63,8 +63,12 @@ func (e keeperHandraiseEligibility) Worker(ctx context.Context, candidate Worker
 		SupportLastConfirmedHeight: support.LastRefreshHeight.Uint64(), SupportFreshnessWindow: freshnessWindow, Profile: candidate.Capability,
 		SupportedProfiles: []string{candidate.Capability}, AvailableSlots: availableSlots, CapacitySnapshotRef: capacityRef,
 		P30ColdStartCandidate: supportState == policy.SupportDeclaredBootstrap,
-		RewardEligible: support.ActiveSupportStakeSnapshot.Uint64() > 0 ||
-			(supportState == policy.SupportDeclaredBootstrap && support.EligibleSupportStakeSnapshot.Uint64() > 0),
+		// TODO(wire v0.3.0): support is model-scoped and the bootstrap-eligible
+		// stake snapshot is gone. A declared-bootstrap node is treated as reward
+		// eligible on its service bond, which facts has already checked against
+		// the profile's min_stake, until the bootstrap reward rule is restated
+		// for model-scoped support.
+		RewardEligible:         support.ActiveSupportStakeSnapshot.Uint64() > 0 || supportState == policy.SupportDeclaredBootstrap,
 		SelfRescueGasAvailable: e.cfg.SelfRescueGasBudget > 0, SelfRescueGasBudgetNanoTRUEOPEN: e.cfg.SelfRescueGasBudget,
 	}
 	if candidate.DeadlineHeight <= height {
@@ -163,7 +167,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("Keeper service bond is not eligible for handraise")
 	}
 	if !committedScope {
-		capability, err = e.cfg.Keeper.ModelCapability(ctx, e.cfg.OperatorAddress, modelID, profileVersionText)
+		capability, err = e.cfg.Keeper.ModelCapability(ctx, e.cfg.OperatorAddress, modelID)
 		if err != nil {
 			return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, builderclient.Retryable(fmt.Errorf("query Keeper model capability for handraise: %w", err))
 		}
@@ -171,7 +175,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	if err := capability.Validate(); err != nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, err
 	}
-	if capability.OperatorAddress != e.cfg.OperatorAddress || capability.ModelID != modelID || capability.ProfileVersion.Uint32() != profileVersion {
+	if capability.OperatorAddress != e.cfg.OperatorAddress || capability.ModelID != modelID {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("Keeper model capability identity does not match handraise candidate %s@%d", modelID, profileVersion)
 	}
 	switch duty {
@@ -187,7 +191,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("unsupported handraise duty %q", duty)
 	}
 	if !committedScope {
-		support, err = e.cfg.Keeper.ModelSupport(ctx, e.cfg.OperatorAddress, modelID, profileVersionText)
+		support, err = e.cfg.Keeper.ModelSupport(ctx, e.cfg.OperatorAddress, modelID)
 		if err != nil {
 			return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, builderclient.Retryable(fmt.Errorf("query Keeper model support for handraise: %w", err))
 		}
@@ -195,7 +199,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	if err := support.Validate(); err != nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, err
 	}
-	if support.OperatorAddress != e.cfg.OperatorAddress || support.ModelID != modelID || support.ProfileVersion.Uint32() != profileVersion || !support.DeclaredSupport {
+	if support.OperatorAddress != e.cfg.OperatorAddress || support.ModelID != modelID || !support.DeclaredSupport {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("Keeper model support is not declared for handraise candidate %s@%d", modelID, profileVersion)
 	}
 	if committedScope {

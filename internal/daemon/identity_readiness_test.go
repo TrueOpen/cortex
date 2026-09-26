@@ -42,19 +42,17 @@ func (r staticKeeperIdentityReader) CommittedCurrentServiceKey(context.Context, 
 	return r.key, staticKeeperIdentityServedHeight, nil
 }
 
-func (r staticKeeperIdentityReader) ModelCapability(_ context.Context, nodeID, modelID, profile string) (chainclient.ModelCapabilitySnapshot, error) {
+func (r staticKeeperIdentityReader) ModelCapability(_ context.Context, nodeID, modelID string) (chainclient.ModelCapabilitySnapshot, error) {
 	result := r.capability
 	result.OperatorAddress = nodeID
 	result.ModelID = modelID
-	result.ProfileVersion = chainclient.NewProfileVersion(1)
 	return result, nil
 }
 
-func (r staticKeeperIdentityReader) ModelSupport(_ context.Context, nodeID, modelID, profile string) (chainclient.ModelSupportSnapshot, error) {
+func (r staticKeeperIdentityReader) ModelSupport(_ context.Context, nodeID, modelID string) (chainclient.ModelSupportSnapshot, error) {
 	result := r.support
 	result.OperatorAddress = nodeID
 	result.ModelID = modelID
-	result.ProfileVersion = chainclient.NewProfileVersion(1)
 	return result, nil
 }
 
@@ -148,14 +146,14 @@ type countingKeeperIdentityReader struct {
 	supportQueries    int
 }
 
-func (r *countingKeeperIdentityReader) ModelCapability(ctx context.Context, nodeID, modelID, profile string) (chainclient.ModelCapabilitySnapshot, error) {
+func (r *countingKeeperIdentityReader) ModelCapability(ctx context.Context, nodeID, modelID string) (chainclient.ModelCapabilitySnapshot, error) {
 	r.capabilityQueries++
-	return r.staticKeeperIdentityReader.ModelCapability(ctx, nodeID, modelID, profile)
+	return r.staticKeeperIdentityReader.ModelCapability(ctx, nodeID, modelID)
 }
 
-func (r *countingKeeperIdentityReader) ModelSupport(ctx context.Context, nodeID, modelID, profile string) (chainclient.ModelSupportSnapshot, error) {
+func (r *countingKeeperIdentityReader) ModelSupport(ctx context.Context, nodeID, modelID string) (chainclient.ModelSupportSnapshot, error) {
 	r.supportQueries++
-	return r.staticKeeperIdentityReader.ModelSupport(ctx, nodeID, modelID, profile)
+	return r.staticKeeperIdentityReader.ModelSupport(ctx, nodeID, modelID)
 }
 
 func TestCheckKeeperIdentityRejectsMismatches(t *testing.T) {
@@ -249,7 +247,7 @@ func readyLocalIdentity() config.LocalIdentityConfig {
 	return config.LocalIdentityConfig{
 		OperatorAddress:        "trueopen1operator",
 		ServiceKeyRef:          "kms://cortex/service-key",
-		SupportedModelProfiles: []string{"llama-dev@1=llm_text_v1"},
+		SupportedModelProfiles: []string{"c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1=llm_text_v1"},
 		ModelServiceID:         "model-service",
 	}
 }

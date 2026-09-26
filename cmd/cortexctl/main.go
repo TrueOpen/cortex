@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TrueOpen/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/observability"
 	"github.com/TrueOpen/cortex/internal/txclient"
@@ -240,6 +241,7 @@ func newModelCommand(client clientFactory, stdout io.Writer) *cobra.Command {
 		newModelStatusCommand(client, stdout),
 		newModelListCommand(client, stdout),
 		newModelShowCommand(client, stdout),
+		newModelFindCommand(stdout),
 		newModelSupportCommand(client, stdout, false),
 		newModelSupportCommand(client, stdout, true),
 	)
@@ -318,6 +320,37 @@ func newModelListCommand(client clientFactory, stdout io.Writer) *cobra.Command 
 			return err
 		}
 		return printFormatted(stdout, value, adminapi.Format(*format))
+	}
+	return cmd
+}
+
+// newModelFindCommand lists the chain models registered for a source, so an
+// operator can pick the explicit model_id for local_identity. It reads the
+// chain directly, because it is needed before cortexd is configured.
+func newModelFindCommand(stdout io.Writer) *cobra.Command {
+	var rpcEndpoint, provider, repoID string
+	cmd := &cobra.Command{Use: "find", Short: "List chain models registered for a provider and repository", Args: cobra.NoArgs}
+	format := newFormatFlag(cmd, "table")
+	cmd.Flags().StringVar(&rpcEndpoint, "rpc", "", "chain CometBFT RPC endpoint")
+	cmd.Flags().StringVar(&provider, "provider", "", "model source provider; empty matches any")
+	cmd.Flags().StringVar(&repoID, "repo", "", "model source repository id, as vLLM serves it")
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		if strings.TrimSpace(rpcEndpoint) == "" || strings.TrimSpace(repoID) == "" {
+			return errors.New("--rpc and --repo are required")
+		}
+		models, err := chainclient.NewKeeperABCIClient(rpcEndpoint).ModelsBySource(cmd.Context(), provider, repoID)
+		if err != nil {
+			return err
+		}
+		rows := make([]map[string]string, 0, len(models))
+		for _, model := range models {
+			rows = append(rows, map[string]string{
+				"model_id": model.ModelID, "provider": model.Provider, "repo_id": model.RepoID,
+				"status": model.Status, "proposer": model.ProposerAddress,
+				"latest_profile_version": fmt.Sprint(model.LatestProfileVersion.Uint32()),
+			})
+		}
+		return printFormatted(stdout, rows, adminapi.Format(*format))
 	}
 	return cmd
 }

@@ -48,7 +48,7 @@ func TestReconcilerEmitsTerminalCleanupByTaskHash(t *testing.T) {
 	r := NewReconciler(ReconcilerOptions{TaskReader: staticKeeperTaskReader{snapshot: snapshot}})
 	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{{
 		Type: chainclient.KeeperEventSettleAccepted, TaskID: "task-terminal", SessionID: "session-1", OrderDigest: hash, Height: 30,
-		ModelID: "model-1", ProfileVersion: "1", InferDeadlineHeight: 100,
+		ModelID: testModelID, ProfileVersion: "1", InferDeadlineHeight: 100,
 		Attributes: map[string]string{"verdict": "PASS", "settlement_height": "30"},
 	}})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestReconcilerRejectsTaskEventFactsThatDisagreeWithKeeperSnapshot(t *testin
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			event := chainclient.KeeperEvent{Type: chainclient.KeeperEventSettleAccepted, TaskID: "task-1", SessionID: "session-1", OrderDigest: hash, Height: 30,
-				ModelID: "model-1", ProfileVersion: "1", InferDeadlineHeight: 100,
+				ModelID: testModelID, ProfileVersion: "1", InferDeadlineHeight: 100,
 				Attributes: map[string]string{"verdict": "PASS", "settlement_height": "30"}}
 			test.edit(&event)
 			var quarantined []chainclient.KeeperEvent
@@ -190,7 +190,7 @@ func validTaskSnapshot(sessionID, taskID string, acceptedTaskHash codec.Hash) ch
 	return chainclient.TaskSnapshot{Status: "ASSIGNED", Assignment: chainclient.AssignmentSnapshot{
 		SessionID: sessionID, TaskID: taskID, OrderSequence: chainclient.NewUint64String(1),
 		SelectedWorker: "worker-1", InferDeadlineHeight: chainclient.NewUint64String(100), WinnerConfirmHeight: chainclient.NewUint64String(12),
-		ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+		ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 		AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashWithDomain("TEST_PAYLOAD", []byte(taskID))),
 		TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{AcceptedTaskHash: chainclient.ProtoBytes32(acceptedTaskHash[:])},
 	}}

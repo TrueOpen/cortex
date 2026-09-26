@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -185,7 +184,7 @@ func (c *KeeperABCIClient) querySnapshotServed(ctx context.Context, serviceMetho
 	if err != nil {
 		return 0, err
 	}
-	encoded, err := (protojson.MarshalOptions{UseProtoNames: true}).Marshal(response)
+	encoded, err := restProtoJSON(response)
 	if err != nil {
 		return 0, fmt.Errorf("encode Keeper %s protobuf JSON: %w", serviceMethod, err)
 	}

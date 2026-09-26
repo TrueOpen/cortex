@@ -35,7 +35,7 @@ nexus:
   envelope_ttl_ms: 30000
   # Tolerated clock skew when judging inbound issued_at/expires_at.
   envelope_clock_skew_ms: 2000
-  subscribe_models: [llama-dev]
+  subscribe_models: [c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1]
 tx:
   enabled: true
   max_fee_amount: 1000000
@@ -52,7 +52,9 @@ signer:
 local_identity:
   operator_address: trueopen1workeroperator
   service_key_ref: worker-service
-  supported_model_profiles: [llama-dev@1=llm_text_v1]
+  # model_id is the chain Hash32 model id as 64 lowercase hex; list the models
+  # registered for a repository with `cortexctl model find --rpc URL --repo ID`.
+  supported_model_profiles: [c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1=llm_text_v1]
   model_service_id: fake-model-service
 self_rescue:
   enabled: false

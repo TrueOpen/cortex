@@ -373,7 +373,7 @@ node:
   rpc_endpoint: http://127.0.0.1:26657
 nexus:
   subscribe_models:
-    - llama-main
+    - 6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2
     - embed-small
 artifacts:
   root: /tmp/cortex/evidence
@@ -387,7 +387,7 @@ signer:
 	if err != nil {
 		t.Fatalf("LoadFile() error = %v", err)
 	}
-	if got := strings.Join(cfg.Nexus.SubscribeModels, ","); got != "llama-main,embed-small" {
+	if got := strings.Join(cfg.Nexus.SubscribeModels, ","); got != "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2,embed-small" {
 		t.Fatalf("subscribe models = %q", got)
 	}
 }
@@ -1058,7 +1058,7 @@ tx:
 local_identity:
   operator_address: trueopen1operator
   service_key_ref: kms://cortex/service-key
-  supported_model_profiles: [llama-dev@1=llm_text_v1]
+  supported_model_profiles: [c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1=llm_text_v1]
   model_service_id: model-svc-1
 self_rescue:
   enabled: false
@@ -1140,7 +1140,7 @@ func TestRealExampleConfigLoadsProductionBoundaries(t *testing.T) {
 	if cfg.TaskExecution.InputResolver != InputResolverNexus || cfg.TaskExecution.FixtureRoot != "" {
 		t.Fatalf("task input resolver = %#v, want nexus without a fixture root", cfg.TaskExecution)
 	}
-	if len(cfg.Nexus.SubscribeModels) != 1 || cfg.Nexus.SubscribeModels[0] != "llama-main" {
+	if len(cfg.Nexus.SubscribeModels) != 1 || cfg.Nexus.SubscribeModels[0] != "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2" {
 		t.Fatalf("nexus model subscriptions = %#v, want model IDs rather than NATS subjects", cfg.Nexus.SubscribeModels)
 	}
 	if !cfg.Tx.Enabled || cfg.Tx.MaxFeeAmount == 0 || cfg.Tx.FeeDenom == "" || cfg.Tx.MaxAttempts == 0 {
@@ -1370,7 +1370,7 @@ func TestDeploymentOverridesNoLongerCarryDuties(t *testing.T) {
 }
 
 func TestValidateRealModeRejectsMalformedSupportedModelProfile(t *testing.T) {
-	for _, binding := range []string{"llama-dev", "llama-dev@llm_text_v1", "llama-dev@0=llm_text_v1", "llama-dev@01=llm_text_v1", "llama-dev@1="} {
+	for _, binding := range []string{"c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@llm_text_v1", "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@0=llm_text_v1", "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@01=llm_text_v1", "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1="} {
 		cfg := validRealConfig()
 		cfg.LocalIdentity.SupportedModelProfiles = []string{binding}
 
@@ -1387,14 +1387,14 @@ func TestLocalIdentityResolvesCapabilityByNumericProfileVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ModelProfiles() error = %v", err)
 	}
-	if len(profiles) != 1 || profiles[0] != (ModelProfileRef{ModelID: "llama-dev", ProfileVersion: 1, Capability: "llm_text_v1"}) {
+	if len(profiles) != 1 || profiles[0] != (ModelProfileRef{ModelID: "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", ProfileVersion: 1, Capability: "llm_text_v1"}) {
 		t.Fatalf("ModelProfiles() = %#v", profiles)
 	}
-	capability, err := identity.CapabilityFor("llama-dev", 1)
+	capability, err := identity.CapabilityFor("c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", 1)
 	if err != nil || capability != "llm_text_v1" {
 		t.Fatalf("CapabilityFor() = %q, %v", capability, err)
 	}
-	if _, err := identity.CapabilityFor("llama-dev", 2); err == nil {
+	if _, err := identity.CapabilityFor("c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", 2); err == nil {
 		t.Fatalf("CapabilityFor() missing binding error = nil")
 	}
 }
@@ -1678,7 +1678,7 @@ func validRealConfig() Config {
 	cfg.LocalIdentity = LocalIdentityConfig{
 		OperatorAddress:        "trueopen1operator",
 		ServiceKeyRef:          "kms://cortex/service-key",
-		SupportedModelProfiles: []string{"llama-dev@1=llm_text_v1"},
+		SupportedModelProfiles: []string{"c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1=llm_text_v1"},
 		ModelServiceID:         "model-svc-1",
 	}
 	cfg.Tx = TxConfig{Enabled: true, MaxFeeAmount: 1000, FeeDenom: "utrueopen", MaxAttempts: 3, PollAttempts: 20, GasLimit: 250000}

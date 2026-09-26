@@ -348,7 +348,7 @@ func TestKeeperLocalProfileResolverAbsentWithoutModelProfileQuery(t *testing.T) 
 }
 
 func TestBuildDependenciesRealModeUsesSharedFakeModelService(t *testing.T) {
-	const chainModelID = "hf-ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
+	const chainModelID = "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
 	cfg := realConfig()
 	cfg.ModelManagement.Transport = "fake"
 	cfg.ModelManagement.Endpoint = ""
@@ -544,7 +544,7 @@ func realConfig() config.Config {
 		LocalIdentity: config.LocalIdentityConfig{
 			OperatorAddress:        "trueopen1operator",
 			ServiceKeyRef:          "memory://service-key",
-			SupportedModelProfiles: []string{"llama-dev@1=llm_text_v1"},
+			SupportedModelProfiles: []string{"c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1=llm_text_v1"},
 			ModelServiceID:         "daemon-model-service",
 		},
 		SelfRescue: config.SelfRescueConfig{

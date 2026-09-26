@@ -79,13 +79,13 @@ func TestModelStatusUsesAdminSocketData(t *testing.T) {
 	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
 
 	var stdout bytes.Buffer
-	if err := run([]string{"model", "status", "--format", "json", "--height", "77", "daemon-model"}, &stdout); err != nil {
+	if err := run([]string{"model", "status", "--format", "json", "--height", "77", "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"}, &stdout); err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
 
 	out := stdout.String()
 	for _, want := range []string{
-		`"model_id": "daemon-model"`,
+		`"model_id": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"`,
 		`"chain_state": "REGISTERED"`,
 		`"display_visibility": "VISIBLE"`,
 		`"verification_label": "OFFICIAL"`,
@@ -107,7 +107,7 @@ func TestModelStatusJSONSeparatesProtocolDisplayVerificationAndRewardFields(t *t
 	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
 
 	var stdout bytes.Buffer
-	if err := run([]string{"model", "status", "--format", "json", "daemon-model"}, &stdout); err != nil {
+	if err := run([]string{"model", "status", "--format", "json", "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"}, &stdout); err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
 	var status map[string]any
@@ -136,7 +136,7 @@ func TestModelStatusTableIncludesOperatorProjectionFields(t *testing.T) {
 	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
 
 	var stdout bytes.Buffer
-	if err := run([]string{"model", "status", "daemon-model"}, &stdout); err != nil {
+	if err := run([]string{"model", "status", "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"}, &stdout); err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
 	out := stdout.String()
@@ -357,8 +357,9 @@ func TestModelManifestGenerateAcceptsCurrentProjectionFile(t *testing.T) {
 		t.Fatalf("manifest generate returned error: %v", err)
 	}
 	for _, want := range []string{
-		`"manifest_schema_version": 3`,
-		`"model_id": "daemon-model"`,
+		`"manifest_schema_version": 4`,
+		// The projection's model_id is ProtoJSON bytes, so base64.
+		`"model_id": "srKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrI="`,
 		`"runtime_class": "CAUSAL_LM_PREFILL_LOGPROBS_V1"`,
 		`"registration_fee"`,
 	} {
@@ -373,13 +374,12 @@ func TestSupportProducesOperatorOnlyIntentWithoutMutatingDaemonState(t *testing.
 	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
 
 	var stdout bytes.Buffer
-	if err := run([]string{"model", "support", "--format", "json", "unsupported-model"}, &stdout); err != nil {
+	if err := run([]string{"model", "support", "--format", "json", "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"}, &stdout); err != nil {
 		t.Fatalf("support intent returned error: %v", err)
 	}
 	for _, want := range []string{
 		`"type_url": "/hub.v1.MsgDeclareModelSupport"`,
 		`"operator_address": "trueopen1operator"`,
-		`"profile_version": 1`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("support intent %s missing %s", stdout.String(), want)
@@ -390,7 +390,7 @@ func TestSupportProducesOperatorOnlyIntentWithoutMutatingDaemonState(t *testing.
 	}
 
 	stdout.Reset()
-	if err := run([]string{"model", "status", "--format", "json", "unsupported-model"}, &stdout); err != nil {
+	if err := run([]string{"model", "status", "--format", "json", "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"}, &stdout); err != nil {
 		t.Fatalf("status returned error: %v", err)
 	}
 	if strings.Contains(stdout.String(), `"support_active": true`) {
@@ -442,7 +442,7 @@ func startTestAdminServer(t *testing.T) string {
 		VerificationCapability:    true,
 	})
 	registry.PutStatus(modelregistry.ModelStatus{
-		ModelID:           "daemon-model",
+		ModelID:           "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
 		ChainState:        modelregistry.ChainStateRegistered,
 		DisplayVisibility: modelregistry.DisplayVisible,
 		VerificationLabel: modelregistry.VerificationOfficial,
@@ -450,7 +450,7 @@ func startTestAdminServer(t *testing.T) string {
 		Supported:         true,
 	})
 	registry.PutStatus(modelregistry.ModelStatus{
-		ModelID:           "unsupported-model",
+		ModelID:           "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
 		ProfileVersion:    "1",
 		ChainState:        modelregistry.ChainStateRegistered,
 		DisplayVisibility: modelregistry.DisplayVisible,
@@ -557,11 +557,11 @@ func writeCurrentProfile(t *testing.T) string {
 
 func currentTestProfile() txclient.ModelProfileProjectionMessage {
 	hash := txclient.ProtoBytes32(strings.Repeat("ab", 32))
-	return txclient.ModelProfileProjectionMessage{ModelID: "daemon-model", ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
+	return txclient.ModelProfileProjectionMessage{Source: txclient.SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "org/model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1", Revision: strings.Repeat("0a", 20), SourceURI: "hf://org/model@" + strings.Repeat("0a", 20)}, ModelID: txclient.ProtoBytes32(strings.Repeat("b2", 32)), ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
 		RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1", RequiredTopK: 20, TaskTypes: []string{"TASK_TYPE_CHAT"}, GenerationType: "GENERATION_TYPE_SAMPLED",
 		ResourceTier: 2, MinStake: txclient.CoinMessage{Denom: "utrueopen", Amount: 1_000_000}, ChallengeOpenWindowBlocks: 1_800,
 		VerificationProfile: txclient.VerificationProfileMessage{VerificationProfileID: 1, JudgmentFunctionVersion: "PREFILL_GENERATED_TOKEN_METRICS_V1", VerificationMode: "VERIFICATION_MODE_SINGLE_SAMPLE", TokenScope: "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
-			Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerValueEvidenceSchemaV2(1 << 30)},
+			Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 		PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 		TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
 		SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}}

@@ -30,7 +30,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/daemon"
 	"github.com/TrueOpen/cortex/internal/diagnostics"
 	"github.com/TrueOpen/cortex/internal/identity"
-	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -787,8 +786,8 @@ func TestDaemonRealModeAdmitsIncomingOrderAsCandidate(t *testing.T) {
 	keeper := &workerHandraiseWiringKeeper{recordingKeeperClient: &recordingKeeperClient{}}
 	var runtime *daemon.Runtime
 	contents := realDaemonConfigWithStoreAndSubscriptions("__ADMIN_SOCKET__", dbPath)
-	contents = strings.Replace(contents, "subscribe_models: [daemon-model]", "subscribe_models: [fake-llm-text]", 1)
-	contents = strings.Replace(contents, "supported_model_profiles: [daemon-model@1=llm_text_v1]", "supported_model_profiles: [fake-llm-text@1=llm_text_v1]", 1)
+	contents = strings.Replace(contents, "subscribe_models: [1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c]", "subscribe_models: [099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f]", 1)
+	contents = strings.Replace(contents, "supported_model_profiles: [1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c@1=llm_text_v1]", "supported_model_profiles: [099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f@1=llm_text_v1]", 1)
 	contents = strings.Replace(contents, "  endpoint: 127.0.0.1:9090\n  transport: grpc", "  transport: fake", 1)
 	contents = strings.Replace(contents, "  input_resolver: nexus", "  input_resolver: fixture\n  fixture_root: "+t.TempDir(), 1)
 	socketPath := startDaemonWithRuntimeBuilder(t, contents, func(ctx context.Context, cfg config.Config) (*daemon.Runtime, error) {
@@ -815,11 +814,11 @@ func TestDaemonRealModeAdmitsIncomingOrderAsCandidate(t *testing.T) {
 	})
 	_ = adminapi.NewClient(socketPath)
 
-	waitForSubscription(t, subscriber, builderclient.NATSTaskOpenSubject("fake-llm-text"))
+	waitForSubscription(t, subscriber, builderclient.NATSTaskOpenSubject(modelservice.FakeModelID))
 	const sessionID = "6ae490f8c53918ded64f2c390f57adaeecc84f6beec9f9575fdf0beeb600fa16"
 	const orderSequence = uint64(1)
-	signedOrder, taskHash := mainTestSignedOrder(t, "trueopen-devnet-1", "fake-llm-text", sessionID, orderSequence, 240)
-	subject := builderclient.NATSTaskOpenSubject("fake-llm-text")
+	signedOrder, taskHash := mainTestSignedOrder(t, "trueopen-devnet-1", modelservice.FakeModelID, sessionID, orderSequence, 240)
+	subject := builderclient.NATSTaskOpenSubject(modelservice.FakeModelID)
 	now := time.Now().UTC()
 	payload, err := builderclient.EncodeAuthenticatedBusMessage(builderclient.UnsignedEnvelopeInput{
 		Kind: builderclient.KindOrderBroadcast, ChainID: "trueopen-devnet-1", Subject: subject,
@@ -871,8 +870,8 @@ func TestDaemonRealModeStartsKeeperPoller(t *testing.T) {
 		LastEventHeight: 12,
 		LastPosition:    chainclient.BlockEndPosition(12),
 		Events: []chainclient.KeeperEvent{
-			{Type: chainclient.KeeperEventAssignAcceptedPendingRandomness, TaskID: taskID, Height: 11, SessionID: sessionID, OrderSequence: orderSequence, OrderDigest: orderDigest, ModelID: "fake-llm-text", ProfileVersion: "1"},
-			{Type: chainclient.KeeperEventAssignmentFinalized, TaskID: taskID, Height: 12, SessionID: sessionID, OrderSequence: orderSequence, OrderDigest: orderDigest, Worker: "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k", WinnerConfirmHeight: 12, ModelID: "daemon-model", ProfileVersion: "1", Payload: mustDaemonJSON(t, map[string]any{"input": "daemon poll prompt"})},
+			{Type: chainclient.KeeperEventAssignAcceptedPendingRandomness, TaskID: taskID, Height: 11, SessionID: sessionID, OrderSequence: orderSequence, OrderDigest: orderDigest, ModelID: modelservice.FakeModelID, ProfileVersion: "1"},
+			{Type: chainclient.KeeperEventAssignmentFinalized, TaskID: taskID, Height: 12, SessionID: sessionID, OrderSequence: orderSequence, OrderDigest: orderDigest, Worker: "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k", WinnerConfirmHeight: 12, ModelID: "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c", ProfileVersion: "1", Payload: mustDaemonJSON(t, map[string]any{"input": "daemon poll prompt"})},
 		},
 	}}}
 	contents := realDaemonConfigWithKeeperPolling("__ADMIN_SOCKET__", dbPath)
@@ -1061,7 +1060,7 @@ func TestNewTaskRunnerRestoresCompactActiveInferDocument(t *testing.T) {
 	taskHash := codec.HashWithDomain("TASK_RUNNER_CONFIG_ORDER", []byte("task-runner-config"))
 	task := store.InferTask{
 		TaskID: identity.TaskIDString("0465d9d63a04057e9f6896371452af72510ed64ce158f94eab22453120955629", 1), SessionID: "0465d9d63a04057e9f6896371452af72510ed64ce158f94eab22453120955629",
-		OrderSequence: 1, AssignmentDigest: codec.HashBytes([]byte("assignment")), ModelID: "fake-llm-text",
+		OrderSequence: 1, AssignmentDigest: codec.HashBytes([]byte("assignment")), ModelID: modelservice.FakeModelID,
 		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140, Stage: "queued",
 		// Fields 11 and 12 of the task's TRUEOPEN_BUS_ENVELOPE_V1 identity are task
 		// state, so a restored document that lost them could not publish.
@@ -1086,7 +1085,7 @@ func TestNewTaskRunnerRestoresCompactActiveInferDocument(t *testing.T) {
 		},
 		LocalIdentity: config.LocalIdentityConfig{
 			OperatorAddress:        "worker-local",
-			SupportedModelProfiles: []string{"fake-llm-text@1=llm_text_v1"},
+			SupportedModelProfiles: []string{"099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f@1=llm_text_v1"},
 			ModelServiceID:         "fake-model-service",
 		},
 	}
@@ -1179,7 +1178,7 @@ func TestRuntimeRunnersFailWhenTaskRunnerEvidenceStoreCannotOpen(t *testing.T) {
 		},
 		LocalIdentity: config.LocalIdentityConfig{
 			OperatorAddress:        "worker-local",
-			SupportedModelProfiles: []string{"fake-llm-text@1=llm_text_v1"},
+			SupportedModelProfiles: []string{"099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f@1=llm_text_v1"},
 			ModelServiceID:         "fake-model-service",
 		},
 	}
@@ -1224,7 +1223,7 @@ func TestNewTaskRunnerAllowsBuilderOnlyWorkloadWithoutTxClient(t *testing.T) {
 func TestNewTaskRunnerAllowsWorkerHandraiseWithSelfRescueDisabledAndNoFeeCap(t *testing.T) {
 	ctx := context.Background()
 	cfg := realConfigForRunnerTest(t)
-	cfg.LocalIdentity.SupportedModelProfiles = []string{"fake-llm-text@1=llm_text_v1"}
+	cfg.LocalIdentity.SupportedModelProfiles = []string{"099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f@1=llm_text_v1"}
 	cfg.LocalIdentity.ModelServiceID = "fake-model-service"
 	cfg.ModelManagement.Transport = "fake"
 	cfg.ModelManagement.Endpoint = ""
@@ -1279,8 +1278,8 @@ func TestNewTaskRunnerAllowsWorkerHandraiseWithSelfRescueDisabledAndNoFeeCap(t *
 	const sessionID = "0fedd8d512a2c5f844adfafad8efca6b813c9e1f0b69f1f715d12effd967fc9c"
 	const orderSequence = uint64(1)
 	taskID := identity.TaskIDString(sessionID, orderSequence)
-	signedOrder, taskHash := mainTestSignedOrder(t, cfg.ChainID, "fake-llm-text", sessionID, orderSequence, 240)
-	subject := builderclient.NATSTaskOpenSubject("fake-llm-text")
+	signedOrder, taskHash := mainTestSignedOrder(t, cfg.ChainID, modelservice.FakeModelID, sessionID, orderSequence, 240)
+	subject := builderclient.NATSTaskOpenSubject(modelservice.FakeModelID)
 	now := time.Now().UTC()
 	payload, err := builderclient.EncodeAuthenticatedBusMessage(builderclient.UnsignedEnvelopeInput{
 		Kind: builderclient.KindOrderBroadcast, ChainID: cfg.ChainID, Subject: subject,
@@ -1524,16 +1523,16 @@ func (*workerHandraiseWiringKeeper) VerifierCandidateMember(context.Context, str
 
 func (*workerHandraiseWiringKeeper) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
 	return chainclient.CurrentModelProfileSnapshot{
-		Model: chainclient.CurrentModelSnapshot{ModelID: "fake-llm-text", Status: "ACTIVE"},
+		Model: chainclient.CurrentModelSnapshot{ModelID: modelservice.FakeModelID, Status: "ACTIVE"},
 		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID: "fake-llm-text", ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
+			ModelID: modelservice.FakeModelID, ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
 		},
 	}, nil
 }
 
-func (*workerHandraiseWiringKeeper) ModelSupport(_ context.Context, operatorAddress, modelID, _ string) (chainclient.ModelSupportSnapshot, error) {
+func (*workerHandraiseWiringKeeper) ModelSupport(_ context.Context, operatorAddress, modelID string) (chainclient.ModelSupportSnapshot, error) {
 	return chainclient.ModelSupportSnapshot{
-		OperatorAddress: operatorAddress, ModelID: modelID, ProfileVersion: chainclient.NewProfileVersion(1),
+		OperatorAddress: operatorAddress, ModelID: modelID,
 		DeclaredSupport: true, SupportActive: true, SupportVersion: chainclient.NewUint64String(1),
 		LastRefreshHeight: chainclient.NewUint64String(199), ActiveSupportStakeSnapshot: chainclient.NewUint64String(100),
 	}, nil
@@ -1596,18 +1595,18 @@ func (k *transitionKeeperClient) CortexNode(ctx context.Context, nodeID string) 
 	return k.recordingKeeperClient.CortexNode(ctx, nodeID)
 }
 
-func (k *transitionKeeperClient) ModelCapability(ctx context.Context, nodeID, modelID, profile string) (chainclient.ModelCapabilitySnapshot, error) {
+func (k *transitionKeeperClient) ModelCapability(ctx context.Context, nodeID, modelID string) (chainclient.ModelCapabilitySnapshot, error) {
 	if !k.isReady() {
 		return chainclient.ModelCapabilitySnapshot{}, chainclient.ErrNotFound
 	}
-	return k.recordingKeeperClient.ModelCapability(ctx, nodeID, modelID, profile)
+	return k.recordingKeeperClient.ModelCapability(ctx, nodeID, modelID)
 }
 
-func (k *transitionKeeperClient) ModelSupport(ctx context.Context, nodeID, modelID, profile string) (chainclient.ModelSupportSnapshot, error) {
+func (k *transitionKeeperClient) ModelSupport(ctx context.Context, nodeID, modelID string) (chainclient.ModelSupportSnapshot, error) {
 	if !k.isReady() {
 		return chainclient.ModelSupportSnapshot{}, chainclient.ErrNotFound
 	}
-	return k.recordingKeeperClient.ModelSupport(ctx, nodeID, modelID, profile)
+	return k.recordingKeeperClient.ModelSupport(ctx, nodeID, modelID)
 }
 
 func (*transitionKeeperClient) Model(context.Context, string) (chainclient.ModelSnapshot, error) {
@@ -1723,7 +1722,7 @@ func (k *recordingKeeperClient) FinalizedEvents(_ context.Context, position chai
 		}
 		modelID := event.ModelID
 		if modelID == "" {
-			modelID = "daemon-model"
+			modelID = "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
 		}
 		inferDeadline := event.Height + 100
 		acceptedHash := codec.HashWithDomain("DAEMON_KEEPER_TASK", []byte(event.TaskID))
@@ -1800,15 +1799,15 @@ func (k *recordingKeeperClient) CommittedCurrentServiceKey(ctx context.Context, 
 	return key, 20, nil
 }
 
-func (k *recordingKeeperClient) ModelCapability(_ context.Context, nodeID, modelID, profile string) (chainclient.ModelCapabilitySnapshot, error) {
+func (k *recordingKeeperClient) ModelCapability(_ context.Context, nodeID, modelID string) (chainclient.ModelCapabilitySnapshot, error) {
 	return chainclient.ModelCapabilitySnapshot{
-		OperatorAddress: nodeID, ModelID: modelID, ProfileVersion: chainclient.NewProfileVersion(1),
+		OperatorAddress: nodeID, ModelID: modelID,
 		InferenceCapability: true, VerificationCapability: true, CapabilityVersion: chainclient.Uint64String(1),
 	}, nil
 }
 
-func (k *recordingKeeperClient) ModelSupport(_ context.Context, nodeID, modelID, profile string) (chainclient.ModelSupportSnapshot, error) {
-	return chainclient.ModelSupportSnapshot{OperatorAddress: nodeID, ModelID: modelID, ProfileVersion: chainclient.NewProfileVersion(1), DeclaredSupport: true, SupportActive: true, SupportVersion: chainclient.Uint64String(1)}, nil
+func (k *recordingKeeperClient) ModelSupport(_ context.Context, nodeID, modelID string) (chainclient.ModelSupportSnapshot, error) {
+	return chainclient.ModelSupportSnapshot{OperatorAddress: nodeID, ModelID: modelID, DeclaredSupport: true, SupportActive: true, SupportVersion: chainclient.Uint64String(1)}, nil
 }
 
 func (k *recordingKeeperClient) Task(_ context.Context, _ string, taskID string) (chainclient.TaskSnapshot, error) {
@@ -2074,8 +2073,8 @@ signer:
 local_identity:
   operator_address: trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k
   service_key_ref: memory://service-key
-  supported_model_profiles: [daemon-model@1=llm_text_v1]
-  model_service_id: daemon-model-service
+  supported_model_profiles: [1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c@1=llm_text_v1]
+  model_service_id: 1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c-service
 self_rescue:
   enabled: false
   margin_blocks: 12
@@ -2100,7 +2099,7 @@ func realDaemonConfigWithInvalidNATS(socketPath string, kvPath string) string {
 
 func realDaemonConfigWithStoreAndSubscriptions(socketPath string, kvPath string) string {
 	cfg := realDaemonConfigWithStore(socketPath, kvPath)
-	return strings.Replace(cfg, "  nats_url: tls://nexus.devnet.trueopen.xyz:4222", "  nats_url: tls://nexus.devnet.trueopen.xyz:4222\n  subscribe_models: [daemon-model]\n  subscribe_tasks: [task-1]", 1)
+	return strings.Replace(cfg, "  nats_url: tls://nexus.devnet.trueopen.xyz:4222", "  nats_url: tls://nexus.devnet.trueopen.xyz:4222\n  subscribe_models: [1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c]\n  subscribe_tasks: [task-1]", 1)
 }
 
 func realDaemonConfigWithKeeperPolling(socketPath string, kvPath string) string {
@@ -2112,7 +2111,7 @@ func realDaemonConfigWithKeeperPolling(socketPath string, kvPath string) string 
 func mustDaemonManifest(t *testing.T) modelregistry.Manifest {
 	t.Helper()
 	manifest, err := modelregistry.GenerateManifest(modelregistry.ManifestInput{
-		ModelID:        "daemon-model",
+		ModelID:        "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
 		Version:        "2026-07-08",
 		Digest:         "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 		Tokenizer:      "tiktoken-cl100k",
@@ -2147,11 +2146,11 @@ func mustCurrentDaemonManifest(t *testing.T) modelregistry.CurrentManifest {
 	hash := txclient.ProtoBytes32(strings.Repeat("ab", 32))
 	manifest, err := modelregistry.GenerateCurrentManifest(modelregistry.CurrentManifestInput{
 		Version: "2026-08-03", Tokenizer: "qwen-tokenizer", ModelServiceID: "modelsvc-local",
-		Profile: txclient.ModelProfileProjectionMessage{ModelID: "daemon-model", ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
+		Profile: txclient.ModelProfileProjectionMessage{Source: txclient.SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "org/model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1", Revision: strings.Repeat("0a", 20), SourceURI: "hf://org/model@" + strings.Repeat("0a", 20)}, ModelID: txclient.ProtoBytes32(strings.Repeat("b2", 32)), ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
 			RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1", RequiredTopK: 20, TaskTypes: []string{"TASK_TYPE_CHAT"}, GenerationType: "GENERATION_TYPE_SAMPLED",
 			ResourceTier: 2, MinStake: txclient.CoinMessage{Denom: "utrueopen", Amount: 1_000_000}, ChallengeOpenWindowBlocks: 1_800,
 			VerificationProfile: txclient.VerificationProfileMessage{VerificationProfileID: 1, JudgmentFunctionVersion: "PREFILL_GENERATED_TOKEN_METRICS_V1", VerificationMode: "VERIFICATION_MODE_SINGLE_SAMPLE", TokenScope: "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
-				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerValueEvidenceSchemaV2(1 << 30)},
+				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
 			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
@@ -2475,10 +2474,10 @@ func mainTestSignedOrder(t *testing.T, chainID, modelID, sessionID string, seque
 	hash := bytes.Repeat([]byte{0x5a}, 32)
 	amount := func(value string) *bussharedv1.Amount { return &bussharedv1.Amount{AtomicUnits: value} }
 	signed := &bustaskv1.SignedOrderV2{
-		Order: &bustaskv1.TaskOrderV2{
-			SchemaVersion: 2, ChainId: chainID, UserAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+		Order: &bustaskv1.TaskOrderV3{
+			SchemaVersion: 3, ChainId: chainID, UserAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 			SessionId: session, OrderSequence: sequence,
-			ModelId: modelID, ProfileVersion: 1, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
+			ModelId: func() []byte { raw, _ := hex.DecodeString(modelID); return raw }(), ProfileVersion: 1, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
 			InputHash: bytes.Repeat([]byte{0xaa}, 32), InputSizeBytes: 32,
 			InputBucket: 1, OutputBudgetBucket: 1,
 			GenerationParams: &bustaskv1.GenerationParamsV1{
@@ -2494,6 +2493,8 @@ func mainTestSignedOrder(t *testing.T, chainID, modelID, sessionID string, seque
 			DeadlinePolicy:       &bustaskv1.DeadlinePolicyV1{LatencyClass: bustaskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_STANDARD},
 			TimeoutBucketVersion: 1, SessionAnchorHeight: 100,
 			SessionAnchorBlockHash: hash, BuilderSetId: "7", BuilderSetHash: hash,
+			PayloadMode:        bustaskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment: make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		UserSignature:   append(bytes.Repeat([]byte{0x01}, 64), 27),
@@ -2865,17 +2866,17 @@ func assertCortexdLogRecord(t *testing.T, line string, level slog.Level, message
 	}
 }
 
-func TestDailySupportProfilesListEveryConfiguredProfile(t *testing.T) {
+func TestDailySupportModelsListEveryConfiguredModelOnce(t *testing.T) {
 	var cfg config.Config
-	cfg.LocalIdentity.SupportedModelProfiles = []string{"model-b@1=llm_text_v1", "model-a@2=llm_text_v1"}
-	got := dailySupportProfiles(cfg)
-	want := []keepercontract.ProfileRef{{ModelID: "model-b", ProfileVersion: 1}, {ModelID: "model-a", ProfileVersion: 2}}
+	cfg.LocalIdentity.SupportedModelProfiles = []string{"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b@1=llm_text_v1", "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a@2=llm_text_v1", "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b@3=llm_text_v1"}
+	got := dailySupportModels(cfg)
+	want := []string{"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b", "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("dailySupportProfiles = %#v, want %#v", got, want)
+		t.Fatalf("dailySupportModels = %#v, want %#v", got, want)
 	}
 
 	cfg.LocalIdentity.SupportedModelProfiles = []string{"model-a"}
-	if got := dailySupportProfiles(cfg); len(got) != 0 {
-		t.Fatalf("dailySupportProfiles for an unparseable entry = %#v, want none", got)
+	if got := dailySupportModels(cfg); len(got) != 0 {
+		t.Fatalf("dailySupportModels for an unparseable entry = %#v, want none", got)
 	}
 }

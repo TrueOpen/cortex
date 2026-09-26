@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/TrueOpen/cortex/internal/denom"
+	"github.com/TrueOpen/cortex/internal/identity"
 )
 
 // The three deployment modes sit on two independent axes, which is why there
@@ -376,6 +377,11 @@ func (c LocalIdentityConfig) ModelProfiles() ([]ModelProfileRef, error) {
 			strings.TrimSpace(modelID) != modelID || strings.TrimSpace(capability) != capability || parseErr != nil || parsedVersion == 0 ||
 			strconv.FormatUint(parsedVersion, 10) != profileVersionText || strings.Contains(capability, "=") {
 			return nil, fmt.Errorf("local_identity.supported_model_profiles entry %q must be model_id@uint32=capability", raw)
+		}
+		// model_id is the chain's Hash32 model id, written as 64 lowercase hex.
+		// It is configured explicitly, never derived from a repository name.
+		if !identity.ValidModelIDHex(modelID) {
+			return nil, fmt.Errorf("local_identity.supported_model_profiles entry %q: model_id must be 64 lowercase hex characters", raw)
 		}
 		ref := ModelProfileRef{ModelID: modelID, ProfileVersion: uint32(parsedVersion), Capability: capability}
 		key := modelProfileBindingKey(ref.ModelID, ref.ProfileVersion)

@@ -1,17 +1,19 @@
 package chainclient
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
 
-	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
-	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
-	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
 func releasedEventTypes() map[string]KeeperEventType {
@@ -142,7 +144,7 @@ func identifyProtocolEnvelope(raw RawChainEvent) EventIdentity {
 	if profile := locator.GetProfile(); profile != nil {
 		model := payloadFields.ByName("model_id")
 		version := payloadFields.ByName("profile_version")
-		if model == nil || version == nil || profile.ModelId == "" || profile.ProfileVersion == 0 || payload.ProtoReflect().Get(model).String() != profile.ModelId || uint32(payload.ProtoReflect().Get(version).Uint()) != profile.ProfileVersion {
+		if model == nil || version == nil || len(profile.ModelId) != 32 || profile.ProfileVersion == 0 || !bytes.Equal(payload.ProtoReflect().Get(model).Bytes(), profile.ModelId) || uint32(payload.ProtoReflect().Get(version).Uint()) != profile.ProfileVersion {
 			return invalid(fmt.Errorf("protocol event primary locator profile does not match payload"))
 		}
 	}
@@ -166,6 +168,13 @@ func identifyProtocolEnvelope(raw RawChainEvent) EventIdentity {
 			text = string(value)
 		}
 		attributes[key] = text
+	}
+	// model_id is a Hash32 that Cortex keys on as canonical hex everywhere else;
+	// ProtoJSON would leave it base64 here.
+	if model := payloadFields.ByName("model_id"); model != nil && model.Kind() == protoreflect.BytesKind && !model.IsList() {
+		if raw := payload.ProtoReflect().Get(model).Bytes(); len(raw) == 32 {
+			attributes["model_id"] = hex.EncodeToString(raw)
+		}
 	}
 	identity.Type = keeperABCIEventTypes[string(field.Message().FullName())]
 	identity.Attributes = attributes

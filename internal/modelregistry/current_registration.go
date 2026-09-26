@@ -53,7 +53,7 @@ func (r *Registry) RegisterCurrent(ctx context.Context, req CurrentRegisterReque
 	if r.currentRegistrationReader == nil {
 		return result, fmt.Errorf("current model registration reader is required")
 	}
-	state, err := r.currentRegistrationReader.CurrentModelProfile(ctx, req.Manifest.Profile.ModelID, fmt.Sprintf("%d", req.Manifest.Profile.ProfileVersion))
+	state, err := r.currentRegistrationReader.CurrentModelProfile(ctx, string(req.Manifest.Profile.ModelID), fmt.Sprintf("%d", req.Manifest.Profile.ProfileVersion))
 	switch {
 	case err == nil:
 		if !currentRegistrationMatches(state, r.proposerAddress, req.Manifest.Profile, digest) {
@@ -90,8 +90,8 @@ func (r *Registry) RegisterCurrent(ctx context.Context, req CurrentRegisterReque
 }
 
 func currentRegistrationMatches(state chainclient.CurrentModelProfileSnapshot, proposer string, profile txclient.ModelProfileProjectionMessage, digest codec.Hash) bool {
-	return state.Model.ModelID == profile.ModelID &&
-		state.Profile.ModelID == profile.ModelID &&
+	return state.Model.ModelID == string(profile.ModelID) &&
+		state.Profile.ModelID == string(profile.ModelID) &&
 		state.Profile.ProfileVersion.Uint32() == uint32(profile.ProfileVersion) &&
 		state.Model.ProposerAddress == proposer &&
 		state.Profile.ProposerAddress == proposer &&

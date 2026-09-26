@@ -31,7 +31,7 @@ type modelIDFile struct {
 
 func loadModelIDVectors(t *testing.T) modelIDFile {
 	t.Helper()
-	data, err := wirevectors.PrereleaseFile("hub/model_id_v1.json")
+	data, err := wirevectors.File("hub/model_id_v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

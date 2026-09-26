@@ -194,13 +194,11 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 	case opts.ModelTransport != nil:
 		deps.Model = modelservice.NewRemoteClient(opts.ModelTransport)
 	case isLocalModelTransport(cfg):
-		// The advertised set is filtered by the model ids this node declares
-		// support for. LocalService treats an empty filter as "advertise
-		// everything derivable from vLLM", which is only safe because this list
-		// cannot be empty here: real mode is the only path that reaches this
-		// branch, and Validate() requires LocalIdentity.ModelProfiles() to
-		// parse. Keep that check if this ever gains another caller.
-		local := modelservice.NewLocalService(cfg.ModelManagement.Endpoint, cfg.LocalIdentity.ModelServiceID, cfg.ModelManagement.MaxConcurrency, cfg.ModelManagement.InferTimeout(), cfg.ModelManagement.ProbeTimeout(), configuredModelIDs(cfg)...)
+		// Only models bound to their chain repo_id are advertised or served.
+		// The binding needs a chain read, so it happens in the model-service
+		// readiness check (bindLocalModels), which keeps the node unready
+		// until every configured model is bound and served.
+		local := modelservice.NewLocalService(cfg.ModelManagement.Endpoint, cfg.LocalIdentity.ModelServiceID, cfg.ModelManagement.MaxConcurrency, cfg.ModelManagement.InferTimeout(), cfg.ModelManagement.ProbeTimeout())
 		if resolver := newKeeperLocalProfileResolver(deps.Keeper); resolver != nil {
 			local.SetProfileResolver(resolver)
 		}
@@ -336,6 +334,45 @@ func modelStatus(endpoint string, local bool, ready bool, message string) diagno
 // configuredModelIDs lists the chain model identifiers this node declares
 // support for. The fake model service advertises them so handraise eligibility
 // can match real Keeper records without a live model service.
+type keeperCurrentModelReader interface {
+	CurrentModel(context.Context, string) (chainclient.CurrentModelSnapshot, error)
+}
+
+// bindLocalModels binds every configured model id to the repo_id its chain
+// ModelState names, and refuses when the local vLLM does not serve that
+// repository. The operator configures the model id explicitly; nothing is
+// derived from the repository name.
+func bindLocalModels(ctx context.Context, keeper KeeperClient, local *modelservice.LocalService, modelIDs []string) error {
+	if len(modelIDs) == 0 {
+		return fmt.Errorf("no model id is configured for the local model service")
+	}
+	reader, ok := keeper.(keeperCurrentModelReader)
+	if !ok {
+		return fmt.Errorf("Keeper client cannot read ModelState to bind local models")
+	}
+	for _, modelID := range modelIDs {
+		model, err := reader.CurrentModel(ctx, modelID)
+		if err != nil {
+			return fmt.Errorf("query ModelState %s: %w", modelID, err)
+		}
+		if err := model.Validate(); err != nil {
+			return err
+		}
+		if model.ModelID != modelID {
+			return fmt.Errorf("ModelState %s answered for model %s", modelID, model.ModelID)
+		}
+		// TODO(wire v0.3.0): provider is not checked; the local adapter only
+		// knows vLLM served-model names, which are the repo_id.
+		if err := local.BindModel(modelID, model.RepoID); err != nil {
+			return err
+		}
+		if err := local.CheckServed(ctx, modelID); err != nil {
+			return fmt.Errorf("model %s (%s %s): %w", modelID, model.Provider, model.RepoID, err)
+		}
+	}
+	return nil
+}
+
 func configuredModelIDs(cfg config.Config) []string {
 	profiles, err := cfg.LocalIdentity.ModelProfiles()
 	if err != nil {

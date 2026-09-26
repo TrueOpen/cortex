@@ -12,12 +12,13 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 const (
-	modelChainProjectionDomain = "TRUEOPEN_MODEL_CHAIN_PROJECTION_V2"
-	modelRegistrationDomain    = "TRUEOPEN_MODEL_REGISTRATION_DIGEST_V2"
+	modelChainProjectionDomain = "TRUEOPEN_MODEL_CHAIN_PROJECTION_V3"
+	modelRegistrationDomain    = "TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3"
 	modelFrameDomain           = "TRUEOPEN_FRAME_V1"
 	evidenceSchemaDomain       = "TRUEOPEN_EVIDENCE_SCHEMA_V1"
 )
@@ -52,7 +53,7 @@ func CanonicalModelProfileProjection(profile txclient.ModelProfileProjectionMess
 			"amount": json.Number(strconv.FormatUint(uint64(profile.MinStake.Amount), 10)),
 			"denom":  profile.MinStake.Denom,
 		},
-		"model_id":                 profile.ModelID,
+		"model_id":                 registrationHashHex(profile.ModelID.Hex()),
 		"previous_profile_version": uint32(profile.PreviousProfileVersion),
 		"pricing_profile": map[string]any{
 			"min_order_value":      uint64(profile.PricingProfile.MinOrderValue),
@@ -100,6 +101,16 @@ func CanonicalModelProfileProjection(profile txclient.ModelProfileProjectionMess
 			"verification_profile_id":  uint32(profile.VerificationProfile.VerificationProfileID),
 		},
 		"verification_thresholds": canonicalRegistrationThresholds(profile.VerificationThresholds),
+		"source": map[string]any{
+			"provider":         profile.Source.Provider,
+			"repo_id":          profile.Source.RepoID,
+			"repo_type":        profile.Source.RepoType,
+			"resolver_version": profile.Source.ResolverVersion,
+			"revision":         profile.Source.Revision,
+			"source_uri":       profile.Source.SourceURI,
+		},
+		"tool_call_parser": canonicalRegistrationParser(profile.ToolCallParser),
+		"reasoning_parser": canonicalRegistrationParser(profile.ReasoningParser),
 	}
 	return json.Marshal(projection)
 }
@@ -193,9 +204,13 @@ func evidenceSchemaHash(profile evidenceSchemaProfile) (codec.Hash, error) {
 	}
 	batch := profile.BatchVerification
 	metrics := profile.Metrics
+	modelID, err := identity.ModelIDBytes(profile.ModelID)
+	if err != nil {
+		return codec.Hash{}, err
+	}
 	fields := []hfields.Field{
 		hfields.Uint32(profile.SchemaVersion),
-		hfields.String(profile.ModelID), hfields.Uint32(profile.ProfileVersion),
+		hfields.Bytes(modelID), hfields.Uint32(profile.ProfileVersion),
 		hfields.Bytes(profile.SchemaHash), hfields.Bytes(profile.TokenizerHash), hfields.Uint32(generationType), hfields.Uint32(profile.RequiredTopK),
 		hfields.Frame(
 			hfields.Bool(batch.Enabled), hfields.Uint32(batch.MinSampleCount), hfields.Uint32(batch.MinValidSampleCount),
@@ -235,7 +250,7 @@ func evidenceSchemaHash(profile evidenceSchemaProfile) (codec.Hash, error) {
 	for index, requirement := range profile.RequiredInferEvidence {
 		kind := map[string]uint32{
 			"EVIDENCE_KIND_WORKER_VALUE_OPENING": 1, "EVIDENCE_KIND_VERIFIER_VALUE_OPENING": 2,
-			"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3,
+			"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3, "EVIDENCE_KIND_WORKER_TOKEN_OPENING": 4,
 		}[requirement.Kind]
 		if kind == 0 || index > 0 && kind <= previous || requirement.CommitmentSchemaVersion == 0 ||
 			requirement.MaxEncodedSizeBytes == 0 || requirement.MaxEncodedSizeBytes > 1<<40 {
@@ -275,7 +290,7 @@ func EvidenceSchemaHash(profile txclient.ModelProfileProjectionMessage) (codec.H
 	metrics := profile.VerificationProfile.Metrics
 	hash, err := evidenceSchemaHash(evidenceSchemaProfile{
 		SchemaVersion:                 uint32(profile.VerificationProfile.EvidenceSchema.SchemaVersion),
-		ModelID:                       profile.ModelID,
+		ModelID:                       profile.ModelID.Hex(),
 		ProfileVersion:                uint32(profile.ProfileVersion),
 		SchemaHash:                    schemaHash,
 		TokenizerHash:                 tokenizerHash,
@@ -388,6 +403,8 @@ func evidenceKindStringFromInt32(kind int32) string {
 		return "EVIDENCE_KIND_VERIFIER_VALUE_OPENING"
 	case 3:
 		return "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING"
+	case 4:
+		return "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
 	}
 	return ""
 }
@@ -439,5 +456,14 @@ func framedRegistrationHash(domain string, payload []byte) codec.Hash {
 }
 
 func registrationHashHex(value string) string { return "0x" + value }
+
+// canonicalRegistrationParser renders an absent parser as {} and a present one
+// with both of its fields, which is how the V3 projection vector spells them.
+func canonicalRegistrationParser(parser txclient.ParserRefMessage) map[string]any {
+	if parser.Name == "" && parser.Version == 0 {
+		return map[string]any{}
+	}
+	return map[string]any{"name": parser.Name, "version": uint32(parser.Version)}
+}
 
 func trimRegistrationEnum(value, prefix string) string { return strings.TrimPrefix(value, prefix) }

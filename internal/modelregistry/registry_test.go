@@ -239,11 +239,11 @@ func TestOperatorSupportRequiresIntentWhileDailySupportUsesServiceConfirmation(t
 		SupportConfirmer:       confirmer,
 		Signer:                 fixedSigner,
 	})
-	svc.PutStatus(ModelStatus{ModelID: "model-a", ProfileVersion: "1"})
-	if _, err := svc.Support(context.Background(), SupportRequest{ModelID: "model-a", Supported: true}); !errors.Is(err, ErrOperatorModelSupportSignatureRequired) {
+	svc.PutStatus(ModelStatus{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1"})
+	if _, err := svc.Support(context.Background(), SupportRequest{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", Supported: true}); !errors.Is(err, ErrOperatorModelSupportSignatureRequired) {
 		t.Fatalf("Support error = %v, want operator-signature requirement", err)
 	}
-	status, err := svc.DailySupport(context.Background(), DailySupportRequest{ModelID: "model-a", Enabled: true})
+	status, err := svc.DailySupport(context.Background(), DailySupportRequest{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", Enabled: true})
 	if err != nil {
 		t.Fatalf("DailySupport returned error: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestPrepareOperatorSupportIntentUsesNodeOperatorOnlyMessage(t *testing.T) {
 		VerificationCapability: true,
 	})
 	intent, err := svc.PrepareOperatorSupportIntent(context.Background(), SupportRequest{
-		ModelID: "model-a", ProfileVersion: "7", Supported: true,
+		ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "7", Supported: true,
 	})
 	if err != nil {
 		t.Fatalf("PrepareOperatorSupportIntent returned error: %v", err)
@@ -271,13 +271,13 @@ func TestPrepareOperatorSupportIntentUsesNodeOperatorOnlyMessage(t *testing.T) {
 		t.Fatalf("type_url = %q", intent.TypeURL)
 	}
 	want := txclient.DeclareModelSupportMessage{
-		OperatorAddress: "trueopen1operator", ModelID: "model-a", ProfileVersion: 7,
+		OperatorAddress: "trueopen1operator", ModelID: txclient.ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"),
 		InferenceCapability: true, VerificationCapability: true,
 	}
 	if intent.Message != want {
 		t.Fatalf("message = %#v, want %#v", intent.Message, want)
 	}
-	if _, err := svc.Status(context.Background(), StatusRequest{ModelID: "model-a"}); err == nil {
+	if _, err := svc.Status(context.Background(), StatusRequest{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"}); err == nil {
 		t.Fatal("preparing an unsigned operator intent mutated daemon support state")
 	}
 }
@@ -287,7 +287,7 @@ func TestDailySupportFailsClosedWhenConfirmationIsRequired(t *testing.T) {
 		SupporterAddress:           "cortex1supporter",
 		RequireSupportConfirmation: true,
 	})
-	_, err := svc.DailySupport(context.Background(), DailySupportRequest{ModelID: "model-a", Enabled: true})
+	_, err := svc.DailySupport(context.Background(), DailySupportRequest{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", Enabled: true})
 	if err == nil || !strings.Contains(err.Error(), "support confirmation client is required") {
 		t.Fatalf("DailySupport() error = %v, want missing confirmation client error", err)
 	}
@@ -374,8 +374,8 @@ func TestOperatorSupportIntentUsesManifestProfileVersionNotManifestHash(t *testi
 	if err != nil {
 		t.Fatalf("PrepareOperatorSupportIntent returned error: %v", err)
 	}
-	if got := fmt.Sprintf("%d", intent.Message.ProfileVersion); got != manifest.Verification.ProfileVersion {
-		t.Fatalf("ProfileVersion = %q, want %q", got, manifest.Verification.ProfileVersion)
+	if intent.Message.ModelID.Hex() != manifest.ModelID {
+		t.Fatalf("ModelID = %q, want %q", intent.Message.ModelID, manifest.ModelID)
 	}
 }
 
@@ -631,7 +631,7 @@ func TestViaBuilderRejectsGasAuthorizationBelowQuoteGasLimit(t *testing.T) {
 func TestStatusListShowExposeSeparateDisplayFields(t *testing.T) {
 	svc := NewRegistry(RegistryConfig{})
 	status := ModelStatus{
-		ModelID:             "llama-text-8b",
+		ModelID:             "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
 		ManifestHash:        "manifest-hash",
 		ChainState:          "registered",
 		DisplayVisibility:   "public",
@@ -666,7 +666,7 @@ func TestStatusListShowExposeSeparateDisplayFields(t *testing.T) {
 
 func validManifestInput() ManifestInput {
 	return ManifestInput{
-		ModelID:        "llama-text-8b",
+		ModelID:        "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
 		Version:        "2026-07-08",
 		Digest:         "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		Tokenizer:      "tiktoken-cl100k",
@@ -848,8 +848,8 @@ func TestDailySupportFailsClosedWhenCurrentHeightIsUnavailable(t *testing.T) {
 		VerificationCapability: true,
 		SupportConfirmer:       confirmer,
 	})
-	svc.PutStatus(ModelStatus{ModelID: "model-a", ProfileVersion: "1"})
-	if _, err := svc.DailySupport(context.Background(), DailySupportRequest{ModelID: "model-a", Enabled: true}); err == nil {
+	svc.PutStatus(ModelStatus{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1"})
+	if _, err := svc.DailySupport(context.Background(), DailySupportRequest{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", Enabled: true}); err == nil {
 		t.Fatalf("DailySupport confirmed material while chain height was unavailable")
 	}
 	if len(confirmer.materials) != 0 {

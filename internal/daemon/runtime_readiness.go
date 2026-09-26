@@ -424,6 +424,12 @@ func (r *Runtime) checkModelServiceReadiness(ctx context.Context) diagnostics.De
 	if r == nil || r.Dependencies.Model == nil {
 		return status
 	}
+	if local, ok := r.Dependencies.Model.(*modelservice.LocalService); ok {
+		if err := bindLocalModels(ctx, r.Dependencies.Keeper, local, configuredModelIDs(r.cfg)); err != nil {
+			status.Error = err.Error()
+			return status
+		}
+	}
 	if err := probeModelClientHealth(ctx, r.cfg, r.Dependencies.Model); err != nil {
 		status.Error = err.Error()
 		return status

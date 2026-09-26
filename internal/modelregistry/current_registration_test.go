@@ -118,9 +118,9 @@ func newCurrentRegistry(reader CurrentRegistrationReader, submitter CurrentRegis
 
 func currentStateForRegistration(profile txclient.ModelProfileProjectionMessage, digest codec.Hash) chainclient.CurrentModelProfileSnapshot {
 	return chainclient.CurrentModelProfileSnapshot{
-		Model: chainclient.CurrentModelSnapshot{ModelID: profile.ModelID, ProposerAddress: "trueopen1operator"},
+		Model: chainclient.CurrentModelSnapshot{ModelID: profile.ModelID.Hex(), ProposerAddress: "trueopen1operator"},
 		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID: profile.ModelID, ProfileVersion: chainclient.NewProfileVersion(uint32(profile.ProfileVersion)), ProposerAddress: "trueopen1operator",
+			ModelID: profile.ModelID.Hex(), ProfileVersion: chainclient.NewProfileVersion(uint32(profile.ProfileVersion)), ProposerAddress: "trueopen1operator",
 			ManifestHash: chainclient.ProtoBytes32(mustDecodeHex(profile.ManifestHash.Hex())), RegistrationDigest: chainclient.ProtoBytes32(digest[:]),
 			RegistrationFeePaid: chainclient.NewUint64String(uint64(profile.RegistrationFee.Amount)),
 		},

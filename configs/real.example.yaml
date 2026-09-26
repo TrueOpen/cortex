@@ -116,7 +116,7 @@ nexus:
   # allow_insecure_descriptor, and real mode refuses both, so a deployment that
   # needs it runs mode: integration. Leave it false here.
   downgrade_descriptor_tls: false
-  subscribe_models: [llama-main]
+  subscribe_models: [6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2]
 tx:
   enabled: true
   max_fee_amount: 1000000
@@ -138,7 +138,9 @@ signer:
 local_identity:
   operator_address: trueopen1operator
   service_key_ref: kms://cortex/service-key
-  supported_model_profiles: [llama-main@1=llm_text_v1]
+  # model_id is the chain Hash32 model id as 64 lowercase hex; list the models
+  # registered for a repository with `cortexctl model find --rpc URL --repo ID`.
+  supported_model_profiles: [6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1=llm_text_v1]
   model_service_id: model-service-main
 self_rescue:
   # This gates the DEADLINE-RISK trigger only, and its automatic deadline

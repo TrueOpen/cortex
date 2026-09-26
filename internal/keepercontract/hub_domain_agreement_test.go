@@ -2,19 +2,17 @@ package keepercontract
 
 import (
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/txclient"
 	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
-// wireHubFixtureProfiles are the two profiles wire's support_profiles_v1 and
+// wireHubFixtureModels are the two model ids wire's support_models_v1 and
 // daily_support_confirmation_v1 vectors frame, in the frozen order.
-func wireHubFixtureProfiles() []ProfileRef {
-	return []ProfileRef{
-		{ModelID: "model-fixture-a", ProfileVersion: 1},
-		{ModelID: "model-fixture-b", ProfileVersion: 2},
-	}
+func wireHubFixtureModels() []string {
+	return []string{strings.Repeat("01", 32), strings.Repeat("02", 32)}
 }
 
 // wireHubFixtureOperator is the Bech32 spelling of the 20 account bytes
@@ -22,26 +20,24 @@ func wireHubFixtureProfiles() []ProfileRef {
 // Bech32 text, which is why the production helper decodes before framing.
 const wireHubFixtureOperator = "trueopen15x328f9956n632d24wk2mt40kzcm9va5vw5e0a"
 
-// TestSupportProfilesHashAgreesWithWireVector drives the production digest with
+// TestSupportModelsHashAgreesWithWireVector drives the production digest with
 // the inputs wire's own vector declares and compares against the digest wire
 // publishes. Every other test in this package signs and verifies with the same
 // function and would stay green through a total drift; this one would not.
 //
-// It is the test that caught the drift it now guards: the repeated profile list
-// was flattened into the outer field list instead of being wrapped in one
-// nested frame carrying its own element_count.
-func TestSupportProfilesHashAgreesWithWireVector(t *testing.T) {
-	vector, err := wirevectors.HubDomain(DomainSupportProfiles)
+// The repeated model list is one nested frame carrying its own element_count.
+func TestSupportModelsHashAgreesWithWireVector(t *testing.T) {
+	vector, err := wirevectors.HubDomain(DomainSupportModels)
 	if err != nil {
 		t.Fatalf("wire vector: %v", err)
 	}
-	got, err := SupportedProfilesHash(wireHubFixtureProfiles())
+	got, err := SupportedModelsHash(wireHubFixtureModels())
 	if err != nil {
-		t.Fatalf("SupportedProfilesHash: %v", err)
+		t.Fatalf("SupportedModelsHash: %v", err)
 	}
 	if hex.EncodeToString(got[:]) != vector.DigestHex {
 		t.Fatalf("%s = %s, wire %s publishes %s",
-			DomainSupportProfiles, hex.EncodeToString(got[:]), wirevectors.WireVersion, vector.DigestHex)
+			DomainSupportModels, hex.EncodeToString(got[:]), wirevectors.WireVersion, vector.DigestHex)
 	}
 }
 
@@ -55,7 +51,7 @@ func TestDailySupportConfirmationAgreesWithWireVector(t *testing.T) {
 	got, err := DailySupportConfirmation(
 		"trueopen-fixture-1", wireHubFixtureOperator,
 		42, 7, 2000,
-		wireHubFixtureProfiles(),
+		wireHubFixtureModels(),
 	)
 	if err != nil {
 		t.Fatalf("DailySupportConfirmation: %v", err)
@@ -74,7 +70,6 @@ func TestEvidenceSchemaHashAgreesWithWireVector(t *testing.T) {
 		t.Fatalf("wire vector: %v", err)
 	}
 	profile := nodeGoldenModelProfileProjection()
-	profile.VerificationProfile.EvidenceSchema.RequiredInferEvidence[0].CommitmentSchemaVersion = 1
 	got, err := EvidenceSchemaHash(profile)
 	if err != nil {
 		t.Fatalf("EvidenceSchemaHash: %v", err)
@@ -94,7 +89,7 @@ func TestEvidenceSchemaHashDistinguishesRequirementSets(t *testing.T) {
 		t.Fatalf("EvidenceSchemaHash: %v", err)
 	}
 	changed := base
-	changed.VerificationProfile.EvidenceSchema = txclient.WorkerValueEvidenceSchemaV2(1 << 20)
+	changed.VerificationProfile.EvidenceSchema = txclient.WorkerEvidenceSchemaV3(1<<20, 1<<20)
 	second, err := EvidenceSchemaHash(changed)
 	if err != nil {
 		t.Fatalf("EvidenceSchemaHash(changed): %v", err)

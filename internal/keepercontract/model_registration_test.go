@@ -80,7 +80,9 @@ func TestModelRegistrationDigestBindsEveryProjectionSection(t *testing.T) {
 }
 
 func nodeGoldenModelProfileProjection() txclient.ModelProfileProjectionMessage {
-	return txclient.ModelProfileProjectionMessage{ModelID: "hf-qwen3-8b-test", ProfileVersion: 1,
+	return txclient.ModelProfileProjectionMessage{ModelID: txclient.ProtoBytes32("c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f"), ProfileVersion: 1,
+		Source: txclient.SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "trueopen/golden-model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1",
+			Revision: "0123456789abcdef0123456789abcdef01234567", SourceURI: "hf://trueopen/golden-model@0123456789abcdef0123456789abcdef01234567"},
 		ManifestHash:  txclient.ProtoBytes32("9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031"),
 		TokenizerHash: txclient.ProtoBytes32(strings.Repeat("44", 32)), RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1",
 		RequiredTopK: 20, TaskTypes: []string{"TASK_TYPE_TEXT_GENERATION", "TASK_TYPE_CHAT"}, GenerationType: "GENERATION_TYPE_SAMPLED", ResourceTier: 2,
@@ -88,7 +90,7 @@ func nodeGoldenModelProfileProjection() txclient.ModelProfileProjectionMessage {
 		VerificationProfile: txclient.VerificationProfileMessage{VerificationProfileID: 1, JudgmentFunctionVersion: "PREFILL_GENERATED_TOKEN_METRICS_V1", VerificationMode: "VERIFICATION_MODE_SINGLE_SAMPLE", TokenScope: "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
 			IncludeGeneratedSpecialTokens: true, RequireOutputTokenIDs: true, RequireFinishReason: true,
 			Metrics:                  txclient.MetricSpecMessage{CompareLogprobDiff: true, CompareRankDelta: true, CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"},
-			CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: txclient.ProtoBytes32(wireGoldenEvidenceSchemaHash), MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerValueEvidenceSchemaV2(1 << 30)},
+			CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: txclient.ProtoBytes32(wireGoldenEvidenceSchemaHash), MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 		VerificationThresholds: txclient.VerificationThresholdsMessage{
 			PassMinFiniteCount: 16, PassMeanAbsLogprobDiffMax: 50_000, PassAbsLogprobDiffP95Max: 100_000, PassAbsLogprobDiffP99Max: 200_000,
 			PassRankDeltaNonzeroRateMax: 50_000, PassTopKJaccardMeanMin: 900_000, PassUnionJSP99Max: 50_000,
