@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"strings"
 
 	nats "github.com/nats-io/nats.go"
 )
@@ -47,15 +48,21 @@ type ChainIdentityProvider interface {
 // not pass the callback's error code to the client, so all a client can tell apart is
 // "authentication refused" and "cannot connect".
 //
-// A failed server certificate check also drops it (§5.14.4): the NATS address and
-// certificate served with the sentinel are cached with it, and a rotated certificate
-// must be fetched again rather than failing every reconnect.
+// A failed server certificate check also drops it (§5.14.4) when the certificate in
+// use is the one served with the sentinel (no nexus.nats_ca_file): it is cached with
+// the sentinel, and a rotated one must be fetched again rather than failing every
+// reconnect. A configured file is not fixed by refetching, so it does not trigger it.
+//
+// Limitation: with several servers nats.go reports only the last dial error, so a
+// certificate failure on one server can be hidden by, say, a refused connection on
+// the next; the served values are then refreshed by the next authentication failure
+// or restart instead.
 func invalidateOnAuthError(auth NATSAuth, err error) {
 	if auth.ChainIdentity == nil || err == nil {
 		return
 	}
 	if errors.Is(err, nats.ErrAuthorization) || errors.Is(err, nats.ErrAuthExpired) || errors.Is(err, nats.ErrAuthRevoked) ||
-		isCertificateVerificationError(err) {
+		(strings.TrimSpace(auth.CAFile) == "" && isCertificateVerificationError(err)) {
 		auth.ChainIdentity.Invalidate()
 	}
 }

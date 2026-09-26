@@ -203,11 +203,11 @@ func natsConnectOptions(auth NATSAuth) (string, []nats.Option, error) {
 		}
 		opts = append(opts, nats.RootCAs(ca))
 	case servedCAPEM != "" && strings.HasPrefix(strings.ToLower(natsURL), "tls://"):
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM([]byte(servedCAPEM)) {
-			return "", nil, fmt.Errorf("nexus nats: the builder-served nats_ca_pem holds no usable certificate")
+		pool, err := servedCertPool(servedCAPEM)
+		if err != nil {
+			return "", nil, err
 		}
-		opts = append(opts, nats.Secure(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}))
+		opts = append(opts, servedRootCAs(auth.ChainIdentity, pool))
 	case auth.RequireServerTLS && !allLoopbackNATS(natsURL):
 		return "", nil, fmt.Errorf("nexus nats: no certificate to verify the server: set nexus.nats_ca_file or have the builder serve nats_ca_pem with the sentinel (ADR-0016); the system roots are not used in real mode")
 	}
@@ -247,6 +247,43 @@ func resolveServedNATS(auth NATSAuth, cred NATSChainCredential) (string, string,
 		}
 	}
 	return natsURL, servedCA, nil
+}
+
+// servedRootCAs verifies the server against the certificate the Builder serves with
+// the sentinel, asking the identity for the current one on every (re)connect, the
+// same way TokenHandler does for the binding: nats.go reconnects on its own with the
+// options it was dialled with, and a rotated certificate has to reach those
+// reconnects. When it cannot be fetched the previous pool is kept.
+func servedRootCAs(provider ChainIdentityProvider, initial *x509.CertPool) nats.Option {
+	var mu sync.Mutex
+	last := initial
+	return func(o *nats.Options) error {
+		if o.TLSConfig == nil {
+			o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		}
+		o.RootCAsCB = func() (*x509.CertPool, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			cred, err := provider.Credential(ctx)
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil && strings.TrimSpace(cred.NATSCAPEM) != "" {
+				if pool, err := servedCertPool(cred.NATSCAPEM); err == nil {
+					last = pool
+				}
+			}
+			return last, nil
+		}
+		return nil
+	}
+}
+
+func servedCertPool(caPEM string) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+		return nil, fmt.Errorf("nexus nats: the builder-served nats_ca_pem holds no usable certificate")
+	}
+	return pool, nil
 }
 
 // validateNATSServers checks every entry of a comma-separated server list.
@@ -428,6 +465,7 @@ type lazyNATSPublishTransport struct {
 
 	mu        sync.Mutex
 	transport natsPublishTransport
+	closed    bool
 }
 
 func newLazyNATSPublishTransport(auth NATSAuth) (natsPublishTransport, error) {
@@ -463,6 +501,7 @@ func (t *lazyNATSPublishTransport) Probe(ctx context.Context) error {
 func (t *lazyNATSPublishTransport) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.closed = true
 	if closer, ok := t.transport.(interface{ Close() error }); ok {
 		return closer.Close()
 	}
@@ -473,7 +512,14 @@ func (t *lazyNATSPublishTransport) transportForPublish(ctx context.Context) (nat
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.transport != nil {
-		return t.transport, nil
+		// nats.go gives up after MaxReconnects and closes the connection for good. Dial
+		// again then, which re-reads the credential: this is how a NATS address or
+		// certificate the Builder serves with the sentinel reaches a publisher whose
+		// old connection could not recover. A transport this side closed stays closed.
+		if closed, ok := t.transport.(interface{ IsClosed() bool }); !ok || !closed.IsClosed() || t.closed {
+			return t.transport, nil
+		}
+		t.transport = nil
 	}
 	type connectResult struct {
 		transport natsPublishTransport
@@ -553,6 +599,11 @@ func (t concreteNATSPublishTransport) Probe(ctx context.Context) error {
 		return fmt.Errorf("nats publisher is disconnected")
 	}
 	return t.conn.FlushWithContext(ctx)
+}
+
+// IsClosed reports that nats.go has closed the connection for good.
+func (t concreteNATSPublishTransport) IsClosed() bool {
+	return t.conn == nil || t.conn.IsClosed()
 }
 
 func (t concreteNATSPublishTransport) Close() error {

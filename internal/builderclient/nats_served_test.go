@@ -1,12 +1,14 @@
 package builderclient
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -14,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	nats "github.com/nats-io/nats.go"
 )
 
 func servedCertPEM(t *testing.T) string {
@@ -56,14 +60,43 @@ func TestNATSConnectUsesServedAddressAndCertificate(t *testing.T) {
 		t.Fatalf("url = %q", natsURL)
 	}
 	o := applyOptions(t, opts)
-	if !o.Secure || o.TLSConfig == nil || o.TLSConfig.RootCAs == nil {
-		t.Fatalf("tls = secure %v config %v", o.Secure, o.TLSConfig)
+	if !o.Secure || o.TLSConfig == nil || o.RootCAsCB == nil {
+		t.Fatalf("tls = secure %v config %v rootCAsCB %v", o.Secure, o.TLSConfig, o.RootCAsCB != nil)
+	}
+	requireTrusts(t, o, certPEM)
+}
+
+func requireTrusts(t *testing.T, o nats.Options, certPEM string) {
+	t.Helper()
+	pool, err := o.RootCAsCB()
+	if err != nil {
+		t.Fatal(err)
 	}
 	block, _ := pem.Decode([]byte(certPEM))
 	cert, _ := x509.ParseCertificate(block.Bytes)
-	if _, err := cert.Verify(x509.VerifyOptions{Roots: o.TLSConfig.RootCAs}); err != nil {
-		t.Fatalf("served certificate is not the trust root: %v", err)
+	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool}); err != nil {
+		t.Fatalf("certificate is not the trust root: %v", err)
 	}
+}
+
+// nats.go reconnects with the options it was dialled with; the served certificate is
+// asked for again on every handshake, so a rotation reaches those reconnects. When
+// the identity cannot answer, the previous certificate is kept.
+func TestServedCertificateIsRereadOnReconnect(t *testing.T) {
+	first, second := servedCertPEM(t), servedCertPEM(t)
+	provider := servedIdentity([]string{"tls://203.0.113.10:4222"}, first)
+	_, opts, err := natsConnectOptions(NATSAuth{ChainIdentity: provider, RequireServerTLS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := applyOptions(t, opts)
+	requireTrusts(t, o, first)
+
+	provider.cred.NATSCAPEM = second
+	requireTrusts(t, o, second)
+
+	provider.err = errors.New("chain unavailable")
+	requireTrusts(t, o, second)
 }
 
 // Configured values win over served ones.
@@ -139,5 +172,53 @@ func TestCertificateVerificationFailureInvalidatesIdentity(t *testing.T) {
 	invalidateOnAuthError(NATSAuth{ChainIdentity: provider}, fmt.Errorf("dial: connection refused"))
 	if provider.invalidated != 1 {
 		t.Fatal("a plain dial error invalidated the identity")
+	}
+	// With a configured nats_ca_file the served certificate is not in use, and
+	// refetching the sentinel cannot fix a bad local file.
+	invalidateOnAuthError(NATSAuth{ChainIdentity: provider, CAFile: "/etc/cortex/nats-ca.pem"}, fmt.Errorf("dial: %w", x509.UnknownAuthorityError{}))
+	if provider.invalidated != 1 {
+		t.Fatal("a certificate failure against the configured file invalidated the identity")
+	}
+}
+
+type closableTransport struct {
+	closed bool
+}
+
+func (c *closableTransport) Publish(context.Context, NATSMessage) error { return nil }
+func (c *closableTransport) IsClosed() bool                             { return c.closed }
+func (c *closableTransport) Close() error                               { c.closed = true; return nil }
+
+// A connection nats.go closed for good (reconnects exhausted) is dialled again on the
+// next publish, which re-reads the served address and certificate; one this side
+// closed is not.
+func TestLazyPublisherRedialsAfterTheConnectionClosed(t *testing.T) {
+	var dialed []*closableTransport
+	previous := connectNATSPublishTransport
+	connectNATSPublishTransport = func(NATSAuth) (natsPublishTransport, error) {
+		transport := &closableTransport{}
+		dialed = append(dialed, transport)
+		return transport, nil
+	}
+	t.Cleanup(func() { connectNATSPublishTransport = previous })
+
+	lazy := &lazyNATSPublishTransport{}
+	ctx := context.Background()
+	if err := lazy.Publish(ctx, NATSMessage{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lazy.Publish(ctx, NATSMessage{}); err != nil || len(dialed) != 1 {
+		t.Fatalf("a live connection was redialled: dials=%d err=%v", len(dialed), err)
+	}
+	dialed[0].closed = true
+	if err := lazy.Publish(ctx, NATSMessage{}); err != nil || len(dialed) != 2 {
+		t.Fatalf("a closed connection was not redialled: dials=%d err=%v", len(dialed), err)
+	}
+	if err := lazy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = lazy.Publish(ctx, NATSMessage{})
+	if len(dialed) != 2 {
+		t.Fatalf("a transport closed by this side was redialled: dials=%d", len(dialed))
 	}
 }
