@@ -158,11 +158,13 @@ type ListCapabilitiesResponse struct {
 }
 
 type ManagedModelCapability struct {
-	ModelID            string
-	Capability         string
-	SupportsTrace      bool
-	SupportsCheckpoint bool
-	SupportsBatchLog   bool
+	ModelID    string
+	Capability string
+	// SupportsTokenIDs and SupportsPositionValues say whether Infer returns the
+	// raw material of the A-level and B-level Worker evidence.
+	SupportsTokenIDs       bool
+	SupportsPositionValues bool
+	SupportsBatchLog       bool
 }
 
 type GetModelDetailsRequest struct {
@@ -342,47 +344,38 @@ type InferResponse struct {
 	RequestDigest          []byte
 	GenerationParamsDigest []byte
 	OutputRef              string
-	TraceRef               string
-	CheckpointRef          string
-	Error                  *ServiceError
-	GeneratedTokenCount    uint64
-	WorkUnit               uint64
+	// TokenIDsRef names a TokenIDsV1 artifact and PositionValuesRef a
+	// PositionValuesV1 artifact (see material.go). Cortex derives the A-level
+	// and B-level Worker evidence from them; neither is evidence itself.
+	TokenIDsRef         string
+	PositionValuesRef   string
+	Error               *ServiceError
+	GeneratedTokenCount uint64
+	WorkUnit            uint64
 	// FinishReason is the model service's completion finish reason, already
 	// mapped to the nodewire.FinishReasonV1 enum.
 	FinishReason nodewire.FinishReasonV1
 }
 
-// EvidenceKindWorkerValueOpening is the only evidence kind currently supported by
-// the model service verification interface. It corresponds to the frozen enum
-// value EVIDENCE_KIND_WORKER_VALUE_OPENING.
-const EvidenceKindWorkerValueOpening = "EVIDENCE_KIND_WORKER_VALUE_OPENING"
-
-type VerifyEvidence struct {
-	Trace            []byte
-	Checkpoint       []byte
-	ExpectedRoot     []byte
-	EncodedSizeBytes uint64
-}
-
-type EvidenceRequirement struct {
-	Kind             string
-	ExpectedRoot     []byte
-	EncodedSizeBytes uint64
-}
+// EvidenceKindWorkerTokenOpening is the one evidence kind Verify computes
+// over: the Worker's token ids. The Worker's per-position values are
+// deliberately not an input; the comparison against them happens in Cortex.
+const EvidenceKindWorkerTokenOpening = "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
 
 type VerifyRequest struct {
-	RequestID              string
-	ModelServiceID         string
-	DeadlineMS             int64
-	JobID                  string
-	TaskID                 string
-	ModelID                string
-	ProfileVersion         string
-	RequestDigest          []byte
-	Capability             string
-	Sample                 []byte
-	Evidence               map[string]VerifyEvidence
-	RequiredEvidence       []EvidenceRequirement
+	RequestID      string
+	ModelServiceID string
+	DeadlineMS     int64
+	JobID          string
+	TaskID         string
+	ModelID        string
+	ProfileVersion string
+	RequestDigest  []byte
+	Capability     string
+	Sample         []byte
+	// TokenIDs is the Worker's committed token material the verifier
+	// teacher-forces over.
+	TokenIDs               TokenIDs
 	Generation             *nodewire.GenerationContext
 	GenerationParamsDigest []byte
 }
@@ -402,23 +395,13 @@ type VerifyResponse struct {
 	SampleValueSequenceRef         string
 	SampleDigest                   []byte
 	MaterialDigest                 []byte
-	// MetricSamples is the verifier's prefill/teacher-forcing comparison at
-	// every generated token position, in output_position order starting at zero.
-	// It is the input to the metric Merkle tree whose root the frozen result
-	// credential carries as metric_root.
-	//
-	// It carries no verdict, here or anywhere downstream: keeper §9.7 judgment
-	// layer 2 recomputes PASS/REJECT on chain and "must not accept a verdict field
-	// carried by the Verifier itself". MainMismatchCount stays what it has always
-	// been - a local diagnostic that reaches no preimage.
-	//
-	// There is deliberately NO aggregate field beside it. MetricSummaryV1 is
-	// derived from these samples by metric.AggregateFromSamples, so root and
-	// summary provably describe the same data; a second channel carrying the
-	// aggregation would let a model service hand over honest samples and a
-	// summary about something else, and nothing downstream could catch it.
-	MetricSamples []metric.Sample
-	Error         *ServiceError
+	// VerifierValues is the verifier's own value at every generated position,
+	// in position order starting at zero, with the Worker's emitted token as
+	// TokenID. It carries measurements only: the comparison against the Worker,
+	// the metric leaves and the summary are derived by Cortex, so metric_root and
+	// MetricSummaryV1 provably describe the same data.
+	VerifierValues []metric.PositionValue
+	Error          *ServiceError
 }
 
 type FetchArtifactRequest struct {

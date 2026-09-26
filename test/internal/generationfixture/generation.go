@@ -2,12 +2,12 @@ package generationfixture
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
@@ -57,32 +57,31 @@ func (b Bound) TaskFacts(_ context.Context, taskID string) (taskfacts.Facts, err
 	}, nil
 }
 
-func Evidence(req modelservice.InferRequest, output []byte, count uint64) ([]byte, []byte, error) {
-	tokenIDs := make([]int, count)
-	tokens := make([]map[string]any, count)
-	for i := range tokenIDs {
-		tokenIDs[i] = 1000 + i
-		tokens[i] = map[string]any{"token_id": tokenIDs[i], "logprob": -0.5, "rank": 1}
+// FixtureTopK is how many ranked alternatives Material reports per position.
+const FixtureTopK = 32
+
+// Material builds a model service's token-id and position-value material for
+// count generated tokens, validated against the request's generation context.
+func Material(req modelservice.InferRequest, count uint64) ([]byte, []byte, error) {
+	ids := modelservice.TokenIDs{Input: []uint32{1}, Generated: make([]uint32, count)}
+	values := make([]metric.PositionValue, count)
+	for i := range ids.Generated {
+		id := uint32(1000 + i)
+		ids.Generated[i] = id
+		topK := make([]metric.TokenLogprob, FixtureTopK)
+		topK[0] = metric.TokenLogprob{TokenID: id, Logprob: -0.5}
+		for rank := 1; rank < FixtureTopK; rank++ {
+			topK[rank] = metric.TokenLogprob{TokenID: 100000 + uint32(rank), Logprob: -0.5 - float64(rank)}
+		}
+		values[i] = metric.PositionValue{TokenID: id, Logprob: -0.5, Rank: 1, TopK: topK}
 	}
-	encodedIDs, err := json.Marshal(tokenIDs)
+	if _, err := modelservice.ValidateGenerationMaterial(req.Generation, req.GenerationParamsDigest, ids, values); err != nil {
+		return nil, nil, err
+	}
+	tokenIDs, err := modelservice.EncodeTokenIDsArtifact(ids)
 	if err != nil {
 		return nil, nil, err
 	}
-	env := map[string]any{
-		"generation_context": req.Generation, "model_id": req.ModelID, "profile_version": req.ProfileVersion,
-		"output": string(output), "input_token_ids": []int{1}, "input_token_ids_hash": fmt.Sprint(codec.HashBytes([]byte("[1]"))),
-		"generated_token_ids_hash": fmt.Sprint(codec.HashBytes(encodedIDs)), "generated_token_count": count,
-		"finish_reason": "stop", "out_tokens": tokens,
-	}
-	trace, err := json.Marshal(env)
-	if err != nil {
-		return nil, nil, err
-	}
-	env["out_tokens"] = nil
-	checkpoint, err := json.Marshal(env)
-	if err != nil {
-		return nil, nil, err
-	}
-	_, _, err = modelservice.ValidateGenerationEvidence(req.Generation, req.GenerationParamsDigest, output, trace, checkpoint)
-	return trace, checkpoint, err
+	positionValues, err := modelservice.EncodePositionValuesArtifact(values)
+	return tokenIDs, positionValues, err
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -182,34 +181,6 @@ func TestFakeFetchArtifactRejectsEmptyUnlessAllowed(t *testing.T) {
 	}
 }
 
-func TestFakeVerifyReturnsDigestMaterialWithoutDecision(t *testing.T) {
-	ctx := context.Background()
-	fake := NewFakeService()
-	resp, err := fake.Verify(ctx, VerifyRequest{
-		ModelID:    "model-a",
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("sample"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: []byte("trace"), Checkpoint: []byte("checkpoint")},
-		},
-		RequiredEvidence: []EvidenceRequirement{
-			{Kind: EvidenceKindWorkerValueOpening},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Verify returned error: %v", err)
-	}
-	if resp.VerifierID == "" {
-		t.Fatalf("VerifierID is empty")
-	}
-	if len(resp.SampleDigest) != sha256.Size {
-		t.Fatalf("SampleDigest len = %d, want %d", len(resp.SampleDigest), sha256.Size)
-	}
-	if len(resp.MaterialDigest) != sha256.Size {
-		t.Fatalf("MaterialDigest len = %d, want %d", len(resp.MaterialDigest), sha256.Size)
-	}
-}
-
 func TestFakeRejectsBlackBoxCapabilityWithoutTraceOrCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	fake := NewFakeService()
@@ -241,7 +212,7 @@ func TestFakeRejectsMissingCapability(t *testing.T) {
 // model service advertises. A fixed placeholder would make every handraise fail
 // against real Keeper records, so the shared fake advertises what it is given.
 func TestSharedFakeServiceAdvertisesConfiguredModelIDs(t *testing.T) {
-	const chainModelID = "hf-ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
+	const chainModelID = "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
 	service, err := NewSharedFakeService("local-model-service", t.TempDir(), chainModelID)
 	if err != nil {
 		t.Fatalf("NewSharedFakeService returned error: %v", err)
@@ -282,63 +253,7 @@ func TestSharedFakeServiceAdvertisesConfiguredModelIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCapabilities returned error: %v", err)
 	}
-	if len(resp.Capabilities) != 1 || resp.Capabilities[0].ModelID != fakeModelID {
+	if len(resp.Capabilities) != 1 || resp.Capabilities[0].ModelID != FakeModelID {
 		t.Fatalf("capabilities = %#v, want the default fake model id", resp.Capabilities)
-	}
-}
-
-func TestFakeVerifyRejectsMissingEvidenceKind(t *testing.T) {
-	ctx := context.Background()
-	fake := NewFakeService()
-	_, err := fake.Verify(ctx, VerifyRequest{
-		ModelID:    "model-a",
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("sample"),
-		Evidence:   map[string]VerifyEvidence{},
-		RequiredEvidence: []EvidenceRequirement{
-			{Kind: EvidenceKindWorkerValueOpening},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "missing EVIDENCE_KIND_WORKER_VALUE_OPENING evidence") {
-		t.Fatalf("Verify error = %v, want missing evidence kind", err)
-	}
-}
-
-func TestFakeVerifyRejectsExtraEvidenceKind(t *testing.T) {
-	ctx := context.Background()
-	fake := NewFakeService()
-	_, err := fake.Verify(ctx, VerifyRequest{
-		ModelID:    "model-a",
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("sample"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: []byte("trace"), Checkpoint: []byte("checkpoint")},
-			"EVIDENCE_KIND_EXTRA":          {Trace: []byte("trace2"), Checkpoint: []byte("checkpoint2")},
-		},
-		RequiredEvidence: []EvidenceRequirement{
-			{Kind: EvidenceKindWorkerValueOpening},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "unexpected evidence kind EVIDENCE_KIND_EXTRA") {
-		t.Fatalf("Verify error = %v, want unexpected evidence kind", err)
-	}
-}
-
-func TestFakeVerifyRejectsExpectedRootMismatch(t *testing.T) {
-	ctx := context.Background()
-	fake := NewFakeService()
-	_, err := fake.Verify(ctx, VerifyRequest{
-		ModelID:    "model-a",
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("sample"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: []byte("trace"), Checkpoint: []byte("checkpoint")},
-		},
-		RequiredEvidence: []EvidenceRequirement{
-			{Kind: EvidenceKindWorkerValueOpening, ExpectedRoot: []byte("wrong-root")},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "expected root mismatch") {
-		t.Fatalf("Verify error = %v, want expected root mismatch", err)
 	}
 }

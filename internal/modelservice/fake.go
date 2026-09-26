@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,9 +30,10 @@ type FakeService struct {
 	modelIDs []string
 }
 
-// fakeModelID keeps the historical advertisement when no chain model is
-// configured, so existing fixtures and tests are unaffected.
-const fakeModelID = "fake-llm-text"
+// FakeModelID keeps an advertisement when no chain model is configured, so
+// fixtures and tests have a well-formed id without a registered model. It is
+// the canonical hex of SHA-256("fake-llm-text").
+const FakeModelID = "099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f"
 
 // The fake emits fakeGeneratedTokenCount deterministic synthetic result tokens per
 // inference: enough to meet the pass_min_finite_count of the shipped localnet
@@ -42,25 +42,41 @@ const fakeModelID = "fake-llm-text"
 const fakeGeneratedTokenCount uint64 = 16
 
 // fakeFirstTokenID is the id of the first synthetic token; position p emits
-// fakeFirstTokenID+p, matching fakeMetricSamples.
+// fakeFirstTokenID+p.
 const fakeFirstTokenID = 1000
 
-// fakeGeneratedTokens is the synthetic token sequence and its per-token logprobs.
-func fakeGeneratedTokens() ([]int, []float64, []tokenLogprob) {
-	ids := make([]int, 0, fakeGeneratedTokenCount)
+// fakeTopK is how many ranked alternatives the fake reports per position. It
+// is at least any required_top_k a test profile uses, so every value can be
+// framed as a leaf with exactly that many entries.
+const fakeTopK = 32
+
+// fakeGeneratedTokens is the synthetic token sequence and the value at each
+// position. The emitted token is always rank 1, followed by distinct filler
+// tokens with strictly decreasing logprobs.
+func fakeGeneratedTokens() ([]uint32, []float64, []metric.PositionValue) {
+	ids := make([]uint32, 0, fakeGeneratedTokenCount)
 	logprobs := make([]float64, 0, fakeGeneratedTokenCount)
-	tokens := make([]tokenLogprob, 0, fakeGeneratedTokenCount)
+	values := make([]metric.PositionValue, 0, fakeGeneratedTokenCount)
 	for position := 0; position < int(fakeGeneratedTokenCount); position++ {
-		id := fakeFirstTokenID + position
+		id := uint32(fakeFirstTokenID + position)
 		logprob := -0.5 - float64(position)/64
 		ids = append(ids, id)
 		logprobs = append(logprobs, logprob)
-		tokens = append(tokens, tokenLogprob{
-			TokenID: id, Logprob: logprob, Rank: 1,
-			TopLogprobs: map[string]float64{fmt.Sprintf("token_id:%d", id): logprob},
-		})
+		values = append(values, metric.PositionValue{TokenID: id, Logprob: logprob, Rank: 1, TopK: fakeTopKList(id, logprob, 0)})
 	}
-	return ids, logprobs, tokens
+	return ids, logprobs, values
+}
+
+// fakeTopKList is the ranked list with id first at logprob and fakeTopK-1
+// filler tokens below it; drift lowers every filler logprob the same way on
+// the verifier side.
+func fakeTopKList(id uint32, logprob, drift float64) []metric.TokenLogprob {
+	list := make([]metric.TokenLogprob, 0, fakeTopK)
+	list = append(list, metric.TokenLogprob{TokenID: id, Logprob: logprob})
+	for rank := 1; rank < fakeTopK; rank++ {
+		list = append(list, metric.TokenLogprob{TokenID: 900000 + id*64 + uint32(rank), Logprob: logprob - float64(rank) - drift})
+	}
+	return list
 }
 
 // advertisesModelID keeps GetModelDetails consistent with ListCapabilities.
@@ -68,7 +84,7 @@ func fakeGeneratedTokens() ([]int, []float64, []tokenLogprob) {
 func (f *FakeService) advertisesModelID(modelID string) bool {
 	ids := f.modelIDs
 	if len(ids) == 0 {
-		ids = []string{fakeModelID}
+		ids = []string{FakeModelID}
 	}
 	for _, advertised := range ids {
 		if advertised == modelID {
@@ -81,16 +97,16 @@ func (f *FakeService) advertisesModelID(modelID string) bool {
 func (f *FakeService) advertisedCapabilities() []ManagedModelCapability {
 	ids := f.modelIDs
 	if len(ids) == 0 {
-		ids = []string{fakeModelID}
+		ids = []string{FakeModelID}
 	}
 	out := make([]ManagedModelCapability, 0, len(ids))
 	for _, modelID := range ids {
 		out = append(out, ManagedModelCapability{
-			ModelID:            modelID,
-			Capability:         CapabilityLLMTextV1,
-			SupportsTrace:      true,
-			SupportsCheckpoint: true,
-			SupportsBatchLog:   true,
+			ModelID:                modelID,
+			Capability:             CapabilityLLMTextV1,
+			SupportsTokenIDs:       true,
+			SupportsPositionValues: true,
+			SupportsBatchLog:       true,
 		})
 	}
 	return out
@@ -121,7 +137,7 @@ func NewSharedFakeService(serviceID string, fixtureRoot string, modelIDs ...stri
 		advertised = append(advertised, modelID)
 	}
 	if len(advertised) == 0 {
-		advertised = []string{fakeModelID}
+		advertised = []string{FakeModelID}
 	}
 	return &FakeService{serviceID: serviceID, root: root, modelIDs: advertised}, nil
 }
@@ -220,7 +236,7 @@ func fakeModelDetails(modelID string) ModelDetails {
 }
 
 func (f *FakeService) LoadModel(_ context.Context, req LoadModelRequest) (LoadModelResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return LoadModelResponse{}, err
 	}
 	return LoadModelResponse{
@@ -232,7 +248,7 @@ func (f *FakeService) LoadModel(_ context.Context, req LoadModelRequest) (LoadMo
 }
 
 func (f *FakeService) Estimate(_ context.Context, req EstimateRequest) (EstimateResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return EstimateResponse{}, err
 	}
 	return EstimateResponse{
@@ -249,7 +265,7 @@ func (f *FakeService) Infer(ctx context.Context, req InferRequest) (InferRespons
 			return InferResponse{}, err
 		}
 	}
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return InferResponse{}, err
 	}
 	material := bytes.Join([][]byte{
@@ -263,40 +279,29 @@ func (f *FakeService) Infer(ctx context.Context, req InferRequest) (InferRespons
 	if err != nil {
 		return InferResponse{}, err
 	}
-	generatedIDs, generatedLogprobs, generatedTokens := fakeGeneratedTokens()
-	var trace, checkpoint []byte
-	{
-		var generation *nodewire.GenerationContext
-		if req.Generation != nil {
-			copy := req.Generation.Clone()
-			generation = &copy
-		}
-		env := traceEnvelope{
-			Generation: generation, ModelID: req.ModelID, ProfileVersion: req.ProfileVersion, Output: string(output),
-			InputTokenIDs: []int{1}, InputTokenIDsHash: hashTokenIDs([]int{1}),
-			GeneratedTokenIDsHash: hashTokenIDs(generatedIDs), GeneratedTokenCount: int(fakeGeneratedTokenCount),
-			FinishReason: "stop", OutTokens: generatedTokens,
-		}
-		trace, err = json.Marshal(env)
-		if err != nil {
-			return InferResponse{}, err
-		}
-		env.OutTokens = nil
-		checkpoint, err = json.Marshal(env)
-		if err != nil {
-			return InferResponse{}, err
-		}
-	}
-	traceRef, err := f.putArtifact(trace)
+	generatedIDs, generatedLogprobs, values := fakeGeneratedTokens()
+	tokenIDs, err := EncodeTokenIDsArtifact(TokenIDs{Input: []uint32{1}, Generated: generatedIDs})
 	if err != nil {
 		return InferResponse{}, err
 	}
-	checkpointRef, err := f.putArtifact(checkpoint)
+	positionValues, err := EncodePositionValuesArtifact(values)
 	if err != nil {
 		return InferResponse{}, err
+	}
+	tokenIDsRef, err := f.putArtifact(tokenIDs)
+	if err != nil {
+		return InferResponse{}, err
+	}
+	positionValuesRef, err := f.putArtifact(positionValues)
+	if err != nil {
+		return InferResponse{}, err
+	}
+	frameIDs := make([]int, len(generatedIDs))
+	for i, id := range generatedIDs {
+		frameIDs[i] = int(id)
 	}
 	if observer, ok := ctx.Value(inferStreamObserverKey{}).(InferStreamObserver); ok {
-		frame := InferStreamFrame{RequestID: req.RequestID, JobID: req.JobID, TaskID: req.TaskID, ModelID: req.ModelID, TextDelta: string(output), TokenIDs: generatedIDs, TokenLogprobs: generatedLogprobs}
+		frame := InferStreamFrame{RequestID: req.RequestID, JobID: req.JobID, TaskID: req.TaskID, ModelID: req.ModelID, TextDelta: string(output), TokenIDs: frameIDs, TokenLogprobs: generatedLogprobs}
 		if observer.ObserveInferFrame(ctx, frame) == nil {
 			_ = observer.ObserveInferFrame(ctx, InferStreamFrame{RequestID: req.RequestID, JobID: req.JobID, TaskID: req.TaskID, ModelID: req.ModelID, Done: true, FinishReason: "stop"})
 		}
@@ -310,8 +315,8 @@ func (f *FakeService) Infer(ctx context.Context, req InferRequest) (InferRespons
 		ProfileVersion:         req.ProfileVersion,
 		RequestDigest:          req.RequestDigest,
 		OutputRef:              outputRef,
-		TraceRef:               traceRef,
-		CheckpointRef:          checkpointRef,
+		TokenIDsRef:            tokenIDsRef,
+		PositionValuesRef:      positionValuesRef,
 		GeneratedTokenCount:    fakeGeneratedTokenCount,
 		GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...),
 		WorkUnit:               fakeGeneratedTokenCount,
@@ -325,70 +330,60 @@ func (f *FakeService) Verify(_ context.Context, req VerifyRequest) (VerifyRespon
 			return VerifyResponse{}, err
 		}
 	}
-	item, err := validateVerifyRequest(req)
+	if err := validateVerifyRequest(req); err != nil {
+		return VerifyResponse{}, err
+	}
+	tokenMaterial, err := EncodeTokenIDsArtifact(req.TokenIDs)
 	if err != nil {
 		return VerifyResponse{}, err
 	}
 	sampleDigest := codec.HashBytes(req.Sample)
-	materialDigest := codec.HashWithDomain("CORTEX_FAKE_VERIFY_MATERIAL_V1", req.Sample, item.Trace, item.Checkpoint)
+	materialDigest := codec.HashWithDomain("CORTEX_FAKE_VERIFY_MATERIAL_V2", req.Sample, tokenMaterial)
 	sequenceRef, err := f.putArtifact([]byte(strconv.FormatUint(binary.BigEndian.Uint64(materialDigest[:8]), 10)))
 	if err != nil {
 		return VerifyResponse{}, err
 	}
-	samples := fakeMetricSamples(materialDigest)
 	return VerifyResponse{
-		RequestID:                      req.RequestID,
-		ModelServiceID:                 f.serviceID,
-		JobID:                          req.JobID,
-		TaskID:                         req.TaskID,
-		ModelID:                        req.ModelID,
-		ProfileVersion:                 req.ProfileVersion,
-		RequestDigest:                  req.RequestDigest,
-		VerifierID:                     "fake-verifier-v1",
-		MainMismatchCount:              0,
-		SelectedPositionsOrCheckpoints: []int{0},
-		SampleValueSequenceRef:         sequenceRef,
-		SampleDigest:                   sampleDigest[:],
-		MaterialDigest:                 materialDigest[:],
-		MetricSamples:                  samples,
-		GenerationParamsDigest:         append([]byte(nil), req.GenerationParamsDigest...),
+		RequestID:              req.RequestID,
+		ModelServiceID:         f.serviceID,
+		JobID:                  req.JobID,
+		TaskID:                 req.TaskID,
+		ModelID:                req.ModelID,
+		ProfileVersion:         req.ProfileVersion,
+		RequestDigest:          req.RequestDigest,
+		VerifierID:             "fake-verifier-v1",
+		SampleValueSequenceRef: sequenceRef,
+		SampleDigest:           sampleDigest[:],
+		MaterialDigest:         materialDigest[:],
+		VerifierValues:         fakeVerifierValues(req.TokenIDs.Generated, materialDigest),
+		GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...),
 	}, nil
 }
 
-// fakeMetricSamples synthesises the per-position comparison a real
-// prefill/teacher-forcing run would produce.
+// fakeVerifierValues synthesises what a real prefill over the Worker's tokens
+// would report: the Worker's own value, drifted by a small deterministic amount.
 //
-// It is a function of the material digest rather than a constant, so two
-// different verify inputs do not produce the same metric_root - a fixture that
-// collapsed every run onto one root would let a wiring bug that ignores its
-// inputs pass the whole metric path. Both optional metrics are measured,
-// because whether they reach the summary is the locked profile's decision and
-// the fake must not pre-empt it.
-//
-// No aggregates: the pipeline derives those from these samples, so there is
-// nothing for a fixture to state independently.
-func fakeMetricSamples(materialDigest codec.Hash) []metric.Sample {
-	const positions = int(fakeGeneratedTokenCount)
-	samples := make([]metric.Sample, 0, positions)
-	for position := 0; position < positions; position++ {
+// The drift is a function of the material digest rather than a constant, so two
+// different verify inputs do not produce the same verifier_value_root - a
+// fixture that collapsed every run onto one root would let a wiring bug that
+// ignores its inputs pass the whole value path. A token the fake did not
+// generate itself is reported missing, as a real prefill would for a value it
+// cannot measure.
+func fakeVerifierValues(generated []uint32, materialDigest codec.Hash) []metric.PositionValue {
+	values := make([]metric.PositionValue, len(generated))
+	for position, id := range generated {
+		if id != uint32(fakeFirstTokenID+position) {
+			values[position] = metric.PositionValue{TokenID: id, Missing: true}
+			continue
+		}
 		// A small, deterministic per-position spread in the 1e-4 range: close
 		// enough to read as agreement, distinct enough that no two positions
 		// share a leaf.
 		drift := float64(materialDigest[position%len(materialDigest)]%17) / 100000
-		worker := -0.5 - float64(position)/64
-		samples = append(samples, metric.Sample{
-			OutputPosition:  uint32(position),
-			EmittedTokenID:  uint32(fakeFirstTokenID + position),
-			WorkerLogprob:   worker,
-			VerifierLogprob: worker - drift,
-			WorkerRank:      1,
-			VerifierRank:    1,
-			TopKJaccard:     metric.PresentFP(1),
-			UnionJS:         metric.PresentFP(0),
-			Finite:          true,
-		})
+		logprob := -0.5 - float64(position)/64 - drift
+		values[position] = metric.PositionValue{TokenID: id, Logprob: logprob, Rank: 1, TopK: fakeTopKList(id, logprob, drift)}
 	}
-	return samples
+	return values
 }
 
 func (f *FakeService) FetchArtifact(_ context.Context, req FetchArtifactRequest) (Artifact, error) {
@@ -503,72 +498,15 @@ func writeArtifactAtomically(path string, data []byte) error {
 	return nil
 }
 
-func validateCapability(capability string, supportsTrace bool, supportsCheckpoint bool) error {
-	switch capability {
-	case CapabilityLLMTextV1:
-		return nil
-	default:
-		if !supportsTrace || !supportsCheckpoint {
-			return ErrUnsupportedCapability
-		}
+func validateCapability(capability string) error {
+	if capability != CapabilityLLMTextV1 {
 		return ErrUnsupportedCapability
 	}
+	return nil
 }
 
-// validateVerifyRequest checks that the request carries exactly the evidence
-// required by the capability, no more and no less, and that each item matches
-// the expected commitment when the caller supplies one. When RequiredEvidence is
-// empty, the requirement set is derived from the capability so existing callers
-// still work; production callers should populate RequiredEvidence from the locked
-// Profile.
-func validateVerifyRequest(req VerifyRequest) (VerifyEvidence, error) {
-	var empty VerifyEvidence
-	switch req.Capability {
-	case CapabilityLLMTextV1:
-	default:
-		return empty, ErrUnsupportedCapability
-	}
-
-	// Build the required set: explicit requirements take precedence; otherwise
-	// fall back to the hardcoded capability requirements.
-	var requirements []EvidenceRequirement
-	if len(req.RequiredEvidence) > 0 {
-		requirements = req.RequiredEvidence
-	} else {
-		switch req.Capability {
-		case CapabilityLLMTextV1:
-			requirements = []EvidenceRequirement{{Kind: EvidenceKindWorkerValueOpening}}
-		}
-	}
-
-	required := make(map[string]EvidenceRequirement, len(requirements))
-	for _, r := range requirements {
-		required[r.Kind] = r
-	}
-
-	// Check every required kind is present.
-	for kind, r := range required {
-		item, ok := req.Evidence[kind]
-		if !ok {
-			return empty, fmt.Errorf("verify request missing %s evidence", kind)
-		}
-		if len(item.Trace) == 0 || len(item.Checkpoint) == 0 {
-			return empty, fmt.Errorf("verify request %s requires trace and checkpoint", kind)
-		}
-		if len(r.ExpectedRoot) > 0 && !bytes.Equal(item.ExpectedRoot, r.ExpectedRoot) {
-			return empty, fmt.Errorf("verify request %s expected root mismatch", kind)
-		}
-		if r.EncodedSizeBytes != 0 && item.EncodedSizeBytes != r.EncodedSizeBytes {
-			return empty, fmt.Errorf("verify request %s encoded size mismatch: got %d, want %d", kind, item.EncodedSizeBytes, r.EncodedSizeBytes)
-		}
-	}
-
-	// Reject any unexpected extra kind.
-	for kind := range req.Evidence {
-		if _, ok := required[kind]; !ok {
-			return empty, fmt.Errorf("verify request contains unexpected evidence kind %s", kind)
-		}
-	}
-
-	return req.Evidence[requirements[0].Kind], nil
+// validateVerifyRequest checks the capability. Verify computes over the
+// Worker's token ids only; there is no other evidence to carry.
+func validateVerifyRequest(req VerifyRequest) error {
+	return validateCapability(req.Capability)
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -188,7 +187,7 @@ type chatRespTopLogprob struct {
 // anything else is the legacy raw-text prompt served by inferV0. (Capability-based
 // routing via a dedicated llm_chat_v1 is the eventual mechanism.)
 func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return InferResponse{}, err
 	}
 	input, isChat, err := parseChatInferInput(req.Input)
@@ -454,7 +453,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 			logprobs.TokenLogprobs = append(logprobs.TokenLogprobs, entry.Logprob)
 			top := make(map[string]float64, len(entry.TopLogprobs))
 			for _, t := range entry.TopLogprobs {
-				top[normalizeTokenKey(t.Token)] = t.Logprob
+				top[t.Token] = t.Logprob
 			}
 			logprobs.TopLogprobs = append(logprobs.TopLogprobs, top)
 		}
@@ -492,7 +491,7 @@ func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, err
 	}
 	var buf []byte
 	for i, e := range lp.Content {
-		if normalizeTokenKey(e.Token) != strconv.Itoa(tokenIDs[i]) {
+		if id, err := tokenIDFromKey(e.Token); err != nil || int64(id) != int64(tokenIDs[i]) {
 			return "", fmt.Errorf("modelservice local chat: token id mismatch at position %d: token_ids=%d logprobs token=%q", i, tokenIDs[i], e.Token)
 		}
 		for _, v := range e.Bytes {
@@ -798,7 +797,7 @@ func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []map[string]float64) {
 		tokenLogprobs = append(tokenLogprobs, entry.Logprob)
 		top := make(map[string]float64, len(entry.TopLogprobs))
 		for _, t := range entry.TopLogprobs {
-			top[normalizeTokenKey(t.Token)] = t.Logprob
+			top[t.Token] = t.Logprob
 		}
 		topLogprobs = append(topLogprobs, top)
 	}

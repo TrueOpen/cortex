@@ -8,21 +8,22 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"io"
 	"net"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/TrueOpen/cortex/internal/metric"
-	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+
+	"github.com/TrueOpen/cortex/internal/identity"
+	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 
 	"google.golang.org/grpc/status"
 )
@@ -212,7 +213,11 @@ func (t *GRPCTransport) Invoke(ctx context.Context, method string, req any, resp
 		if err != nil {
 			return mapGRPCError(err)
 		}
-		*(resp.(*VerifyResponse)) = fromProtoVerifyResponse(r)
+		var verifyResp VerifyResponse
+		if verifyResp, err = fromProtoVerifyResponse(r); err != nil {
+			return err
+		}
+		*(resp.(*VerifyResponse)) = verifyResp
 	case "FetchArtifact":
 		r, err := t.fetchArtifact(ctx, req.(FetchArtifactRequest))
 		if err != nil {
@@ -299,7 +304,7 @@ func fromProtoListCapabilitiesResponse(resp *cortexv1.ListCapabilitiesResponse) 
 		Error:                      serviceErrorFromProto(resp.GetError()),
 	}
 	for _, cap := range resp.GetCapabilities() {
-		out.Capabilities = append(out.Capabilities, ManagedModelCapability{ModelID: cap.GetModelId(), Capability: cap.GetCapability(), SupportsTrace: cap.GetSupportsTrace(), SupportsCheckpoint: cap.GetSupportsCheckpoint(), SupportsBatchLog: cap.GetSupportsBatchLog()})
+		out.Capabilities = append(out.Capabilities, ManagedModelCapability{ModelID: modelIDFromProto(cap.GetModelId()), Capability: cap.GetCapability(), SupportsTokenIDs: cap.GetSupportsTokenIds(), SupportsPositionValues: cap.GetSupportsPositionValues(), SupportsBatchLog: cap.GetSupportsBatchLog()})
 	}
 	if snapshot := resp.GetResourceSnapshot(); snapshot != nil {
 		out.ResourceSnapshot = ResourceSnapshot{
@@ -316,7 +321,7 @@ func toProtoGetModelDetailsRequest(req GetModelDetailsRequest) *cortexv1.GetMode
 		RequestId:      req.RequestID,
 		ModelServiceId: req.ModelServiceID,
 		DeadlineMs:     req.DeadlineMS,
-		ModelId:        req.ModelID,
+		ModelId:        modelIDToProto(req.ModelID),
 	}
 }
 
@@ -401,7 +406,7 @@ func fromProtoModelIdentity(identity *cortexv1.ModelIdentity) ModelIdentity {
 	if identity == nil {
 		return ModelIdentity{}
 	}
-	return ModelIdentity{DisplayName: identity.GetDisplayName(), ModelID: identity.GetModelId()}
+	return ModelIdentity{DisplayName: identity.GetDisplayName(), ModelID: modelIDFromProto(identity.GetModelId())}
 }
 
 func fromProtoModelMetadata(metadata *cortexv1.ModelMetadata) ModelMetadata {
@@ -445,15 +450,15 @@ func cloneStrings(values []string) []string {
 }
 
 func toProtoLoadModelRequest(req LoadModelRequest) *cortexv1.LoadModelRequest {
-	return &cortexv1.LoadModelRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, ModelId: req.ModelID, Capability: req.Capability}
+	return &cortexv1.LoadModelRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, ModelId: modelIDToProto(req.ModelID), Capability: req.Capability}
 }
 
 func fromProtoLoadModelResponse(resp *cortexv1.LoadModelResponse) LoadModelResponse {
-	return LoadModelResponse{RequestID: resp.GetRequestId(), ModelServiceID: resp.GetModelServiceId(), ModelID: resp.GetModelId(), Loaded: resp.GetLoaded(), Error: serviceErrorFromProto(resp.GetError())}
+	return LoadModelResponse{RequestID: resp.GetRequestId(), ModelServiceID: resp.GetModelServiceId(), ModelID: modelIDFromProto(resp.GetModelId()), Loaded: resp.GetLoaded(), Error: serviceErrorFromProto(resp.GetError())}
 }
 
 func toProtoEstimateRequest(req EstimateRequest) *cortexv1.EstimateRequest {
-	return &cortexv1.EstimateRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, ModelId: req.ModelID, Capability: req.Capability, InputBytes: req.InputBytes}
+	return &cortexv1.EstimateRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, ModelId: modelIDToProto(req.ModelID), Capability: req.Capability, InputBytes: req.InputBytes}
 }
 
 func fromProtoEstimateResponse(resp *cortexv1.EstimateResponse) EstimateResponse {
@@ -461,7 +466,7 @@ func fromProtoEstimateResponse(resp *cortexv1.EstimateResponse) EstimateResponse
 }
 
 func toProtoInferRequest(req InferRequest) *cortexv1.InferRequest {
-	return &cortexv1.InferRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, JobId: req.JobID, TaskId: req.TaskID, ModelId: req.ModelID, ProfileVersion: req.ProfileVersion, RequestDigest: req.RequestDigest, Capability: req.Capability, Input: req.Input, Generation: generationContextProto(req.Generation), GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...)}
+	return &cortexv1.InferRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, JobId: req.JobID, TaskId: req.TaskID, ModelId: modelIDToProto(req.ModelID), ProfileVersion: req.ProfileVersion, RequestDigest: req.RequestDigest, Capability: req.Capability, Input: req.Input, Generation: generationContextProto(req.Generation), GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...)}
 }
 
 func fromProtoInferResponse(resp *cortexv1.InferResponse) (InferResponse, error) {
@@ -472,74 +477,56 @@ func fromProtoInferResponse(resp *cortexv1.InferResponse) (InferResponse, error)
 	if err != nil {
 		return InferResponse{}, err
 	}
-	return InferResponse{RequestID: resp.GetRequestId(), ModelServiceID: resp.GetModelServiceId(), JobID: resp.GetJobId(), TaskID: resp.GetTaskId(), ModelID: resp.GetModelId(), ProfileVersion: resp.GetProfileVersion(), RequestDigest: resp.GetRequestDigest(), OutputRef: resp.GetOutputRef(), TraceRef: resp.GetTraceRef(), CheckpointRef: resp.GetCheckpointRef(), Error: serviceErrorFromProto(resp.GetError()), GeneratedTokenCount: resp.GetGeneratedTokenCount(), WorkUnit: resp.GetWorkUnit(), FinishReason: finishReason, GenerationParamsDigest: append([]byte(nil), resp.GetGenerationParamsDigest()...)}, nil
-}
-
-func sortedEvidenceKinds(evidence map[string]VerifyEvidence) []string {
-	var kinds []string
-	for kind := range evidence {
-		kinds = append(kinds, kind)
-	}
-	sort.Strings(kinds)
-	return kinds
+	return InferResponse{RequestID: resp.GetRequestId(), ModelServiceID: resp.GetModelServiceId(), JobID: resp.GetJobId(), TaskID: resp.GetTaskId(), ModelID: modelIDFromProto(resp.GetModelId()), ProfileVersion: resp.GetProfileVersion(), RequestDigest: resp.GetRequestDigest(), OutputRef: resp.GetOutputRef(), TokenIDsRef: resp.GetTokenIdsRef(), PositionValuesRef: resp.GetPositionValuesRef(), Error: serviceErrorFromProto(resp.GetError()), GeneratedTokenCount: resp.GetGeneratedTokenCount(), WorkUnit: resp.GetWorkUnit(), FinishReason: finishReason, GenerationParamsDigest: append([]byte(nil), resp.GetGenerationParamsDigest()...)}, nil
 }
 
 func toProtoVerifyRequest(req VerifyRequest) *cortexv1.VerifyRequest {
-	var evidence []*cortexv1.VerifyEvidenceItem
-	for _, kind := range sortedEvidenceKinds(req.Evidence) {
-		item := req.Evidence[kind]
-		evidence = append(evidence, &cortexv1.VerifyEvidenceItem{EvidenceKind: kind, Trace: item.Trace, Checkpoint: item.Checkpoint})
-	}
-	return &cortexv1.VerifyRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, JobId: req.JobID, TaskId: req.TaskID, ModelId: req.ModelID, ProfileVersion: req.ProfileVersion, RequestDigest: req.RequestDigest, Capability: req.Capability, Sample: req.Sample, Evidence: evidence, Generation: generationContextProto(req.Generation), GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...)}
+	evidence := []*cortexv1.VerifyEvidenceItem{{
+		EvidenceKind: EvidenceKindWorkerTokenOpening,
+		TokenIds:     &cortexv1.TokenIDsV1{InputTokenIds: req.TokenIDs.Input, GeneratedTokenIds: req.TokenIDs.Generated},
+	}}
+	return &cortexv1.VerifyRequest{RequestId: req.RequestID, ModelServiceId: req.ModelServiceID, DeadlineMs: req.DeadlineMS, JobId: req.JobID, TaskId: req.TaskID, ModelId: modelIDToProto(req.ModelID), ProfileVersion: req.ProfileVersion, RequestDigest: req.RequestDigest, Capability: req.Capability, Sample: req.Sample, Evidence: evidence, Generation: generationContextProto(req.Generation), GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...)}
 }
 
-func fromProtoVerifyResponse(resp *cortexv1.VerifyResponse) VerifyResponse {
-	out := VerifyResponse{RequestID: resp.GetRequestId(), ModelServiceID: resp.GetModelServiceId(), JobID: resp.GetJobId(), TaskID: resp.GetTaskId(), ModelID: resp.GetModelId(), ProfileVersion: resp.GetProfileVersion(), RequestDigest: resp.GetRequestDigest(), MainMismatchCount: int(resp.GetMainMismatchCount()), SampleValueSequenceRef: resp.GetSampleValueSequenceRef(), SampleDigest: resp.GetSampleValueDigest(), MaterialDigest: resp.GetResultCommitMaterialDigest(), Error: serviceErrorFromProto(resp.GetError())}
+func fromProtoVerifyResponse(resp *cortexv1.VerifyResponse) (VerifyResponse, error) {
+	out := VerifyResponse{RequestID: resp.GetRequestId(), ModelServiceID: resp.GetModelServiceId(), JobID: resp.GetJobId(), TaskID: resp.GetTaskId(), ModelID: modelIDFromProto(resp.GetModelId()), ProfileVersion: resp.GetProfileVersion(), RequestDigest: resp.GetRequestDigest(), MainMismatchCount: int(resp.GetMainMismatchCount()), SampleValueSequenceRef: resp.GetSampleValueSequenceRef(), SampleDigest: resp.GetSampleValueDigest(), MaterialDigest: resp.GetResultCommitMaterialDigest(), Error: serviceErrorFromProto(resp.GetError())}
 	for _, position := range resp.GetSelectedPositionsOrCheckpoints() {
 		out.SelectedPositionsOrCheckpoints = append(out.SelectedPositionsOrCheckpoints, int(position))
 	}
-	out.MetricSamples = metricSamplesFromProto(resp.GetMetricSamples())
 	out.GenerationParamsDigest = append([]byte(nil), resp.GetGenerationParamsDigest()...)
-	return out
+	if values := resp.GetVerifierValues(); values != nil {
+		// Round-trip through the artifact codec so a remote service's values
+		// meet exactly the shape checks a local one's do. Order is the
+		// transport's and is not repaired: a service that emitted positions out
+		// of order is refused, not corrected.
+		raw, err := artifactMarshal.Marshal(values)
+		if err != nil {
+			return VerifyResponse{}, err
+		}
+		if out.VerifierValues, err = DecodePositionValuesArtifact(raw); err != nil {
+			return VerifyResponse{}, fmt.Errorf("model service verifier values: %w", err)
+		}
+	}
+	return out, nil
 }
 
-// metricSamplesFromProto carries the per-position comparison across the model
-// management RPC. Order is the transport's - the samples arrive in
-// output_position order and are not re-sorted here, because internal/metric
-// refuses a set that is not contiguous ascending rather than repairing it, and
-// silently repairing it at this hop would hide a model service that emitted the
-// positions wrong.
-func metricSamplesFromProto(samples []*cortexv1.MetricSampleV1) []metric.Sample {
-	if len(samples) == 0 {
+// modelIDToProto is the Hash32 a cortex.v1 model_id field carries. Cortex holds
+// model ids as canonical hex and validates them before they reach a model
+// service, so a malformed one here is sent empty and refused by the service.
+func modelIDToProto(modelID string) []byte {
+	raw, err := identity.ModelIDBytes(modelID)
+	if err != nil {
 		return nil
 	}
-	out := make([]metric.Sample, 0, len(samples))
-	for _, sample := range samples {
-		out = append(out, metric.Sample{
-			OutputPosition:  sample.GetOutputPosition(),
-			EmittedTokenID:  sample.GetEmittedTokenId(),
-			WorkerLogprob:   sample.GetWorkerLogprob(),
-			VerifierLogprob: sample.GetVerifierLogprob(),
-			WorkerRank:      sample.GetWorkerRank(),
-			VerifierRank:    sample.GetVerifierRank(),
-			TopKJaccard:     optionalFPFromProto(sample.GetTopkJaccard()),
-			UnionJS:         optionalFPFromProto(sample.GetUnionJs()),
-			Missing:         sample.GetMissingFlag(),
-			Finite:          sample.GetFiniteFlag(),
-		})
-	}
-	return out
+	return raw
 }
 
-// optionalFPFromProto keeps absent absent. A nil message and an explicit
-// present=false are the same fact; a present=true with value zero is not, and
-// mapping both onto a bare float64 would erase the difference before the leaf
-// encoder ever sees it.
-func optionalFPFromProto(value *cortexv1.MetricOptionalFP) metric.OptionalFP {
-	if value == nil || !value.GetPresent() {
-		return metric.OptionalFP{}
+func modelIDFromProto(raw []byte) string {
+	text, err := identity.ModelIDHex(raw)
+	if err != nil {
+		return ""
 	}
-	return metric.PresentFP(value.GetValue())
+	return text
 }
 
 func toProtoFetchArtifactRequest(req FetchArtifactRequest) *cortexv1.FetchArtifactRequest {

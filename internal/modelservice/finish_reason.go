@@ -80,9 +80,14 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 		if hasStop {
 			var sequence string
 			if err := json.Unmarshal(stop, &sequence); err != nil {
-				// The frozen receipt has no explicit stop-token outcome. Do not
-				// turn numeric stop_reason into EOS or a string-stop assertion.
-				return 0, fmt.Errorf("unsupported stop_reason: explicit token stop has no frozen finish reason")
+				// A numeric stop_reason is the stop token that ended the
+				// generation. It is STOP_TOKEN only when the order lists it.
+				var token uint32
+				if json.Unmarshal(stop, &token) != nil || strings.EqualFold(strings.TrimSpace(reason), "eos_token") ||
+					!slices.Contains(g.Params.DecodingParams.StopTokenIDs, token) {
+					return 0, fmt.Errorf("stop_reason does not match a configured stop token")
+				}
+				return nodewire.FinishReasonV1StopToken, nil
 			}
 			if strings.EqualFold(strings.TrimSpace(reason), "eos_token") || !slices.Contains(g.Params.DecodingParams.StopSequences, sequence) {
 				return 0, fmt.Errorf("stop_reason does not match a configured stop sequence")

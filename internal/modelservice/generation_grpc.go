@@ -11,7 +11,7 @@ func generationContextProto(g *nodewire.GenerationContext) *cortexv1.GenerationC
 	}
 	d := g.Params.DecodingParams
 	return &cortexv1.GenerationContext{
-		ModelId: g.ModelID, ProfileVersion: g.ProfileVersion,
+		ModelId: modelIDToProto(g.ModelID), ProfileVersion: g.ProfileVersion,
 		TaskType: g.TaskType, OutputBudgetBucket: g.OutputBudgetBucket,
 		Params: &cortexv1.GenerationParamsV1{
 			GenerationParamsSchemaVersion: g.Params.SchemaVersion,

@@ -8,7 +8,7 @@ import (
 
 func TestRequestScopedStreamObserversAreIsolated(t *testing.T) {
 	server, _ := newVLLMStreamStub(t, twoFrameGeneration(), verifyResponse(), []string{"Qwen/Qwen3-8B"})
-	service := NewLocalService(server.URL, "scoped-stream", 4, 0, 0)
+	service := newBoundLocalService(server.URL, "scoped-stream", 4, 0, 0)
 	global := &recordingObserver{}
 	service.SetInferStreamObserver(global)
 	observers := []*recordingObserver{{}, {}}

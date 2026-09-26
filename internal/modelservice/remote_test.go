@@ -28,7 +28,7 @@ func (t *fakeTransport) Invoke(_ context.Context, method string, req any, resp a
 		*r = GetModelDetailsResponse{
 			RequestID:      "details-1",
 			ModelServiceID: "svc-1",
-			Details:        testModelDetailsFixture("model-a"),
+			Details:        testModelDetailsFixture("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"),
 		}
 	case *LoadModelResponse:
 		*r = LoadModelResponse{RequestID: "load-1", ModelServiceID: "svc-1", Loaded: true}
@@ -91,8 +91,8 @@ func TestRemoteClientMapsNonHealthMethods(t *testing.T) {
 		{
 			name: "GetModelDetails",
 			call: func(ctx context.Context, client *RemoteClient) error {
-				resp, err := client.GetModelDetails(ctx, GetModelDetailsRequest{RequestID: "details-1", ModelID: "model-a"})
-				if err == nil && resp.Details.Identity.ModelID != "model-a" {
+				resp, err := client.GetModelDetails(ctx, GetModelDetailsRequest{RequestID: "details-1", ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"})
+				if err == nil && resp.Details.Identity.ModelID != "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a" {
 					return errors.New("GetModelDetails response was not mapped")
 				}
 				return err
@@ -110,7 +110,7 @@ func TestRemoteClientMapsNonHealthMethods(t *testing.T) {
 		{
 			name: "Infer",
 			call: func(ctx context.Context, client *RemoteClient) error {
-				_, err := client.Infer(ctx, InferRequest{RequestID: "infer-1", ModelID: "model-a", ProfileVersion: "1", Generation: generation, GenerationParamsDigest: generationDigest})
+				_, err := client.Infer(ctx, InferRequest{RequestID: "infer-1", ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1", Generation: generation, GenerationParamsDigest: generationDigest})
 				return err
 			},
 			wantMethod: "/cortex.v1.ModelManagementService/Infer",
@@ -118,7 +118,7 @@ func TestRemoteClientMapsNonHealthMethods(t *testing.T) {
 		{
 			name: "Verify",
 			call: func(ctx context.Context, client *RemoteClient) error {
-				_, err := client.Verify(ctx, VerifyRequest{RequestID: "verify-1", ModelID: "model-a", ProfileVersion: "1", Generation: generation, GenerationParamsDigest: generationDigest})
+				_, err := client.Verify(ctx, VerifyRequest{RequestID: "verify-1", ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1", Generation: generation, GenerationParamsDigest: generationDigest})
 				return err
 			},
 			wantMethod: "/cortex.v1.ModelManagementService/Verify",
