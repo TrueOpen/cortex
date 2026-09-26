@@ -239,8 +239,9 @@ func TestFakeServiceInferTokenCountAndWorkUnit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Infer() error = %v", err)
 	}
-	if resp.GeneratedTokenCount != 1 || resp.WorkUnit != 1 {
-		t.Fatalf("Infer() metering = %d tokens/%d work units, want deterministic fixture 1/1", resp.GeneratedTokenCount, resp.WorkUnit)
+	if resp.GeneratedTokenCount != fakeGeneratedTokenCount || resp.WorkUnit != fakeGeneratedTokenCount {
+		t.Fatalf("Infer() metering = %d tokens/%d work units, want deterministic fixture %d/%d",
+			resp.GeneratedTokenCount, resp.WorkUnit, fakeGeneratedTokenCount, fakeGeneratedTokenCount)
 	}
 }
 
