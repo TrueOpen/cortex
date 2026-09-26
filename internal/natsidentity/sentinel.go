@@ -2,12 +2,15 @@ package natsidentity
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -43,9 +46,17 @@ const maxSentinelResponseBytes = 64 << 10
 // JWT the account can verify before it asks the auth callback at all (nats-server
 // v2.10.22 server/auth.go:731-736), and the sentinel is what satisfies that step;
 // the real identity travels in the on-chain binding declaration inside auth_token.
+//
+// NATSServers and NATSCAPEM are optional: the NATS address and the PEM that verifies
+// the NATS server, served with the sentinel so a new Cortex needs neither handed to
+// it (interface-and-topic-list §4.12, ADR-0016 decision one item 1). They are as
+// trustworthy as the sentinel: both come over the ingress TLS pinned by the on-chain
+// tls_pubkey_hash.
 type Sentinel struct {
 	AuthAccountPublicKey string
 	JWT                  string
+	NATSServers          []string
+	NATSCAPEM            string
 }
 
 // SentinelSource supplies the Binder with the sentinel to present. An implementation
@@ -104,8 +115,10 @@ type IngressSentinelSource struct {
 
 	mu sync.Mutex
 	// cached holds the sentinel already fetched; it is dropped after an authentication
-	// failure and a Builder is chosen again.
-	cached *Sentinel
+	// failure and a Builder is chosen again. previous survives Invalidate so a change
+	// in the served NATS address or certificate can be logged.
+	cached   *Sentinel
+	previous *Sentinel
 }
 
 // NewIngressSentinelSource assembles the source; a nil client means the default
@@ -133,9 +146,17 @@ func (s *IngressSentinelSource) Sentinel(ctx context.Context) (Sentinel, error) 
 	if err != nil {
 		return Sentinel{}, err
 	}
-	slog.Info("fetched nats auth sentinel", "builder", operator, "auth_account", sentinel.AuthAccountPublicKey)
+	slog.Info("fetched nats auth sentinel", "builder", operator, "auth_account", sentinel.AuthAccountPublicKey,
+		"nats_servers", strings.Join(sentinel.NATSServers, ","), "nats_ca_pem", sentinel.NATSCAPEM != "")
 	s.mu.Lock()
+	// §5.14.4: a change in the served address or certificate is worth a line of its own.
+	if s.previous != nil && (strings.Join(s.previous.NATSServers, ",") != strings.Join(sentinel.NATSServers, ",") ||
+		s.previous.NATSCAPEM != sentinel.NATSCAPEM) {
+		slog.Info("builder-served nats address or certificate changed", "builder", operator,
+			"nats_servers", strings.Join(sentinel.NATSServers, ","))
+	}
 	s.cached = &sentinel
+	s.previous = &sentinel
 	s.mu.Unlock()
 	return sentinel, nil
 }
@@ -157,10 +178,12 @@ func (s *IngressSentinelSource) load() (Sentinel, bool) {
 }
 
 type sentinelResponse struct {
-	SchemaVersion        int    `json:"schema_version"`
-	AuthAccountPublicKey string `json:"auth_account_public_key"`
-	SentinelJWT          string `json:"sentinel_jwt"`
-	Error                string `json:"error"`
+	SchemaVersion        int      `json:"schema_version"`
+	AuthAccountPublicKey string   `json:"auth_account_public_key"`
+	SentinelJWT          string   `json:"sentinel_jwt"`
+	NATSServers          []string `json:"nats_servers"`
+	NATSCAPEM            string   `json:"nats_ca_pem"`
+	Error                string   `json:"error"`
 }
 
 // fetch tries the candidates in order and returns the first sentinel it obtains.
@@ -300,5 +323,48 @@ func validateSentinel(decoded sentinelResponse) (Sentinel, error) {
 	if issuer != account {
 		return Sentinel{}, fmt.Errorf("sentinel_jwt was issued by account %s, not the published %s", issuer, account)
 	}
-	return Sentinel{AuthAccountPublicKey: account, JWT: token}, nil
+	servers, caPEM, err := validateServedNATS(decoded)
+	if err != nil {
+		return Sentinel{}, err
+	}
+	return Sentinel{AuthAccountPublicKey: account, JWT: token, NATSServers: servers, NATSCAPEM: caPEM}, nil
+}
+
+// validateServedNATS checks the optional address and certificate. A malformed one
+// fails this Builder's document outright, like any other invalid field, so the next
+// candidate is tried instead of dialling something half-understood.
+func validateServedNATS(decoded sentinelResponse) ([]string, string, error) {
+	var servers []string
+	for _, server := range decoded.NATSServers {
+		server = strings.TrimSpace(server)
+		parsed, err := url.Parse(server)
+		if err != nil || (parsed.Scheme != "tls" && parsed.Scheme != "nats") || parsed.Port() == "" ||
+			parsed.Hostname() == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") {
+			return nil, "", fmt.Errorf("nats_servers entry %q is not tls://host:port", server)
+		}
+		servers = append(servers, server)
+	}
+	caPEM := strings.TrimSpace(decoded.NATSCAPEM)
+	if caPEM != "" {
+		certificates := 0
+		for rest := []byte(caPEM); ; {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type != "CERTIFICATE" {
+				return nil, "", fmt.Errorf("nats_ca_pem holds a %s block, only certificates are accepted", block.Type)
+			}
+			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+				return nil, "", fmt.Errorf("nats_ca_pem certificate does not parse: %w", err)
+			}
+			certificates++
+		}
+		if certificates == 0 {
+			return nil, "", fmt.Errorf("nats_ca_pem holds no certificate")
+		}
+		caPEM += "\n"
+	}
+	return servers, caPEM, nil
 }

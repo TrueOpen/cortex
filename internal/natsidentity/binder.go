@@ -153,6 +153,8 @@ func (b *Binder) Credential(ctx context.Context) (builderclient.NATSChainCredent
 		SignNonce:     b.cfg.UserKey.Sign,
 		Token:         token,
 		SentinelJWT:   sentinel.JWT,
+		NATSServers:   append([]string(nil), sentinel.NATSServers...),
+		NATSCAPEM:     sentinel.NATSCAPEM,
 	}, nil
 }
 

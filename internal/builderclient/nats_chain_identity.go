@@ -2,6 +2,8 @@ package builderclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 
 	nats "github.com/nats-io/nats.go"
@@ -25,6 +27,12 @@ type NATSChainCredential struct {
 	Token         string
 	// SentinelJWT is the AUTH account sentinel user JWT fetched from a Builder ingress.
 	SentinelJWT string
+	// NATSServers and NATSCAPEM are what the same response optionally carries: the NATS
+	// address and the PEM that verifies the NATS server (interface-and-topic-list §4.12,
+	// ADR-0016 decision one item 1). They were fetched over the ingress TLS pinned by the
+	// on-chain tls_pubkey_hash. Configured nexus.nats_url / nexus.nats_ca_file win.
+	NATSServers []string
+	NATSCAPEM   string
 }
 
 // ChainIdentityProvider is implemented by natsidentity.Binder. Credential is called
@@ -38,11 +46,24 @@ type ChainIdentityProvider interface {
 // invalidateOnAuthError drops the binding for authentication failures only: NATS does
 // not pass the callback's error code to the client, so all a client can tell apart is
 // "authentication refused" and "cannot connect".
+//
+// A failed server certificate check also drops it (§5.14.4): the NATS address and
+// certificate served with the sentinel are cached with it, and a rotated certificate
+// must be fetched again rather than failing every reconnect.
 func invalidateOnAuthError(auth NATSAuth, err error) {
 	if auth.ChainIdentity == nil || err == nil {
 		return
 	}
-	if errors.Is(err, nats.ErrAuthorization) || errors.Is(err, nats.ErrAuthExpired) || errors.Is(err, nats.ErrAuthRevoked) {
+	if errors.Is(err, nats.ErrAuthorization) || errors.Is(err, nats.ErrAuthExpired) || errors.Is(err, nats.ErrAuthRevoked) ||
+		isCertificateVerificationError(err) {
 		auth.ChainIdentity.Invalidate()
 	}
+}
+
+func isCertificateVerificationError(err error) bool {
+	var verification *tls.CertificateVerificationError
+	var unknown x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	return errors.As(err, &verification) || errors.As(err, &unknown) || errors.As(err, &hostname) || errors.As(err, &invalid)
 }

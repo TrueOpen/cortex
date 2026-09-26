@@ -179,12 +179,15 @@ func runtimeClosers(values ...any) []interface{ Close() error } {
 
 // nexusNATSAuth hands the NATS transport and authentication settings from the config
 // to builderclient (ADR-0016). A non-nil identity selects the on-chain identity path
-// (decision three), and creds and token are ignored.
-func nexusNATSAuth(cfg config.NexusConfig, token string, identity builderclient.ChainIdentityProvider) builderclient.NATSAuth {
+// (decision three), and creds and token are ignored; it may also supply the NATS
+// address and certificate the Builder serves with the sentinel. Real mode refuses a
+// served plaintext address and a remote server with no certificate to verify it.
+func nexusNATSAuth(cfg config.Config, token string, identity builderclient.ChainIdentityProvider) builderclient.NATSAuth {
 	return builderclient.NATSAuth{
-		URL: cfg.NATSURL, Token: token,
-		CredsFile: cfg.NATSCredsFile, CAFile: cfg.NATSCAFile,
-		ChainIdentity: identity,
+		URL: cfg.Nexus.NATSURL, Token: token,
+		CredsFile: cfg.Nexus.NATSCredsFile, CAFile: cfg.Nexus.NATSCAFile,
+		ChainIdentity:    identity,
+		RequireServerTLS: cfg.Mode == config.ModeReal,
 	}
 }
 

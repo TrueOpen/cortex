@@ -54,9 +54,13 @@ task_execution:
   input_resolver: nexus
 nexus:
   ingress_url: https://nexus.trueopen.example.org
+  # nats_url and nats_ca_file are optional with nats_user_key_file below: when
+  # left out, both come from the Builder's GET /v1/nats/sentinel response, fetched
+  # over the ingress TLS pinned by the on-chain tls_pubkey_hash (ADR-0016 decision
+  # one item 1). Set them only to pin a different server; configured values win.
+  # Remote NATS in real mode is verified against nats_ca_file or the served
+  # certificate and never falls back to the system roots.
   nats_url: tls://nats.trueopen.example.org:4222
-  # Remote NATS in real mode is verified against the distributed server
-  # certificate (or its CA) and never falls back to the system roots (ADR-0016).
   nats_ca_file: /etc/cortex/nats-ca.pem
   # ADR-0016 decision three (interface-and-topic-list §5.14): cortex joins NATS with its
   # on-chain identity. This is the seed file of the node's own NATS user key

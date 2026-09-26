@@ -3,9 +3,13 @@ package builderclient
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -80,29 +84,45 @@ var natsConnect = nats.Connect
 //   - CAFile: the server certificate / CA PEM, used to validate the server on tls://;
 //     the system root CAs are used when it is absent.
 //
+// With ChainIdentity, URL and CAFile may be left empty: the NATS address and the
+// certificate then come from the Builder's sentinel response (§4.12). Configured
+// values win. RequireServerTLS (real mode) makes a served address that is not
+// tls:// fail, and a remote server with neither CAFile nor a served certificate
+// fail, rather than fall back to the system roots.
+//
 // A tls:// URL requires TLS.
 type NATSAuth struct {
-	URL           string
-	Token         string
-	CredsFile     string
-	CAFile        string
-	ChainIdentity ChainIdentityProvider
+	URL              string
+	Token            string
+	CredsFile        string
+	CAFile           string
+	ChainIdentity    ChainIdentityProvider
+	RequireServerTLS bool
 }
 
-func natsAuthOptions(auth NATSAuth) ([]nats.Option, error) {
+// natsConnectOptions resolves the URL to dial and the options for it. With a chain
+// identity the credential is fetched first, since it may carry the address and the
+// certificate.
+func natsConnectOptions(auth NATSAuth) (string, []nats.Option, error) {
 	var opts []nats.Option
+	natsURL := strings.TrimSpace(auth.URL)
+	servedCAPEM := ""
 	if auth.ChainIdentity != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		cred, err := auth.ChainIdentity.Credential(ctx)
 		cancel()
 		if err != nil {
-			return nil, fmt.Errorf("nexus nats chain identity: %w", err)
+			return "", nil, fmt.Errorf("nexus nats chain identity: %w", err)
+		}
+		natsURL, servedCAPEM, err = resolveServedNATS(auth, cred)
+		if err != nil {
+			return "", nil, err
 		}
 		if strings.TrimSpace(cred.SentinelJWT) == "" {
 			// fail closed: an operator-mode server wants to see a user JWT of its own account
 			// at the CONNECT stage, so without a sentinel do not even connect - otherwise the
 			// reason hides behind a bare Authorization Violation from the server.
-			return nil, fmt.Errorf("nexus nats chain identity: builder served no auth sentinel jwt; the operator-mode server refuses a CONNECT without one")
+			return "", nil, fmt.Errorf("nexus nats chain identity: builder served no auth sentinel jwt; the operator-mode server refuses a CONNECT without one")
 		}
 		provider := auth.ChainIdentity
 		// The signing function does not change within one connection: the user key does not
@@ -167,22 +187,100 @@ func natsAuthOptions(auth NATSAuth) ([]nats.Option, error) {
 		)
 	} else if creds := strings.TrimSpace(auth.CredsFile); creds != "" {
 		if _, err := os.Stat(creds); err != nil {
-			return nil, fmt.Errorf("nexus.nats_creds_file: %w", err)
+			return "", nil, fmt.Errorf("nexus.nats_creds_file: %w", err)
 		}
 		opts = append(opts, nats.UserCredentials(creds))
 	} else if token := strings.TrimSpace(auth.Token); token != "" {
 		opts = append(opts, nats.Token(token))
 	}
-	if ca := strings.TrimSpace(auth.CAFile); ca != "" {
+	if err := validateNATSServers(natsURL); err != nil {
+		return "", nil, err
+	}
+	switch ca := strings.TrimSpace(auth.CAFile); {
+	case ca != "":
 		if _, err := os.Stat(ca); err != nil {
-			return nil, fmt.Errorf("nexus.nats_ca_file: %w", err)
+			return "", nil, fmt.Errorf("nexus.nats_ca_file: %w", err)
 		}
 		opts = append(opts, nats.RootCAs(ca))
+	case servedCAPEM != "" && strings.HasPrefix(strings.ToLower(natsURL), "tls://"):
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(servedCAPEM)) {
+			return "", nil, fmt.Errorf("nexus nats: the builder-served nats_ca_pem holds no usable certificate")
+		}
+		opts = append(opts, nats.Secure(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}))
+	case auth.RequireServerTLS && !allLoopbackNATS(natsURL):
+		return "", nil, fmt.Errorf("nexus nats: no certificate to verify the server: set nexus.nats_ca_file or have the builder serve nats_ca_pem with the sentinel (ADR-0016); the system roots are not used in real mode")
 	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(auth.URL)), "tls://") {
+	if strings.HasPrefix(strings.ToLower(natsURL), "tls://") {
 		opts = append(opts, nats.Secure())
 	}
-	return opts, nil
+	return natsURL, opts, nil
+}
+
+// resolveServedNATS picks the address and certificate: configured values win over the
+// served ones, and a difference is logged, since it usually means stale local config.
+func resolveServedNATS(auth NATSAuth, cred NATSChainCredential) (string, string, error) {
+	served := strings.Join(cred.NATSServers, ",")
+	configured := strings.TrimSpace(auth.URL)
+	natsURL := configured
+	switch {
+	case configured == "" && served == "":
+		return "", "", fmt.Errorf("nexus nats: nexus.nats_url is not set and the builder served no nats_servers with the sentinel")
+	case configured == "":
+		if auth.RequireServerTLS {
+			for _, server := range cred.NATSServers {
+				if !strings.HasPrefix(strings.ToLower(server), "tls://") {
+					return "", "", fmt.Errorf("nexus nats: builder-served nats server %q must be tls:// in real mode (ADR-0016)", server)
+				}
+			}
+		}
+		natsURL = served
+	case served != "" && served != configured:
+		slog.Warn("nexus.nats_url differs from the nats_servers the builder serves; using the configured value",
+			"configured", diagnosticsSafeURL(configured), "served", served)
+	}
+	servedCA := strings.TrimSpace(cred.NATSCAPEM)
+	if servedCA != "" && strings.TrimSpace(auth.CAFile) != "" {
+		if local, err := os.ReadFile(strings.TrimSpace(auth.CAFile)); err == nil && strings.TrimSpace(string(local)) != servedCA {
+			slog.Warn("nexus.nats_ca_file differs from the nats_ca_pem the builder serves; using the configured file",
+				"file", strings.TrimSpace(auth.CAFile))
+		}
+	}
+	return natsURL, servedCA, nil
+}
+
+// validateNATSServers checks every entry of a comma-separated server list.
+func validateNATSServers(servers string) error {
+	for _, server := range strings.Split(servers, ",") {
+		if err := validateNATSURL(strings.TrimSpace(server)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func allLoopbackNATS(servers string) bool {
+	for _, server := range strings.Split(servers, ",") {
+		parsed, err := url.Parse(strings.TrimSpace(server))
+		if err != nil {
+			return false
+		}
+		host := parsed.Hostname()
+		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return false
+		}
+	}
+	return true
+}
+
+// diagnosticsSafeURL drops userinfo, which a dev nats_url may carry.
+func diagnosticsSafeURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	parsed.User = nil
+	return parsed.String()
 }
 
 type natsPublisher struct {
@@ -197,7 +295,7 @@ func NewNATSPublisher(natsURL string, token string) (Publisher, error) {
 
 func NewNATSPublisherWithAuth(auth NATSAuth) (Publisher, error) {
 	trimmed := strings.TrimSpace(auth.URL)
-	if err := validateNATSURL(trimmed); err != nil {
+	if err := validateConfiguredNATSURL(trimmed, auth); err != nil {
 		return nil, err
 	}
 	auth.URL = trimmed
@@ -297,6 +395,15 @@ func validatePublishRequest(req PublishRequest) error {
 		return fmt.Errorf("nats publish payload is required")
 	}
 	return nil
+}
+
+// validateConfiguredNATSURL allows an empty URL only with a chain identity, whose
+// sentinel then supplies the address at connect time.
+func validateConfiguredNATSURL(rawURL string, auth NATSAuth) error {
+	if rawURL == "" && auth.ChainIdentity != nil {
+		return nil
+	}
+	return validateNATSServers(rawURL)
 }
 
 func validateNATSURL(rawURL string) error {
@@ -406,12 +513,12 @@ func connectConcreteNATSPublishTransport(auth NATSAuth) (natsPublishTransport, e
 		nats.Name("cortex-builderclient"),
 		nats.Timeout(5 * time.Second),
 	}
-	authOpts, err := natsAuthOptions(auth)
+	natsURL, authOpts, err := natsConnectOptions(auth)
 	if err != nil {
 		return nil, err
 	}
 	opts = append(opts, authOpts...)
-	conn, err := natsConnect(auth.URL, opts...)
+	conn, err := natsConnect(natsURL, opts...)
 	if err != nil {
 		invalidateOnAuthError(auth, err)
 		return nil, err
@@ -553,7 +660,7 @@ func NewNATSSubscriber(natsURL string, token string, jetStreamStream string, dur
 
 func NewNATSSubscriberWithAuth(auth NATSAuth, jetStreamStream string, durablePrefix ...string) (Subscriber, error) {
 	trimmed := strings.TrimSpace(auth.URL)
-	if err := validateNATSURL(trimmed); err != nil {
+	if err := validateConfiguredNATSURL(trimmed, auth); err != nil {
 		return nil, err
 	}
 	auth.URL = trimmed
@@ -767,12 +874,12 @@ func connectConcreteNATSSubscriber(auth NATSAuth) (*nats.Conn, error) {
 		nats.Name("cortex-builderclient-subscriber"),
 		nats.Timeout(5 * time.Second),
 	}
-	authOpts, err := natsAuthOptions(auth)
+	natsURL, authOpts, err := natsConnectOptions(auth)
 	if err != nil {
 		return nil, err
 	}
 	opts = append(opts, authOpts...)
-	conn, err := natsConnect(auth.URL, opts...)
+	conn, err := natsConnect(natsURL, opts...)
 	if err != nil {
 		invalidateOnAuthError(auth, err)
 		return nil, err
