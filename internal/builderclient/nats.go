@@ -207,7 +207,7 @@ func natsConnectOptions(auth NATSAuth) (string, []nats.Option, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		opts = append(opts, servedRootCAs(auth.ChainIdentity, pool))
+		opts = append(opts, servedTLS(auth.ChainIdentity, pool))
 	case auth.RequireServerTLS && !allLoopbackNATS(natsURL):
 		return "", nil, fmt.Errorf("nexus nats: no certificate to verify the server: set nexus.nats_ca_file or have the builder serve nats_ca_pem with the sentinel (ADR-0016); the system roots are not used in real mode")
 	}
@@ -249,33 +249,69 @@ func resolveServedNATS(auth NATSAuth, cred NATSChainCredential) (string, string,
 	return natsURL, servedCA, nil
 }
 
-// servedRootCAs verifies the server against the certificate the Builder serves with
-// the sentinel, asking the identity for the current one on every (re)connect, the
-// same way TokenHandler does for the binding: nats.go reconnects on its own with the
-// options it was dialled with, and a rotated certificate has to reach those
-// reconnects. When it cannot be fetched the previous pool is kept.
-func servedRootCAs(provider ChainIdentityProvider, initial *x509.CertPool) nats.Option {
+// servedTLS verifies the NATS server against the certificate the Builder serves with
+// the sentinel. The check is made here, in VerifyConnection, rather than by crypto/tls,
+// so that a failure can refetch the served certificate inside the same handshake:
+// nats.go reconnects on its own and reports a reconnect's handshake error to no
+// callback, so after a Builder rotates its NATS certificate a cached one would
+// otherwise be retried for ever. On a mismatch the identity is invalidated (dropping
+// the cached sentinel), the credential fetched again, and the chain verified against
+// the fresh certificate; only if that fails too is the handshake refused.
+func servedTLS(provider ChainIdentityProvider, initial *x509.CertPool) nats.Option {
 	var mu sync.Mutex
-	last := initial
+	current := initial
 	return func(o *nats.Options) error {
-		if o.TLSConfig == nil {
-			o.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		}
-		o.RootCAsCB = func() (*x509.CertPool, error) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cred, err := provider.Credential(ctx)
-			mu.Lock()
-			defer mu.Unlock()
-			if err == nil && strings.TrimSpace(cred.NATSCAPEM) != "" {
-				if pool, err := servedCertPool(cred.NATSCAPEM); err == nil {
-					last = pool
+		o.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// Not skipped: VerifyConnection below performs the full chain and host check.
+			InsecureSkipVerify: true,
+			VerifyConnection: func(state tls.ConnectionState) error {
+				mu.Lock()
+				pool := current
+				mu.Unlock()
+				first := verifyServedChain(state, pool)
+				if first == nil {
+					return nil
 				}
-			}
-			return last, nil
+				provider.Invalidate()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				cred, err := provider.Credential(ctx)
+				if err != nil || strings.TrimSpace(cred.NATSCAPEM) == "" {
+					return first
+				}
+				fresh, err := servedCertPool(cred.NATSCAPEM)
+				if err != nil {
+					return first
+				}
+				if err := verifyServedChain(state, fresh); err != nil {
+					return err
+				}
+				mu.Lock()
+				current = fresh
+				mu.Unlock()
+				slog.Info("nats server certificate changed; verified against the one the builder now serves")
+				return nil
+			},
 		}
 		return nil
 	}
+}
+
+// verifyServedChain is the check crypto/tls would make: the leaf chains to roots
+// through the presented intermediates and is valid for the dialled host.
+func verifyServedChain(state tls.ConnectionState, roots *x509.CertPool) error {
+	if len(state.PeerCertificates) == 0 {
+		return errors.New("nats server presented no certificate")
+	}
+	intermediates := x509.NewCertPool()
+	for _, certificate := range state.PeerCertificates[1:] {
+		intermediates.AddCert(certificate)
+	}
+	_, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{
+		Roots: roots, Intermediates: intermediates, DNSName: state.ServerName,
+	})
+	return err
 }
 
 func servedCertPool(caPEM string) (*x509.CertPool, error) {

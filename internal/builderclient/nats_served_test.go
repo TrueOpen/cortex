@@ -5,19 +5,18 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	nats "github.com/nats-io/nats.go"
 )
 
 func servedCertPEM(t *testing.T) string {
@@ -29,6 +28,7 @@ func servedCertPEM(t *testing.T) string {
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "served-nats"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IPAddresses: []net.IP{net.ParseIP("203.0.113.10")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
@@ -60,43 +60,60 @@ func TestNATSConnectUsesServedAddressAndCertificate(t *testing.T) {
 		t.Fatalf("url = %q", natsURL)
 	}
 	o := applyOptions(t, opts)
-	if !o.Secure || o.TLSConfig == nil || o.RootCAsCB == nil {
-		t.Fatalf("tls = secure %v config %v rootCAsCB %v", o.Secure, o.TLSConfig, o.RootCAsCB != nil)
+	if !o.Secure || o.TLSConfig == nil || o.TLSConfig.VerifyConnection == nil {
+		t.Fatalf("tls = secure %v config %v", o.Secure, o.TLSConfig)
 	}
-	requireTrusts(t, o, certPEM)
+	if err := o.TLSConfig.VerifyConnection(presented(t, certPEM)); err != nil {
+		t.Fatalf("served certificate refused: %v", err)
+	}
 }
 
-func requireTrusts(t *testing.T, o nats.Options, certPEM string) {
+// presented is the connection state of a server presenting certPEM at 203.0.113.10.
+func presented(t *testing.T, certPEM string) tls.ConnectionState {
 	t.Helper()
-	pool, err := o.RootCAsCB()
+	block, _ := pem.Decode([]byte(certPEM))
+	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	block, _ := pem.Decode([]byte(certPEM))
-	cert, _ := x509.ParseCertificate(block.Bytes)
-	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool}); err != nil {
-		t.Fatalf("certificate is not the trust root: %v", err)
-	}
+	return tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}, ServerName: "203.0.113.10"}
 }
 
-// nats.go reconnects with the options it was dialled with; the served certificate is
-// asked for again on every handshake, so a rotation reaches those reconnects. When
-// the identity cannot answer, the previous certificate is kept.
-func TestServedCertificateIsRereadOnReconnect(t *testing.T) {
-	first, second := servedCertPEM(t), servedCertPEM(t)
+// nats.go reconnects on its own and reports no reconnect handshake error, so a
+// certificate the Builder rotated must be picked up inside the handshake: a server
+// presenting it is verified after the identity is invalidated and the served
+// certificate fetched again. A certificate the Builder does not serve is refused.
+func TestServedCertificateRotationIsPickedUpOnReconnect(t *testing.T) {
+	first, second, stranger := servedCertPEM(t), servedCertPEM(t), servedCertPEM(t)
 	provider := servedIdentity([]string{"tls://203.0.113.10:4222"}, first)
 	_, opts, err := natsConnectOptions(NATSAuth{ChainIdentity: provider, RequireServerTLS: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := applyOptions(t, opts)
-	requireTrusts(t, o, first)
+	verify := applyOptions(t, opts).TLSConfig.VerifyConnection
 
+	if err := verify(presented(t, first)); err != nil || provider.invalidated != 0 {
+		t.Fatalf("current certificate: err=%v invalidated=%d", err, provider.invalidated)
+	}
+	// The Builder rotates: the server presents the new certificate, which the provider
+	// now serves.
 	provider.cred.NATSCAPEM = second
-	requireTrusts(t, o, second)
-
-	provider.err = errors.New("chain unavailable")
-	requireTrusts(t, o, second)
+	if err := verify(presented(t, second)); err != nil || provider.invalidated != 1 {
+		t.Fatalf("rotated certificate: err=%v invalidated=%d", err, provider.invalidated)
+	}
+	// It is kept: the next handshake needs no refetch.
+	if err := verify(presented(t, second)); err != nil || provider.invalidated != 1 {
+		t.Fatalf("after rotation: err=%v invalidated=%d", err, provider.invalidated)
+	}
+	if err := verify(presented(t, stranger)); err == nil {
+		t.Fatal("a certificate the builder does not serve was accepted")
+	}
+	// Wrong host for an otherwise trusted certificate.
+	state := presented(t, second)
+	state.ServerName = "nats.other.example"
+	if err := verify(state); err == nil {
+		t.Fatal("a certificate for another host was accepted")
+	}
 }
 
 // Configured values win over served ones.
