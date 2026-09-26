@@ -1316,11 +1316,11 @@ func verificationSequence(trace []tokenLogprob, inputLen int, recomputed []map[s
 // the aggregates the local verdict is classified from, and one metric sample per
 // generated token position.
 //
-// The samples exist because metric_root is a Merkle tree over per-position
-// leaves (05-verification-algorithm §7) and the aggregates alone cannot reconstruct them. They
-// are emitted from the SAME loop as the aggregates, not from a second pass:
-// summary and leaves must describe one comparison, and two passes over
-// floating-point data are exactly how they stop doing so.
+// The comparison itself is metric.CompareSamples; this adapts the trace and the
+// prompt_logprobs rows to its per-position values. The samples exist because
+// metric_root is a Merkle tree over per-position leaves (05-verification-algorithm §7)
+// and the aggregates alone cannot reconstruct them, and the aggregates are
+// derived from the same samples, so summary and leaves describe one comparison.
 //
 // missingLogprob is the profile's stand-in for a position the verifier has no
 // entry for. The leaf still carries it - the position happened, and dropping it
@@ -1329,12 +1329,12 @@ func verificationSequence(trace []tokenLogprob, inputLen int, recomputed []map[s
 func computeSingleSampleMetrics(
 	trace []tokenLogprob, inputLen int, recomputed []map[string]logprobEntry, comparedTopK int, missingLogprob float64,
 ) (singleSampleMetrics, []metric.Sample, error) {
-	samples := make([]metric.Sample, 0, len(trace))
-
+	keys := newTokenKeyIDs()
+	workerValues := make([]metric.PositionValue, 0, len(trace))
+	verifierValues := make([]metric.PositionValue, 0, len(trace))
 	for i, worker := range trace {
 		entry, selectedPresent := recomputedEntryFor(worker.TokenID, inputLen+i, recomputed)
-		position, err := leafUint32("output_position", i)
-		if err != nil {
+		if _, err := leafUint32("output_position", i); err != nil {
 			return singleSampleMetrics{}, nil, err
 		}
 		tokenID, err := leafUint32("emitted_token_id", worker.TokenID)
@@ -1345,32 +1345,28 @@ func computeSingleSampleMetrics(
 		if err != nil {
 			return singleSampleMetrics{}, nil, err
 		}
-		sample := metric.Sample{
-			OutputPosition:  position,
-			EmittedTokenID:  tokenID,
-			WorkerLogprob:   worker.Logprob,
-			VerifierLogprob: missingLogprob,
-			WorkerRank:      workerRank,
-			Missing:         !selectedPresent,
+		verifier := metric.PositionValue{
+			TokenID: tokenID,
+			Missing: !selectedPresent,
+			TopK:    keys.orderedTopK(promptTopLogprobsAt(recomputed, inputLen+i)),
 		}
 		if selectedPresent {
-			verifierRank, err := leafUint32("verifier_rank", entry.Rank)
-			if err != nil {
+			if verifier.Rank, err = leafUint32("verifier_rank", entry.Rank); err != nil {
 				return singleSampleMetrics{}, nil, err
 			}
-			sample.VerifierLogprob = entry.Logprob
-			sample.VerifierRank = verifierRank
-			sample.Finite = finite(worker.Logprob) && finite(entry.Logprob)
+			verifier.Logprob = entry.Logprob
 		}
-		workerTopK := limitTopLogprobs(worker.TopLogprobs, comparedTopK)
-		verifierTopK := limitTopLogprobs(promptTopLogprobsAt(recomputed, inputLen+i), comparedTopK)
-		if len(workerTopK) > 0 && len(verifierTopK) > 0 {
-			sample.TopKJaccard = metric.PresentFP(topKJaccard(workerTopK, verifierTopK))
-			if js, ok := unionJSDivergence(workerTopK, verifierTopK); ok {
-				sample.UnionJS = metric.PresentFP(js)
-			}
-		}
-		samples = append(samples, sample)
+		workerValues = append(workerValues, metric.PositionValue{
+			TokenID: tokenID,
+			Logprob: worker.Logprob,
+			Rank:    workerRank,
+			TopK:    keys.orderedTopK(normalizeTopLogprobs(worker.TopLogprobs)),
+		})
+		verifierValues = append(verifierValues, verifier)
+	}
+	samples, err := metric.CompareSamples(workerValues, verifierValues, comparedTopK, missingLogprob)
+	if err != nil {
+		return singleSampleMetrics{}, nil, err
 	}
 
 	// The local verdict classifies from the SAME aggregation the submitted
@@ -1378,6 +1374,76 @@ func computeSingleSampleMetrics(
 	// and this is a projection of it - a second pass here is exactly how the
 	// number an operator reads and the number the Keeper judges start to differ.
 	return localMetricsFromAggregates(metric.AggregateFromSamples(samples, uint32(comparedTopK))), samples, nil
+}
+
+// promptTopLogprobsAt returns the verifier's finite prompt_logprobs at one
+// position, keyed by normalized token key.
+func promptTopLogprobsAt(rows []map[string]logprobEntry, position int) map[string]float64 {
+	if position < 0 || position >= len(rows) {
+		return nil
+	}
+	out := make(map[string]float64, len(rows[position]))
+	for key, entry := range rows[position] {
+		if !finite(entry.Logprob) {
+			continue
+		}
+		out[normalizeTokenKey(key)] = entry.Logprob
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// tokenKeyIDs turns the normalized string keys of a top-logprobs map into the
+// token ids metric.CompareSamples compares. A numeric key is its own id. vLLM
+// reports text keys when return_tokens_as_token_ids is off; those have no id,
+// so each distinct one is given a stand-in counting down from MaxUint32, shared
+// across both sides of one verify so equal text still compares equal.
+type tokenKeyIDs struct {
+	text map[string]uint32
+	next uint32
+}
+
+func newTokenKeyIDs() *tokenKeyIDs {
+	return &tokenKeyIDs{text: map[string]uint32{}, next: math.MaxUint32}
+}
+
+func (k *tokenKeyIDs) id(key string) uint32 {
+	if id, err := strconv.ParseUint(key, 10, 32); err == nil && strconv.FormatUint(id, 10) == key {
+		return uint32(id)
+	}
+	if id, ok := k.text[key]; ok {
+		return id
+	}
+	id := k.next
+	k.text[key] = id
+	k.next--
+	return id
+}
+
+// orderedTopK lists a normalized top-logprobs map in the order the previous
+// map-based comparison truncated it: logprob descending, then key ascending
+// as a string. Truncation to compared_top_k then keeps the same entries.
+func (k *tokenKeyIDs) orderedTopK(in map[string]float64) []metric.TokenLogprob {
+	if len(in) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(in))
+	for key := range in {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if in[keys[i]] == in[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return in[keys[i]] > in[keys[j]]
+	})
+	out := make([]metric.TokenLogprob, len(keys))
+	for i, key := range keys {
+		out[i] = metric.TokenLogprob{TokenID: k.id(key), Logprob: in[key]}
+	}
+	return out
 }
 
 // localMetricsFromAggregates projects the canonical aggregation into the local
@@ -1542,49 +1608,6 @@ func topLogprobsAt(rows []map[string]float64, position int) map[string]float64 {
 	return normalizeTopLogprobs(rows[position])
 }
 
-func promptTopLogprobsAt(rows []map[string]logprobEntry, position int) map[string]float64 {
-	if position < 0 || position >= len(rows) {
-		return nil
-	}
-	out := make(map[string]float64, len(rows[position]))
-	for key, entry := range rows[position] {
-		if !finite(entry.Logprob) {
-			continue
-		}
-		out[normalizeTokenKey(key)] = entry.Logprob
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func limitTopLogprobs(in map[string]float64, limit int) map[string]float64 {
-	in = normalizeTopLogprobs(in)
-	if len(in) == 0 || limit <= 0 || len(in) <= limit {
-		return in
-	}
-	type tokenScore struct {
-		token   string
-		logprob float64
-	}
-	scores := make([]tokenScore, 0, len(in))
-	for token, logprob := range in {
-		scores = append(scores, tokenScore{token: normalizeTokenKey(token), logprob: logprob})
-	}
-	sort.Slice(scores, func(i, j int) bool {
-		if scores[i].logprob == scores[j].logprob {
-			return scores[i].token < scores[j].token
-		}
-		return scores[i].logprob > scores[j].logprob
-	})
-	out := make(map[string]float64, limit)
-	for i := 0; i < limit && i < len(scores); i++ {
-		out[scores[i].token] = scores[i].logprob
-	}
-	return out
-}
-
 func recomputedEntryFor(tokenID int, position int, recomputed []map[string]logprobEntry) (logprobEntry, bool) {
 	if position < 0 || position >= len(recomputed) {
 		return logprobEntry{}, false
@@ -1659,85 +1682,6 @@ func normalizeTokenKey(key string) string {
 func tokenKeyCandidates(tokenID int) []string {
 	id := strconv.Itoa(tokenID)
 	return []string{id, "token_id:" + id, "token_id=" + id, "id:" + id, "id=" + id}
-}
-
-func topKJaccard(a, b map[string]float64) float64 {
-	a = normalizeTopLogprobs(a)
-	b = normalizeTopLogprobs(b)
-	if len(a) == 0 && len(b) == 0 {
-		return 1
-	}
-	union := make(map[string]struct{}, len(a)+len(b))
-	for key := range a {
-		union[normalizeTokenKey(key)] = struct{}{}
-	}
-	for key := range b {
-		union[normalizeTokenKey(key)] = struct{}{}
-	}
-	if len(union) == 0 {
-		return 1
-	}
-	intersection := 0
-	for key := range union {
-		_, inA := a[key]
-		_, inB := b[key]
-		if inA && inB {
-			intersection++
-		}
-	}
-	return float64(intersection) / float64(len(union))
-}
-
-func unionJSDivergence(a, b map[string]float64) (float64, bool) {
-	a = normalizeTopLogprobs(a)
-	b = normalizeTopLogprobs(b)
-	keys := make(map[string]struct{}, len(a)+len(b))
-	for key := range a {
-		keys[normalizeTokenKey(key)] = struct{}{}
-	}
-	for key := range b {
-		keys[normalizeTokenKey(key)] = struct{}{}
-	}
-	if len(keys) == 0 {
-		return 0, false
-	}
-	aProb, aOK := normalizedProbabilities(a, keys)
-	bProb, bOK := normalizedProbabilities(b, keys)
-	if !aOK || !bOK {
-		return 0, false
-	}
-	js := 0.0
-	for key := range keys {
-		p := aProb[key]
-		q := bProb[key]
-		m := 0.5 * (p + q)
-		if p > 0 {
-			js += 0.5 * p * math.Log(p/m)
-		}
-		if q > 0 {
-			js += 0.5 * q * math.Log(q/m)
-		}
-	}
-	return js, finite(js)
-}
-
-func normalizedProbabilities(logprobs map[string]float64, keys map[string]struct{}) (map[string]float64, bool) {
-	out := make(map[string]float64, len(keys))
-	total := 0.0
-	for key := range keys {
-		if logprob, ok := logprobs[key]; ok && finite(logprob) {
-			p := math.Exp(logprob)
-			out[key] = p
-			total += p
-		}
-	}
-	if total <= 0 || !finite(total) {
-		return nil, false
-	}
-	for key, value := range out {
-		out[key] = value / total
-	}
-	return out, true
 }
 
 func finite(v float64) bool {
