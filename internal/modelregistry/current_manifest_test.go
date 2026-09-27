@@ -148,3 +148,48 @@ func validCurrentManifestInput() CurrentManifestInput {
 			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
 	}
 }
+
+func TestCurrentManifestKeepsAValidManifestURIVerbatim(t *testing.T) {
+	input := validCurrentManifestInput()
+	input.ManifestURI = "https://models.trueopen.example/m/golden.json?rev=3&sig=AbC"
+	manifest, err := GenerateCurrentManifest(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.ManifestURI != input.ManifestURI || !strings.Contains(manifest.Canonical, `"manifest_uri":`) {
+		t.Fatalf("manifest_uri not kept: %q in %s", manifest.ManifestURI, manifest.Canonical)
+	}
+	if err := ValidateCurrentManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+	// manifest_uri is covered by the document hash.
+	manifest.ManifestURI = "https://models.trueopen.example/m/other.json"
+	if err := ValidateCurrentManifest(manifest); err == nil || !strings.Contains(err.Error(), "manifest_hash") {
+		t.Fatalf("changed manifest_uri was accepted: %v", err)
+	}
+}
+
+func TestCurrentManifestRejectsAnInvalidManifestURI(t *testing.T) {
+	for _, uri := range []string{
+		"http://models.trueopen.example/m.json",
+		" https://models.trueopen.example/m.json",
+		"https://models.trueopen.example/m.json#frag",
+		"https://Models.trueopen.example/m.json",
+		"ipfs://not-a-cid",
+		"https://models.trueopen.example/" + strings.Repeat("a", 2048),
+	} {
+		input := validCurrentManifestInput()
+		input.ManifestURI = uri
+		if _, err := GenerateCurrentManifest(input); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
+			t.Errorf("%.60q: %v", uri, err)
+		}
+		manifest, err := GenerateCurrentManifest(validCurrentManifestInput())
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.ManifestURI = uri
+		if err := ValidateCurrentManifest(manifest); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
+			t.Errorf("validate %.60q: %v", uri, err)
+		}
+	}
+}

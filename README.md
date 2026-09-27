@@ -472,7 +472,8 @@ Model registry:
 ```sh
 cp configs/model-profile.current.example.json profile.json
 bin/cortexctl model manifest generate --profile profile.json --version 1.0.0 \
-  --tokenizer tokenizer-v1 --model-service model-service-main --format json > model.json
+  --tokenizer tokenizer-v1 --model-service model-service-main \
+  --manifest-uri https://<your-host>/manifests/<model>.json --format json > model.json
 bin/cortexctl model manifest validate --manifest model.json
 bin/cortexctl model self-test --manifest model.json --format json
 bin/cortexctl model list
@@ -481,6 +482,14 @@ bin/cortexctl model show <model_id> --format json
 bin/cortexctl model support <model_id> --dry-run
 bin/cortexctl model daily-support <model_id> --dry-run
 ```
+
+`--manifest-uri` records where you host the full model manifest so other
+operators can fetch it. It is kept exactly as given and must be `https://` +
+a lowercase host (DNS name of at least two labels, or an IP literal) +
+optional `:port`, path and query, or `ipfs://` + a CIDv0 or lowercase base32
+CIDv1 + optional path; printable ASCII only, no userinfo or fragment, at most
+2048 bytes. It is validated now and will be submitted with the registration
+once the chain carries the field.
 
 Model/profile registration is an offline operator action and is intentionally
 not signed by cortexd. See [Model Registry Operations](docs/operations/model-registry.md)

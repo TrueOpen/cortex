@@ -34,10 +34,13 @@ type CurrentRegisterResult struct {
 	Status             string `json:"status"`
 	TxID               string `json:"tx_id,omitempty"`
 	DryRun             bool   `json:"dry_run"`
+	// ManifestURI is the validated manifest_uri from the manifest document.
+	// The registration message does not carry it yet.
+	ManifestURI string `json:"manifest_uri,omitempty"`
 }
 
 func (r *Registry) RegisterCurrent(ctx context.Context, req CurrentRegisterRequest) (CurrentRegisterResult, error) {
-	result := CurrentRegisterResult{ManifestHash: req.Manifest.Hash, DryRun: req.DryRun}
+	result := CurrentRegisterResult{ManifestHash: req.Manifest.Hash, DryRun: req.DryRun, ManifestURI: req.Manifest.ManifestURI}
 	if err := ValidateCurrentManifest(req.Manifest); err != nil {
 		return result, err
 	}

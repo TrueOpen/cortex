@@ -419,7 +419,7 @@ func newModelSupportCommand(client clientFactory, stdout io.Writer, daily bool) 
 
 func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Command {
 	root := helpOnEmpty("manifest", "Generate, validate and fetch model manifests")
-	var profilePath, version, tokenizer, modelServiceID, metadata string
+	var profilePath, version, tokenizer, modelServiceID, metadata, manifestURI string
 	generate := &cobra.Command{Use: "generate", Short: "Generate a manifest", Args: cobra.NoArgs}
 	generateFormat := newFormatFlag(generate, "json")
 	generate.Flags().StringVar(&profilePath, "profile", "", "current ModelProfileProjection ProtoJSON path")
@@ -427,6 +427,7 @@ func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Comm
 	generate.Flags().StringVar(&tokenizer, "tokenizer", "", "tokenizer identifier")
 	generate.Flags().StringVar(&modelServiceID, "model-service", "", "model service id")
 	generate.Flags().StringVar(&metadata, "metadata", "", "comma-separated key=value operator metadata")
+	generate.Flags().StringVar(&manifestURI, "manifest-uri", "", "https:// or ipfs:// URI where the full model manifest is hosted, kept exactly as given")
 	generate.RunE = func(cmd *cobra.Command, _ []string) error {
 		if profilePath == "" {
 			return errors.New("--profile is required")
@@ -436,7 +437,8 @@ func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Comm
 			return err
 		}
 		value, err := client().CurrentModelManifestGenerate(cmd.Context(), modelregistry.CurrentManifestInput{
-			Version: version, Tokenizer: tokenizer, ModelServiceID: modelServiceID, Metadata: parseMetadata(metadata), Profile: profile,
+			Version: version, Tokenizer: tokenizer, ModelServiceID: modelServiceID, Metadata: parseMetadata(metadata),
+			ManifestURI: manifestURI, Profile: profile,
 		})
 		if err != nil {
 			return err

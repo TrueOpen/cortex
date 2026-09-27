@@ -369,6 +369,30 @@ func TestModelManifestGenerateAcceptsCurrentProjectionFile(t *testing.T) {
 	}
 }
 
+func TestModelManifestGeneratePassesTheManifestURIThrough(t *testing.T) {
+	socketPath := startTestAdminServer(t)
+	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
+	profilePath := writeCurrentProfile(t)
+	args := func(uri string) []string {
+		return []string{
+			"model", "manifest", "generate", "--format", "json", "--profile", profilePath,
+			"--version", "v1", "--tokenizer", "tok", "--model-service", "svc", "--manifest-uri", uri,
+		}
+	}
+
+	var stdout bytes.Buffer
+	if err := run(args("ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/m.json"), &stdout); err != nil {
+		t.Fatalf("manifest generate returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"manifest_uri": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/m.json"`) {
+		t.Fatalf("manifest_uri missing from %s", stdout.String())
+	}
+	stdout.Reset()
+	if err := run(args("http://models.example/m.json"), &stdout); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
+		t.Fatalf("http manifest_uri was accepted: %v", err)
+	}
+}
+
 func TestSupportProducesOperatorOnlyIntentWithoutMutatingDaemonState(t *testing.T) {
 	socketPath := startTestAdminServer(t)
 	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
