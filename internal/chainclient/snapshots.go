@@ -175,7 +175,6 @@ type ModelSnapshot struct {
 	TotalRegistrationFeePaid Uint64String `json:"total_registration_fee_paid"`
 	ConfirmedWorkerCount     Uint64String `json:"confirmed_worker_count"`
 	LastStatusChangeHeight   Uint64String `json:"last_status_change_height"`
-	ActiveProfileCount       Uint64String `json:"active_profile_count"`
 	StatusSource             string       `json:"status_source"`
 }
 
@@ -230,7 +229,6 @@ type CurrentModelSnapshot struct {
 	ModelID              string         `json:"model_id"`
 	ProposerAddress      string         `json:"proposer_address"`
 	Status               string         `json:"status"`
-	ActiveProfileCount   uint32         `json:"active_profile_count"`
 	LatestProfileVersion ProfileVersion `json:"latest_profile_version"`
 	StatusSource         string         `json:"status_source"`
 	RegistrationFeePaid  Uint64String   `json:"registration_fee_paid"`

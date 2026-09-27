@@ -132,6 +132,7 @@ type GenesisState struct {
 	TreasurySpendEpochs              []*TreasurySpendEpochState              `protobuf:"bytes,102,rep,name=treasury_spend_epochs,json=treasurySpendEpochs,proto3" json:"treasury_spend_epochs,omitempty"`
 	TreasurySpendRecipientEpochs     []*TreasurySpendRecipientEpochState     `protobuf:"bytes,103,rep,name=treasury_spend_recipient_epochs,json=treasurySpendRecipientEpochs,proto3" json:"treasury_spend_recipient_epochs,omitempty"`
 	TreasurySpendEpochCleanupCursors []*TreasurySpendEpochCleanupCursorState `protobuf:"bytes,104,rep,name=treasury_spend_epoch_cleanup_cursors,json=treasurySpendEpochCleanupCursors,proto3" json:"treasury_spend_epoch_cleanup_cursors,omitempty"`
+	ModelSupportDeactivateCursors    []*ModelSupportDeactivateCursorState    `protobuf:"bytes,105,rep,name=model_support_deactivate_cursors,json=modelSupportDeactivateCursors,proto3" json:"model_support_deactivate_cursors,omitempty"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -579,11 +580,18 @@ func (x *GenesisState) GetTreasurySpendEpochCleanupCursors() []*TreasurySpendEpo
 	return nil
 }
 
+func (x *GenesisState) GetModelSupportDeactivateCursors() []*ModelSupportDeactivateCursorState {
+	if x != nil {
+		return x.ModelSupportDeactivateCursors
+	}
+	return nil
+}
+
 var File_hub_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x11amino/amino.proto\x1a\x14gogoproto/gogo.proto\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xe6(\n" +
+	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x11amino/amino.proto\x1a\x14gogoproto/gogo.proto\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xe0)\n" +
 	"\fGenesisState\x126\n" +
 	"\x06params\x18\x01 \x01(\v2\x13.hub.v1.HubParamsV2B\t\xc8\xde\x1f\x00\xa8\xe7\xb0*\x01R\x06params\x12F\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1a.hub.v1.HubParamsMetaStateB\t\xc8\xde\x1f\x00\xa8\xe7\xb0*\x01R\n" +
@@ -646,7 +654,8 @@ const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\x18treasury_spend_proposals\x18e \x03(\v2\".hub.v1.TreasurySpendProposalStateB\x04\xc8\xde\x1f\x00R\x16treasurySpendProposals\x12Y\n" +
 	"\x15treasury_spend_epochs\x18f \x03(\v2\x1f.hub.v1.TreasurySpendEpochStateB\x04\xc8\xde\x1f\x00R\x13treasurySpendEpochs\x12u\n" +
 	"\x1ftreasury_spend_recipient_epochs\x18g \x03(\v2(.hub.v1.TreasurySpendRecipientEpochStateB\x04\xc8\xde\x1f\x00R\x1ctreasurySpendRecipientEpochs\x12\x82\x01\n" +
-	"$treasury_spend_epoch_cleanup_cursors\x18h \x03(\v2,.hub.v1.TreasurySpendEpochCleanupCursorStateB\x04\xc8\xde\x1f\x00R treasurySpendEpochCleanupCursorsJ\x04\b\x17\x10\x18R\x15builder_contributionsB&Z$github.com/TrueOpen/node/x/hub/typesb\x06proto3"
+	"$treasury_spend_epoch_cleanup_cursors\x18h \x03(\v2,.hub.v1.TreasurySpendEpochCleanupCursorStateB\x04\xc8\xde\x1f\x00R treasurySpendEpochCleanupCursors\x12x\n" +
+	" model_support_deactivate_cursors\x18i \x03(\v2).hub.v1.ModelSupportDeactivateCursorStateB\x04\xc8\xde\x1f\x00R\x1dmodelSupportDeactivateCursorsJ\x04\b\x17\x10\x18R\x15builder_contributionsB&Z$github.com/TrueOpen/node/x/hub/typesb\x06proto3"
 
 var (
 	file_hub_v1_genesis_proto_rawDescOnce sync.Once
@@ -722,6 +731,7 @@ var file_hub_v1_genesis_proto_goTypes = []any{
 	(*TreasurySpendEpochState)(nil),              // 57: hub.v1.TreasurySpendEpochState
 	(*TreasurySpendRecipientEpochState)(nil),     // 58: hub.v1.TreasurySpendRecipientEpochState
 	(*TreasurySpendEpochCleanupCursorState)(nil), // 59: hub.v1.TreasurySpendEpochCleanupCursorState
+	(*ModelSupportDeactivateCursorState)(nil),    // 60: hub.v1.ModelSupportDeactivateCursorState
 }
 var file_hub_v1_genesis_proto_depIdxs = []int32{
 	1,  // 0: hub.v1.GenesisState.params:type_name -> hub.v1.HubParamsV2
@@ -783,11 +793,12 @@ var file_hub_v1_genesis_proto_depIdxs = []int32{
 	57, // 56: hub.v1.GenesisState.treasury_spend_epochs:type_name -> hub.v1.TreasurySpendEpochState
 	58, // 57: hub.v1.GenesisState.treasury_spend_recipient_epochs:type_name -> hub.v1.TreasurySpendRecipientEpochState
 	59, // 58: hub.v1.GenesisState.treasury_spend_epoch_cleanup_cursors:type_name -> hub.v1.TreasurySpendEpochCleanupCursorState
-	59, // [59:59] is the sub-list for method output_type
-	59, // [59:59] is the sub-list for method input_type
-	59, // [59:59] is the sub-list for extension type_name
-	59, // [59:59] is the sub-list for extension extendee
-	0,  // [0:59] is the sub-list for field type_name
+	60, // 59: hub.v1.GenesisState.model_support_deactivate_cursors:type_name -> hub.v1.ModelSupportDeactivateCursorState
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_genesis_proto_init() }

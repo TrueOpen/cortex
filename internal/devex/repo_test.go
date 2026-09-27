@@ -225,9 +225,9 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"d59f0608738a36a52c6ef1dfd8c5e40bfa1b4a85",
-		"e584422a7c2e4215576aaf6b7733591338d95f866f2c3350a6c89cc28402c569",
-		"proto/testdata/wire-v0.3.0-rc.2.binpb",
+		"908c1f67882ce6b0e143e097c9e7f1f67650174f",
+		"d0c240eb9b1ca57ad645721dd0b23db1c4510901bdad18759ddbaf58b51460b9",
+		"proto/testdata/wire-v0.3.0.binpb",
 		"protoc-gen-go",
 		"make proto-gen-chain",
 		"make proto-drift-chain",

@@ -65,8 +65,7 @@ func newProfileABCIServer(t testing.TB) *httptest.Server {
 	}
 	modelResponse := &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
 		ModelId: bytes32, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
-		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1,
-		LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
+		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
 		CreatedHeight: 40, UpdatedHeight: 41,
 	}}
 	profileResponse := &hubv1.QueryProfileResponse{Profile: &hubv1.ProfileState{

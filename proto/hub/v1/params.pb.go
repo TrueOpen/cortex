@@ -337,8 +337,14 @@ type SupportParamsV1 struct {
 	MaxModelSupportPruneItemsPerBlock    uint32                 `protobuf:"varint,11,opt,name=max_model_support_prune_items_per_block,json=maxModelSupportPruneItemsPerBlock,proto3" json:"max_model_support_prune_items_per_block,omitempty"`
 	MaxSupportExpiryItemsPerBlock        uint32                 `protobuf:"varint,12,opt,name=max_support_expiry_items_per_block,json=maxSupportExpiryItemsPerBlock,proto3" json:"max_support_expiry_items_per_block,omitempty"`
 	MaxModelSupportRecheckItemsPerBlock  uint32                 `protobuf:"varint,13,opt,name=max_model_support_recheck_items_per_block,json=maxModelSupportRecheckItemsPerBlock,proto3" json:"max_model_support_recheck_items_per_block,omitempty"`
-	unknownFields                        protoimpl.UnknownFields
-	sizeCache                            protoimpl.SizeCache
+	// max_model_support_deactivate_items_per_block bounds per-block visited
+	// count for the ModelSupportDeactivateCursorState sweep that runs after a
+	// model transitions to FROZEN or DELISTED, deactivating its
+	// ModelSupportState rows. Independent budget from field 13; the two
+	// cursors never run for the same model_id at the same time.
+	MaxModelSupportDeactivateItemsPerBlock uint32 `protobuf:"varint,14,opt,name=max_model_support_deactivate_items_per_block,json=maxModelSupportDeactivateItemsPerBlock,proto3" json:"max_model_support_deactivate_items_per_block,omitempty"`
+	unknownFields                          protoimpl.UnknownFields
+	sizeCache                              protoimpl.SizeCache
 }
 
 func (x *SupportParamsV1) Reset() {
@@ -458,6 +464,13 @@ func (x *SupportParamsV1) GetMaxSupportExpiryItemsPerBlock() uint32 {
 func (x *SupportParamsV1) GetMaxModelSupportRecheckItemsPerBlock() uint32 {
 	if x != nil {
 		return x.MaxModelSupportRecheckItemsPerBlock
+	}
+	return 0
+}
+
+func (x *SupportParamsV1) GetMaxModelSupportDeactivateItemsPerBlock() uint32 {
+	if x != nil {
+		return x.MaxModelSupportDeactivateItemsPerBlock
 	}
 	return 0
 }
@@ -1930,7 +1943,7 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	"\rEpochParamsV1\x12.\n" +
 	"\x13epoch_length_blocks\x18\x01 \x01(\x04R\x11epochLengthBlocks\x12$\n" +
 	"\x0edelta_w_blocks\x18\x02 \x01(\x04R\fdeltaWBlocks\x12$\n" +
-	"\x0edelta_m_blocks\x18\x03 \x01(\x04R\fdeltaMBlocks:\x04\xe8\xa0\x1f\x01\"\xcf\a\n" +
+	"\x0edelta_m_blocks\x18\x03 \x01(\x04R\fdeltaMBlocks:\x04\xe8\xa0\x1f\x01\"\xad\b\n" +
 	"\x0fSupportParamsV1\x122\n" +
 	"\x15support_window_epochs\x18\x01 \x01(\rR\x13supportWindowEpochs\x12;\n" +
 	"\x1aactive_supporter_min_count\x18\x02 \x01(\rR\x17activeSupporterMinCount\x12A\n" +
@@ -1945,7 +1958,8 @@ const file_hub_v1_params_proto_rawDesc = "" +
 	" \x01(\rR\x1emodelSupportRowRetentionEpochs\x12R\n" +
 	"'max_model_support_prune_items_per_block\x18\v \x01(\rR!maxModelSupportPruneItemsPerBlock\x12I\n" +
 	"\"max_support_expiry_items_per_block\x18\f \x01(\rR\x1dmaxSupportExpiryItemsPerBlock\x12V\n" +
-	")max_model_support_recheck_items_per_block\x18\r \x01(\rR#maxModelSupportRecheckItemsPerBlock:\x04\xe8\xa0\x1f\x01\"\xb4\x05\n" +
+	")max_model_support_recheck_items_per_block\x18\r \x01(\rR#maxModelSupportRecheckItemsPerBlock\x12\\\n" +
+	",max_model_support_deactivate_items_per_block\x18\x0e \x01(\rR&maxModelSupportDeactivateItemsPerBlock:\x04\xe8\xa0\x1f\x01\"\xb4\x05\n" +
 	"\rModelParamsV1\x12[\n" +
 	"\x1bsupported_tool_call_parsers\x18\x01 \x03(\v2\x16.shared.v1.ParserRefV1B\x04\xc8\xde\x1f\x00R\x18supportedToolCallParsers\x12\\\n" +
 	"\x1bsupported_reasoning_parsers\x18\x02 \x03(\v2\x16.shared.v1.ParserRefV1B\x04\xc8\xde\x1f\x00R\x19supportedReasoningParsers\x12D\n" +

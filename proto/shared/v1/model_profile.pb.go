@@ -1496,10 +1496,10 @@ const file_shared_v1_model_profile_proto_rawDesc = "" +
 	"source_uri\x18\x01 \x01(\tR\tsourceUri\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12)\n" +
 	"\x10resolver_version\x18\x03 \x01(\tR\x0fresolverVersion\x12\x1b\n" +
-	"\trepo_type\x18\x04 \x01(\tR\brepoType\";\n" +
+	"\trepo_type\x18\x04 \x01(\tR\brepoType\"A\n" +
 	"\vParserRefV1\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\rR\aversion\"\xd3\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion:\x04\xe8\xa0\x1f\x01\"\xd3\n" +
 	"\n" +
 	"\x16ModelProfileProjection\x12\x1f\n" +
 	"\bmodel_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\amodelId\x12'\n" +

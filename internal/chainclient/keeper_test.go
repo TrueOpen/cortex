@@ -187,10 +187,10 @@ func TestKeeperABCIClientQueriesModelByHash32(t *testing.T) {
 		}
 		return &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
 			ModelId: rawModelID, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
-			Status:             hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
-			ActiveProfileCount: 1, LatestProfileVersion: 2,
-			StatusSource:        hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
-			RegistrationFeePaid: 100, CreatedHeight: 40, UpdatedHeight: 41,
+			Status:               hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
+			LatestProfileVersion: 2,
+			StatusSource:         hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
+			RegistrationFeePaid:  100, CreatedHeight: 40, UpdatedHeight: 41,
 		}}, 0, ""
 	})
 	defer server.Close()
@@ -220,8 +220,7 @@ func TestKeeperABCIClientReadsCurrentProfileTypedEvidenceSchema(t *testing.T) {
 			mustUnmarshalProto(t, data, &request)
 			return &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
 				ModelId: request.ModelId, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
-				Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1,
-				LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
+				Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
 				CreatedHeight: 40, UpdatedHeight: 41,
 			}}, 0, ""
 		case hubQuery + "Profile":
@@ -897,7 +896,7 @@ func mustUnmarshalProto(t testing.TB, data []byte, message proto.Message) {
 func modelsTestModel(id byte, provider, repo string) *hubv1.ModelState {
 	return &hubv1.ModelState{
 		ModelId: bytes.Repeat([]byte{id}, 32), ProposerAddress: "trueopen1proposer", Provider: provider, RepoId: repo,
-		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1, LatestProfileVersion: 1,
+		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, LatestProfileVersion: 1,
 		StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT, CreatedHeight: 40, UpdatedHeight: 41,
 	}
 }
