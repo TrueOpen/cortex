@@ -119,6 +119,28 @@ func (r receivingBuilders) ResolveReceivingBuilders(
 	ctx context.Context,
 	task worker.ReceivingBuilderRef,
 ) ([]worker.BuilderEndpoint, error) {
+	return r.resolveAll(ctx, task, r.endpoints.ResolveBuilderEndpoint)
+}
+
+// RefreshReceivingBuilders re-reads every Task Builder's descriptor past the
+// cache (worker.ReceivingBuildersRefresher). The evidence upload now talks to
+// Builders the single-Builder refresh cannot name, and ADR-0015 applies to them
+// the same way: a rotated certificate is recoverable only by re-reading.
+func (r receivingBuilders) RefreshReceivingBuilders(
+	ctx context.Context,
+	task worker.ReceivingBuilderRef,
+) ([]worker.BuilderEndpoint, error) {
+	if refresher, ok := r.endpoints.(BuilderEndpointRefresher); ok {
+		return r.resolveAll(ctx, task, refresher.RefreshBuilderEndpoint)
+	}
+	return r.resolveAll(ctx, task, r.endpoints.ResolveBuilderEndpoint)
+}
+
+func (r receivingBuilders) resolveAll(
+	ctx context.Context,
+	task worker.ReceivingBuilderRef,
+	lookup func(context.Context, string) (BuilderEndpoint, error),
+) ([]worker.BuilderEndpoint, error) {
 	if r.selection == nil {
 		return nil, fmt.Errorf("resolving every Task Builder requires a Keeper that can serve TaskBuilders")
 	}
@@ -128,7 +150,7 @@ func (r receivingBuilders) ResolveReceivingBuilders(
 	}
 	endpoints := make([]worker.BuilderEndpoint, 0, len(operators))
 	for _, operator := range operators {
-		endpoint, err := r.resolveOperator(ctx, task, operator, r.endpoints.ResolveBuilderEndpoint)
+		endpoint, err := r.resolveOperator(ctx, task, operator, lookup)
 		if err != nil {
 			return nil, err
 		}

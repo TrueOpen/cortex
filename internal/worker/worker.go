@@ -1065,30 +1065,33 @@ func (w *Worker) persistCanonicalReceipt(ctx context.Context, prepared *produced
 	})
 }
 
+// relayReceiptAndUpload puts this task's result in every Task Builder's hands.
+//
+// Steps that happen once for the task are separated from steps that happen once
+// per Builder, because only the first kind is genuinely shared. data-ready is a
+// per-Builder judgement made from that Builder's own complete local copy
+// (04-任务/02 §257), so a Builder that never received the evidence never becomes
+// data-ready, never sends OPEN_VERIFY and never proposes a Verifier, no matter
+// what the other two hold. Uploading to one Builder therefore made the task
+// depend on it and left the 2-of-3 redundancy the data plane assumes absent.
+//
+// Once per task: the Fin that terminates the output stream (already fanned out,
+// see openOutputStream) and the receipt relay, which only has to reach the chain
+// once -- a second relay of the same signed receipt is a duplicate submission,
+// not a second guarantee. Every Builder still receives the receipt itself: it
+// travels inside the FinalizeTaskResult request that needs it.
+//
+// Once per Builder: the evidence artifacts, the bundle manifests, and one
+// FinalizeTaskResult per Worker evidence kind.
+//
+// One Builder failing does not stop the others, and the relay succeeds as long
+// as one Builder finalized. That floor is what the single-Builder path already
+// required -- exactly one -- so nothing that completes today stops completing,
+// while the normal case leaves all three able to drive the task. A Builder that
+// failed leaves no storage confirmation behind, so confirmedBuilders makes a
+// later re-entry retry precisely those and skip the rest.
 func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, receipt builderclient.SignedInferReceipt) error {
 	ref := receivingBuilderRef(event)
-	endpoint, err := w.receivingBuilder(ctx, ref)
-	if err != nil {
-		return err
-	}
-	err = w.relayReceiptAndUploadTo(ctx, event, output, receipt, ref, endpoint)
-	if !errors.Is(err, builderclient.ErrTLSPubkeyMismatch) {
-		return err
-	}
-	// ADR-0015: the Builder changed certificates and the locally cached fingerprint is
-	// stale -> re-read the descriptor, and try once more if the fingerprint changed.
-	fresh, refreshErr := w.refreshReceivingBuilder(ctx, ref)
-	if refreshErr != nil || fresh.TLSPubkeyHash == endpoint.TLSPubkeyHash {
-		return err
-	}
-	return w.relayReceiptAndUploadTo(ctx, event, output, receipt, ref, fresh)
-}
-
-// relayReceiptAndUploadTo relays the receipt to an already-resolved receiving Builder
-// and uploads the output; ctx checks the certificate against that Builder's
-// fingerprint.
-func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, receipt builderclient.SignedInferReceipt, ref ReceivingBuilderRef, endpoint BuilderEndpoint) error {
-	ctx = builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash)
 	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
 	if err != nil {
 		return err
@@ -1114,9 +1117,104 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 	if err := w.ensureOutputStreamStored(ctx, event, receipt); err != nil {
 		return err
 	}
-	if err := w.cfg.TaskData.SubmitInferReceipt(ctx, endpoint.Endpoint, builderclient.SubmitInferReceiptRequest{Receipt: receipt}); err != nil {
+	// The relay target is the seam's single-Builder answer, not a member picked
+	// out of the list: which Builder relays a receipt onward is exactly the
+	// question ResolveReceivingBuilder exists to answer, and a provider that
+	// redirects it has to keep being obeyed.
+	relay, err := w.receivingBuilder(ctx, ref)
+	if err != nil {
 		return err
 	}
+	if err := w.submitInferReceipt(ctx, ref, receipt, relay); err != nil {
+		return err
+	}
+	// Resolved after the relay, not before: a relay that hit a stale fingerprint
+	// has just re-read the descriptor, and resolving earlier would send every
+	// upload to the pin that was already known to be wrong.
+	builders, err := w.receivingBuilders(ctx, ref)
+	if err != nil {
+		return err
+	}
+	confirmations, err := w.cfg.Persistence.StorageConfirmations(ctx, event.TaskID)
+	if err != nil {
+		return err
+	}
+	done, err := w.confirmedBuilders(ctx, event, receipt, builders, confirmations)
+	if err != nil {
+		return err
+	}
+	var (
+		finalized []string
+		failures  []error
+	)
+	for _, builder := range builders {
+		if done[builder.OperatorAddress] {
+			finalized = append(finalized, builder.OperatorAddress)
+			continue
+		}
+		if err := w.finalizeOnBuilder(ctx, event, output, receipt, ref, builder, bundles); err != nil {
+			failures = append(failures, fmt.Errorf("finalize task result on Task Builder %s: %w", builder.OperatorAddress, err))
+			continue
+		}
+		finalized = append(finalized, builder.OperatorAddress)
+	}
+	if len(finalized) == 0 {
+		return errors.Join(failures...)
+	}
+	for _, failure := range failures {
+		// Reported, not returned: the task can proceed on the Builders that did
+		// finalize, and an operator still has to be able to see that this node
+		// left a Builder without the material it needs to become data-ready.
+		w.cfg.Trace.Event("task_result_finalize_refused", tasktrace.Str("task", event.TaskID), tasktrace.Str("error", failure.Error()))
+	}
+	w.cfg.Trace.Event("task_result_finalized", tasktrace.Str("task", event.TaskID), tasktrace.Hex("output_hash", receipt.OutputHash),
+		tasktrace.Hash("worker_value_manifest_hash", evidencebundle.Hash(bundles[0].manifest)), tasktrace.Hash("worker_token_manifest_hash", evidencebundle.Hash(bundles[1].manifest)),
+		tasktrace.Uint("output_size_bytes", receipt.OutputSizeBytes),
+		tasktrace.Str("task_builders", strings.Join(finalized, ",")),
+		tasktrace.Int("task_builders_finalized", len(finalized)), tasktrace.Int("task_builders_total", len(builders)))
+	return nil
+}
+
+// submitInferReceipt relays the signed receipt through the one Builder that
+// carries it to the chain, retrying once past the descriptor cache when that
+// Builder has rotated its certificate (ADR-0015).
+func (w *Worker) submitInferReceipt(ctx context.Context, ref ReceivingBuilderRef, receipt builderclient.SignedInferReceipt, relay BuilderEndpoint) error {
+	submit := func(endpoint BuilderEndpoint) error {
+		return w.cfg.TaskData.SubmitInferReceipt(
+			builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint,
+			builderclient.SubmitInferReceiptRequest{Receipt: receipt})
+	}
+	err := submit(relay)
+	if !errors.Is(err, builderclient.ErrTLSPubkeyMismatch) {
+		return err
+	}
+	fresh, refreshErr := w.refreshReceivingBuilder(ctx, ref)
+	if refreshErr != nil || fresh.TLSPubkeyHash == relay.TLSPubkeyHash {
+		return err
+	}
+	return submit(fresh)
+}
+
+// finalizeOnBuilder stages and finalizes this task's evidence on one Task
+// Builder, retrying once past the descriptor cache when that Builder has
+// rotated its certificate (ADR-0015).
+func (w *Worker) finalizeOnBuilder(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, receipt builderclient.SignedInferReceipt, ref ReceivingBuilderRef, builder BuilderEndpoint, bundles []workerBundle) error {
+	err := w.finalizeOnBuilderAt(ctx, event, output, receipt, ref, builder, bundles)
+	if !errors.Is(err, builderclient.ErrTLSPubkeyMismatch) {
+		return err
+	}
+	fresh, refreshErr := w.refreshReceivingBuilderFor(ctx, ref, builder.OperatorAddress)
+	if refreshErr != nil || fresh.TLSPubkeyHash == builder.TLSPubkeyHash {
+		return err
+	}
+	return w.finalizeOnBuilderAt(ctx, event, output, receipt, ref, fresh, bundles)
+}
+
+// finalizeOnBuilderAt uploads the evidence to one already-resolved Task Builder
+// and closes each Worker evidence kind on it; dialCtx checks the certificate
+// against that Builder's fingerprint.
+func (w *Worker) finalizeOnBuilderAt(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, receipt builderclient.SignedInferReceipt, ref ReceivingBuilderRef, endpoint BuilderEndpoint, bundles []workerBundle) error {
+	dialCtx := builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash)
 	outputKey := builderclient.TaskDataKey{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput, ContentHash: receipt.OutputHash}
 	// Each bundle is staged and finalized on its own: a finalize closes exactly
 	// one Worker evidence kind, and the Builder re-derives that kind's
@@ -1125,7 +1223,7 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 	for _, bundle := range bundles {
 		for _, artifact := range bundle.decoded.Artifacts {
 			key := builderclient.EvidenceObjectKey(receipt.TaskHash, event.SessionID, event.TaskID, builderclient.DataKindEvidenceArtifact, artifact.ContentHash, builderclient.EvidenceProducerWorker, 1, w.cfg.WorkerAddress, bundle.kind)
-			if err := w.stageObject(ctx, endpoint, key, "", bundle.artifacts[artifact.ID]); err != nil {
+			if err := w.stageObject(dialCtx, endpoint, key, "", bundle.artifacts[artifact.ID]); err != nil {
 				return err
 			}
 		}
@@ -1133,7 +1231,7 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 		if err != nil {
 			return err
 		}
-		if err := w.stageObject(ctx, endpoint, bundleKey, "", bundle.manifest); err != nil {
+		if err := w.stageObject(dialCtx, endpoint, bundleKey, "", bundle.manifest); err != nil {
 			return err
 		}
 		request := builderclient.FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Receipt: receipt, EvidenceKind: bundle.kind}
@@ -1141,15 +1239,19 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 		if err != nil {
 			return err
 		}
-		request.Auth, err = w.cfg.TaskDataAuth.SignRequest(ctx, "FinalizeTaskResult", outputKey, endpoint.OperatorAddress, digest)
+		request.Auth, err = w.cfg.TaskDataAuth.SignRequest(dialCtx, "FinalizeTaskResult", outputKey, endpoint.OperatorAddress, digest)
 		if err != nil {
 			return err
 		}
-		finalized, err := w.cfg.TaskData.FinalizeTaskResult(ctx, endpoint.Endpoint, request)
+		finalized, err := w.cfg.TaskData.FinalizeTaskResult(dialCtx, endpoint.Endpoint, request)
 		if err != nil {
 			return err
 		}
-		current, err := w.receivingBuilder(ctx, ref)
+		// Resolved by operator rather than by "the assigned Builder": this
+		// confirmation was signed by the Builder the loop is on, and verifying it
+		// against another member's service key would reject every honest
+		// confirmation the other two return.
+		current, err := w.currentReceivingBuilder(ctx, ref, endpoint.OperatorAddress)
 		if err != nil {
 			return err
 		}
@@ -1162,7 +1264,9 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 				key, size, total = bundleKey, uint64(len(bundle.manifest)), bundle.decoded.TotalSize()
 			}
 			// Every confirmation is verified, including the output one each
-			// later finalize repeats; only its first copy is recorded.
+			// later finalize repeats; only its first copy is recorded. "First"
+			// is per Builder: records is this Builder's alone, so each of them
+			// still contributes its own output confirmation.
 			hash, err := verifyStorageConfirmation(c, w.cfg.ChainID, key, key.ContentHash, size, current)
 			if err != nil {
 				return err
@@ -1176,14 +1280,14 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 			records = append(records, StorageConfirmationCheckpoint{TaskID: event.TaskID, DataKind: key.Kind.String(), BuilderOperator: c.BuilderOperator, MaterialDigest: hash.String(), SemanticHash: key.ContentHash, SizeBytes: size, RetentionUntilHeight: c.RetentionUntilHeight, Signature: append([]byte(nil), c.Signature...), BuilderServicePubkey: current.ServicePubkey, VerifiedAt: time.Now().UTC(), Confirmation: &c})
 		}
 	}
+	// Persisted only once this Builder's whole set verified. A half-written set
+	// would read back as a Builder that still owes material, which is the same
+	// thing a failure reads as, and re-uploading to it is harmless.
 	for _, record := range records {
 		if err := w.cfg.Persistence.CheckpointStorageConfirmation(ctx, record); err != nil {
 			return err
 		}
 	}
-	w.cfg.Trace.Event("task_result_finalized", tasktrace.Str("task", event.TaskID), tasktrace.Hex("output_hash", receipt.OutputHash),
-		tasktrace.Hash("worker_value_manifest_hash", evidencebundle.Hash(bundles[0].manifest)), tasktrace.Hash("worker_token_manifest_hash", evidencebundle.Hash(bundles[1].manifest)),
-		tasktrace.Uint("output_size_bytes", receipt.OutputSizeBytes))
 	return nil
 }
 
@@ -1625,21 +1729,64 @@ func (w *Worker) resultFromReceipt(ctx context.Context, taskID string, receipt b
 
 // Recovery uses the service identity verified when each confirmation arrived.
 // Later key rotation does not invalidate that retained storage commitment.
+// confirmedStorageObjects reports whether the relay can be skipped entirely,
+// which is only true once every Task Builder holds the whole set. Anything less
+// leaves at least one Builder unable to reach data-ready, and re-entering the
+// relay is how it gets the rest: the Builders already done are skipped there
+// too, by the same confirmedBuilders read.
 func (w *Worker) confirmedStorageObjects(ctx context.Context, event chainclient.AssignmentFinalized, receipt builderclient.SignedInferReceipt, confirmations []StorageConfirmationCheckpoint) (bool, error) {
 	if len(confirmations) == 0 {
 		return false, nil
 	}
+	builders, err := w.receivingBuilders(ctx, receivingBuilderRef(event))
+	if err != nil {
+		// The Task Builder list cannot be read, so the relay this gate guards
+		// could not have run either. Fall back to the floor the relay itself
+		// applies: one Builder holding the complete set is enough for the task
+		// to go on. Failing here instead would strand a node whose material is
+		// already stored and verified, over a list it only needed in order to
+		// find out whether anything was left to retry.
+		done, doneErr := w.confirmedBuilders(ctx, event, receipt, nil, confirmations)
+		if doneErr != nil {
+			return false, err
+		}
+		return len(done) > 0, nil
+	}
+	done, err := w.confirmedBuilders(ctx, event, receipt, builders, confirmations)
+	if err != nil {
+		return false, err
+	}
+	return len(done) == len(builders), nil
+}
+
+// confirmedBuilders reports which Task Builders already hold a complete set of
+// signed storage confirmations that still verifies under their retained service
+// identity.
+//
+// It is both the resume gate and the per-Builder skip inside the relay. A
+// Builder whose upload failed left no confirmation behind, so it is absent here
+// and is exactly the one a re-entry retries; a Builder that succeeded is not
+// uploaded to twice.
+//
+// A nil builders list means "do not filter by membership" and is only for the
+// caller that could not read the list at all; every other caller passes the
+// task's frozen selection.
+func (w *Worker) confirmedBuilders(ctx context.Context, event chainclient.AssignmentFinalized, receipt builderclient.SignedInferReceipt, builders []BuilderEndpoint, confirmations []StorageConfirmationCheckpoint) (map[string]bool, error) {
+	done := map[string]bool{}
+	if len(confirmations) == 0 {
+		return done, nil
+	}
 	_, currentHeight, err := w.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
 	if err != nil {
-		return false, fmt.Errorf("read committed height for retained storage confirmation: %w", err)
+		return nil, fmt.Errorf("read committed height for retained storage confirmation: %w", err)
 	}
 	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	bundles, err := w.readWorkerBundles(ctx, event, receipt, descriptor)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	outputKey := builderclient.TaskDataKey{TaskHash: receipt.TaskHash, SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput, ContentHash: receipt.OutputHash}
 	type expected struct {
@@ -1650,14 +1797,29 @@ func (w *Worker) confirmedStorageObjects(ctx context.Context, event chainclient.
 	for _, bundle := range bundles {
 		key, err := workerBundleKey(receipt, event.SessionID, event.TaskID, bundle.kind)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		want = append(want, expected{key: key, size: uint64(len(bundle.manifest)), total: bundle.decoded.TotalSize()})
 	}
-	confirmed := make([]bool, len(want))
+	// Only members of the task's frozen selection count. A retained confirmation
+	// from an operator no longer in it proves nothing about the Builders that
+	// have to become data-ready, and must not stand in for one of them.
+	var member map[string]struct{}
+	if builders != nil {
+		member = make(map[string]struct{}, len(builders))
+		for _, builder := range builders {
+			member[builder.OperatorAddress] = struct{}{}
+		}
+	}
+	confirmed := map[string][]bool{}
 	for _, confirmation := range confirmations {
-		if confirmation.Confirmation == nil || confirmation.VerifiedAt.IsZero() || confirmation.BuilderServicePubkey == "" || confirmation.BuilderOperator != receivingBuilderRef(event).AssignedBuilderOperator {
+		if confirmation.Confirmation == nil || confirmation.VerifiedAt.IsZero() || confirmation.BuilderServicePubkey == "" {
 			continue
+		}
+		if member != nil {
+			if _, ok := member[confirmation.BuilderOperator]; !ok {
+				continue
+			}
 		}
 		c := *confirmation.Confirmation
 		endpoint := BuilderEndpoint{OperatorAddress: confirmation.BuilderOperator, ServicePubkey: confirmation.BuilderServicePubkey, AuthorizationNonce: c.ServiceAuthorizationNonce, CurrentHeight: currentHeight}
@@ -1669,15 +1831,27 @@ func (w *Worker) confirmedStorageObjects(ctx context.Context, event chainclient.
 			if err != nil || digest.String() != confirmation.MaterialDigest || !bytes.Equal(c.Signature, confirmation.Signature) || c.ArtifactTotalSizeBytes != expect.total || confirmation.TaskID != event.TaskID || confirmation.DataKind != expect.key.Kind.String() || confirmation.SemanticHash != expect.key.ContentHash || confirmation.SizeBytes != expect.size || confirmation.RetentionUntilHeight != c.RetentionUntilHeight {
 				continue
 			}
-			confirmed[i] = true
+			got, ok := confirmed[confirmation.BuilderOperator]
+			if !ok {
+				got = make([]bool, len(want))
+				confirmed[confirmation.BuilderOperator] = got
+			}
+			got[i] = true
 		}
 	}
-	for _, ok := range confirmed {
-		if !ok {
-			return false, nil
+	for operator, got := range confirmed {
+		complete := true
+		for _, ok := range got {
+			if !ok {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			done[operator] = true
 		}
 	}
-	return true, nil
+	return done, nil
 }
 
 func (w *Worker) ensureOutputAvailable(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, result InferResult) error {

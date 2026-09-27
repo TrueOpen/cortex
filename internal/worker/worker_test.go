@@ -1526,6 +1526,14 @@ type recordingTaskData struct {
 	mutateConfirmationBeforeSign func(*builderclient.StorageConfirmation)
 	// finalizeErrors fails the next finalize of a bundle kind once each.
 	finalizeErrors map[nodewire.EvidenceKind][]error
+	// finalizeEndpointErrors fails every finalize aimed at one Nexus endpoint,
+	// which is how a test stands one Task Builder down while the others answer.
+	finalizeEndpointErrors map[string]error
+	// builderKeys is the service key each Builder signs its storage
+	// confirmations with, by endpoint. Without it every Builder signs with
+	// builderPrivate, which would let a Worker that verified one Builder's
+	// confirmation against another's key pass.
+	builderKeys map[string]*secp256k1.PrivateKey
 	// finalizeCalls counts every finalize request per bundle kind, including
 	// ones the Builder answers idempotently.
 	finalizeCalls map[nodewire.EvidenceKind]int
@@ -1586,6 +1594,9 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 		c.finalizeCalls = map[nodewire.EvidenceKind]int{}
 	}
 	c.finalizeCalls[request.EvidenceKind]++
+	if err := c.finalizeEndpointErrors[endpoint]; err != nil {
+		return builderclient.FinalizeTaskResultResponse{}, err
+	}
 	if errs := c.finalizeErrors[request.EvidenceKind]; len(errs) > 0 {
 		c.finalizeErrors[request.EvidenceKind] = errs[1:]
 		return builderclient.FinalizeTaskResultResponse{}, errs[0]
@@ -1608,7 +1619,11 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 		if err != nil {
 			return builderclient.FinalizeTaskResultResponse{}, err
 		}
-		confirmation.Signature = compactTestSignature(c.builderPrivate, digest)
+		signing := c.builderPrivate
+		if key, ok := c.builderKeys[endpoint]; ok {
+			signing = key
+		}
+		confirmation.Signature = compactTestSignature(signing, digest)
 		if c.mutateConfirmation != nil {
 			c.mutateConfirmation(confirmation)
 		}
