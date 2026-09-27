@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
@@ -112,6 +113,45 @@ func TestOutputStreamHeaderReproducesPublishedVector(t *testing.T) {
 			t.Errorf("%s: OutputStreamHeaderSigningDigest() error = nil", name)
 		}
 	}
+
+	// The published signature verifies under the published Worker service
+	// key, the key that also signs the frames and the fin.
+	var published struct {
+		Vectors []struct {
+			Name          string `json:"name"`
+			SignatureHex  string `json:"signature_raw64_hex"`
+			ServicePubkey string `json:"service_pubkey_compressed_hex"`
+		} `json:"vectors"`
+	}
+	data, err := wirevectors.File("task/output_stream_header_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &published); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := nodewire.OutputStreamHeaderSigningDigest(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, vector := range published.Vectors {
+		if vector.Name != "output_stream_header_v2_plaintext" {
+			continue
+		}
+		signature, err := hex.DecodeString(vector.SignatureHex)
+		if err != nil || vector.ServicePubkey == "" {
+			t.Fatal("the header vector must publish its signature and service key")
+		}
+		if err := signer.VerifyDigestSignature(vector.ServicePubkey, digest, signature); err != nil {
+			t.Fatalf("published header signature: %v", err)
+		}
+		signature[len(signature)-1] ^= 1
+		if err := signer.VerifyDigestSignature(vector.ServicePubkey, digest, signature); err == nil {
+			t.Fatal("a tampered header signature verified")
+		}
+		return
+	}
+	t.Fatal("output_stream_header_v2_plaintext is not published")
 }
 
 // orderNode is one field of a task order vector. Values stay raw JSON because

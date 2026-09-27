@@ -182,9 +182,9 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 		return nil, err
 	}
 	key := builderclient.TaskDataKey{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Kind: builderclient.DataKindOutput}
-	// The Worker signs the plaintext OutputStreamHeaderV2 once per stream.
-	// TODO(wire v0.3.0): rc.1 does not name the header's signing key; the
-	// service key that signs the frames and the fin is used.
+	// The Worker signs the plaintext OutputStreamHeaderV2 once per stream with
+	// the same service key that signs the frames and the fin; the published
+	// header vector names that key.
 	headerDigest, err := builderclient.OutputStreamHeaderDigest(w.cfg.ChainID, taskHash.String())
 	if err != nil {
 		return nil, err

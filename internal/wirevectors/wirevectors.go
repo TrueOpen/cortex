@@ -8,9 +8,9 @@
 // rather than read from disk so a caller's working directory cannot change
 // which file is checked.
 //
-// The vectors are wire's testdata/v1 at WireCommit copied byte for byte: the
-// v0.3.0-rc.2 candidate, which is not a release. VerifyProvenance checks the
-// embedded bytes against that commit's own fixture manifest, which is what
+// The vectors are wire's testdata/v1 at WireVersion copied byte for byte.
+// VerifyProvenance checks the embedded bytes against that release's own
+// fixture manifest, which is what
 // makes them evidence rather than transcription: without it a fixture could be
 // edited to agree with whatever this repository happens to compute, which is
 // precisely the failure a cross-implementation vector exists to catch.
@@ -27,18 +27,13 @@ import (
 	"fmt"
 )
 
-// WireVersion names the wire version the embedded files were copied from.
+// WireVersion names the wire release the embedded files were copied from.
 // Raising the go.mod dependency without recopying these is a drift this
 // constant makes visible in a diff.
-//
-// TODO(wire v0.3.0-rc.2): these are the rc.2 candidate's fixtures at
-// WireCommit (TrueOpen/wire#18), not a tagged release; the generated code is
-// still rc.1's, whose descriptor rc.2 leaves unchanged. Recopy from the tag
-// once rc.2 is published.
-const WireVersion = "v0.3.0-rc.2-candidate"
+const WireVersion = "v0.3.0-rc.2"
 
 // WireCommit is the wire commit the embedded files were copied from.
-const WireCommit = "52346e04bd926d9cd92affcf01330764ab5a165c"
+const WireCommit = "d59f0608738a36a52c6ef1dfd8c5e40bfa1b4a85"
 
 //go:embed testdata/v030
 var released embed.FS

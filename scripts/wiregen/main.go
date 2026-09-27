@@ -19,7 +19,7 @@ import (
 const descriptorSHA256 = "e584422a7c2e4215576aaf6b7733591338d95f866f2c3350a6c89cc28402c569"
 
 func main() {
-	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.3.0-rc.1.binpb", "pinned wire release descriptor")
+	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.3.0-rc.2.binpb", "pinned wire release descriptor")
 	out := flag.String("out", "bin/.chain-bindings", "empty scratch output directory")
 	flag.Parse()
 	data, err := os.ReadFile(*descriptor)
