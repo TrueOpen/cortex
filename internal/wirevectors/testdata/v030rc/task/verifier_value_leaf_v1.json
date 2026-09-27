@@ -1,0 +1,390 @@
+{
+  "notes": [
+    "The first leaf uses the frozen verifier sample; the remaining positions complete a three-token tree."
+  ],
+  "schema": "trueopen.task.verifier_value_leaf.v1",
+  "source": "Verifier value leaf and root wire contract",
+  "vectors": [
+    {
+      "digest_hex": "a340a8076c467ab8d721d5047d9854d7bda62cd7b5f60945dc7dbbf395c7dbe8",
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_TOPK_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "name": "count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "name": "token_id",
+                  "type": "uint32",
+                  "value": 2
+                },
+                {
+                  "name": "logprob_fp_1e6",
+                  "type": "int64",
+                  "value": -1200000
+                }
+              ],
+              "name": "entry",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "token_id",
+                  "type": "uint32",
+                  "value": 7
+                },
+                {
+                  "name": "logprob_fp_1e6",
+                  "type": "int64",
+                  "value": -2100000
+                }
+              ],
+              "name": "entry",
+              "type": "frame"
+            }
+          ],
+          "name": "topk_entries",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_topk_set",
+      "preimage_hex": "0000000000000021545255454f50454e5f50524546494c4c5f56455249464945525f544f504b5f56310000000000000054000000000000000400000002000000000000001c0000000000000004000000020000000000000008ffffffffffedb080000000000000001c0000000000000004000000070000000000000008ffffffffffdff4e0",
+      "preimage_size_bytes": 133
+    },
+    {
+      "digest_hex": "5b4b2a25b7ee00e678a6cb9d6b796f8da060506a14563d6cde18b61dc0f8d742",
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_VALUE_LEAF_V1",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "2b753f1e4d4bf656f8bdce49c18362c4aa1a25f2",
+              "name": "verifier_operator_address",
+              "type": "address"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1200000
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "a340a8076c467ab8d721d5047d9854d7bda62cd7b5f60945dc7dbbf395c7dbe8",
+              "name": "verifier_topk_set_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "name": "verifier_value_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_value_leaf",
+      "preimage_hex": "0000000000000027545255454f50454e5f50524546494c4c5f56455249464945525f56414c55455f4c4541465f563100000000000000040000000100000000000000ff0000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f20000000000000004000000000000000000000004000000020000000000000008ffffffffffedb0800000000000000004000000010000000000000020a340a8076c467ab8d721d5047d9854d7bda62cd7b5f60945dc7dbbf395c7dbe8000000000000000100000000000000000101",
+      "preimage_size_bytes": 322
+    },
+    {
+      "digest_hex": "c3a047031a56bb2137cba62781665d584ba4bbd0c623b8f600d784a6d8cc9610",
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_TOPK_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "name": "count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "name": "token_id",
+                  "type": "uint32",
+                  "value": 9
+                },
+                {
+                  "name": "logprob_fp_1e6",
+                  "type": "int64",
+                  "value": -850000
+                }
+              ],
+              "name": "entry",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "token_id",
+                  "type": "uint32",
+                  "value": 257
+                },
+                {
+                  "name": "logprob_fp_1e6",
+                  "type": "int64",
+                  "value": -1250000
+                }
+              ],
+              "name": "entry",
+              "type": "frame"
+            }
+          ],
+          "name": "topk_entries",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_topk_set",
+      "preimage_hex": "0000000000000021545255454f50454e5f50524546494c4c5f56455249464945525f544f504b5f56310000000000000054000000000000000400000002000000000000001c0000000000000004000000090000000000000008fffffffffff307b0000000000000001c0000000000000004000001010000000000000008ffffffffffeced30",
+      "preimage_size_bytes": 133
+    },
+    {
+      "digest_hex": "ce55c4f11ab7a6cde8836dbcfabd2af543b3a57fde805a893dc45c45750f0bb2",
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_VALUE_LEAF_V1",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "2b753f1e4d4bf656f8bdce49c18362c4aa1a25f2",
+              "name": "verifier_operator_address",
+              "type": "address"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 257
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1250000
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "hex": "c3a047031a56bb2137cba62781665d584ba4bbd0c623b8f600d784a6d8cc9610",
+              "name": "verifier_topk_set_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "name": "verifier_value_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_value_leaf",
+      "preimage_hex": "0000000000000027545255454f50454e5f50524546494c4c5f56455249464945525f56414c55455f4c4541465f563100000000000000040000000100000000000000ff0000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f20000000000000004000000010000000000000004000001010000000000000008ffffffffffeced300000000000000004000000020000000000000020c3a047031a56bb2137cba62781665d584ba4bbd0c623b8f600d784a6d8cc9610000000000000000100000000000000000101",
+      "preimage_size_bytes": 322
+    },
+    {
+      "digest_hex": "01ccd7540476cb7c99ba301294058a1fd3d57a91af55fe4ee9b9f1e330320282",
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_TOPK_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "name": "count",
+              "type": "uint32",
+              "value": 0
+            }
+          ],
+          "name": "topk_entries",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_topk_set",
+      "preimage_hex": "0000000000000021545255454f50454e5f50524546494c4c5f56455249464945525f544f504b5f5631000000000000000c000000000000000400000000",
+      "preimage_size_bytes": 61
+    },
+    {
+      "digest_hex": "c392accb3ec1ef2fd914993e3cf6bcc3312a1e8ceb5589df33b657ae0218fe03",
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_VALUE_LEAF_V1",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "2b753f1e4d4bf656f8bdce49c18362c4aa1a25f2",
+              "name": "verifier_operator_address",
+              "type": "address"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 65535
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "hex": "01ccd7540476cb7c99ba301294058a1fd3d57a91af55fe4ee9b9f1e330320282",
+              "name": "verifier_topk_set_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": false
+            }
+          ],
+          "name": "verifier_value_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_value_leaf",
+      "preimage_hex": "0000000000000027545255454f50454e5f50524546494c4c5f56455249464945525f56414c55455f4c4541465f563100000000000000040000000100000000000000ff0000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000142b753f1e4d4bf656f8bdce49c18362c4aa1a25f200000000000000040000000200000000000000040000ffff00000000000000080000000000000000000000000000000400000000000000000000002001ccd7540476cb7c99ba301294058a1fd3d57a91af55fe4ee9b9f1e330320282000000000000000101000000000000000100",
+      "preimage_size_bytes": 322
+    },
+    {
+      "domain": "TRUEOPEN_PREFILL_VERIFIER_VALUE_ROOT_V1",
+      "framing": "MERKLE_ROOT_V1",
+      "leaves_hex": [
+        "5b4b2a25b7ee00e678a6cb9d6b796f8da060506a14563d6cde18b61dc0f8d742",
+        "ce55c4f11ab7a6cde8836dbcfabd2af543b3a57fde805a893dc45c45750f0bb2",
+        "c392accb3ec1ef2fd914993e3cf6bcc3312a1e8ceb5589df33b657ae0218fe03"
+      ],
+      "name": "verifier_value_root",
+      "root_hex": "58e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea"
+    }
+  ]
+}

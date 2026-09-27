@@ -1,0 +1,334 @@
+{
+  "notes": [
+    "Three contiguous leaves commit to positions 0, 1 and 2; the last is missing and the first two carry ranked top-K pairs."
+  ],
+  "schema": "trueopen.task.worker_value_tree.v1",
+  "source": "Worker value leaf and root wire contract",
+  "vectors": [
+    {
+      "digest_hex": "5c4e16b1c8a93c273ac5ef6f2fb7a69f14bf1887c71369363f305dba735da02c",
+      "domain": "TRUEOPEN_PREFILL_WORKER_VALUE_LEAF_V1",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "accepted_task_hash",
+              "type": "bytes"
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "worker_operator_address",
+              "type": "address"
+            },
+            {
+              "name": "position",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "token_id",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1250000
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "name": "count",
+                  "type": "uint32",
+                  "value": 2
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "token_id",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "logprob_fp_1e6",
+                      "type": "int64",
+                      "value": -1250000
+                    }
+                  ],
+                  "name": "entry",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "token_id",
+                      "type": "uint32",
+                      "value": 7
+                    },
+                    {
+                      "name": "logprob_fp_1e6",
+                      "type": "int64",
+                      "value": -2000000
+                    }
+                  ],
+                  "name": "entry",
+                  "type": "frame"
+                }
+              ],
+              "name": "topk_entries",
+              "type": "frame"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "name": "worker_value_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "worker_value_leaf",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f574f524b45525f56414c55455f4c4541465f563100000000000000040000000100000000000001270000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f10000000000000004000000000000000000000004000000020000000000000008ffffffffffeced300000000000000004000000010000000000000054000000000000000400000002000000000000001c0000000000000004000000020000000000000008ffffffffffeced30000000000000001c0000000000000004000000070000000000000008ffffffffffe17b80000000000000000100000000000000000101",
+      "preimage_size_bytes": 360
+    },
+    {
+      "digest_hex": "e13c02527baf7b207e4a844cc0d9d96a1258f2f2d588e8f2167021cd3e1c51d2",
+      "domain": "TRUEOPEN_PREFILL_WORKER_VALUE_LEAF_V1",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "accepted_task_hash",
+              "type": "bytes"
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "worker_operator_address",
+              "type": "address"
+            },
+            {
+              "name": "position",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "token_id",
+              "type": "uint32",
+              "value": 257
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1300000
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "name": "count",
+                  "type": "uint32",
+                  "value": 2
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "token_id",
+                      "type": "uint32",
+                      "value": 9
+                    },
+                    {
+                      "name": "logprob_fp_1e6",
+                      "type": "int64",
+                      "value": -900000
+                    }
+                  ],
+                  "name": "entry",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "token_id",
+                      "type": "uint32",
+                      "value": 257
+                    },
+                    {
+                      "name": "logprob_fp_1e6",
+                      "type": "int64",
+                      "value": -1300000
+                    }
+                  ],
+                  "name": "entry",
+                  "type": "frame"
+                }
+              ],
+              "name": "topk_entries",
+              "type": "frame"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            }
+          ],
+          "name": "worker_value_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "worker_value_leaf",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f574f524b45525f56414c55455f4c4541465f563100000000000000040000000100000000000001270000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f10000000000000004000000010000000000000004000001010000000000000008ffffffffffec29e00000000000000004000000020000000000000054000000000000000400000002000000000000001c0000000000000004000000090000000000000008fffffffffff24460000000000000001c0000000000000004000001010000000000000008ffffffffffec29e0000000000000000100000000000000000101",
+      "preimage_size_bytes": 360
+    },
+    {
+      "digest_hex": "069e5668c439e551c62689f1e78f82f6e752c36606a4bf1b947523f66e0b2faf",
+      "domain": "TRUEOPEN_PREFILL_WORKER_VALUE_LEAF_V1",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "accepted_task_hash",
+              "type": "bytes"
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "worker_operator_address",
+              "type": "address"
+            },
+            {
+              "name": "position",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "token_id",
+              "type": "uint32",
+              "value": 65535
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "fields": [
+                {
+                  "name": "count",
+                  "type": "uint32",
+                  "value": 0
+                }
+              ],
+              "name": "topk_entries",
+              "type": "frame"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": false
+            }
+          ],
+          "name": "worker_value_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "worker_value_leaf",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f574f524b45525f56414c55455f4c4541465f563100000000000000040000000100000000000000df0000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000040000000200000000000000040000ffff00000000000000080000000000000000000000000000000400000000000000000000000c000000000000000400000000000000000000000101000000000000000100",
+      "preimage_size_bytes": 288
+    },
+    {
+      "domain": "TRUEOPEN_PREFILL_WORKER_VALUE_ROOT_V1",
+      "framing": "MERKLE_ROOT_V1",
+      "leaves_hex": [
+        "5c4e16b1c8a93c273ac5ef6f2fb7a69f14bf1887c71369363f305dba735da02c",
+        "e13c02527baf7b207e4a844cc0d9d96a1258f2f2d588e8f2167021cd3e1c51d2",
+        "069e5668c439e551c62689f1e78f82f6e752c36606a4bf1b947523f66e0b2faf"
+      ],
+      "name": "worker_value_root",
+      "root_hex": "26436a419e76afb3d88ef3435346b34399abae22f62346c19bf63e9be0737281",
+      "worker_values_encoded_size_bytes": 817
+    }
+  ]
+}

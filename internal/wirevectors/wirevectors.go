@@ -8,7 +8,9 @@
 // rather than read from disk so a caller's working directory cannot change
 // which file is checked.
 //
-// The vectors are wire v0.2.0's files copied byte for byte. VerifyProvenance
+// The vectors are wire v0.2.0's files copied byte for byte, plus a small
+// pre-release set copied from a wire release candidate (see
+// PrereleaseWireVersion) for encoders written ahead of the final release. VerifyProvenance
 // checks the embedded bytes against wire's own release manifest, which is what
 // makes them evidence rather than transcription: without it a fixture could be
 // edited to agree with whatever this repository happens to compute, which is
@@ -34,17 +36,58 @@ const WireVersion = "v0.2.0"
 //go:embed testdata/v020
 var released embed.FS
 
+// PrereleaseWireVersion is the wire release candidate the v030rc files were
+// copied from. Its testdata manifest is the one published with the
+// v0.3.0-rc.1 release. These vectors let the v0.3.0 encoders be written and
+// checked before the dependency is raised; when v0.3.0 final is tagged, its
+// released files replace this set and this constant goes away.
+const PrereleaseWireVersion = "v0.3.0-rc.1"
+
+//go:embed testdata/v030rc
+var prerelease embed.FS
+
+// vectorSet is one embedded copy of wire's testdata and the checksum of the
+// manifest it was copied with.
+type vectorSet struct {
+	fs          embed.FS
+	dir         string
+	version     string
+	manifestSum string
+}
+
+var (
+	releasedSet = vectorSet{
+		fs: released, dir: "testdata/v020", version: WireVersion,
+		manifestSum: "cc378b636c088ad4a2b165bc25b6549c9c7df20046eb8d5e4883c06199102a3f",
+	}
+	prereleaseSet = vectorSet{
+		fs: prerelease, dir: "testdata/v030rc", version: PrereleaseWireVersion,
+		manifestSum: "d272b9e95b7cfb4b2ca56a269201ab7b4fce0abce2a85e7be322fab69cb7cf66",
+	}
+)
+
 // File returns exact released fixture bytes after checking their provenance.
 func File(path string) ([]byte, error) {
-	if path == "manifest.json" {
-		return released.ReadFile("testdata/v020/manifest.json")
-	}
-	manifestBytes, err := released.ReadFile("testdata/v020/manifest.json")
+	return releasedSet.file(path)
+}
+
+// PrereleaseFile returns exact fixture bytes from PrereleaseWireVersion after
+// checking them against that commit's own manifest. Only files this repository
+// already derives are copied, so an unregistered or uncopied path is an error.
+func PrereleaseFile(path string) ([]byte, error) {
+	return prereleaseSet.file(path)
+}
+
+func (set vectorSet) file(path string) ([]byte, error) {
+	manifestBytes, err := set.fs.ReadFile(set.dir + "/manifest.json")
 	if err != nil {
 		return nil, err
 	}
-	if sum := sha256.Sum256(manifestBytes); hex.EncodeToString(sum[:]) != "cc378b636c088ad4a2b165bc25b6549c9c7df20046eb8d5e4883c06199102a3f" {
-		return nil, fmt.Errorf("wire release fixture manifest checksum mismatch")
+	if path == "manifest.json" {
+		return manifestBytes, nil
+	}
+	if sum := sha256.Sum256(manifestBytes); hex.EncodeToString(sum[:]) != set.manifestSum {
+		return nil, fmt.Errorf("wire %s fixture manifest checksum mismatch", set.version)
 	}
 	var manifest releaseManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
@@ -54,17 +97,17 @@ func File(path string) ([]byte, error) {
 		if item.Path != path {
 			continue
 		}
-		data, err := released.ReadFile("testdata/v020/" + path)
+		data, err := set.fs.ReadFile(set.dir + "/" + path)
 		if err != nil {
 			return nil, err
 		}
 		sum := sha256.Sum256(data)
 		if hex.EncodeToString(sum[:]) != item.SHA256 {
-			return nil, fmt.Errorf("wire %s fixture %s hash mismatch", WireVersion, path)
+			return nil, fmt.Errorf("wire %s fixture %s hash mismatch", set.version, path)
 		}
 		return data, nil
 	}
-	return nil, fmt.Errorf("wire %s fixture %s is not registered", WireVersion, path)
+	return nil, fmt.Errorf("wire %s fixture %s is not registered", set.version, path)
 }
 
 // hubDomainsManifestPath is the path this file has inside wire's release
