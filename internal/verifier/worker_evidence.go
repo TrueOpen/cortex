@@ -54,7 +54,7 @@ func (v *Verifier) workerEvidence(ctx context.Context, state TaskState, limits m
 		if len(state.ConfirmedInputTokenIDs) == 0 || len(state.ConfirmedGeneratedTokenIDs) == 0 || len(state.ConfirmedWorkerValues) == 0 ||
 			len(state.ConfirmedGenerationParams) == 0 {
 			return workerEvidenceArtifacts{}, fmt.Errorf(
-				"confirmed Worker evidence is incomplete for task %s: both the token and the value bundle are required", state.TaskID)
+				"confirmed Worker evidence is incomplete for task %s: the token bundle (token ids and generation_params) and the value bundle are all required", state.TaskID)
 		}
 		out.inputTokenIDs, out.generatedTokenIDs, out.workerValues = state.ConfirmedInputTokenIDs, state.ConfirmedGeneratedTokenIDs, state.ConfirmedWorkerValues
 		out.generationParams = state.ConfirmedGenerationParams

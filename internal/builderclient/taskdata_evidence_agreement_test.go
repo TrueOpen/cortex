@@ -18,6 +18,7 @@ type taskDataGoldenField struct {
 	Present bool                  `json:"present"`
 	Fields  []taskDataGoldenField `json:"fields"`
 }
+
 func goldenField(t *testing.T, fields []taskDataGoldenField, name string) taskDataGoldenField {
 	t.Helper()
 	for _, field := range fields {

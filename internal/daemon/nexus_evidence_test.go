@@ -476,3 +476,51 @@ func TestNexusEvidenceConfirmerRefusesOversizedGenerationParamsBeforeDownload(t 
 		})
 	}
 }
+
+// Self-consistent Worker bundles, re-committed and re-signed, that still
+// disagree with the receipt's generated tokens are refused, and so is a
+// confirmation request without the locked required_top_k.
+func TestNexusEvidenceConfirmerRefusesSelfConsistentValueMismatches(t *testing.T) {
+	for name, mutate := range map[string]func([]nodewire.PositionValueV1) []nodewire.PositionValueV1{
+		"leaf token differs from generated token": func(leaves []nodewire.PositionValueV1) []nodewire.PositionValueV1 {
+			leaves[0].TokenID++
+			for i := range leaves[0].TopK {
+				if leaves[0].TopK[i].TokenID == leaves[0].TokenID {
+					leaves[0].TopK[i].TokenID += 100000
+				}
+			}
+			return leaves
+		},
+		"leaf count differs from generated_token_count": func(leaves []nodewire.PositionValueV1) []nodewire.PositionValueV1 {
+			return leaves[:len(leaves)-1]
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newEvidenceFixture(t)
+			leaves, err := nodewire.DecodeWorkerValues(f.valueBinding(t), f.WorkerValues)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.WorkerValues, err = nodewire.EncodeWorkerValues(f.valueBinding(t), mutate(leaves)); err != nil {
+				t.Fatal(err)
+			}
+			f.rebuildManifests(t, nil)
+			f.sign(t)
+			client := &evidenceTaskDataClient{objects: f.objects()}
+			_, err = newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments)
+			want := map[string]string{
+				"leaf token differs from generated token":       "not the generated token",
+				"leaf count differs from generated_token_count": "not the signed generated_token_count",
+			}[name]
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("err = %v, want a refusal containing %q", err, want)
+			}
+		})
+	}
+	f := newEvidenceFixture(t)
+	f.Commitments.RequiredTopK = 0
+	if _, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: f.objects()}).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil ||
+		!strings.Contains(err.Error(), "required_top_k") {
+		t.Fatalf("RequiredTopK=0 = %v, want a refusal naming required_top_k", err)
+	}
+}
