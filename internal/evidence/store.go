@@ -78,6 +78,10 @@ type Store struct {
 	// publication is a check-then-rename, so two responsibilities of the same
 	// task writing the same class concurrently must not interleave.
 	publishLocks sync.Map // string -> *sync.Mutex
+
+	// beforeBundleRename, when set by a test, runs after a bundle is fully
+	// staged and before its directory rename, to stand in for a crash there.
+	beforeBundleRename func(BundleID) error
 }
 
 type MetadataStore interface {
