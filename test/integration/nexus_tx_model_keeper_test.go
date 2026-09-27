@@ -414,6 +414,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	verifierState.ConfirmedInputTokenIDs = tokenBundle[builderclient.EvidenceArtifactInputTokenIDs]
 	verifierState.ConfirmedGeneratedTokenIDs = tokenBundle[builderclient.EvidenceArtifactGeneratedTokenIDs]
 	verifierState.ConfirmedWorkerValues = valueBundle[builderclient.EvidenceArtifactWorkerValues]
+	verifierState.ConfirmedGenerationParams = tokenBundle[builderclient.EvidenceArtifactGenerationParams]
 	var verifyTraceRecords []observability.LogRecord
 	verifierPrivate := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{0x71}, 32))
 	verifierPubkey := verifierPrivate.PubKey().SerializeCompressed()
@@ -461,9 +462,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		// generation_params_digest is a consensus value the verifier copies
 		// through, so the result credential refuses without this reader.
 		TaskFacts: taskfacts.ReaderFunc(generation.TaskFacts),
-		// The accepted order's generation parameters; the prefill runs under them.
-		GenerationReader: generation,
-		Trace:            &tasktrace.Trace{Emit: func(record observability.LogRecord) { verifyTraceRecords = append(verifyTraceRecords, record) }},
+		Trace:     &tasktrace.Trace{Emit: func(record observability.LogRecord) { verifyTraceRecords = append(verifyTraceRecords, record) }},
 		// The commit exit, over the same tx boundary the settlement stages below
 		// use. No relay is wired because none exists: the bus registers no
 		// VERIFY_COMMIT kind, so the signed commit reaches CommitState only from

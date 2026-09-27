@@ -15,8 +15,11 @@ import (
 // with the value leaves decoded strictly under this task's binding.
 type workerEvidenceArtifacts struct {
 	inputTokenIDs, generatedTokenIDs, workerValues []byte
-	workerLeaves                                   []nodewire.PositionValueV1
-	workerValueRoot                                codec.Hash
+	// generationParams is the A-level generation_params artifact; the ref path
+	// of the fake transport has none.
+	generationParams []byte
+	workerLeaves     []nodewire.PositionValueV1
+	workerValueRoot  codec.Hash
 }
 
 // tokenIDs is the A-level material the prefill runs over.
@@ -48,11 +51,13 @@ func (v *Verifier) workerEvidence(ctx context.Context, state TaskState, limits m
 	var out workerEvidenceArtifacts
 	confirmed := len(state.ConfirmedInputTokenIDs) > 0 || len(state.ConfirmedGeneratedTokenIDs) > 0 || len(state.ConfirmedWorkerValues) > 0
 	if confirmed {
-		if len(state.ConfirmedInputTokenIDs) == 0 || len(state.ConfirmedGeneratedTokenIDs) == 0 || len(state.ConfirmedWorkerValues) == 0 {
+		if len(state.ConfirmedInputTokenIDs) == 0 || len(state.ConfirmedGeneratedTokenIDs) == 0 || len(state.ConfirmedWorkerValues) == 0 ||
+			len(state.ConfirmedGenerationParams) == 0 {
 			return workerEvidenceArtifacts{}, fmt.Errorf(
 				"confirmed Worker evidence is incomplete for task %s: both the token and the value bundle are required", state.TaskID)
 		}
 		out.inputTokenIDs, out.generatedTokenIDs, out.workerValues = state.ConfirmedInputTokenIDs, state.ConfirmedGeneratedTokenIDs, state.ConfirmedWorkerValues
+		out.generationParams = state.ConfirmedGenerationParams
 	} else {
 		fetch := func(name, ref string, kind nodewire.EvidenceKind) ([]byte, error) {
 			artifact, err := v.cfg.Model.FetchArtifact(ctx, modelservice.FetchArtifactRequest{

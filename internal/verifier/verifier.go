@@ -59,9 +59,6 @@ type Config struct {
 	// the required evidence set from the Profile's evidence_schema instead of
 	// hard-coding it. A nil reader is only allowed in fake/dev mode.
 	ProfileReader ProfileReader
-	// GenerationReader reads the frozen generation parameters of the accepted
-	// order; the prefill runs under them.
-	GenerationReader GenerationReader
 	// MaxOutputBytes bounds the output artifact fetch. The output is not evidence,
 	// so no profile field sizes it, and the fetch happens before the output hash
 	// can reject anything - so without a bound a model service that streams
@@ -187,6 +184,10 @@ type TaskState struct {
 	ConfirmedInputTokenIDs     []byte
 	ConfirmedGeneratedTokenIDs []byte
 	ConfirmedWorkerValues      []byte
+	// ConfirmedGenerationParams is the A-level generation_params artifact, the
+	// task's exact canonical_generation_params_json and the only source of the
+	// parameters the prefill runs under.
+	ConfirmedGenerationParams []byte
 	// ConfirmedFinishReason is recovered from the receipt-bound
 	// WORKER_TOKEN_OPENING commitment.
 	ConfirmedFinishReason      nodewire.FinishReasonV1
@@ -548,7 +549,7 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	generation, generationDigest, err := v.taskGeneration(ctx, state)
+	generation, generationDigest, err := v.taskGeneration(ctx, state, evidence.generationParams)
 	if err != nil {
 		return VerifyResult{}, err
 	}
