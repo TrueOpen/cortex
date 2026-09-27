@@ -1,7 +1,6 @@
 package builderclient
 
 import (
-	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -200,13 +199,4 @@ func TestWorkerEvidenceRequirementsV3IsTheOnlyRequirementSet(t *testing.T) {
 	if err := ValidateProfileEvidenceCommitments(legacy, commitments); err == nil {
 		t.Fatal("a schema-2 value requirement was accepted")
 	}
-}
-
-func mustHex32(t *testing.T, value string) []byte {
-	t.Helper()
-	raw, err := hex.DecodeString(value)
-	if err != nil || len(raw) != 32 {
-		t.Fatalf("bad hex32 %q", value)
-	}
-	return raw
 }

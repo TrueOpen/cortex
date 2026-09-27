@@ -1,21 +1,20 @@
 package evidence
 
-// Bundle-scoped evidence publication for the two-level Worker evidence of wire
-// v0.3.0. Nothing in the daemon calls this yet: live tasks keep the flat
-// evidence/artifacts/ layout of Write until the dependency is raised.
+// Bundle-scoped publication of the Worker's two wire v0.3.0 evidence bundles.
+// The Worker publishes both here and reads them back on recovery; the
+// Verifier's own bundle is built and uploaded from its persisted reveal record
+// and has no local bundle.
 //
 //	tasks/<taskHash[0:2]>/<taskHash>/
 //	├── evidence/
-//	│   ├── worker/{token,value}/{manifest.json,artifacts/<artifactHash>}
-//	│   └── verifier/<verifyRound>/<operatorHex>/{manifest.json,artifacts/<artifactHash>}
+//	│   └── worker/{token,value}/{manifest.json,artifacts/<artifactHash>}
 //	└── .staging/evidence/<same bundle path>/
 //
 // A bundle is the unit of publication. Its artifacts and manifest.json are
 // completed in the task's .staging/ and the whole bundle directory is renamed
 // onto its formal path, so a formal bundle either does not exist or holds its
-// final manifest and every artifact. Worker token, Worker value and each
-// Verifier round/operator bundle publish independently and never overwrite one
-// another.
+// final manifest and every artifact. The Worker token and value bundles publish
+// independently and never overwrite one another.
 //
 // The manifest is opaque here. Its canonical content, and the rule that a
 // bundle holds exactly the artifacts its manifest references, belong to the
@@ -24,7 +23,6 @@ package evidence
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -33,14 +31,12 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
-	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 const (
 	bundleManifestName    = "manifest.json"
 	bundleManifestTmpName = "manifest.tmp"
 	workerProducerName    = "worker"
-	verifierProducerName  = "verifier"
 )
 
 var (
@@ -49,9 +45,9 @@ var (
 	ErrBundleManifestSize = errors.New("evidence bundle manifest is empty")
 )
 
-// BundleID names one evidence bundle of a task. Build it with WorkerTokenBundle,
-// WorkerValueBundle or VerifierBundle; every directory segment it produces is a
-// fixed literal, a round number or lowercase hex, never an external string.
+// BundleID names one evidence bundle of a task. Build it with WorkerTokenBundle
+// or WorkerValueBundle; every directory segment it produces is a fixed literal,
+// never an external string.
 type BundleID struct {
 	taskHash codec.Hash
 	segments []string // path below evidence/, e.g. worker/token
@@ -65,23 +61,6 @@ func WorkerTokenBundle(taskHash codec.Hash) BundleID {
 // WorkerValueBundle is the B-level WORKER_VALUE_OPENING bundle of a task.
 func WorkerValueBundle(taskHash codec.Hash) BundleID {
 	return BundleID{taskHash: taskHash, segments: []string{workerProducerName, "value"}}
-}
-
-// VerifierBundle is one Verifier's bundle for one verify round. The operator
-// must be a canonical Bech32 address; its directory segment is the lowercase
-// hex of the decoded address bytes, so neither the text nor its prefix ever
-// reaches the filesystem.
-func VerifierBundle(taskHash codec.Hash, verifyRound uint32, operator string) (BundleID, error) {
-	if verifyRound != 1 && verifyRound != 2 {
-		return BundleID{}, fmt.Errorf("%w: verify round %d is not 1 or 2", ErrInvalidBundle, verifyRound)
-	}
-	raw, err := nodewire.CanonicalOperatorAddressBytes("verifier operator", operator)
-	if err != nil {
-		return BundleID{}, fmt.Errorf("%w: %v", ErrInvalidBundle, err)
-	}
-	return BundleID{taskHash: taskHash, segments: []string{
-		verifierProducerName, fmt.Sprintf("%d", verifyRound), hex.EncodeToString(raw),
-	}}, nil
 }
 
 func (id BundleID) valid() error {

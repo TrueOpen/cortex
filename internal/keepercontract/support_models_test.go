@@ -23,7 +23,4 @@ func TestCanonicalModelIDsSortsAndRefusesInvalidSets(t *testing.T) {
 			t.Errorf("%s: CanonicalModelIDs accepted %v", name, ids)
 		}
 	}
-	if _, err := SupportedModelsHash([]string{b, a}); err == nil {
-		t.Fatal("SupportedModelsHash accepted a descending list")
-	}
 }

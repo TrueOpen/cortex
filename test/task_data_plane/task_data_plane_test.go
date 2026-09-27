@@ -1484,15 +1484,6 @@ func (s staticLiability) TaskLiability(_ context.Context, sessionID, taskID, ope
 	return s.liability, nil
 }
 
-func proofLiability(assignment chainclient.AssignmentFinalized) chainclient.TaskLiabilitySnapshot {
-	return chainclient.TaskLiabilitySnapshot{
-		SessionID: assignment.SessionID, TaskID: assignment.TaskID, OperatorAddress: assignment.Winner, Duty: "WORKER",
-		BondVersion: 1, CapabilityVersion: 1, ReservedAmount: 100, Status: "RESERVED",
-		CreatedHeight: chainclient.NewUint64String(assignment.WinnerConfirmHeight), ModelID: assignment.ModelID,
-		ProfileVersion: chainclient.NewProfileVersion(assignment.ProfileVersion),
-	}
-}
-
 type proofModel struct {
 	modelservice.Client
 	mu                sync.Mutex

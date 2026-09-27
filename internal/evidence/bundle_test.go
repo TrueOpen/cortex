@@ -10,7 +10,6 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
-	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 func newBundleStore(t *testing.T) (*Store, string) {
@@ -20,24 +19,6 @@ func newBundleStore(t *testing.T) (*Store, string) {
 		t.Fatalf("NewStore() error = %v", err)
 	}
 	return store, store.root
-}
-
-func testOperator(t *testing.T, fill byte) string {
-	t.Helper()
-	address, err := nodewire.CanonicalOperatorAddressString("trueopen", bytes.Repeat([]byte{fill}, 20))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return address
-}
-
-func verifierBundle(t *testing.T, taskHash codec.Hash, round uint32, operator string) BundleID {
-	t.Helper()
-	id, err := VerifierBundle(taskHash, round, operator)
-	if err != nil {
-		t.Fatalf("VerifierBundle() error = %v", err)
-	}
-	return id
 }
 
 func bundleRequest(id BundleID, manifest string, artifacts ...string) BundleRequest {
@@ -52,21 +33,14 @@ func TestPublishBundleLaysOutEveryBundleIndependently(t *testing.T) {
 	store, root := newBundleStore(t)
 	ctx := context.Background()
 	taskHash := codec.HashBytes([]byte("bundle-layout"))
-	operatorA, operatorB := testOperator(t, 0x2b), testOperator(t, 0x3c)
 	bundles := []BundleRequest{
 		bundleRequest(WorkerTokenBundle(taskHash), `{"kind":"token"}`, "input-ids", "generated-ids"),
 		bundleRequest(WorkerValueBundle(taskHash), `{"kind":"value"}`, "worker-values"),
-		bundleRequest(verifierBundle(t, taskHash, 1, operatorA), `{"kind":"verifier","round":1}`, "verifier-values"),
-		bundleRequest(verifierBundle(t, taskHash, 2, operatorA), `{"kind":"verifier","round":2}`, "verifier-values"),
-		bundleRequest(verifierBundle(t, taskHash, 1, operatorB), `{"kind":"verifier","round":1,"b":1}`, "verifier-values-b"),
 	}
 	taskDir := filepath.Join(root, taskRelDir(taskHash))
 	wantDirs := []string{
 		"evidence/worker/token",
 		"evidence/worker/value",
-		"evidence/verifier/1/" + hexDigest(bytes.Repeat([]byte{0x2b}, 20)),
-		"evidence/verifier/2/" + hexDigest(bytes.Repeat([]byte{0x2b}, 20)),
-		"evidence/verifier/1/" + hexDigest(bytes.Repeat([]byte{0x3c}, 20)),
 	}
 	for i, req := range bundles {
 		ref, err := store.PublishBundle(ctx, req)
@@ -232,21 +206,6 @@ func TestDiscardStagedBundleLeavesPublishedBundlesAlone(t *testing.T) {
 
 func TestBundleIDsRefuseUnsafeInput(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("bundle-ids"))
-	for name, tc := range map[string]struct {
-		round    uint32
-		operator string
-	}{
-		"round 0":            {0, testOperator(t, 1)},
-		"round 3":            {3, testOperator(t, 1)},
-		"path traversal":     {1, "../../etc"},
-		"absolute path":      {1, "/tmp/x"},
-		"non-canonical case": {1, "TRUEOPEN1" + testOperator(t, 1)[len("trueopen1"):]},
-		"empty operator":     {1, ""},
-	} {
-		if _, err := VerifierBundle(taskHash, tc.round, tc.operator); !errors.Is(err, ErrInvalidBundle) {
-			t.Errorf("%s: VerifierBundle() error = %v, want ErrInvalidBundle", name, err)
-		}
-	}
 	store, _ := newBundleStore(t)
 	ctx := context.Background()
 	for name, req := range map[string]BundleRequest{

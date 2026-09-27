@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -2508,46 +2507,6 @@ func mainTestSignedOrder(t *testing.T, chainID, modelID, sessionID string, seque
 		t.Fatalf("derive task hash from typed signed order: %v", err)
 	}
 	return signed, taskHash
-}
-
-func mainTestTaskOrder(t *testing.T, chainID, modelID, sessionID string, sequence, deadline uint64) (string, codec.Hash) {
-	t.Helper()
-	session, err := hex.DecodeString(sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hash := bytes.Repeat([]byte{0x5a}, 32)
-	amount := func(value string) map[string]any { return map[string]any{"atomic_units": value} }
-	order := map[string]any{
-		"schema_version": uint32(2), "chain_id": chainID, "user_address": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-		"session_id": base64.StdEncoding.EncodeToString(session), "order_sequence": fmt.Sprintf("%d", sequence),
-		"model_id": modelID, "profile_version": uint32(1), "task_type": "TASK_TYPE_CHAT",
-		"input_hash": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xaa}, 32)), "input_size_bytes": "32",
-		"input_bucket": uint32(1), "output_budget_bucket": uint32(1),
-		"generation_params": map[string]any{
-			"generation_params_schema_version": uint32(1), "max_output_tokens": "128", "max_output_duration": "2000",
-			"decoding_params": map[string]any{
-				"sampling_enabled": false, "temperature_milli": uint32(0), "top_p_ppm": uint32(1000000), "top_k": uint32(0), "seed": "1",
-				"presence_penalty_milli": int32(0), "frequency_penalty_milli": int32(0), "repetition_penalty_ppm": uint32(1000000),
-				"stop_sequences": []string{}, "stop_token_ids": []uint32{},
-			},
-		},
-		"price_bid": amount("1"), "max_fee": amount("3000"),
-		"assignment_priority_fee": amount("0"), "tx_fee_reserve": amount("1000"),
-		"earliest_submit_height": "100", "order_expire_height": fmt.Sprintf("%d", deadline),
-		"deadline_policy":        map[string]any{"latency_class": "DEADLINE_LATENCY_CLASS_STANDARD"},
-		"timeout_bucket_version": "1", "session_anchor_height": "100",
-		"session_anchor_block_hash": base64.StdEncoding.EncodeToString(hash), "builder_set_id": "7", "builder_set_hash": base64.StdEncoding.EncodeToString(hash),
-	}
-	payload, err := json.Marshal(order)
-	if err != nil {
-		t.Fatal(err)
-	}
-	taskHash, err := nodewire.TaskOrderHashJSON(string(payload))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(payload), taskHash
 }
 
 func seedInferTask(ctx context.Context, s *store.Store, h codec.Hash, task store.InferTask) error {

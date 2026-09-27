@@ -3,8 +3,6 @@ package builderclient
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
@@ -16,106 +14,10 @@ const otherFixtureWorkerAddress = "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsm
 
 // Receipt construction inputs retained from the earlier fixture. These helpers
 // are not provenance assertions about the replaced task-data request protocol.
-type fixtureReceipt struct {
-	SchemaVersion               uint32 `json:"schema_version"`
-	ChainID                     string `json:"chain_id"`
-	TaskID                      string `json:"task_id"`
-	TaskHash                    string `json:"task_hash"`
-	WorkerOperatorAddress       string `json:"worker_operator_address"`
-	ServiceAuthorizationNonce   uint64 `json:"service_authorization_nonce"`
-	GenerationParamsDigest      string `json:"generation_params_digest"`
-	OutputHash                  string `json:"output_hash"`
-	OutputSizeBytes             uint64 `json:"output_size_bytes"`
-	RequiredEvidenceCommitments []struct {
-		EvidenceKind       int32  `json:"evidence_kind"`
-		EvidenceHashOrRoot string `json:"evidence_hash_or_root"`
-		EncodedSizeBytes   uint64 `json:"encoded_size_bytes"`
-	} `json:"required_evidence_commitments"`
-	ExpiryHeight             uint64 `json:"expiry_height"`
-	ServiceSignature         string `json:"service_signature"`
-	ExpectedSigningDigestHex string `json:"expected_signing_digest_hex"`
-}
-
-type taskDataSigningFixture struct {
-	NexusSourceCommit string `json:"nexus_source_commit"`
-	NodeSourceCommit  string `json:"node_source_commit"`
-	Request           struct {
-		Method                  string `json:"method"`
-		ChainID                 string `json:"chain_id"`
-		BuilderAddress          string `json:"builder_address"`
-		SessionID               string `json:"session_id"`
-		TaskID                  string `json:"task_id"`
-		DataKind                string `json:"data_kind"`
-		Requester               string `json:"requester"`
-		RequesterPubkeyHex      string `json:"requester_pubkey_hex"`
-		RequestNonceHex         string `json:"request_nonce_hex"`
-		ExpiresAtHeight         uint64 `json:"expires_at_height"`
-		BodyDigestHex           string `json:"body_digest_hex"`
-		ExpectedSigningBytesHex string `json:"expected_signing_bytes_hex"`
-		ExpectedDigestHex       string `json:"expected_digest_hex"`
-	} `json:"request"`
-	Range struct {
-		Method                  string `json:"method"`
-		ChainID                 string `json:"chain_id"`
-		BuilderAddress          string `json:"builder_address"`
-		SessionID               string `json:"session_id"`
-		TaskID                  string `json:"task_id"`
-		DataKind                string `json:"data_kind"`
-		Recipient               string `json:"recipient"`
-		RecipientPubkeyHex      string `json:"recipient_pubkey_hex"`
-		Offset                  uint64 `json:"offset"`
-		Length                  uint64 `json:"length"`
-		RequestNonceHex         string `json:"request_nonce_hex"`
-		ExpiresAtHeight         uint64 `json:"expires_at_height"`
-		ExpectedSigningBytesHex string `json:"expected_signing_bytes_hex"`
-		ExpectedDigestHex       string `json:"expected_digest_hex"`
-	} `json:"range"`
-	Receipt                 fixtureReceipt `json:"receipt"`
-	NodeFrozenReceiptGolden struct {
-		fixtureReceipt
-		ExpectedDigestHex                 string `json:"expected_digest_hex"`
-		EmptyEvidenceCommitmentsDigestHex string `json:"empty_evidence_commitments_digest_hex"`
-	} `json:"node_frozen_receipt_golden"`
-	UploadBody struct {
-		Method            string `json:"method"`
-		SessionID         string `json:"session_id"`
-		TaskID            string `json:"task_id"`
-		DataKind          string `json:"data_kind"`
-		SizeBytes         uint64 `json:"size_bytes"`
-		SemanticHash      string `json:"semantic_hash"`
-		MediaType         string `json:"media_type"`
-		ExpectedDigestHex string `json:"expected_digest_hex"`
-	} `json:"upload_body"`
-	ReceiptRelayBody struct {
-		Domain            string `json:"domain"`
-		SessionID         string `json:"session_id"`
-		ExpectedDigestHex string `json:"expected_digest_hex"`
-	} `json:"receipt_relay_body"`
-	StorageConfirmation struct {
-		Domain                  string `json:"domain"`
-		ChainID                 string `json:"chain_id"`
-		TaskID                  string `json:"task_id"`
-		DataKind                string `json:"data_kind"`
-		OutputHash              string `json:"output_hash"`
-		SizeBytes               uint64 `json:"size_bytes"`
-		BuilderOperator         string `json:"builder_operator"`
-		RetentionUntilHeight    uint64 `json:"retention_until_height"`
-		ExpectedSigningBytesHex string `json:"expected_signing_bytes_hex"`
-		ExpectedDigestHex       string `json:"expected_digest_hex"`
-	} `json:"storage_confirmation"`
-}
-
-func TestInferReceiptEmptyEvidenceListIsThePublishedDigest(t *testing.T) {
-	fixture := loadTaskDataSigningFixture(t)
-	golden := fixture.NodeFrozenReceiptGolden
-	want := mustHash(t, golden.EmptyEvidenceCommitmentsDigestHex)
-
-	nilList, err := nodewire.EvidenceCommitmentsHash(nil)
+func TestInferReceiptEmptyEvidenceListIsRefused(t *testing.T) {
+	want, err := nodewire.EvidenceCommitmentsHash(nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if nilList != want {
-		t.Fatalf("nil evidence list digest = %x, want %x", nilList, want)
 	}
 	emptyList, err := nodewire.EvidenceCommitmentsHash([]nodewire.EvidenceCommitmentV1{})
 	if err != nil || emptyList != want {
@@ -128,7 +30,7 @@ func TestInferReceiptEmptyEvidenceListIsThePublishedDigest(t *testing.T) {
 	// The tenth preimage field must carry that digest rather than be skipped, so
 	// the same receipt with and without commitments must hash differently. Proved
 	// at the nodewire layer, which is the layer allowed to hold an empty list.
-	receipt := receiptFromFixture(t, golden.fixtureReceipt)
+	receipt := taskDataTestReceipt(t, newTaskDataTestKeyPair(t), "chain-A", []byte("output"))
 	wire, err := inferReceiptWire(receipt)
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +54,7 @@ func TestInferReceiptEmptyEvidenceListIsThePublishedDigest(t *testing.T) {
 }
 
 func TestInferReceiptSigningDigestBindsEveryPreimageField(t *testing.T) {
-	fixture := loadTaskDataSigningFixture(t)
-	base := receiptFromFixture(t, fixture.Receipt)
+	base := taskDataTestReceipt(t, newTaskDataTestKeyPair(t), "chain-A", []byte("output"))
 	want, err := InferReceiptSigningDigest(base)
 	if err != nil {
 		t.Fatal(err)
@@ -215,61 +116,6 @@ func TestInferReceiptSigningDigestBindsEveryPreimageField(t *testing.T) {
 	unsignedDigest, err := InferReceiptSigningDigest(unsigned)
 	if err != nil || unsignedDigest != want {
 		t.Fatalf("unsigned receipt digest = %x, %v; want %x", unsignedDigest, err, want)
-	}
-}
-
-func loadTaskDataSigningFixture(t *testing.T) taskDataSigningFixture {
-	t.Helper()
-	payload, err := os.ReadFile("testdata/taskdata_signing_v1.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fixture taskDataSigningFixture
-	if err := json.Unmarshal(payload, &fixture); err != nil {
-		t.Fatal(err)
-	}
-	return fixture
-}
-
-func receiptFromFixture(t *testing.T, fixture fixtureReceipt) SignedInferReceipt {
-	t.Helper()
-	commitments := make([]EvidenceCommitment, len(fixture.RequiredEvidenceCommitments))
-	for index, commitment := range fixture.RequiredEvidenceCommitments {
-		commitments[index] = EvidenceCommitment{
-			EvidenceKind:       nodewire.EvidenceKind(commitment.EvidenceKind),
-			EvidenceHashOrRoot: mustHash(t, commitment.EvidenceHashOrRoot),
-			EncodedSizeBytes:   commitment.EncodedSizeBytes,
-		}
-	}
-	// The local fixture predates the token opening: its second commitment is
-	// re-kinded to WORKER_TOKEN_OPENING so the receipt has the V3 shape.
-	if len(commitments) == 2 {
-		commitments[1].EvidenceKind = nodewire.EvidenceKindWorkerTokenOpening
-	}
-	return SignedInferReceipt{
-		SchemaVersion:               nodewire.InferReceiptSchemaVersionV3,
-		ChainID:                     fixture.ChainID,
-		TaskID:                      fixture.TaskID,
-		TaskHash:                    fixture.TaskHash,
-		WorkerOperatorAddress:       fixture.WorkerOperatorAddress,
-		ServiceAuthorizationNonce:   fixture.ServiceAuthorizationNonce,
-		GenerationParamsDigest:      fixture.GenerationParamsDigest,
-		OutputHash:                  fixture.OutputHash,
-		OutputSizeBytes:             fixture.OutputSizeBytes,
-		OutputLeafCount:             1,
-		RequiredEvidenceCommitments: commitments,
-		ExpiryHeight:                fixture.ExpiryHeight,
-		ServiceSignature:            fixture.ServiceSignature,
-	}
-}
-
-func assertHash(t *testing.T, got codec.Hash, err error, wantHex string) {
-	t.Helper()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := mustHash(t, wantHex); got != want {
-		t.Fatalf("digest = %x, want %x", got, want)
 	}
 }
 

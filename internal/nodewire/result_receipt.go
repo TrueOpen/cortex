@@ -23,7 +23,7 @@ func PresentUint32(value uint32) OptionalUint32 {
 }
 
 // MetricSummaryV1 is the frozen typed verification summary carried as
-// ResultReceiptV2 field 9. Fields are in schema field-number order, which is
+// ResultReceiptV3 field 9. Fields are in schema field-number order, which is
 // also the order the nested frame writes them. There are no floats, no maps and
 // no free JSON: the whole message is fixed-width big-endian integers plus the
 // two presence-tagged optionals.

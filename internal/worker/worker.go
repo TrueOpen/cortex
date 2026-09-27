@@ -61,7 +61,7 @@ type Config struct {
 	ReceivingBuilder ReceivingBuilderProvider
 	// TaskFacts reads TaskCoreState.accepted_task_hash and
 	// TaskAssignmentViewV1.generation_params_digest for the assignment being
-	// worked. Both are signed fields of the frozen InferReceiptV1 that no local
+	// worked. Both are signed fields of the frozen InferReceiptV3 that no local
 	// derivation can produce, so the receipt path refuses without this reader.
 	TaskFacts        taskfacts.Reader
 	GenerationReader GenerationReader

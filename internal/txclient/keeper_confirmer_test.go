@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestKeeperConfirmerUsesCodeZeroInclusionForUnqueryableRecords(t *testing.T) {
@@ -377,10 +376,6 @@ func keeperHash(t *testing.T, value string) chainclient.HexHash {
 		t.Fatalf("decode hash: %v", err)
 	}
 	return hash
-}
-
-func codecHashString(hash codec.Hash) string {
-	return fmt.Sprintf("%x", hash[:])
 }
 
 func capabilityStateForMessage(message DeclareModelSupportMessage) chainclient.ModelCapabilitySnapshot {

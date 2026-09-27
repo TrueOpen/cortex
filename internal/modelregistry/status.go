@@ -31,7 +31,6 @@ const (
 	VerificationOfficial             = "OFFICIAL"
 	VerificationCommunity            = "COMMUNITY_VERIFIED"
 	VerificationUnverified           = "UNVERIFIED"
-	RewardEligibleIfMarked           = "ELIGIBLE_IF_MARKED"
 	RewardFeeOnlyNoBlockReward       = "FEE_ONLY_NO_BLOCK_REWARD"
 	RewardFrozenNoNewTasks           = "FROZEN_NO_NEW_TASKS"
 	SupportUnsupported               = "UNSUPPORTED"
@@ -425,10 +424,10 @@ func ProjectEarnings(obs EarningsObservation) EarningsView {
 	}
 }
 
+// projectRewardState has no marked-reward state: Phase 0 runs no MarkGate, so
+// an active model earns task fees only.
 func projectRewardState(chainState string) string {
 	switch chainState {
-	case ChainStateActive:
-		return RewardEligibleIfMarked
 	case ChainStateFrozen, ChainStateEmergencyFrozen, ChainStateDelisted:
 		return RewardFrozenNoNewTasks
 	default:

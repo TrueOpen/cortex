@@ -446,7 +446,7 @@ func startTestAdminServer(t *testing.T) string {
 		ChainState:        modelregistry.ChainStateRegistered,
 		DisplayVisibility: modelregistry.DisplayVisible,
 		VerificationLabel: modelregistry.VerificationOfficial,
-		RewardState:       modelregistry.RewardEligibleIfMarked,
+		RewardState:       modelregistry.RewardFeeOnlyNoBlockReward,
 		Supported:         true,
 	})
 	registry.PutStatus(modelregistry.ModelStatus{
@@ -455,7 +455,7 @@ func startTestAdminServer(t *testing.T) string {
 		ChainState:        modelregistry.ChainStateRegistered,
 		DisplayVisibility: modelregistry.DisplayVisible,
 		VerificationLabel: modelregistry.VerificationOfficial,
-		RewardState:       modelregistry.RewardEligibleIfMarked,
+		RewardState:       modelregistry.RewardFeeOnlyNoBlockReward,
 	})
 	server := adminapi.NewServer(socketPath, adminapi.New(adminapi.ServiceConfig{
 		ModelRegistry:  registry,

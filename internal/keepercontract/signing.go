@@ -15,7 +15,6 @@ import (
 
 const (
 	TaskEpochLengthBlocks          = uint64(100)
-	DomainSupportModels            = "TRUEOPEN_SUPPORT_MODELS_V1"
 	DomainDailySupportConfirmation = "TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1"
 	DomainWorkerReveal             = "TRUEOPEN_WORKER_REVEAL_RECEIPT_V1"
 )
@@ -28,7 +27,7 @@ func TaskEpoch(height uint64) uint64 {
 // of their Hash32) in the order Node requires for supported_models: raw bytes
 // ascending, which for fixed-width lowercase hex is the same as text order. It
 // refuses an empty set, a non-canonical id and duplicates, so its result is
-// always accepted by SupportedModelsHash and DailySupportConfirmation.
+// always accepted by DailySupportConfirmation.
 func CanonicalModelIDs(modelIDs []string) ([]string, error) {
 	if len(modelIDs) == 0 {
 		return nil, fmt.Errorf("supported models are required")
@@ -46,14 +45,6 @@ func CanonicalModelIDs(modelIDs []string) ([]string, error) {
 		}
 	}
 	return sorted, nil
-}
-
-func SupportedModelsHash(modelIDs []string) (codec.Hash, error) {
-	fields, err := supportedModelFields(modelIDs)
-	if err != nil {
-		return codec.Hash{}, err
-	}
-	return hfields.Digest(DomainSupportModels, fields...)
 }
 
 func DailySupportConfirmation(

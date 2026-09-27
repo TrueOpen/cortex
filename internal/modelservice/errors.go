@@ -61,35 +61,10 @@ const (
 	// than the task's frozen max_output_tokens. The receipt would commit to a
 	// generation the order never authorised.
 	FaultCodeTokenBudgetExceeded = "GENERATION_TOKEN_BUDGET_EXCEEDED"
-	// FaultCodeTokenEvidenceCountMismatch: the trace's generated_token_count and
-	// the per-token evidence it carries disagree. Nothing about the budget is
-	// decided here -- the count itself is not trustworthy yet.
+	// FaultCodeTokenEvidenceCountMismatch: the generated token ids and the
+	// per-position values do not cover each other one to one. Nothing about the
+	// budget is decided here -- the count itself is not trustworthy yet.
 	FaultCodeTokenEvidenceCountMismatch = "GENERATION_TOKEN_EVIDENCE_COUNT_MISMATCH"
-	// FaultCodeTokenCountNegative: a negative generated_token_count. Its own
-	// code because it is a decode-shaped fault, not an arithmetic one.
-	FaultCodeTokenCountNegative = "GENERATION_TOKEN_COUNT_NEGATIVE"
-	// FaultCodeTraceUndecodable: the trace artifact is not a decodable envelope.
-	FaultCodeTraceUndecodable = "GENERATION_TRACE_UNDECODABLE"
-	// FaultCodeTraceGenerationContext: the trace carries a generation context
-	// that does not re-derive the task's frozen generation_params_digest.
-	FaultCodeTraceGenerationContext = "GENERATION_TRACE_CONTEXT_INVALID"
-	// FaultCodeTraceIdentityMismatch: the trace names a different model or
-	// profile version than the task does.
-	FaultCodeTraceIdentityMismatch = "GENERATION_TRACE_IDENTITY_MISMATCH"
-	// FaultCodeTraceOutputMismatch: the output artifact and the trace's own copy
-	// of the output are different bytes.
-	FaultCodeTraceOutputMismatch = "GENERATION_TRACE_OUTPUT_MISMATCH"
-	// FaultCodeTraceTokenIDsHashMismatch: a token-ids hash in the trace does not
-	// cover the token vector beside it.
-	FaultCodeTraceTokenIDsHashMismatch = "GENERATION_TRACE_TOKEN_IDS_HASH_MISMATCH"
-	// FaultCodeTraceNegativeTokenID: a negative token id in the trace.
-	FaultCodeTraceNegativeTokenID = "GENERATION_TRACE_NEGATIVE_TOKEN_ID"
-	// FaultCodeCheckpointMismatch: the checkpoint artifact contradicts the trace
-	// it is supposed to summarise.
-	FaultCodeCheckpointMismatch = "GENERATION_CHECKPOINT_MISMATCH"
-	// FaultCodeFinishReasonUnsupported: the engine's finish reason cannot be
-	// mapped onto a frozen FinishReasonV1 under the task's own parameters.
-	FaultCodeFinishReasonUnsupported = "GENERATION_FINISH_REASON_UNSUPPORTED"
 	// FaultCodeFinishReasonInconsistent: the finish reason contradicts the
 	// generated tokens under the task's parameters (05 section 8.3).
 	FaultCodeFinishReasonInconsistent = "GENERATION_FINISH_REASON_INCONSISTENT"

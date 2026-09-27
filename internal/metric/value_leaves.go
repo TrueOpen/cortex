@@ -61,23 +61,3 @@ func ValueLeaves(values []PositionValue, requiredTopK uint32) ([]nodewire.Positi
 	}
 	return leaves, nil
 }
-
-// PositionValuesFromLeaves reads fixed-point leaves back as real-valued
-// position values, for comparisons that operate in real units. fp_1e6 / 1e6 is
-// exact enough to round-trip: signedFP1e6 of the result is the leaf's number.
-func PositionValuesFromLeaves(leaves []nodewire.PositionValueV1) []PositionValue {
-	values := make([]PositionValue, len(leaves))
-	for i, leaf := range leaves {
-		value := PositionValue{TokenID: leaf.TokenID, Missing: !leaf.Finite}
-		if leaf.Finite {
-			value.Logprob = float64(leaf.LogprobFP1e6) / FixedPointScale
-			value.Rank = leaf.Rank
-			value.TopK = make([]TokenLogprob, len(leaf.TopK))
-			for j, entry := range leaf.TopK {
-				value.TopK[j] = TokenLogprob{TokenID: entry.TokenID, Logprob: float64(entry.LogprobFP1e6) / FixedPointScale}
-			}
-		}
-		values[i] = value
-	}
-	return values
-}

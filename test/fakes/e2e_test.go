@@ -1060,14 +1060,5 @@ func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageS
 	}
 }
 
-func mustJSON(t *testing.T, value any) []byte {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("Marshal returned error: %v", err)
-	}
-	return data
-}
-
 // e2eRequiredTopK is the locked Profile's required_top_k in this harness.
 const e2eRequiredTopK = 4

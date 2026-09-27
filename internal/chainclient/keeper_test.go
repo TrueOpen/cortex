@@ -9,7 +9,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -893,15 +892,6 @@ func mustUnmarshalProto(t testing.TB, data []byte, message proto.Message) {
 	if err := unmarshalTestProto(data, message); err != nil {
 		t.Fatalf("decode protobuf: %v", err)
 	}
-}
-
-func mustReadFixture(t testing.TB, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
 }
 
 func modelsTestModel(id byte, provider, repo string) *hubv1.ModelState {

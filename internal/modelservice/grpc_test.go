@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"io"
 	"net"
 	"strings"
 	"testing"
@@ -196,20 +195,6 @@ func (s *recordingModelManagementServer) FetchArtifact(req *cortexv1.FetchArtifa
 		offset += int64(len(chunk))
 	}
 	return nil
-}
-
-func recvAllArtifacts(stream cortexv1.ModelManagementService_FetchArtifactClient) ([]byte, error) {
-	var out []byte
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return out, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, chunk.GetBytes()...)
-	}
 }
 
 func TestInferResponseGRPCRejectsAmbiguousStop(t *testing.T) {

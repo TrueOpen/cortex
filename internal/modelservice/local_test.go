@@ -409,58 +409,12 @@ func TestLocalServiceHTTPUnavailableIsRetryable(t *testing.T) {
 	}
 }
 
-func floatPtr(v float64) *float64 {
-	return &v
-}
-
 type staticLocalProfileResolver struct {
 	profile chainclient.CurrentProfileSnapshot
 }
 
 func (r staticLocalProfileResolver) ResolveLocalProfile(context.Context, string, string) (chainclient.CurrentProfileSnapshot, error) {
 	return r.profile, nil
-}
-
-func resolvedCurrentProfile(modelID string, profileVersion uint32, topK uint32) chainclient.CurrentProfileSnapshot {
-	return chainclient.CurrentProfileSnapshot{
-		ModelID:        modelID,
-		ProfileVersion: chainclient.NewProfileVersion(profileVersion),
-		RuntimeClass:   defaultLocalRuntimeClass,
-		RequiredTopK:   topK,
-		VerificationProfile: chainclient.CurrentVerificationProfileSnapshot{
-			VerificationProfileID:         2,
-			JudgmentFunctionVersion:       defaultLocalJudgmentFunctionVersion,
-			TokenScope:                    "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
-			IncludeGeneratedSpecialTokens: true,
-			RequireOutputTokenIDs:         true,
-			RequireFinishReason:           true,
-			Metrics: chainclient.CurrentMetricSpecSnapshot{
-				CompareLogprobDiff: true,
-				CompareRankDelta:   true,
-				CompareTopKJaccard: true,
-				CompareUnionJS:     true,
-				ComparedTopK:       topK,
-				NumericScale:       "NUMERIC_SCALE_FP_1E6",
-			},
-			CanonicalEncodingVersion:    defaultLocalCanonicalEncoding,
-			MetricAggregateProofVersion: defaultLocalMetricProofVersion,
-		},
-		VerificationThresholds: chainclient.CurrentVerificationThresholdsSnapshot{
-			PassMinFiniteCount:            9,
-			PassMeanAbsLogprobDiffMax:     18000,
-			PassAbsLogprobDiffP95Max:      100000,
-			PassAbsLogprobDiffP99Max:      200000,
-			PassRankDeltaNonzeroRateMax:   25000,
-			PassTopKJaccardMeanMin:        935000,
-			PassUnionJSP99Max:             12000,
-			RejectMeanAbsLogprobDiffMin:   500000,
-			RejectAbsLogprobDiffP95Min:    600000,
-			RejectAbsLogprobDiffP99Min:    700000,
-			RejectRankDeltaNonzeroRateMin: 800000,
-			RejectTopKJaccardMeanMax:      100000,
-			RejectUnionJSP99Min:           900000,
-		},
-	}
 }
 
 func TestLocalServiceMetadataEndpoints(t *testing.T) {

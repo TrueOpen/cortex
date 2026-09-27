@@ -63,12 +63,6 @@ func ResultCommitmentHash(commitment ResultCommitmentV3) (codec.Hash, error) {
 		hfields.Bytes(commitment.VerifierValueRoot), hfields.Bytes(commitment.Salt))
 }
 
-// ResultPayloadHash derives result_payload_hash over the canonical V2 reveal
-// payload. It is the reveal's integrity digest and no longer enters the commit.
-func ResultPayloadHash(payload []byte) codec.Hash {
-	return codec.HashV1(DomainVerifierResultPayloadV2, payload)
-}
-
 // ResultReceiptV3 is the V2 credential plus the Verifier value root, the metric
 // leaf count and the reserved Verifier evidence key slot, in schema
 // field-number order. Field 18 is ServiceSignature and is excluded from the

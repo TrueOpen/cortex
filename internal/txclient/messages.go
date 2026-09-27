@@ -357,7 +357,7 @@ type EvidenceCommitmentMessage struct {
 	EncodedSizeBytes   ProtoUint64  `json:"encoded_size_bytes"`
 }
 
-// InferReceiptMessage mirrors task.v1.InferReceiptV2. Field 12
+// InferReceiptMessage mirrors task.v1.InferReceiptV3. Field 12
 // service_signature is outside the signing preimage; evidence_commitments_hash
 // is Keeper-derived from field 10 and is not a wire field.
 type InferReceiptMessage struct {
@@ -424,7 +424,7 @@ type MetricSummaryMessage struct {
 	ComparedRankCount         ProtoUint32  `json:"compared_rank_count"`
 }
 
-// ResultReceiptMessage mirrors task.v1.ResultReceiptV2. commit_key and
+// ResultReceiptMessage mirrors task.v1.ResultReceiptV3. commit_key and
 // metric_summary_hash are Keeper-recomputed and are not caller fields.
 type ResultReceiptMessage struct {
 	SchemaVersion                     ProtoUint32          `json:"schema_version"`
@@ -700,7 +700,7 @@ func unavailableHash32(value ProtoBytes32) bool {
 }
 
 // ErrRequiredEvidenceKindsUnavailable is the fail-closed reason for an empty
-// InferReceiptV2.required_evidence_commitments. The list must exactly equal the
+// InferReceiptV3.required_evidence_commitments. The list must exactly equal the
 // locked Profile's evidence_schema.required_infer_evidence, which
 // hub.v1.Query/Profile serves and Cortex has no reader for; no Profile
 // requires the empty set, so an empty list can never be that set. The frozen

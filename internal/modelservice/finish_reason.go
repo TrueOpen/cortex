@@ -54,8 +54,8 @@ func finishReasonV1FromString(reason string, ambiguousStop bool) (nodewire.Finis
 
 func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, stop json.RawMessage, count uint64) (nodewire.FinishReasonV1, error) {
 	// This is the FIRST place an over-budget generation is caught -- it runs
-	// inside buildInferResultFromCompletion, before the trace and checkpoint are
-	// even marshalled, so it is what a live Worker hits and what a live log
+	// inside buildInferResultFromCompletion, before the token-id and
+	// position-value material is encoded, so it is what a live Worker hits and what a live log
 	// reports. It carries the same code as the evidence-side check of the same
 	// inequality on purpose: one fact, one code, wherever it is noticed.
 	if count > g.Params.MaxOutputTokens {

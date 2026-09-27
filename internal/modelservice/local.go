@@ -42,7 +42,7 @@ const (
 
 // LocalService is an in-process model service that fulfils Infer/Verify by
 // calling a local vLLM OpenAI-compatible /v1/completions endpoint. Produced
-// artifacts (output, trace, checkpoint, verify sample sequence) are kept in an
+// artifacts (output, token ids, position values, verify sample sequence) are kept in an
 // in-memory store and served back through FetchArtifact, mirroring FakeService.
 type LocalService struct {
 	baseURL         string
@@ -929,15 +929,12 @@ func completionFinishResolver(req InferRequest) finishReasonResolver {
 
 // buildInferResultFromCompletion turns a decoded /v1/completions response (or a
 // chat response projected onto the same shape) into the InferResponse plus the
-// stored output/trace/checkpoint artifacts. It is shared by inferV0 and the chat
-// path so both produce byte-identical trace/checkpoint envelopes and the Verifier
+// stored output, token-id and position-value artifacts. It is shared by inferV0
+// and the chat path so both produce byte-identical material and the Verifier
 // sees one shape regardless of which endpoint generated the tokens.
 //
 // outputBytes is the artifact to commit and deliver as the output. Pass nil to
-// commit the raw generated text (choice.Text) -- the inferV0 behaviour; the chat
-// path passes a full OpenAI ChatCompletion object instead, which is why the output
-// artifact and trace.Output are decoupled here: trace.Output stays the model's
-// text while the delivered output can be a richer envelope.
+// commit the raw generated text (choice.Text).
 //
 // resolveFinish computes the frozen finish reason; each path supplies its own so
 // the completions path can honour generation parameters while the chat path keeps
@@ -1160,10 +1157,6 @@ func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyRes
 		MaterialDigest:         materialDigest[:],
 		VerifierValues:         values,
 	}, nil
-}
-
-func finite(v float64) bool {
-	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 func (s *LocalService) FetchArtifact(_ context.Context, req FetchArtifactRequest) (Artifact, error) {

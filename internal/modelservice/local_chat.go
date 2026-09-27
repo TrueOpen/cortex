@@ -18,19 +18,19 @@ import (
 // This file implements the chat generation path: it interprets req.Input as an
 // OpenAI Chat Completions request body (see proto/cortex/v1/chat_input.proto),
 // calls vLLM's /v1/chat/completions, and projects the response back onto the
-// same completionResponse shape the raw-text path (inferV0) produces, so all
-// downstream trace/checkpoint building and the Verifier are unchanged.
+// same completionResponse shape the raw-text path (inferV0) produces, so the
+// token-id and position-value material and the Verifier are unchanged.
 //
 // The transport mirrors inferV0: the streamInference switch (SetStreamInference,
 // default on) selects SSE vs. a single JSON body, and reassembleChatStream folds
 // the server-sent chunks back into the SAME chatCompletionResponse a non-streaming
-// call would decode -- so the committed output, trace and checkpoint are
+// call would decode -- so the committed output and material are
 // byte-identical regardless of which transport ran, and streaming is a node-local
 // detail never carried on the protocol. Verify is always non-streaming.
 //
 // Output is NOT the engine's detokenized message.content, nor a ChatCompletion
-// JSON envelope: the delivered output, the streamed chunk text, trace.Output and
-// checkpoint.Output are all the RAW TEXT decoded from the committed token_ids --
+// JSON envelope: the delivered output and the streamed chunk text are both the
+// RAW TEXT decoded from the committed token_ids --
 // each generated token's bytes (logprobs.content[i].bytes) concatenated in order
 // (decodeTokensFromLogprobs). This makes every text artifact correspond
 // byte-for-byte to the token_ids the Verifier scores (including the trailing EOS
@@ -261,7 +261,6 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	}
 	// outputBytes is nil so the delivered output defaults to choice.Text -- the raw
 	// text decoded from the committed token_ids (set by projectChatToCompletion).
-	// The delivered output, trace.Output and checkpoint.Output are thus identical.
 	// req.Generation is now set, so buildInferResultFromCompletion re-derives the
 	// chain-bound evidence contract (ValidateGenerationEvidence) for the chat path
 	// exactly as for inferV0. projectChatToCompletion already normalised the chat-only
@@ -411,8 +410,8 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 
 // projectChatToCompletion maps a chat response onto the completionResponse shape
 // the shared post-processing consumes. choice.Text is the RAW TEXT decoded from
-// the committed token_ids (decodeTokensFromLogprobs) -- it is both trace.Output and,
-// because Infer passes outputBytes=nil, the delivered output. The token-level
+// the committed token_ids (decodeTokensFromLogprobs) -- because Infer passes
+// outputBytes=nil, it is the delivered output. The token-level
 // fields (token ids and logprobs) are what the Verifier reconstructs from, and they
 // are carried unchanged. This is also the authoritative point where each token id
 // is checked against its logprobs entry (decodeTokensFromLogprobs fails closed on a
@@ -431,7 +430,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 	// vLLM's chat endpoint reports "tool_calls" when the model finished its turn by
 	// emitting a tool call. That is not a member of the frozen finish set, and it is
 	// the model completing its turn at the EOS boundary, so it is normalised to
-	// "eos_token" HERE -- before the trace/checkpoint are built from this value and
+	// "eos_token" HERE -- before the material is built from this value and
 	// before ValidateGenerationEvidence re-derives the finish reason from it -- so
 	// the whole pipeline (resolver, evidence, Verifier) sees one in-set value. The
 	// raw-text path never sees "tool_calls"; with this normalisation the chat path's

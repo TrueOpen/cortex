@@ -14,7 +14,6 @@ func TestEmbeddedHubVectorsAreWireVerbatim(t *testing.T) {
 func TestEveryDerivedHubDomainHasAPublishedVector(t *testing.T) {
 	for _, domain := range []string{
 		"TRUEOPEN_EVIDENCE_SCHEMA_V1",
-		"TRUEOPEN_SUPPORT_MODELS_V1",
 		"TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1",
 		"TRUEOPEN_PROFILE_VERIFICATION_SNAPSHOT_V1",
 	} {

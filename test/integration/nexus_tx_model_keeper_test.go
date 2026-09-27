@@ -1801,15 +1801,6 @@ func mustOpenStoreAt(t *testing.T, path string) *store.Store {
 	return s
 }
 
-func mustEvidenceStore(t *testing.T, root string) *evidence.Store {
-	t.Helper()
-	s, err := evidence.NewStore(root)
-	if err != nil {
-		t.Fatalf("NewStore returned error: %v", err)
-	}
-	return s
-}
-
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {
 	return policy.OutputPackageSummary{TaskID: pkg.TaskID, OutputRef: pkg.OutputRef, TokenIDsRef: pkg.TokenIDsRef, PositionValuesRef: pkg.PositionValuesRef, OutputHash: pkg.OutputHash, PackageHash: pkg.PackageHash}
 }

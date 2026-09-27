@@ -53,7 +53,7 @@ type Config struct {
 	// envelope default.
 	EnvelopeTTL time.Duration
 	// TaskFacts reads the accepted task hash, generation digest and execution
-	// snapshot hash bound by the result payload and V2 credential.
+	// snapshot hash bound by the result payload and the V3 result receipt.
 	TaskFacts taskfacts.Reader
 	// ProfileReader reads the locked model profile so the verifier can derive
 	// the required evidence set from the Profile's evidence_schema instead of
@@ -66,7 +66,7 @@ type Config struct {
 	// them. Zero means the default, never unbounded.
 	MaxOutputBytes uint64
 	// Trace reports the digests this Verifier derives -- the sample seed and
-	// what went into it, the trace root, the commit hash and the digest actually
+	// what went into it, the value roots, the commit hash and the digest actually
 	// signed, the result credential -- as they are produced. Nil is silent.
 	Trace *tasktrace.Trace
 	// CommitRelay is the Task Builder relay for the signed verify commit. Nil is
@@ -996,13 +996,10 @@ func verifyResultKey(state TaskState, seed codec.Hash, verifierAddress string) s
 // response, so a malicious service picks both the ref and the bytes behind it.
 //
 // The bound is the configured artifact maximum, NOT the profile's per-kind
-// evidence maximum. Those are different objects: the profile value is
-// TraceEncodedSizeBytes + CheckpointEncodedSizeBytes (see
-// internal/nodewire/worker_value_commitment.go), which sizes the worker's infer
-// evidence. The sample-value sequence is a later, verifier-side protocol object
-// that the profile does not size at all, and a small legitimate profile - say a
-// 16-byte trace plus checkpoint - would reject a perfectly valid 20-byte decimal
-// result value and make the task unverifiable.
+// evidence maximum. Those are different objects: the profile values size the
+// Worker's two evidence bundles, while the sample-value sequence is a later,
+// verifier-side object the profile does not size at all, so a small legitimate
+// profile bound would make the task unverifiable.
 func (v *Verifier) fetchVerificationValues(ctx context.Context, taskID string, ref string) ([][]byte, error) {
 	artifact, err := v.cfg.Model.FetchArtifact(ctx, modelservice.FetchArtifactRequest{
 		RequestID:      "verifier-fetch-values-" + taskID,
@@ -1195,7 +1192,7 @@ func commitMessage(cfg Config, result VerifyResult) (txclient.SubmitVerifyCommit
 	}, nil
 }
 
-// resultReceiptWire assembles the unsigned frozen task.v1.ResultReceiptV2
+// resultReceiptWire assembles the unsigned frozen task.v1.ResultReceiptV3
 // body from every preimage value Cortex can source. It is the exact counterpart
 // of verifyCommitWire: a sourced value is taken from its real source or refused,
 // because nodewire keeps its derivations total and would hash a guessed zero
@@ -1378,62 +1375,6 @@ func (v *Verifier) signResultReceipt(ctx context.Context, receipt *nodewire.Resu
 	}
 	receipt.ServiceSignature = signature
 	return nil
-}
-
-// resultPayload encodes the frozen task.v1.MsgSubmitVerifyResult body. The
-// same bytes are the ResultItem the Task Builder relays inside
-// MsgBatchSubmitVerifyResult and what verifier self-rescue submits directly.
-//
-// Every field is projected from the receipt whose digest was signed. Nothing is
-// re-read from Config or TaskState: a second read would be a second chance for
-// the submitted body to differ from the signed one. commit_key and
-// metric_summary_hash are Keeper-recomputed and are deliberately absent.
-func resultPayload(cfg Config, receipt nodewire.ResultReceiptV3) ([]byte, error) {
-	if len(receipt.ServiceSignature) == 0 {
-		return nil, fmt.Errorf("verify result service_signature is missing: the frozen body was never signed")
-	}
-	return txclient.MarshalMessage(txclient.MsgSubmitVerifyResult, txclient.SubmitVerifyResultMessage{
-		Receipt: txclient.ResultReceiptMessage{
-			SchemaVersion:                     txclient.ProtoUint32(receipt.SchemaVersion),
-			ChainID:                           receipt.ChainID,
-			TaskID:                            txclient.ProtoBytes32(hex.EncodeToString(receipt.TaskID)),
-			VerifyRound:                       txclient.ProtoUint32(receipt.VerifyRound),
-			VerifierOperatorAddress:           receipt.VerifierOperatorAddress,
-			ServiceAuthorizationNonce:         txclient.ProtoUint64(receipt.ServiceAuthorizationNonce),
-			GenerationParamsDigest:            txclient.ProtoBytes32(hex.EncodeToString(receipt.GenerationParamsDigest)),
-			MetricRoot:                        txclient.ProtoBytes32(hex.EncodeToString(receipt.MetricRoot)),
-			MetricSummary:                     metricSummaryMessage(receipt.MetricSummary),
-			AggregateProofHash:                txclient.ProtoBytes32(hex.EncodeToString(receipt.AggregateProofHash)),
-			VerifierEvidenceBundleHash:        txclient.ProtoBytes32(hex.EncodeToString(receipt.VerifierEvidenceBundleHash)),
-			VerifierEvidenceManifestSizeBytes: txclient.ProtoUint64(receipt.VerifierEvidenceManifestSizeBytes),
-			Salt:                              txclient.ProtoBytes32(hex.EncodeToString(receipt.Salt)),
-			ExpiryHeight:                      txclient.ProtoUint64(receipt.ExpiryHeight),
-			VerifierValueRoot:                 txclient.ProtoBytes32(hex.EncodeToString(receipt.VerifierValueRoot)),
-			MetricLeafCount:                   txclient.ProtoUint32(receipt.MetricLeafCount),
-			VerifierEvidenceKeyCommitment:     txclient.ProtoBytes32(hex.EncodeToString(receipt.VerifierEvidenceKeyCommitment)),
-			ServiceSignature:                  txclient.ProtoBytes(hex.EncodeToString(receipt.ServiceSignature)),
-		},
-		SubmitterAddress: cfg.SignerAddress,
-	})
-}
-
-// metricSummaryMessage projects the typed summary onto the ProtoJSON body. The
-// two proto3 optionals stay pointers: a present zero must serialise as an
-// explicit 0 and an absent member must be omitted entirely, because the frozen
-// preimage gives those two cases different digests.
-func metricSummaryMessage(summary nodewire.MetricSummaryV1) txclient.MetricSummaryMessage {
-	return txclient.MetricSummaryMessage{
-		FiniteCount:               txclient.ProtoUint32(summary.FiniteCount),
-		MissingComparedCount:      txclient.ProtoUint32(summary.MissingComparedCount),
-		MeanAbsLogprobDiffFP1e6:   txclient.ProtoUint32(summary.MeanAbsLogprobDiffFP1e6),
-		AbsLogprobDiffP95FP1e6:    txclient.ProtoUint32(summary.AbsLogprobDiffP95FP1e6),
-		AbsLogprobDiffP99FP1e6:    txclient.ProtoUint32(summary.AbsLogprobDiffP99FP1e6),
-		RankDeltaNonzeroRateFP1e6: txclient.ProtoUint32(summary.RankDeltaNonzeroRateFP1e6),
-		TopkJaccardMeanFP1e6:      optionalProtoUint32(summary.TopkJaccardMeanFP1e6),
-		UnionJSP99FP1e6:           optionalProtoUint32(summary.UnionJSP99FP1e6),
-		ComparedTopkCount:         txclient.ProtoUint32(summary.ComparedTopkCount),
-		ComparedRankCount:         txclient.ProtoUint32(summary.ComparedRankCount),
-	}
 }
 
 func optionalProtoUint32(value nodewire.OptionalUint32) *txclient.ProtoUint32 {

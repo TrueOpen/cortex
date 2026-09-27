@@ -203,8 +203,8 @@ func TestPayloadBindsVerifierAndSelectedIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second reveal error = %v", err)
 	}
-	firstHash := nodewire.ResultPayloadHash(first)
-	secondHash := nodewire.ResultPayloadHash(second)
+	firstHash := codec.HashV1(nodewire.DomainVerifierResultPayloadV2, first)
+	secondHash := codec.HashV1(nodewire.DomainVerifierResultPayloadV2, second)
 	if firstHash == secondHash {
 		t.Fatal("two selected verifier identities produced the same result payload hash")
 	}

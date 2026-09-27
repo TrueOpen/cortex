@@ -20,27 +20,6 @@ func wireHubFixtureModels() []string {
 // Bech32 text, which is why the production helper decodes before framing.
 const wireHubFixtureOperator = "trueopen15x328f9956n632d24wk2mt40kzcm9va5vw5e0a"
 
-// TestSupportModelsHashAgreesWithWireVector drives the production digest with
-// the inputs wire's own vector declares and compares against the digest wire
-// publishes. Every other test in this package signs and verifies with the same
-// function and would stay green through a total drift; this one would not.
-//
-// The repeated model list is one nested frame carrying its own element_count.
-func TestSupportModelsHashAgreesWithWireVector(t *testing.T) {
-	vector, err := wirevectors.HubDomain(DomainSupportModels)
-	if err != nil {
-		t.Fatalf("wire vector: %v", err)
-	}
-	got, err := SupportedModelsHash(wireHubFixtureModels())
-	if err != nil {
-		t.Fatalf("SupportedModelsHash: %v", err)
-	}
-	if hex.EncodeToString(got[:]) != vector.DigestHex {
-		t.Fatalf("%s = %s, wire %s publishes %s",
-			DomainSupportModels, hex.EncodeToString(got[:]), wirevectors.WireVersion, vector.DigestHex)
-	}
-}
-
 // DailySupportConfirmation is signed with the Keeper-confirmed ServiceKey, so a
 // drift here produced a signature over a preimage the chain never derives.
 func TestDailySupportConfirmationAgreesWithWireVector(t *testing.T) {

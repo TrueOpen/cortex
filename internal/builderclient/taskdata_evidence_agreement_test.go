@@ -2,12 +2,10 @@ package builderclient
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/nodewire"
-	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
 type taskDataGoldenField struct {
@@ -20,13 +18,6 @@ type taskDataGoldenField struct {
 	Present bool                  `json:"present"`
 	Fields  []taskDataGoldenField `json:"fields"`
 }
-type taskDataGolden struct {
-	Name   string                `json:"name"`
-	Domain string                `json:"domain"`
-	Fields []taskDataGoldenField `json:"fields"`
-	Digest string                `json:"digest_hex"`
-}
-
 func goldenField(t *testing.T, fields []taskDataGoldenField, name string) taskDataGoldenField {
 	t.Helper()
 	for _, field := range fields {
@@ -37,31 +28,6 @@ func goldenField(t *testing.T, fields []taskDataGoldenField, name string) taskDa
 	t.Fatalf("missing field %s", name)
 	return taskDataGoldenField{}
 }
-func goldenKey(t *testing.T, field taskDataGoldenField) TaskDataKey {
-	t.Helper()
-	f := func(name string) taskDataGoldenField { return goldenField(t, field.Fields, name) }
-	operator := ""
-	optional := f("producer_operator")
-	if optional.Present {
-		operator = goldenAddress(t, goldenField(t, optional.Fields, "value"))
-	}
-	return TaskDataKey{TaskHash: f("task_hash").Hex, SessionID: f("session_id").Hex, TaskID: f("task_id").Hex, Kind: DataKind(f("object_kind").Value), ContentHash: f("content_hash").Hex, EvidenceProducerKind: EvidenceProducerKind(f("evidence_producer_kind").Value), VerifyRound: uint32(f("verify_round").Value), ProducerOperator: operator}
-}
-func loadTaskDataGoldens(t *testing.T, path string) []taskDataGolden {
-	t.Helper()
-	raw, err := wirevectors.File(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var file struct {
-		Vectors []taskDataGolden `json:"vectors"`
-	}
-	if err := json.Unmarshal(raw, &file); err != nil {
-		t.Fatal(err)
-	}
-	return file.Vectors
-}
-
 func TestObjectRefAndRangePresenceCannotBeConfused(t *testing.T) {
 	key := TaskDataKey{TaskHash: strings.Repeat("11", 32), SessionID: strings.Repeat("22", 32), TaskID: strings.Repeat("33", 32), Kind: DataKindOutput, ContentHash: strings.Repeat("44", 32)}
 	whole, err := TaskDataFetchBodyDigest(key, nil)

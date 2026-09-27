@@ -9,7 +9,7 @@ import (
 
 // taskFacts reads the Task facts the frozen result credential signs for the
 // task this verify responsibility is for. Only generation_params_digest reaches
-// the ResultReceiptV2 body, but the read is the same single
+// the ResultReceiptV3 body, but the read is the same single
 // chainclient.KeeperABCIClient.TaskReceiptFacts call the Worker's receipt path
 // uses; there is no second query mechanism and no fallback.
 //

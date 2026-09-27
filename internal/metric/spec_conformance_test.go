@@ -55,8 +55,6 @@ func specHFields(domain string, values ...[]byte) codec.Hash {
 // single row is visible.
 func specU32(v uint32) []byte { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); return b }
 func specU64(v uint64) []byte { b := make([]byte, 8); binary.BigEndian.PutUint64(b, v); return b }
-func specI64(v int64) []byte  { return specU64(uint64(v)) }
-func specI32(v int32) []byte  { return specU32(uint32(v)) }
 
 func specBool(v bool) []byte {
 	if v {

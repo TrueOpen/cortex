@@ -400,7 +400,7 @@ func TestUnixSocketClientRoutesProjectedModelStatus(t *testing.T) {
 		ChainState:          modelregistry.ChainStateRegistered,
 		DisplayVisibility:   modelregistry.DisplayVisible,
 		VerificationLabel:   modelregistry.VerificationOfficial,
-		RewardState:         modelregistry.RewardEligibleIfMarked,
+		RewardState:         modelregistry.RewardFeeOnlyNoBlockReward,
 		Supported:           true,
 		DailySupportEnabled: true,
 	})

@@ -24,7 +24,7 @@ func TestVerifierResultPayloadV2ReproducesPublishedVector(t *testing.T) {
 	if !bytes.Equal(encoded, published) {
 		t.Fatal("canonical V2 payload differs from the published bytes")
 	}
-	digest := nodewire.ResultPayloadHash(encoded)
+	digest := codec.HashV1(nodewire.DomainVerifierResultPayloadV2, encoded)
 	if hex.EncodeToString(digest[:]) != digestHex {
 		t.Fatalf("result_payload_hash = %x, published %s", digest, digestHex)
 	}

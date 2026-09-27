@@ -126,32 +126,6 @@ func realVLLMChatGeneration(t *testing.T, modelID, profileVersion string, maxTok
 	return g, digest[:]
 }
 
-func parseRealVLLMUint32(t *testing.T, envName string, raw string) int {
-	t.Helper()
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	value, err := strconv.ParseUint(raw, 10, 32)
-	if err != nil || value == 0 {
-		t.Fatalf("%s=%q must be a positive uint32", envName, raw)
-	}
-	return int(value)
-}
-
-func fetchRealVLLMArtifact(t *testing.T, ctx context.Context, svc *LocalService, ref string, allowEmpty bool) Artifact {
-	t.Helper()
-	artifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{
-		RequestID:  "real-vllm-fetch",
-		Ref:        ref,
-		AllowEmpty: allowEmpty,
-	})
-	if err != nil {
-		t.Fatalf("FetchArtifact(%q) error = %v", ref, err)
-	}
-	return artifact
-}
-
 // --- streaming Infer transport tests -----------------------------------------
 //
 // These exercise LocalService.Infer over the vLLM SSE transport. The hermetic
