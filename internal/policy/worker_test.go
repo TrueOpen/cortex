@@ -127,3 +127,26 @@ func validWorkerPrecheck() WorkerPrecheckInput {
 		SelfRescueGasBudgetNanoTRUEOPEN: 10,
 	}
 }
+
+// Phase 0 runs no reward-eligibility gate: a first-P30 DECLARED_BOOTSTRAP node
+// with no stake at all passes, and no Worker refusal is an L4 code.
+func TestWorkerPrecheckPassesZeroStakeDeclaredBootstrap(t *testing.T) {
+	in := validWorkerPrecheck()
+	in.SupportState, in.P30ColdStartCandidate, in.SupportLastConfirmedHeight = SupportDeclaredBootstrap, true, 0
+	decision := EvaluateWorkerPrecheck(in)
+	if !decision.Accepted || !decision.ShouldSignWorkerHandraise || decision.RejectCode != "" {
+		t.Fatalf("zero-stake DECLARED_BOOTSTRAP decision = %+v, want accepted", decision)
+	}
+	for _, mutate := range []func(*WorkerPrecheckInput){
+		func(in *WorkerPrecheckInput) { in.ChainSynced = false },
+		func(in *WorkerPrecheckInput) { in.P30ColdStartCandidate = false },
+		func(in *WorkerPrecheckInput) { in.SupportedProfiles = nil },
+		func(in *WorkerPrecheckInput) { in.AvailableSlots = 0 },
+	} {
+		refused := in
+		mutate(&refused)
+		if code := EvaluateWorkerPrecheck(refused).RejectCode; strings.HasPrefix(code, "L4") {
+			t.Fatalf("Worker precheck refused with %s; Phase 0 has no L4 gate", code)
+		}
+	}
+}

@@ -580,6 +580,9 @@ func newModelsStubWithoutMetrics(t *testing.T) *httptest.Server {
 
 // With several served models the mapping is a guess, and binding a chain id to
 // the wrong weights is worse than not being selected.
+// With several models served, only the chain-bound model id is advertised;
+// nothing is derived for the other served model, and an unbound service
+// advertises none at all.
 func TestLocalServiceDoesNotGuessModelIDWhenSeveralAreServed(t *testing.T) {
 	srv := newMultiModelStub(t, []string{"Qwen/Qwen3-8B", "meta-llama/Llama-3-8B"})
 	svc := newBoundLocalService(srv.URL, "local-svc", 8, 0, 0)
@@ -588,10 +591,16 @@ func TestLocalServiceDoesNotGuessModelIDWhenSeveralAreServed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCapabilities() error = %v", err)
 	}
-	for _, capability := range resp.Capabilities {
-		if capability.ModelID == "hf-somechainid" {
-			t.Fatalf("Capabilities = %+v, want no guessed binding while several models are served", resp.Capabilities)
-		}
+	if len(resp.Capabilities) != 1 || resp.Capabilities[0].ModelID != testQwenModelID() {
+		t.Fatalf("Capabilities = %+v, want only the bound model id", resp.Capabilities)
+	}
+	unbound := NewLocalService(srv.URL, "local-svc", 8, 0, 0)
+	resp, err = unbound.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-2"})
+	if err != nil {
+		t.Fatalf("ListCapabilities() error = %v", err)
+	}
+	if len(resp.Capabilities) != 0 {
+		t.Fatalf("unbound Capabilities = %+v, want none guessed from the served names", resp.Capabilities)
 	}
 }
 
