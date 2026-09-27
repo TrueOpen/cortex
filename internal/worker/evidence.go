@@ -171,6 +171,9 @@ func (w *Worker) workerEvidenceFacts(in preparedReceiptInputs) builderclient.Wor
 // both commitments from the stored artifacts. A restart trusts nothing it did
 // not just re-derive.
 func (w *Worker) readWorkerBundles(ctx context.Context, event chainclient.AssignmentFinalized, receipt builderclient.SignedInferReceipt, descriptor outputDescriptor) ([]workerBundle, error) {
+	if err := builderclient.ValidateWorkerEvidenceRequirementsV3(w.cfg.ProfileEvidenceRequirements); err != nil {
+		return nil, err
+	}
 	if err := builderclient.ValidateProfileEvidenceCommitments(w.cfg.ProfileEvidenceRequirements, receipt.RequiredEvidenceCommitments); err != nil {
 		return nil, err
 	}

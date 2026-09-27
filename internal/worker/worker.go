@@ -886,6 +886,9 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 		outputLeafCount:           uint64(len(descriptor.OutputChunkLengths)),
 		evidence:                  derived,
 	}
+	if err := builderclient.ValidateWorkerEvidenceRequirementsV3(w.cfg.ProfileEvidenceRequirements); err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
+	}
 	if err := w.publishWorkerBundles(ctx, event, facts.AcceptedTaskHash.Hex(), derived); err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
@@ -1157,16 +1160,18 @@ func (w *Worker) relayReceiptAndUploadTo(ctx context.Context, event chainclient.
 			key, size, total := outputKey, uint64(len(output)), uint64(0)
 			if i == 1 {
 				key, size, total = bundleKey, uint64(len(bundle.manifest)), bundle.decoded.TotalSize()
-			} else if len(records) > 0 {
-				// Every finalize re-confirms the output; one record of it is enough.
-				continue
 			}
+			// Every confirmation is verified, including the output one each
+			// later finalize repeats; only its first copy is recorded.
 			hash, err := verifyStorageConfirmation(c, w.cfg.ChainID, key, key.ContentHash, size, current)
 			if err != nil {
 				return err
 			}
 			if c.ArtifactTotalSizeBytes != total {
 				return fmt.Errorf("storage confirmation artifact total differs from manifest")
+			}
+			if i == 0 && len(records) > 0 {
+				continue
 			}
 			records = append(records, StorageConfirmationCheckpoint{TaskID: event.TaskID, DataKind: key.Kind.String(), BuilderOperator: c.BuilderOperator, MaterialDigest: hash.String(), SemanticHash: key.ContentHash, SizeBytes: size, RetentionUntilHeight: c.RetentionUntilHeight, Signature: append([]byte(nil), c.Signature...), BuilderServicePubkey: current.ServicePubkey, VerifiedAt: time.Now().UTC(), Confirmation: &c})
 		}

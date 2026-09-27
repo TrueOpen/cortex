@@ -280,3 +280,57 @@ func TestWorkerRecoveryRequiresBothFullSignedConfirmations(t *testing.T) {
 		})
 	}
 }
+
+// Each finalize repeats the OUTPUT confirmation. The second copy is verified
+// too, so a bad one is refused even though the first was already recorded.
+func TestWorkerVerifiesTheRepeatedOutputConfirmation(t *testing.T) {
+	h := newHarness(t)
+	event := finalizedTask()
+	h.seedPreparedOutput(t, event)
+	outputs := 0
+	h.taskData.mutateConfirmation = func(c *builderclient.StorageConfirmation) {
+		if c.Key.Kind != builderclient.DataKindOutput {
+			return
+		}
+		outputs++
+		if outputs == 2 {
+			c.Signature[0] ^= 1
+		}
+	}
+	if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err == nil {
+		t.Fatal("a tampered OUTPUT confirmation from the second finalize was accepted")
+	}
+	if outputs != 2 {
+		t.Fatalf("OUTPUT confirmations seen = %d, want one per finalize", outputs)
+	}
+	for _, record := range h.persistence.confirmations {
+		if record.DataKind == builderclient.DataKindOutput.String() && record.Confirmation != nil && record.Confirmation.Signature[0] != record.Signature[0] {
+			t.Fatal("the tampered confirmation was recorded")
+		}
+	}
+}
+
+// A locked profile whose evidence requirements are not the Worker value and
+// token openings is refused before anything indexes the two commitments.
+func TestWorkerRefusesAMalformedEvidenceRequirementShape(t *testing.T) {
+	for name, requirements := range map[string][]builderclient.InferEvidenceRequirement{
+		"token only": builderclient.WorkerEvidenceRequirementsV3()[1:],
+		"reversed":   {builderclient.WorkerEvidenceRequirementsV3()[1], builderclient.WorkerEvidenceRequirementsV3()[0]},
+		"no size cap": func() []builderclient.InferEvidenceRequirement {
+			r := builderclient.WorkerEvidenceRequirementsV3()
+			r[0].MaxEncodedSizeBytes = 0
+			return r
+		}(),
+		"empty": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			event := finalizedTask()
+			h.seedPreparedOutput(t, event)
+			h.worker.cfg.ProfileEvidenceRequirements = requirements
+			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil {
+				t.Fatal("recovery accepted a malformed evidence requirement shape")
+			}
+		})
+	}
+}

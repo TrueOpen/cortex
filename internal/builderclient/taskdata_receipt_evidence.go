@@ -43,6 +43,24 @@ func WorkerEvidenceRequirementsV3() []InferEvidenceRequirement {
 	}
 }
 
+// ValidateWorkerEvidenceRequirementsV3 requires the locked Profile's
+// required_infer_evidence to be exactly the wire v0.3.0 Worker shape: the value
+// opening at schema 3, then the token opening at schema 1, each with a positive
+// size bound. Code that indexes the two Worker commitments checks this first.
+func ValidateWorkerEvidenceRequirementsV3(requirements []InferEvidenceRequirement) error {
+	want := WorkerEvidenceRequirementsV3()
+	if len(requirements) != len(want) {
+		return fmt.Errorf("locked profile must require exactly the Worker value and token openings, got %d requirements", len(requirements))
+	}
+	for i, requirement := range requirements {
+		if requirement.EvidenceKind != want[i].EvidenceKind || requirement.CommitmentSchemaVersion != want[i].CommitmentSchemaVersion ||
+			requirement.MaxEncodedSizeBytes == 0 {
+			return fmt.Errorf("locked profile must require the Worker value opening (schema 3) then the token opening (schema 1), each with a size bound")
+		}
+	}
+	return nil
+}
+
 // WorkerEvidenceFacts are the inputs of both Worker evidence commitments. The
 // split between hex strings and codec.Hash is the same one InferReceiptFacts
 // makes: a consensus read arrives as text so "unset" and "32 zero bytes" stay
