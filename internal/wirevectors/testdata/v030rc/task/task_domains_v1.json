@@ -1,0 +1,2106 @@
+{
+  "notes": [
+    "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage).",
+    "Field encoding (public wire field framing): string = strict UTF-8 bytes; bytes = raw bytes, and a Hash32 is exactly 32 raw bytes, never hex text; uint32/uint64 = 4/8-byte big-endian; bool = 0x00/0x01; enum = uint32 big-endian; frame = nested FRAME_V1 with no domain prefix whose fields are the nested message fields in ascending schema field-number order.",
+    "type \"address\" records BOTH the Bech32 text a caller signs and the address codec bytes that are actually framed. Only the hex enters the preimage; the Bech32 column exists so a non-Go implementation can verify its own decode, and x/hub/types/testdata/hub_domains_v1.json now records the same column on its six operator_address fields, so both fixtures are self-verifying on address decoding.",
+    "The infer_evidence_commitments_v1_* vectors retain the explicit outer count and encode all EvidenceCommitmentV1 messages in one REPEATED_V1 field. Each element is a nested FRAME_V1, and the inner element_count must equal the outer count.",
+    "type optional records an explicit present boolean and zero or one encoded value. The MetricSummary, Result and DataUnavailableAggregate vectors exercise absent, present-zero and fixed-slot present/absent layouts through the production helpers.",
+    "tamper: XOR one bit of one framed field. \"byte\" indexes the framed field bytes and may be negative to count from the end; \"bit\" is the bit position inside that byte, 0 being least significant.",
+    "replay: apply the listed field overrides, keeping the frozen field type, and expect a different digest. Covers cross-chain, cross-task, cross-operator, cross-duty, cross-round, stale nonce, extended expiry, wrong schema_version, non-ASCII UTF-8, zero-hash substitution and list reorder or duplication.",
+    "rejected_by_production names a vector whose framing is published as a golden but which the production helper must REFUSE to derive; the binding gate asserts that error instead of a value match.",
+    "Regenerate with TRUEOPEN_REGEN_FIXTURES=1; the run rewrites the expectations and then fails on purpose so the diff must be reviewed against the frozen contract before it is committed.",
+    "This wire-authored fixture retains active domain vectors and removes retired domains; its hashes are reviewed in this repository."
+  ],
+  "schema": "trueopen.task.domains.v1",
+  "source": "Public wire conformance vectors in testdata/v1/task/task_domains_v1.json",
+  "vectors": [
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "f029302b7f33dd77ad8e5217897a4e8386bf321dde9a510c1c6a287e408b9873",
+      "domain": "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
+      "fields": [
+        {
+          "name": "count",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 0
+            }
+          ],
+          "frame_hex": "000000000000000400000000",
+          "name": "commitments",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "infer_evidence_commitments_v1_empty",
+      "preimage_hex": "0000000000000026545255454f50454e5f494e4645525f45564944454e43455f434f4d4d49544d454e54535f5631000000000000000400000000000000000000000c000000000000000400000000",
+      "producer": "selected Worker / Task Keeper recompute",
+      "replay": [
+        {
+          "digest_hex": "a1a411aa196d59c2655dec7adfb9d88193d0741a5b64f10b7f403eaf2c390c79",
+          "name": "outer_count_mismatch",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "name": "count",
+                "type": "uint32",
+                "value": 1
+              }
+            }
+          ],
+          "reason": "the outer count must equal the element_count encoded inside the REPEATED_V1 field"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "5a291994c60f71bfa9581ec04d0858bc0278ab7150ef991b06f4877b808cbe4e",
+          "field": 0,
+          "name": "count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "85ca77784e7ac67b44b63751f7a7efd7f0f7ed41fc1db80c4798df40b7c6c430",
+          "field": 1,
+          "name": "commitments_first_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "15bf33534971f36821affb02577cd5708e2ccfa92a66c7d4f5f84d4a22fe95b1",
+      "domain": "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
+      "fields": [
+        {
+          "name": "count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "enum": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
+                  "name": "evidence_kind",
+                  "type": "enum",
+                  "value": 1
+                },
+                {
+                  "hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+                  "name": "evidence_hash_or_root",
+                  "type": "bytes"
+                },
+                {
+                  "name": "encoded_size_bytes",
+                  "type": "uint64",
+                  "value": 4096
+                }
+              ],
+              "frame_hex": "00000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+              "name": "commitment_kind_1",
+              "type": "frame"
+            }
+          ],
+          "frame_hex": "000000000000000400000001000000000000004400000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+          "name": "commitments",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "infer_evidence_commitments_v1_single",
+      "preimage_hex": "0000000000000026545255454f50454e5f494e4645525f45564944454e43455f434f4d4d49544d454e54535f56310000000000000004000000010000000000000058000000000000000400000001000000000000004400000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+      "producer": "selected Worker / Task Keeper recompute",
+      "replay": [
+        {
+          "digest_hex": "97b01ba0742dd347bbcaa776308b4b0377a39464767ae927596547186bcc466f",
+          "name": "outer_count_mismatch",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "name": "count",
+                "type": "uint32",
+                "value": 2
+              }
+            }
+          ],
+          "reason": "the outer count must equal the element_count encoded inside the REPEATED_V1 field"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "0f117bd7d12ce59e5d923208c850697905607d440bd4319749bc46cd1b445705",
+          "field": 0,
+          "name": "count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "24353d47b232bb9086d28040c4f779dda1d79dea8f486a8fc8b47bc413300d33",
+          "field": 1,
+          "name": "commitments_first_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "8f1c5759a56108b45adb79863ddd52c0daa42009753495eed519448aaea46be0",
+      "domain": "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
+      "fields": [
+        {
+          "name": "count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "enum": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
+                  "name": "evidence_kind",
+                  "type": "enum",
+                  "value": 1
+                },
+                {
+                  "hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+                  "name": "evidence_hash_or_root",
+                  "type": "bytes"
+                },
+                {
+                  "name": "encoded_size_bytes",
+                  "type": "uint64",
+                  "value": 4096
+                }
+              ],
+              "frame_hex": "00000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+              "name": "commitment_kind_1",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "enum": "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING",
+                  "name": "evidence_kind",
+                  "type": "enum",
+                  "value": 3
+                },
+                {
+                  "hex": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+                  "name": "evidence_hash_or_root",
+                  "type": "bytes"
+                },
+                {
+                  "name": "encoded_size_bytes",
+                  "type": "uint64",
+                  "value": 8192
+                }
+              ],
+              "frame_hex": "0000000000000004000000030000000000000020909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf00000000000000080000000000002000",
+              "name": "commitment_kind_3",
+              "type": "frame"
+            }
+          ],
+          "frame_hex": "000000000000000400000002000000000000004400000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f200000000000000008000000000000100000000000000000440000000000000004000000030000000000000020909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf00000000000000080000000000002000",
+          "name": "commitments",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "infer_evidence_commitments_v1_pair",
+      "preimage_hex": "0000000000000026545255454f50454e5f494e4645525f45564944454e43455f434f4d4d49544d454e54535f563100000000000000040000000200000000000000a4000000000000000400000002000000000000004400000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f200000000000000008000000000000100000000000000000440000000000000004000000030000000000000020909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf00000000000000080000000000002000",
+      "producer": "selected Worker / Task Keeper recompute",
+      "replay": [
+        {
+          "digest_hex": "d82d2e1a159014b44004bb479dad7b32127abecf787e0258888d6296d24381d0",
+          "name": "outer_count_mismatch",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "name": "count",
+                "type": "uint32",
+                "value": 3
+              }
+            }
+          ],
+          "reason": "the outer count must equal the element_count encoded inside the REPEATED_V1 field"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4bfd523aa9919947c15442a11d729add59d67e02e84343f497cffe4c86fb6541",
+          "field": 0,
+          "name": "count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "39304ac683690031bf8dd1dd9f33e0ae564a06e3f4d24ca82dd44b6d4ab38a69",
+          "field": 1,
+          "name": "commitments_first_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "85269dbd694d26a14d429e6046c19ebca55370a8ec08f94ccff8992c3d075211",
+      "domain": "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
+      "fields": [
+        {
+          "name": "count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "enum": "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING",
+                  "name": "evidence_kind",
+                  "type": "enum",
+                  "value": 3
+                },
+                {
+                  "hex": "909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+                  "name": "evidence_hash_or_root",
+                  "type": "bytes"
+                },
+                {
+                  "name": "encoded_size_bytes",
+                  "type": "uint64",
+                  "value": 8192
+                }
+              ],
+              "frame_hex": "0000000000000004000000030000000000000020909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf00000000000000080000000000002000",
+              "name": "commitment_kind_3",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "enum": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
+                  "name": "evidence_kind",
+                  "type": "enum",
+                  "value": 1
+                },
+                {
+                  "hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+                  "name": "evidence_hash_or_root",
+                  "type": "bytes"
+                },
+                {
+                  "name": "encoded_size_bytes",
+                  "type": "uint64",
+                  "value": 4096
+                }
+              ],
+              "frame_hex": "00000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+              "name": "commitment_kind_1",
+              "type": "frame"
+            }
+          ],
+          "frame_hex": "00000000000000040000000200000000000000440000000000000004000000030000000000000020909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf00000000000000080000000000002000000000000000004400000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+          "name": "commitments",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "infer_evidence_commitments_v1_pair_reordered",
+      "preimage_hex": "0000000000000026545255454f50454e5f494e4645525f45564944454e43455f434f4d4d49544d454e54535f563100000000000000040000000200000000000000a400000000000000040000000200000000000000440000000000000004000000030000000000000020909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf00000000000000080000000000002000000000000000004400000000000000040000000100000000000000200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2000000000000000080000000000001000",
+      "producer": "nobody: this is the illegal ordering, published so a consumer can prove its own sorter neither accepts nor silently re-sorts it",
+      "rejected_by_production": "EvidenceCommitmentsHash must return an error for a non-ascending list instead of sorting it",
+      "replay": [
+        {
+          "digest_hex": "0ca3c099c5b494aa691b0fa8ef8176f79dfb3fb8758ec849bc557af7c851aa34",
+          "name": "outer_count_mismatch",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "name": "count",
+                "type": "uint32",
+                "value": 3
+              }
+            }
+          ],
+          "reason": "the outer count must equal the element_count encoded inside the REPEATED_V1 field"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "f1ef8dd92c950c187d6789a30394da55820e3e54ab1b9acaefabb0edf02861a9",
+          "field": 0,
+          "name": "count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "e231904683542fa52817a74af44c6a22feb2dbff2c0990d7173c80d857cab3c9",
+          "field": 1,
+          "name": "commitments_first_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "3c3c2df8a81d5698ecd9b5de4a40328abc9b5185d8eb0c8dab74cc32e69fdb9f",
+      "domain": "TRUEOPEN_COMMIT_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-unblock-1"
+        },
+        {
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+          "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "verifier_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+          "name": "commit_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 1200
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verify_commit_v1",
+      "preimage_hex": "0000000000000012545255454f50454e5f434f4d4d49545f56310000000000000004000000010000000000000012747275656f70656e2d756e626c6f636b2d310000000000000020101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0000000000000004000000030000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000800000000000000070000000000000020b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf000000000000000800000000000004b0",
+      "producer": "selected Verifier current service key; Task Keeper recomputes",
+      "replay": [
+        {
+          "digest_hex": "68625262a6452e6e18ded84f4371c22cfce4f5921deb46e8b08ca58f79034083",
+          "name": "cross_chain",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "name": "chain_id",
+                "type": "string",
+                "utf8": "trueopen-unblock-2"
+              }
+            }
+          ],
+          "reason": "chain_id must scope the commit."
+        },
+        {
+          "digest_hex": "d9606d61f712bb7523dfb2602e6ae724a250328c7053198d974fe0397d45dc5b",
+          "name": "cross_round",
+          "overrides": [
+            {
+              "field": 3,
+              "value": {
+                "name": "verify_round",
+                "type": "uint32",
+                "value": 4
+              }
+            }
+          ],
+          "reason": "verify_round is uint32 big-endian and must scope the commit."
+        },
+        {
+          "digest_hex": "488c0ea62421eb791c8c337240bc4ba357c3a5f457fe1283640a67b9d5174c89",
+          "name": "cross_verifier",
+          "overrides": [
+            {
+              "field": 4,
+              "value": {
+                "bech32": "trueopen1urs79clyuhnw068fat47em0walc0ruhn3u9y6t",
+                "hex": "e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3",
+                "name": "verifier_operator_address",
+                "type": "address"
+              }
+            }
+          ],
+          "reason": "The stable verifier operator address codec bytes must scope the commit."
+        },
+        {
+          "digest_hex": "47002db236a09f52c3357bb66bcaf5f5aab28f804e566a1aceb750c132f8c79d",
+          "name": "stale_service_authorization_nonce",
+          "overrides": [
+            {
+              "field": 5,
+              "value": {
+                "name": "service_authorization_nonce",
+                "type": "uint64",
+                "value": 6
+              }
+            }
+          ],
+          "reason": "The nonce must equal the current service binding."
+        },
+        {
+          "digest_hex": "7b3ced8e94950e59647d8d4252baea5e57211b354a7d72b04e27af795d24326e",
+          "name": "schema_version_two",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "name": "schema_version",
+                "type": "uint32",
+                "value": 2
+              }
+            }
+          ],
+          "reason": "The same value 1 as every other stage wire."
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "36375fbfab3a1d255d626ddfe3c5adb4873d5659390742e48948952887d9c894",
+          "field": 0,
+          "name": "schema_version_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "d7ef424eaea487ba10db20bf31e0cc994565bd0b475db0855470ceb30b97df7e",
+          "field": 0,
+          "name": "schema_version_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "5d4dd49f6dfd88794719738a4a4897790a4f480000551eb04aebe40b9be5ea72",
+          "field": 1,
+          "name": "chain_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "d141014d357ef935f2548423182160cafa73600994994475fc26a0162bdf9124",
+          "field": 1,
+          "name": "chain_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "579e07e394d6e8db6de4be6d1167b0ca233c428c08647a35fd42ad3abaa8d837",
+          "field": 2,
+          "name": "task_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "1fc0c6d7daa4966852cb7b069a186888d9f9db98fb94a54217dbd1346be961d4",
+          "field": 2,
+          "name": "task_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "7f2cbf4fb2762f2ccca3a4e7ab231c1503b2dc8cab0831e9f6c2f0743af161c0",
+          "field": 3,
+          "name": "verify_round_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "6dd5ab468f3dae6d2c6290a4bb7460150384f982b4201c02faf46972cb8105fd",
+          "field": 3,
+          "name": "verify_round_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4157512ecc24101ae8936ce9c2e1038153db0c90fa767e58244b556895b7c36e",
+          "field": 4,
+          "name": "verifier_operator_address_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "45cbfdd4ea5af96d5dacab848d2618909f08c140da67627cd18dae5c5471dcf7",
+          "field": 4,
+          "name": "verifier_operator_address_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "17b91ba561a514f778ec1d1e3cabc1c2e23b3fc2ec2c82dc6d02b12aa97521ee",
+          "field": 5,
+          "name": "service_authorization_nonce_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "d9ec6b3150d16d18fc2c7e8544bbf19cc3a3340fe04cffa1ad86b2fbf8f3250d",
+          "field": 5,
+          "name": "service_authorization_nonce_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4fe1efc8ad31f26ec6fbc7b5d412487a0a1f181b7edd2ed09a03d883eed8086b",
+          "field": 6,
+          "name": "commit_hash_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "4426b3d8777cb59be023f0b28f41b3fba1afdf3fed5015cff3429c7aac69f877",
+          "field": 6,
+          "name": "commit_hash_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "1ba63795f6070853c4df600e42aad539184c5075bca2283f93a9765b69112350",
+          "field": 7,
+          "name": "expiry_height_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "ab847418f934f3666ed30108338769f8f5e2e592687c266e04bb2ead1d7008c3",
+          "field": 7,
+          "name": "expiry_height_last_byte_high_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "506a2e0da6c4a9dd03e4d720bbd27d0680440f46d6e4a7b0a99e62836cfbe6cf",
+      "domain": "TRUEOPEN_WORKER_HANDRAISE_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-unblock-1"
+        },
+        {
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "hex": "d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 41
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 5
+            },
+            {
+              "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+              "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "frame_hex": "0000000000000020d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef000000000000000400000029000000000000000800000000000000050000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "enum": "DUTY_WORKER",
+          "name": "duty",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 1200
+        },
+        {
+          "empty": true,
+          "name": "recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "worker_handraise_v1",
+      "preimage_hex": "000000000000001c545255454f50454e5f574f524b45525f48414e4452414953455f56310000000000000004000000010000000000000012747275656f70656e2d756e626c6f636b2d310000000000000020101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0000000000000020303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f0000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000200000000000000600000000000000020d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef000000000000000400000029000000000000000800000000000000050000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000040000000100000000000000080000000000000007000000000000000800000000000004b00000000000000000",
+      "preimage_size_bytes": 362,
+      "producer": "Cortex current service key; carried inside a Builder Worker proposal",
+      "replay": [
+        {
+          "digest_hex": "252131a7c0d70798490ef38aa1dad9c40762e4c6aa5af26eca64bbc14d654689",
+          "name": "cross_chain",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "name": "chain_id",
+                "type": "string",
+                "utf8": "trueopen-unblock-2"
+              }
+            }
+          ],
+          "reason": "chain_id must scope the handraise."
+        },
+        {
+          "digest_hex": "c3a699f9b42f2782d97f7761fdf6a861f2a0ec627cada315ad61f4a5411a6e95",
+          "name": "cross_duty",
+          "overrides": [
+            {
+              "field": 7,
+              "value": {
+                "enum": "DUTY_VERIFIER",
+                "name": "duty",
+                "type": "enum",
+                "value": 2
+              }
+            }
+          ],
+          "reason": "duty is a uint32 big-endian enum and this contract pins DUTY_WORKER for this wire, so a VERIFIER value must not collide."
+        },
+        {
+          "digest_hex": "7c486d03b11fc60730b19e686bd1de617b90c69821f05f65ac6d8c3b8674a4d8",
+          "name": "member_operator_swapped",
+          "overrides": [
+            {
+              "field": 6,
+              "value": {
+                "fields": [
+                  {
+                    "hex": "d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+                    "name": "candidate_pool_snapshot_id",
+                    "type": "bytes"
+                  },
+                  {
+                    "name": "slot",
+                    "type": "uint32",
+                    "value": 41
+                  },
+                  {
+                    "name": "slot_version",
+                    "type": "uint64",
+                    "value": 5
+                  },
+                  {
+                    "bech32": "trueopen1urs79clyuhnw068fat47em0walc0ruhn3u9y6t",
+                    "hex": "e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3",
+                    "name": "operator_address",
+                    "type": "address"
+                  }
+                ],
+                "name": "member",
+                "type": "frame"
+              }
+            }
+          ],
+          "reason": "The nested member frame binds the operator address codec bytes."
+        },
+        {
+          "digest_hex": "e2332a03e21ee7bc9f9a201f7dc5ab932c9d63327b0d3487a965423864cabca4",
+          "name": "model_id_changed",
+          "overrides": [
+            {
+              "field": 4,
+              "value": {
+                "hex": "5555555555555555555555555555555555555555555555555555555555555554",
+                "name": "model_id",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "A different raw Hash32 model ID must change the signing digest."
+        },
+        {
+          "digest_hex": "08aaf25b40af27dfd2afba43b975cc3675b676f281fae872f23d9831e4e7fd25",
+          "name": "stale_service_authorization_nonce",
+          "overrides": [
+            {
+              "field": 8,
+              "value": {
+                "name": "service_authorization_nonce",
+                "type": "uint64",
+                "value": 6
+              }
+            }
+          ],
+          "reason": "The nonce must equal the current service binding."
+        },
+        {
+          "digest_hex": "8bc7567f430ac2f954419b73c4ae2100f3ab65bb1b7ae4986b3c841d40c535e6",
+          "name": "nonempty_recipient_pubkey",
+          "overrides": [
+            {
+              "field": 10,
+              "value": {
+                "empty": false,
+                "hex": "01",
+                "name": "recipient_pubkey",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "The reserved recipient key changes the signed preimage and is rejected in plaintext Phase 0."
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "663d28512c32d037b5c0a8096f493af3942a6ab30aa407d4101ec3c0efe35ef2",
+          "field": 0,
+          "name": "schema_version_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "efda07dd36213a1379ad564797819c4288af939f1af6a130c69801b120de583c",
+          "field": 0,
+          "name": "schema_version_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "63a42ee59225d887642329c9c4e571f9fccc00e3f1ce6e14ff9096c83e8ad1aa",
+          "field": 1,
+          "name": "chain_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "62d1c5c336880ee350d301ccccf6ce0b4ff810fc3dd3e1ee5d5781302c512193",
+          "field": 1,
+          "name": "chain_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "9cee9df456fb5dd36d40fb927f8d34ba347b4fb0defc5cbcaca55422bbaf20f6",
+          "field": 2,
+          "name": "task_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "afaadb776b54584b7ed3b4a79d7b4437200a7a7087c9a15fc8c65cb9e94aec2f",
+          "field": 2,
+          "name": "task_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "570c2390fbfc30c93c0a2d3075eb7f09f949ed9b2c42fe865a525dcb1f0edbfe",
+          "field": 3,
+          "name": "task_hash_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "cc7726d51cd8118e5858df17d5571f082dc382a98f182ebd09dd98772b7997c9",
+          "field": 3,
+          "name": "task_hash_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "310810a18397e05a6921a9bd4e2ae88998830f95195bad83a5f1b6c8cc6ba42c",
+          "field": 4,
+          "name": "model_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "b1356e6cc828b039f14f62d59ca7f42587e8bb1846d305bb0d6cc591c08d3e3c",
+          "field": 4,
+          "name": "model_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "9a9a02b3aba2f278699484f9bed45f8dd311780f43b549a60c1b2aabbe96c7a6",
+          "field": 5,
+          "name": "profile_version_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "870529f65c32848644ac66885b80f0fe11b2d9aff9f1c60e7b9403553f8f93b8",
+          "field": 5,
+          "name": "profile_version_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "2fa84640d272c5f51b4611e3cac3754f5ccf278055e0202e1e7bcd23d8e3c08c",
+          "field": 6,
+          "name": "member_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "6b43c6ea1ed03aa70aaae916c737dde11c223a7c9b54e14966c86cfa48e79832",
+          "field": 6,
+          "name": "member_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4202824bab22a3c48104eb92730576e3977a15584f577c263bb91c95575eaabf",
+          "field": 7,
+          "name": "duty_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "c1bc7c9c584fafb24b086eb56d4b0854a73ba5157cc3f8fec6f9c83b5bf4c778",
+          "field": 7,
+          "name": "duty_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "8b2f48c3ad3d0354baa1519b5559da1382c7348c539abe6e9a6abcc9883026ab",
+          "field": 8,
+          "name": "service_authorization_nonce_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "c6cf50356d200a2d55dc15dc672712946f5b2a934ea809ea17252d1c1644cfc8",
+          "field": 8,
+          "name": "service_authorization_nonce_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "9c70c4e5e30e255bd7f5e09c9e136f1d51b059115251a21b57fbd3423041346d",
+          "field": 9,
+          "name": "expiry_height_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "3e68cc1160ced174adf2acec9bb23f4baece57b58b370f2acd8a1629524d97b4",
+          "field": 9,
+          "name": "expiry_height_last_byte_high_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "675df351bb5ced3e9a851fef6452ba4e8ec9fe8c2a87fd644a942f6ed1b00cfe",
+      "domain": "TRUEOPEN_VERIFIER_HANDRAISE_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-unblock-1"
+        },
+        {
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "hex": "d600deaca603a3d06a15f0ad38eee24e32912f4295a8fb561832214f5d1ceb49",
+          "name": "infer_receipt_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f",
+          "name": "output_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "hex": "d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 41
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 5
+            },
+            {
+              "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+              "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "frame_hex": "0000000000000020d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef000000000000000400000029000000000000000800000000000000050000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "enum": "DUTY_VERIFIER",
+          "name": "duty",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 1200
+        },
+        {
+          "empty": true,
+          "name": "recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "verifier_handraise_v1",
+      "preimage_hex": "000000000000001e545255454f50454e5f56455249464945525f48414e4452414953455f56310000000000000004000000010000000000000012747275656f70656e2d756e626c6f636b2d310000000000000020101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0000000000000004000000030000000000000020d600deaca603a3d06a15f0ad38eee24e32912f4295a8fb561832214f5d1ceb490000000000000020707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f0000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000200000000000000600000000000000020d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef000000000000000400000029000000000000000800000000000000050000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d300000000000000040000000200000000000000080000000000000007000000000000000800000000000004b00000000000000000",
+      "preimage_size_bytes": 416,
+      "producer": "Cortex current service key; carried inside a Builder Open Verify proposal",
+      "replay": [
+        {
+          "digest_hex": "0fb448892909df42e6e793005d361cf0df7a6d22267bf91d4f6e7fb20e3539f7",
+          "name": "cross_chain",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "name": "chain_id",
+                "type": "string",
+                "utf8": "trueopen-unblock-2"
+              }
+            }
+          ],
+          "reason": "chain_id must scope the handraise."
+        },
+        {
+          "digest_hex": "92d3e31b00e7391788433afd2d4846b38082e82f0e887c3077a756b318f740f4",
+          "name": "cross_receipt",
+          "overrides": [
+            {
+              "field": 4,
+              "value": {
+                "hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+                "name": "infer_receipt_hash",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "infer_receipt_hash binds the accepted receipt this verifier volunteered for."
+        },
+        {
+          "digest_hex": "93a0444d3a6980307c736f04c8156f6ff52c62719feefa22ba37540e3151445a",
+          "name": "cross_duty",
+          "overrides": [
+            {
+              "field": 9,
+              "value": {
+                "enum": "DUTY_WORKER",
+                "name": "duty",
+                "type": "enum",
+                "value": 1
+              }
+            }
+          ],
+          "reason": "The contract pins DUTY_VERIFIER for this wire."
+        },
+        {
+          "digest_hex": "e8b45013b43a9a5f8b0183197b15f5ac3ea7374b2f8a6d5b4a0574c7fa9fbdbd",
+          "name": "cross_round",
+          "overrides": [
+            {
+              "field": 3,
+              "value": {
+                "name": "verify_round",
+                "type": "uint32",
+                "value": 4
+              }
+            }
+          ],
+          "reason": "verify_round is uint32 big-endian."
+        },
+        {
+          "digest_hex": "fb7543c7a3ce18c43198ec85b2c99c100c122cc6325d0deeaa567124e9f2c5a3",
+          "name": "member_slot_version_rollback",
+          "overrides": [
+            {
+              "field": 8,
+              "value": {
+                "fields": [
+                  {
+                    "hex": "d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+                    "name": "candidate_pool_snapshot_id",
+                    "type": "bytes"
+                  },
+                  {
+                    "name": "slot",
+                    "type": "uint32",
+                    "value": 41
+                  },
+                  {
+                    "name": "slot_version",
+                    "type": "uint64",
+                    "value": 4
+                  },
+                  {
+                    "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                    "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                    "name": "operator_address",
+                    "type": "address"
+                  }
+                ],
+                "name": "member",
+                "type": "frame"
+              }
+            }
+          ],
+          "reason": "slot_version is uint64 big-endian inside the member frame and must not be replayable across a slot reuse."
+        },
+        {
+          "digest_hex": "7f97bc0100c5b5657bed49703ddfd462c52769d5d14428c2a91dc805799702d8",
+          "name": "nonempty_recipient_pubkey",
+          "overrides": [
+            {
+              "field": 12,
+              "value": {
+                "empty": false,
+                "hex": "01",
+                "name": "recipient_pubkey",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "The reserved recipient key changes the signed preimage and is rejected in plaintext Phase 0."
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "2f909f53eea4ae5c4157c7e63901000908e6d4b992f05b65199369fd2a534078",
+          "field": 0,
+          "name": "schema_version_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "ad2fc0a524af9aa4d8cb651dd8207b125f585924e77f5cf68bf1229b6c6c23bf",
+          "field": 0,
+          "name": "schema_version_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "731c881157a91359ad7ef71dda64cefdb37b7d2b46733ede8cdf176055bbad43",
+          "field": 1,
+          "name": "chain_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "2cef1ec07cbbce80e7d492e2d894e36995c8d1a0869055335b5f61bb9508616c",
+          "field": 1,
+          "name": "chain_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a7665878591c6b41425a2a9957077a6ffa6da475e6484c0f2c855dd3c24ecf88",
+          "field": 2,
+          "name": "task_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "a602913c4df4c85a125a2d5954073fcd60171df0183406293de78161ca107b9f",
+          "field": 2,
+          "name": "task_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "5de70313c3f11a69ff80ca78fac9e0aa566575dae357b4ecb28c69e140298b6b",
+          "field": 3,
+          "name": "verify_round_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "87e38b9f32d88b5e212b6a6950be5845d74ee8453be7346bf48f5561f1bcf52b",
+          "field": 3,
+          "name": "verify_round_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "7da162f35e331596078d781637f51b4596e36515ff52a6f71384b6df2ad65bcc",
+          "field": 4,
+          "name": "infer_receipt_hash_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "f2625612de5bfa58248dca583d504891b3a396b467501ff517eb857e9d781dac",
+          "field": 4,
+          "name": "infer_receipt_hash_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a06746a7418e6bdbf10e57dc927899fe6bcfb7eb1570c50d81e120ddf37a2589",
+          "field": 5,
+          "name": "output_hash_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "21a011978632e29353e24ab0e82a9b9920eac42dc3665d2fbb64c8cb2a562ff7",
+          "field": 5,
+          "name": "output_hash_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "f097ee6f4968ce72743ede6b4210c8b0720bf1205b13a0b604a3835397482e69",
+          "field": 6,
+          "name": "model_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "90a5944031f8c1cb1d80915f12fb9411bd0ff1ca6920eebdd5e610aec727c9ca",
+          "field": 6,
+          "name": "model_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "0c1c8185d5a2c448a3027c3c3dcc6c2f7b63d049b9951460bc09a472a541620a",
+          "field": 7,
+          "name": "profile_version_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "609742292d28fe42933d04356083fb071a6c1010222671830421842eb922005e",
+          "field": 7,
+          "name": "profile_version_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "bd6c6c06ec45ed50b7faa294c5505bf6f8517b5c542abf4707f78c3e1bca480d",
+          "field": 8,
+          "name": "member_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "56ce9fd62000c5860c89370af8fd459246b5e0181081f26607ca2a08e95db3e6",
+          "field": 8,
+          "name": "member_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "9df51bfc682290a86b42fb84ddb27386faa23e704d97644b74829aac9cfb0424",
+          "field": 9,
+          "name": "duty_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "6c6ddce376f25ddbc7672deb94a83b728cc01bf6b4ba03ccddf21c9206f19c64",
+          "field": 9,
+          "name": "duty_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "8e8af348dd1be6268b2aa5fb439ea1b22c2b5b2b8484df52cf50f9835ad6e2bb",
+          "field": 10,
+          "name": "service_authorization_nonce_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "9ed7d5332f688f8a17837e18731197eb28f167200e888d72143c7ac2cdc75b3a",
+          "field": 10,
+          "name": "service_authorization_nonce_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "11db2ff17ffecd7f37c9ae561419a0842560c3c2fb2b06bbe4e50136a5aad3d3",
+          "field": 11,
+          "name": "expiry_height_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "c605ec35abb4ef61428a08550fd12b6bca6b066df0e02846ebce333030b117eb",
+          "field": 11,
+          "name": "expiry_height_last_byte_high_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "20d9052af2262b54a81027f9c72c2baaf8ee1dae7b9a213d4473e8271ff5ee41",
+      "domain": "TRUEOPEN_TASK_ID_V1",
+      "fields": [
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "task_id_v1",
+      "preimage_hex": "0000000000000013545255454f50454e5f5441534b5f49445f5631000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a",
+      "producer": "x/task/types.DeriveTaskIDFromRawSession; every other party recomputes it",
+      "replay": [
+        {
+          "digest_hex": "68af48d188e4af7bbde078a57af75f6e7a37d2980a4d302ab9587057f1cde592",
+          "name": "cross_session",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+                "name": "session_id",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "the task id is scoped to one session; the same order_sequence under another session must be a different task"
+        },
+        {
+          "digest_hex": "36198f182da509d79fb751e992153ba37f4c8a06548761f54756d98ebb571cd4",
+          "name": "next_order_sequence",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "name": "order_sequence",
+                "type": "uint64",
+                "value": 43
+              }
+            }
+          ],
+          "reason": "order_sequence is the per-session counter; the next order in the same session must not be able to reuse the task id"
+        },
+        {
+          "digest_hex": "27ecc6f43a05ac8a82e00ff5f7409d940666db003a9c390d55be0f8a772d6fb6",
+          "name": "order_sequence_zero",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "name": "order_sequence",
+                "type": "uint64",
+                "value": 0
+              }
+            }
+          ],
+          "reason": "sequence 0 is a real sequence, not an unset field: it keeps its own digest and its own eight framed bytes instead of collapsing to a zero-length field"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "f4119aeace2893eda6724397fea041f6f37e4581a5bfc61c522bd35f90c56450",
+          "field": 0,
+          "name": "session_id_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "e7546ab32beac29370877244a56037c33ad171eaa06f5618bc01b16f38fba8d1",
+          "field": 0,
+          "name": "session_id_last_byte_high_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "d622f4bf7ab3c40e88396f99a68cad36b667f935f41140de9d868e2a6a02975f",
+          "field": 1,
+          "name": "order_sequence_first_bit"
+        },
+        {
+          "bit": 7,
+          "byte": -1,
+          "digest_hex": "f5528f90f9895a6a4977b0ddb24ea5339f6b002f4cdf83a4bd058133ff449ae0",
+          "field": 1,
+          "name": "order_sequence_last_byte_high_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "fc16bad31a736a6c9ee539769cbab182557ea64845bb51a22fc238817dfc8b1e",
+      "domain": "TRUEOPEN_METRIC_SUMMARY_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "name": "finite_count",
+              "type": "uint32",
+              "value": 8
+            },
+            {
+              "name": "missing_compared_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "mean_abs_logprob_diff_fp_1e6",
+              "type": "uint32",
+              "value": 250
+            },
+            {
+              "name": "abs_logprob_diff_p95_fp_1e6",
+              "type": "uint32",
+              "value": 500
+            },
+            {
+              "name": "abs_logprob_diff_p99_fp_1e6",
+              "type": "uint32",
+              "value": 750
+            },
+            {
+              "name": "rank_delta_nonzero_rate_fp_1e6",
+              "type": "uint32",
+              "value": 1000
+            },
+            {
+              "name": "topk_jaccard_mean_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "fields": [
+                {
+                  "name": "value",
+                  "type": "uint32",
+                  "value": 0
+                }
+              ],
+              "name": "union_js_p99_fp_1e6",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "name": "compared_topk_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "compared_rank_count",
+              "type": "uint32",
+              "value": 3
+            }
+          ],
+          "frame_hex": "0000000000000004000000080000000000000004000000010000000000000004000000fa0000000000000004000001f40000000000000004000002ee0000000000000004000003e8000000000000000100000000000000000d01000000000000000400000000000000000000000400000002000000000000000400000003",
+          "name": "metric_summary",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "metric_summary_v1_optional_presence",
+      "preimage_hex": "000000000000001a545255454f50454e5f4d45545249435f53554d4d4152595f5631000000000000007e0000000000000004000000080000000000000004000000010000000000000004000000fa0000000000000004000001f40000000000000004000002ee0000000000000004000003e8000000000000000100000000000000000d01000000000000000400000000000000000000000400000002000000000000000400000003",
+      "producer": "x/task/types.MetricSummaryHash",
+      "replay": [
+        {
+          "digest_hex": "b9642a5178496cfa6ee7e4ce1568650356158482775fb57a97faa368f1e76db4",
+          "name": "different_metric_summary",
+          "overrides": [
+            {
+              "field": 0,
+              "value": {
+                "fields": [
+                  {
+                    "name": "finite_count",
+                    "type": "uint32",
+                    "value": 8
+                  },
+                  {
+                    "name": "missing_compared_count",
+                    "type": "uint32",
+                    "value": 1
+                  },
+                  {
+                    "name": "mean_abs_logprob_diff_fp_1e6",
+                    "type": "uint32",
+                    "value": 250
+                  },
+                  {
+                    "name": "abs_logprob_diff_p95_fp_1e6",
+                    "type": "uint32",
+                    "value": 500
+                  },
+                  {
+                    "name": "abs_logprob_diff_p99_fp_1e6",
+                    "type": "uint32",
+                    "value": 750
+                  },
+                  {
+                    "name": "rank_delta_nonzero_rate_fp_1e6",
+                    "type": "uint32",
+                    "value": 1000
+                  },
+                  {
+                    "name": "topk_jaccard_mean_fp_1e6",
+                    "present": false,
+                    "type": "optional"
+                  },
+                  {
+                    "fields": [
+                      {
+                        "name": "value",
+                        "type": "uint32",
+                        "value": 0
+                      }
+                    ],
+                    "name": "union_js_p99_fp_1e6",
+                    "present": true,
+                    "type": "optional"
+                  },
+                  {
+                    "name": "compared_topk_count",
+                    "type": "uint32",
+                    "value": 2
+                  },
+                  {
+                    "name": "compared_rank_count",
+                    "type": "uint32",
+                    "value": 4
+                  }
+                ],
+                "name": "metric_summary",
+                "type": "frame"
+              }
+            }
+          ],
+          "reason": "changing any retained metric changes its independently committed summary"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": -1,
+          "digest_hex": "102c3400a59b1e201d0482e68cafa558f6ee9c00eca33b3ddb99844ab78ddc8a",
+          "field": 0,
+          "name": "metric_summary_last_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "0ca1ee198ebc18529ff1a4107b41d369c81ecca64e57fdb3d89abaac3519b50a",
+      "domain": "TRUEOPEN_DATA_UNAVAILABLE_AGGREGATE_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "builder_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "valid_report_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "required_report_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "selected_verifier_count",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 3
+            },
+            {
+              "fields": [
+                {
+                  "hex": "7777777777777777777777777777777777777777777777777777777777777777",
+                  "name": "value",
+                  "type": "bytes"
+                }
+              ],
+              "name": "report_digest_slot_0",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "name": "report_digest_slot_1",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "fields": [
+                {
+                  "hex": "8888888888888888888888888888888888888888888888888888888888888888",
+                  "name": "value",
+                  "type": "bytes"
+                }
+              ],
+              "name": "report_digest_slot_2",
+              "present": true,
+              "type": "optional"
+            }
+          ],
+          "frame_hex": "0000000000000004000000030000000000000029010000000000000020777777777777777777777777777777777777777777777777777777777777777700000000000000010000000000000000290100000000000000208888888888888888888888888888888888888888888888888888888888888888",
+          "name": "report_digest_slots",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "data_unavailable_aggregate_v1_optional_slots",
+      "preimage_hex": "0000000000000026545255454f50454e5f444154415f554e415641494c41424c455f4147475245474154455f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000004000000010000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000040000000200000000000000040000000200000000000000040000000300000000000000770000000000000004000000030000000000000029010000000000000020777777777777777777777777777777777777777777777777777777777777777700000000000000010000000000000000290100000000000000208888888888888888888888888888888888888888888888888888888888888888",
+      "producer": "x/task/keeper.DataUnavailableAggregateHash",
+      "replay": [
+        {
+          "digest_hex": "1f06b1fddf4e6eb149af95206c72556bc56d3581fba98effb4fe2ac13b76272c",
+          "name": "outer_count_mismatch",
+          "overrides": [
+            {
+              "field": 6,
+              "value": {
+                "name": "selected_verifier_count",
+                "type": "uint32",
+                "value": 4
+              }
+            }
+          ],
+          "reason": "the outer count must equal the element_count encoded inside the REPEATED_V1 field"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "344980e377ec498450a97054a027891cdfbad84715196d157d8251b932d3ded1",
+          "field": 0,
+          "name": "chain_id_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "85634c7bfef8aaedca421618d30589d5c6c3194247e9fcf27fdde9db3b593e20",
+          "field": 1,
+          "name": "task_id_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "e18b6ea3a01be4638aa8b720974b0f467e5cf91804cde8282c0fbb3e38ea6c0b",
+          "field": 2,
+          "name": "verify_round_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "3e473e8f7a1b747ad5127355692527cf94add9c43a05ec0397e50e8c1f50af1e",
+          "field": 3,
+          "name": "builder_operator_address_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "e8989721f49d11b4d1273fcefc7f4485b8c0ae1decddf68f057fe194a56b6569",
+          "field": 4,
+          "name": "valid_report_count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "0fda3bfc1ac51c5e2d94a9b343543c93ea21005c66ea044d4ec4074a8583bdac",
+          "field": 5,
+          "name": "required_report_count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "46862a00312e87e42077d4bfdf3da4cb3629b6641566027d07d81fd1ae0a85e5",
+          "field": 6,
+          "name": "selected_verifier_count_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "9cebaf8d1f73e4aef4d5db84024001623fae6cd6f0abf8f65a14168a4b6879d3",
+          "field": 7,
+          "name": "report_digest_slots_first_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "b77f5a2185f09070137aafb4b5a9e2cae36964b6a42133cb24d789eaf8ab1e5d",
+      "domain": "TRUEOPEN_ASSIGNMENT_LEGAL_SET_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "hex": "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+          "name": "candidate_pool_snapshot_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d",
+          "name": "candidate_pool_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e",
+          "name": "union_bitmap_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "candidate_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 3
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 11
+                },
+                {
+                  "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+                  "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+                  "name": "operator_address",
+                  "type": "address"
+                },
+                {
+                  "name": "candidate_weight",
+                  "type": "uint32",
+                  "value": 5000
+                },
+                {
+                  "name": "active_bond_snapshot",
+                  "type": "uint64",
+                  "value": 900000
+                },
+                {
+                  "name": "available_bond_snapshot",
+                  "type": "uint64",
+                  "value": 700000
+                },
+                {
+                  "name": "required_task_liability_snapshot",
+                  "type": "uint64",
+                  "value": 250000
+                },
+                {
+                  "name": "min_stake_snapshot",
+                  "type": "uint64",
+                  "value": 100000
+                },
+                {
+                  "name": "performance_score_snapshot_ppm",
+                  "type": "uint32",
+                  "value": 1000000
+                },
+                {
+                  "name": "performance_method_version",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "candidate_jail_factor_snapshot_ppm",
+                  "type": "uint32",
+                  "value": 950000
+                },
+                {
+                  "name": "bond_version_snapshot",
+                  "type": "uint64",
+                  "value": 4
+                },
+                {
+                  "name": "support_version_snapshot",
+                  "type": "uint64",
+                  "value": 6
+                }
+              ],
+              "frame_hex": "0000000000000004000000030000000000000008000000000000000b0000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000000400001388000000000000000800000000000dbba0000000000000000800000000000aae600000000000000008000000000003d090000000000000000800000000000186a00000000000000004000f42400000000000000004000000010000000000000004000e7ef00000000000000008000000000000000400000000000000080000000000000006",
+              "name": "candidate_0",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 9
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 13
+                },
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "operator_address",
+                  "type": "address"
+                },
+                {
+                  "name": "candidate_weight",
+                  "type": "uint32",
+                  "value": 7500
+                },
+                {
+                  "name": "active_bond_snapshot",
+                  "type": "uint64",
+                  "value": 1200000
+                },
+                {
+                  "name": "available_bond_snapshot",
+                  "type": "uint64",
+                  "value": 1100000
+                },
+                {
+                  "name": "required_task_liability_snapshot",
+                  "type": "uint64",
+                  "value": 300000
+                },
+                {
+                  "name": "min_stake_snapshot",
+                  "type": "uint64",
+                  "value": 100000
+                },
+                {
+                  "name": "performance_score_snapshot_ppm",
+                  "type": "uint32",
+                  "value": 1000000
+                },
+                {
+                  "name": "performance_method_version",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "candidate_jail_factor_snapshot_ppm",
+                  "type": "uint32",
+                  "value": 875000
+                },
+                {
+                  "name": "bond_version_snapshot",
+                  "type": "uint64",
+                  "value": 5
+                },
+                {
+                  "name": "support_version_snapshot",
+                  "type": "uint64",
+                  "value": 8
+                }
+              ],
+              "frame_hex": "0000000000000004000000090000000000000008000000000000000d0000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000400001d4c00000000000000080000000000124f800000000000000008000000000010c8e0000000000000000800000000000493e0000000000000000800000000000186a00000000000000004000f42400000000000000004000000010000000000000004000d59f80000000000000008000000000000000500000000000000080000000000000008",
+              "name": "candidate_1",
+              "type": "frame"
+            }
+          ],
+          "frame_hex": "00000000000000040000000200000000000000c80000000000000004000000030000000000000008000000000000000b0000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000000400001388000000000000000800000000000dbba0000000000000000800000000000aae600000000000000008000000000003d090000000000000000800000000000186a00000000000000004000f42400000000000000004000000010000000000000004000e7ef0000000000000000800000000000000040000000000000008000000000000000600000000000000c80000000000000004000000090000000000000008000000000000000d0000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000400001d4c00000000000000080000000000124f800000000000000008000000000010c8e0000000000000000800000000000493e0000000000000000800000000000186a00000000000000004000f42400000000000000004000000010000000000000004000d59f80000000000000008000000000000000500000000000000080000000000000008",
+          "name": "candidates",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "assignment_legal_set_v1",
+      "preimage_hex": "0000000000000020545255454f50454e5f41535349474e4d454e545f4c4547414c5f5345545f56310000000000000012747275656f70656e2d666978747572652d3100000000000000207a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a00000000000000207b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b00000000000000207c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c00000000000000207d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d00000000000000207e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e00000000000000040000000200000000000001ac00000000000000040000000200000000000000c80000000000000004000000030000000000000008000000000000000b0000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000000400001388000000000000000800000000000dbba0000000000000000800000000000aae600000000000000008000000000003d090000000000000000800000000000186a00000000000000004000f42400000000000000004000000010000000000000004000e7ef0000000000000000800000000000000040000000000000008000000000000000600000000000000c80000000000000004000000090000000000000008000000000000000d0000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000400001d4c00000000000000080000000000124f800000000000000008000000000010c8e0000000000000000800000000000493e0000000000000000800000000000186a00000000000000004000f42400000000000000004000000010000000000000004000d59f80000000000000008000000000000000500000000000000080000000000000008",
+      "producer": "AssignmentCandidateSetHash"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "0f0ad7c0dbf40864fe5ddc169a1ce64bd45a7f62f55322056dcced78b1e4c346",
+      "domain": "TRUEOPEN_TASK_BUILDERS_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "hex": "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "task_builders_v1",
+      "preimage_hex": "0000000000000019545255454f50454e5f5441534b5f4255494c444552535f56310000000000000012747275656f70656e2d666978747572652d3100000000000000207a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a00000000000000208b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b00000000000000209c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c",
+      "producer": "TaskBuilderSeed"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "3663aac9f8f83a460efb8126fe54f0056eea1ec3a76b645bac1e8854f4d3521e",
+      "domain": "TRUEOPEN_COMMIT_KEY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-unblock-1"
+        },
+        {
+          "hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+          "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "verifier_operator_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "commit_key_v1",
+      "preimage_hex": "0000000000000016545255454f50454e5f434f4d4d49545f4b45595f56310000000000000012747275656f70656e2d756e626c6f636b2d310000000000000020101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f0000000000000004000000030000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+      "producer": "DeriveCommitKey"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_domains_v1.json",
+      "digest_hex": "31079f26daf2bd6fd027d8de020a4153e2a710b3c7bbc03154530f5f958cce0f",
+      "domain": "TRUEOPEN_SELECTED_TASK_BUILDERS_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-fixture-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "builder-set-v1"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 3
+            },
+            {
+              "bech32": "trueopen1vd3kxcmrvd3kxcmrvd3kxcmrvd3kxcmrvmw99c",
+              "hex": "6363636363636363636363636363636363636363",
+              "name": "builder_0",
+              "type": "address"
+            },
+            {
+              "bech32": "trueopen1v3jxgeryv3jxgeryv3jxgeryv3jxgeryvtfqzy",
+              "hex": "6464646464646464646464646464646464646464",
+              "name": "builder_1",
+              "type": "address"
+            },
+            {
+              "bech32": "trueopen1v4jk2et9v4jk2et9v4jk2et9v4jk2et9dmgpg9",
+              "hex": "6565656565656565656565656565656565656565",
+              "name": "builder_2",
+              "type": "address"
+            }
+          ],
+          "frame_hex": "000000000000000400000003000000000000001463636363636363636363636363636363636363630000000000000014646464646464646464646464646464646464646400000000000000146565656565656565656565656565656565656565",
+          "name": "builders",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "selected_task_builders_v1",
+      "preimage_hex": "0000000000000022545255454f50454e5f53454c45435445445f5441534b5f4255494c444552535f56310000000000000012747275656f70656e2d666978747572652d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000000e6275696c6465722d7365742d7631000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000060000000000000000400000003000000000000001463636363636363636363636363636363636363630000000000000014646464646464646464646464646464646464646400000000000000146565656565656565656565656565656565656565",
+      "producer": "SelectedTaskBuildersHash"
+    }
+  ]
+}

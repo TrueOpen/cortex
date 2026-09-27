@@ -1,0 +1,479 @@
+{
+  "notes": [
+    "Three metric leaves bind the same generated positions and Verifier value root as the V3 result receipt."
+  ],
+  "schema": "trueopen.task.result_metric.v3",
+  "source": "Integrated result metric wire contract",
+  "vectors": [
+    {
+      "contract_section": "Metric leaf V3 wire contract",
+      "digest_hex": "2d5d519c9aa1aeda029bc4a7b67611701257514adc4b20d7fd4fadfd4c3cc012",
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_LEAF_V3",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "judgment_function_version",
+              "type": "string",
+              "utf8": "PREFILL_GENERATED_TOKEN_METRICS_V1"
+            },
+            {
+              "name": "canonical_encoding_version",
+              "type": "string",
+              "utf8": "CANONICAL_OUTPUT_TEXT_V1"
+            },
+            {
+              "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+              "name": "evidence_schema_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "metric_aggregate_proof_version",
+              "type": "string",
+              "utf8": "PREFILL_METRIC_AGGREGATE_PROOF_V1"
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "tokenizer_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "required_top_k",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1250000
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1200000
+            },
+            {
+              "name": "abs_logprob_diff_fp_1e6",
+              "type": "uint64",
+              "value": 50000
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "rank_delta",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "hex": "58e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+              "name": "verifier_value_root",
+              "type": "bytes"
+            }
+          ],
+          "name": "canonical_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "integrated_metric_leaf",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f544f4b454e5f4d45545249435f4c4541465f5633000000000000000400000001000000000000025c0000000000000011747275656f70656e2d676f6c64656e2d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000004000000010000000000000020c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f563100000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000002055555555555555555555555555555555555555555555555555555555555555550000000000000004000000000000000000000004000000020000000000000004000000020000000000000008ffffffffffeced300000000000000008ffffffffffedb0800000000000000008000000000000c35000000000000000040000000100000000000000040000000100000000000000080000000000000000000000000000000100000000000000000100000000000000000100000000000000000101000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+      "preimage_size_bytes": 669,
+      "producer": "MetricLeafHash"
+    },
+    {
+      "contract_section": "Metric leaf V3 wire contract",
+      "digest_hex": "ba331cb093ac4b55488e457a271a47761ebea9f2b977bed465ecf3a2e989552f",
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_LEAF_V3",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "judgment_function_version",
+              "type": "string",
+              "utf8": "PREFILL_GENERATED_TOKEN_METRICS_V1"
+            },
+            {
+              "name": "canonical_encoding_version",
+              "type": "string",
+              "utf8": "CANONICAL_OUTPUT_TEXT_V1"
+            },
+            {
+              "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+              "name": "evidence_schema_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "metric_aggregate_proof_version",
+              "type": "string",
+              "utf8": "PREFILL_METRIC_AGGREGATE_PROOF_V1"
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "tokenizer_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 257
+            },
+            {
+              "name": "required_top_k",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1300000
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1250000
+            },
+            {
+              "name": "abs_logprob_diff_fp_1e6",
+              "type": "uint64",
+              "value": 50000
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "rank_delta",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "hex": "58e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+              "name": "verifier_value_root",
+              "type": "bytes"
+            }
+          ],
+          "name": "canonical_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "integrated_metric_leaf",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f544f4b454e5f4d45545249435f4c4541465f5633000000000000000400000001000000000000025c0000000000000011747275656f70656e2d676f6c64656e2d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000004000000010000000000000020c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f563100000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000002055555555555555555555555555555555555555555555555555555555555555550000000000000004000000010000000000000004000001010000000000000004000000020000000000000008ffffffffffec29e00000000000000008ffffffffffeced300000000000000008000000000000c35000000000000000040000000200000000000000040000000200000000000000080000000000000000000000000000000100000000000000000100000000000000000100000000000000000101000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+      "preimage_size_bytes": 669,
+      "producer": "MetricLeafHash"
+    },
+    {
+      "contract_section": "Metric leaf V3 wire contract",
+      "digest_hex": "5af8b648453e14cc5f9b0aabdf6ee872145078c00bd945d5be743a6ceea0c573",
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_LEAF_V3",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "judgment_function_version",
+              "type": "string",
+              "utf8": "PREFILL_GENERATED_TOKEN_METRICS_V1"
+            },
+            {
+              "name": "canonical_encoding_version",
+              "type": "string",
+              "utf8": "CANONICAL_OUTPUT_TEXT_V1"
+            },
+            {
+              "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+              "name": "evidence_schema_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "metric_aggregate_proof_version",
+              "type": "string",
+              "utf8": "PREFILL_METRIC_AGGREGATE_PROOF_V1"
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "tokenizer_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 65535
+            },
+            {
+              "name": "required_top_k",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "abs_logprob_diff_fp_1e6",
+              "type": "uint64",
+              "value": 0
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "rank_delta",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "hex": "58e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+              "name": "verifier_value_root",
+              "type": "bytes"
+            }
+          ],
+          "name": "canonical_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "integrated_metric_leaf",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f544f4b454e5f4d45545249435f4c4541465f5633000000000000000400000001000000000000025c0000000000000011747275656f70656e2d676f6c64656e2d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000004000000010000000000000020c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f5631000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000200000000000000040000ffff00000000000000040000000200000000000000080000000000000000000000000000000800000000000000000000000000000008000000000000000000000000000000040000000000000000000000040000000000000000000000080000000000000000000000000000000100000000000000000100000000000000000101000000000000000100000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
+      "preimage_size_bytes": 669,
+      "producer": "MetricLeafHash"
+    },
+    {
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_ROOT_V3",
+      "framing": "MERKLE_ROOT_V1",
+      "leaves_hex": [
+        "2d5d519c9aa1aeda029bc4a7b67611701257514adc4b20d7fd4fadfd4c3cc012",
+        "ba331cb093ac4b55488e457a271a47761ebea9f2b977bed465ecf3a2e989552f",
+        "5af8b648453e14cc5f9b0aabdf6ee872145078c00bd945d5be743a6ceea0c573"
+      ],
+      "name": "integrated_metric_root",
+      "root_hex": "6e5fd01c9cf8c5e5eb8a5d593e526c74846418b0903c84264cb231fd2f65cb51"
+    }
+  ]
+}

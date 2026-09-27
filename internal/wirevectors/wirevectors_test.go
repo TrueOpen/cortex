@@ -42,12 +42,23 @@ func TestPrereleaseVectorsMatchTheirManifest(t *testing.T) {
 		"task/worker_value_commitment_v3.json",
 		"task/worker_value_leaf_v1.json",
 		"task/verifier_value_leaf_v1.json",
+		"task/infer_receipt_v3.json",
+		"task/result_receipt_v3.json",
+		"task/metric_leaf_v3.json",
+		"task/result_metric_v3.json",
+		"task/task_order_v3.json",
+		"task/output_stream_header_v1.json",
+		"task/task_data_auth_v1.json",
+		"task/builder_confirmation_v1.json",
+		"task/canonical_json_v1.json",
+		"task/task_domains_v1.json",
+		"hub/model_id_v1.json",
 	} {
 		if _, err := PrereleaseFile(path); err != nil {
 			t.Fatalf("PrereleaseFile(%s): %v", path, err)
 		}
 	}
-	if _, err := PrereleaseFile("task/infer_receipt_v3.json"); err == nil {
+	if _, err := PrereleaseFile("task/round_settlement_v1.json"); err == nil {
 		t.Fatal("PrereleaseFile() error = nil for a file that was not copied")
 	}
 }
