@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -62,6 +63,35 @@ type Config struct {
 	SelfRescue        SelfRescueConfig        `yaml:"self_rescue"`
 	ChallengeVerifier ChallengeVerifierConfig `yaml:"challenge_verifier"`
 	Health            HealthConfig            `yaml:"health"`
+	ModelManifest     ModelManifestConfig     `yaml:"model_manifest"`
+}
+
+// ModelManifestConfig says where a node obtains the full manifest of a model
+// profile registered by another operator. Such a manifest is fetched and
+// verified against the chain before the node serves the model.
+type ModelManifestConfig struct {
+	// CacheDir holds verified manifests so a restart does not fetch again.
+	// Empty means a "manifests" directory beside store.path.
+	CacheDir string `yaml:"cache_dir"`
+	// IPFSGateway fetches ipfs:// manifest URIs: an https URL, or http on a
+	// loopback host. Empty means ipfs:// URIs are not fetched; there is no
+	// default public gateway.
+	IPFSGateway string `yaml:"ipfs_gateway"`
+	// Mirrors are https base URLs serving manifests at
+	// <mirror>/<manifest_hash hex>, tried after the profile's manifest_uri.
+	Mirrors []string `yaml:"mirrors"`
+}
+
+// ManifestCacheDir is model_manifest.cache_dir, or a "manifests" directory beside the store
+// when it is empty.
+func (c Config) ManifestCacheDir() string {
+	if dir := strings.TrimSpace(c.ModelManifest.CacheDir); dir != "" {
+		return dir
+	}
+	if c.Store.Path == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(filepath.Clean(c.Store.Path)), "manifests")
 }
 
 type AdminConfig struct {

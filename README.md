@@ -260,6 +260,14 @@ metadata addresses, follow at most three redirects and stop at 4 MiB.
 `ipfs://` URIs are fetched only through `--ipfs-gateway`; there is no default
 public gateway.
 
+cortexd applies the same fetch and verification before it serves a profile
+that another operator registered: until that profile's manifest is verified,
+`model_service` readiness stays red with the reason. Profiles you registered
+yourself are exempt. Verified manifests are cached in
+`model_manifest.cache_dir` (default: `manifests` beside `store.path`), so a
+restart does not fetch them again; `model_manifest.mirrors` and
+`model_manifest.ipfs_gateway` configure the other sources.
+
 ### Upgrading to v0.3
 
 v0.3 changes the Worker evidence (two bundles of token ids and per-position

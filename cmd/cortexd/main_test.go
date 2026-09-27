@@ -1520,11 +1520,17 @@ func (*workerHandraiseWiringKeeper) VerifierCandidateMember(context.Context, str
 	}, nil
 }
 
+// daemonTestOperator is local_identity.operator_address in the real-mode test
+// configs. The fake profiles name it as their proposer: the node serves its
+// own registrations, which need no fetched manifest.
+const daemonTestOperator = "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k"
+
 func (*workerHandraiseWiringKeeper) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
 	return chainclient.CurrentModelProfileSnapshot{
 		Model: chainclient.CurrentModelSnapshot{ModelID: modelservice.FakeModelID, Status: "ACTIVE"},
 		Profile: chainclient.CurrentProfileSnapshot{
 			ModelID: modelservice.FakeModelID, ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
+			ProposerAddress: daemonTestOperator,
 		},
 	}, nil
 }
@@ -1584,8 +1590,13 @@ func (k *transitionKeeperClient) Params(context.Context) (chainclient.ParamsSnap
 	}, nil
 }
 
-func (k *transitionKeeperClient) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
-	return chainclient.CurrentModelProfileSnapshot{}, chainclient.ErrNotFound
+func (k *transitionKeeperClient) CurrentModelProfile(_ context.Context, modelID, _ string) (chainclient.CurrentModelProfileSnapshot, error) {
+	if !k.isReady() {
+		return chainclient.CurrentModelProfileSnapshot{}, chainclient.ErrNotFound
+	}
+	return chainclient.CurrentModelProfileSnapshot{
+		Profile: chainclient.CurrentProfileSnapshot{ModelID: modelID, ProposerAddress: daemonTestOperator},
+	}, nil
 }
 
 func (k *transitionKeeperClient) CortexNode(ctx context.Context, nodeID string) (chainclient.CortexNodeSnapshot, error) {

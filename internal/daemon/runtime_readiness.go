@@ -434,6 +434,16 @@ func (r *Runtime) checkModelServiceReadiness(ctx context.Context) diagnostics.De
 		status.Error = err.Error()
 		return status
 	}
+	if r.manifestGate != nil {
+		profiles, err := r.cfg.LocalIdentity.ModelProfiles()
+		if err == nil {
+			err = r.manifestGate.Check(ctx, profiles)
+		}
+		if err != nil {
+			status.Error = err.Error()
+			return status
+		}
+	}
 	status.Ready = true
 	status.Configured = true
 	status.Error = ""
