@@ -1524,6 +1524,8 @@ type recordingTaskData struct {
 	retention                    uint64
 	mutateConfirmation           func(*builderclient.StorageConfirmation)
 	mutateConfirmationBeforeSign func(*builderclient.StorageConfirmation)
+	// finalizeErrors fails the next finalize of a bundle kind once each.
+	finalizeErrors map[nodewire.EvidenceKind][]error
 }
 
 func (*recordingTaskData) GetTaskDataMetadata(context.Context, string, builderclient.GetTaskDataMetadataRequest) (builderclient.TaskDataMetadata, error) {
@@ -1577,6 +1579,10 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 	c.endpoints = append(c.endpoints, endpoint)
 	pin, _ := builderclient.TLSPubkeyHashFromContext(ctx)
 	c.pins = append(c.pins, pin)
+	if errs := c.finalizeErrors[request.EvidenceKind]; len(errs) > 0 {
+		c.finalizeErrors[request.EvidenceKind] = errs[1:]
+		return builderclient.FinalizeTaskResultResponse{}, errs[0]
+	}
 	result, err := c.FakeClient.FinalizeTaskResult(ctx, endpoint, request)
 	if err != nil {
 		return result, err
@@ -1657,6 +1663,8 @@ type recordingPersistence struct {
 	confirmations       []StorageConfirmationCheckpoint
 	events              *[]string
 	bundles             map[string]recordedBundle
+	// publishErrors fails the next PublishWorkerBundle of a kind once each.
+	publishErrors map[nodewire.EvidenceKind][]error
 }
 
 // recordedBundle is one published Worker bundle.
@@ -1666,6 +1674,10 @@ type recordedBundle struct {
 }
 
 func (r *recordingPersistence) PublishWorkerBundle(_ context.Context, taskID string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error {
+	if errs := r.publishErrors[kind]; len(errs) > 0 {
+		r.publishErrors[kind] = errs[1:]
+		return errs[0]
+	}
 	decoded, err := evidencebundle.Decode(manifest)
 	if err != nil {
 		return err

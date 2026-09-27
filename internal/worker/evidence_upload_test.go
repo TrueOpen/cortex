@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -330,6 +332,153 @@ func TestWorkerRefusesAMalformedEvidenceRequirementShape(t *testing.T) {
 			h.worker.cfg.ProfileEvidenceRequirements = requirements
 			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil {
 				t.Fatal("recovery accepted a malformed evidence requirement shape")
+			}
+		})
+	}
+}
+
+// Recovery from a partly finalized task: only the token bundle's confirmation
+// missing, a tampered token-bundle confirmation, a token finalize that fails
+// once, and a crash between publishing the two bundles each end with both
+// bundles confirmed and the same signed receipt.
+func TestWorkerRecoversAPartlyFinalizedTokenBundle(t *testing.T) {
+	for _, name := range []string{"token confirmation missing", "token confirmation tampered", "token finalize fails once", "crash between bundles"} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			event := finalizedTask()
+			switch name {
+			case "token finalize fails once":
+				h.taskData.finalizeErrors = map[nodewire.EvidenceKind][]error{nodewire.EvidenceKindWorkerTokenOpening: {errors.New("builder busy")}}
+			case "crash between bundles":
+				// The value bundle is published, then the process dies before the
+				// token bundle is.
+				h.persistence.publishErrors = map[nodewire.EvidenceKind][]error{nodewire.EvidenceKindWorkerTokenOpening: {errors.New("crash before the token bundle")}}
+			}
+			if name != "crash between bundles" {
+				h.seedPreparedOutput(t, event)
+			} else {
+				h.snapshotReader.seedFrom(event)
+				enableEvidenceSchema(&h)
+			}
+			first, err := h.worker.HandleAssignmentFinalized(context.Background(), event)
+			switch name {
+			case "token finalize fails once", "crash between bundles":
+				if err == nil {
+					t.Fatal("the injected failure did not surface")
+				}
+			default:
+				if err != nil {
+					t.Fatal(err)
+				}
+				tokenKind := builderclient.DataKindEvidenceManifest.String()
+				kept := h.persistence.confirmations[:0]
+				for _, record := range h.persistence.confirmations {
+					isToken := record.DataKind == tokenKind && record.Confirmation != nil && record.Confirmation.Key.EvidenceKind == nodewire.EvidenceKindWorkerTokenOpening
+					switch {
+					case isToken && name == "token confirmation missing":
+						continue
+					case isToken:
+						c := *record.Confirmation
+						c.Signature = append([]byte(nil), c.Signature...)
+						c.Signature[0] ^= 1
+						record.Confirmation = &c
+					}
+					kept = append(kept, record)
+				}
+				h.persistence.confirmations = kept
+			}
+			recovered, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event)
+			if err != nil {
+				t.Fatalf("recovery: %v", err)
+			}
+			if first.TaskDataReceipt.ServiceSignature != "" && !reflect.DeepEqual(recovered.TaskDataReceipt, first.TaskDataReceipt) {
+				t.Fatal("recovery signed a different receipt")
+			}
+			confirmed := map[nodewire.EvidenceKind]bool{}
+			for _, record := range h.persistence.confirmations {
+				if record.Confirmation == nil || record.DataKind != builderclient.DataKindEvidenceManifest.String() {
+					continue
+				}
+				confirmed[record.Confirmation.Key.EvidenceKind] = true
+			}
+			if !confirmed[nodewire.EvidenceKindWorkerValueOpening] || !confirmed[nodewire.EvidenceKindWorkerTokenOpening] {
+				t.Fatalf("confirmed bundles after recovery = %v, want both", confirmed)
+			}
+		})
+	}
+}
+
+// rewriteBundle replaces a published bundle with a self-consistent one: the
+// manifest is re-encoded so every artifact hash and size matches its bytes.
+func rewriteBundle(t *testing.T, h harness, taskID string, kind nodewire.EvidenceKind, mutate func(*evidencebundle.Manifest, map[string][]byte)) {
+	t.Helper()
+	key := fmt.Sprintf("%s/%d", taskID, kind)
+	bundle := h.persistence.bundles[key]
+	manifest, err := evidencebundle.Decode(bundle.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts := map[string][]byte{}
+	for id, data := range bundle.artifacts {
+		artifacts[id] = append([]byte(nil), data...)
+	}
+	mutate(&manifest, artifacts)
+	for i, artifact := range manifest.Artifacts {
+		manifest.Artifacts[i] = evidencebundle.NewArtifact(artifact.ID, artifacts[artifact.ID])
+	}
+	encoded, err := manifest.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.persistence.bundles[key] = recordedBundle{manifest: encoded, artifacts: artifacts}
+}
+
+// Restart tampering that stays self-consistent reaches each recovery gate and
+// is refused there by name, before anything is uploaded.
+func TestWorkerRecoveryRefusesSelfConsistentTampering(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind   nodewire.EvidenceKind
+		mutate func(*evidencebundle.Manifest, map[string][]byte)
+		want   string
+	}{
+		"manifest scope": {nodewire.EvidenceKindWorkerTokenOpening, func(m *evidencebundle.Manifest, _ map[string][]byte) {
+			m.TaskHash = strings.Repeat("99", 32)
+		}, "manifest scope differs"},
+		"generation params digest": {nodewire.EvidenceKindWorkerTokenOpening, func(_ *evidencebundle.Manifest, a map[string][]byte) {
+			other := workerTestGeneration()
+			other.Params.DecodingParams.Seed = 99
+			raw, err := other.CanonicalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			a[builderclient.EvidenceArtifactGenerationParams] = raw
+		}, "generation_params artifact differs"},
+		"token commitment re-derivation": {nodewire.EvidenceKindWorkerTokenOpening, func(_ *evidencebundle.Manifest, a map[string][]byte) {
+			ids, err := nodewire.DecodeTokenIDs(a[builderclient.EvidenceArtifactGeneratedTokenIDs])
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids[0]++
+			if a[builderclient.EvidenceArtifactGeneratedTokenIDs], err = nodewire.EncodeTokenIDs(ids); err != nil {
+				t.Fatal(err)
+			}
+		}, "differs from persisted artifacts"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			event := finalizedTask()
+			h.seedPreparedOutput(t, event)
+			if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err != nil {
+				t.Fatal(err)
+			}
+			rewriteBundle(t, h, event.TaskID, tc.kind, tc.mutate)
+			uploads := len(h.taskData.uploads)
+			_, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want a refusal containing %q", err, tc.want)
+			}
+			if len(h.taskData.uploads) != uploads {
+				t.Fatal("a tampered bundle reached upload")
 			}
 		})
 	}

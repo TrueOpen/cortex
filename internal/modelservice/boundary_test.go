@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/metric"
@@ -286,5 +287,66 @@ func TestStreamedNullLogprobKeepsItsPosition(t *testing.T) {
 		if joined.logprobAbsent(i) != want {
 			t.Fatalf("position %d absent = %t, want %t", i, joined.logprobAbsent(i), want)
 		}
+	}
+}
+
+// Verify marks a position Missing when vLLM's prompt_logprobs stop short of it
+// or do not score the Worker's token there, and asks vLLM for exactly the
+// profile's required_top_k prompt logprobs.
+func TestLocalVerifyMarksUnscoredPositionsMissing(t *testing.T) {
+	short := verifyResponse()
+	short.Choices[0].PromptLogprobs = short.Choices[0].PromptLogprobs[:4] // no row for the second generated token
+	absent := verifyResponse()
+	absent.Choices[0].PromptLogprobs[3] = map[string]logprobEntry{"99": {Logprob: -0.3, Rank: 1}} // token 10 not scored
+	for name, verify := range map[string]completionResponse{"short prompt_logprobs": short, "scored token absent": absent} {
+		t.Run(name, func(t *testing.T) {
+			srv, seen := newVLLMStub(t, genResponse(), verify)
+			svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+			svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(7)})
+			resp, err := svc.Verify(context.Background(), boundLocalVerifyFixture(t, VerifyRequest{
+				RequestID: "verify-missing", ModelID: testQwenModelID(), Capability: CapabilityLLMTextV1,
+				Sample: []byte("seed"), TokenIDs: TokenIDs{Input: []uint32{1, 2, 3}, Generated: []uint32{10, 11}},
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			missing := 1
+			if name == "scored token absent" {
+				missing = 0
+			}
+			if !resp.VerifierValues[missing].Missing || resp.VerifierValues[1-missing].Missing {
+				t.Fatalf("verifier values = %+v, want position %d missing only", resp.VerifierValues, missing)
+			}
+			last := (*seen)[len(*seen)-1]
+			if last.PromptLogprobs == nil || *last.PromptLogprobs != 7 {
+				t.Fatalf("prompt_logprobs = %v, want the profile's required_top_k 7", last.PromptLogprobs)
+			}
+		})
+	}
+}
+
+// A model id that is not bound, or whose repository vLLM does not serve, is
+// refused before any generation.
+func TestLocalServiceRefusesUnboundAndUnservedModels(t *testing.T) {
+	srv, seen := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{"Qwen/Qwen3-8B"})
+	unbound := NewLocalService(srv.URL, "local", 4, 0, 0)
+	unbound.SetStreamInference(false)
+	if _, err := unbound.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{
+		RequestID: "unbound", ModelID: testQwenModelID(), Capability: CapabilityLLMTextV1, Input: []byte("hi"),
+	})); err == nil || !strings.Contains(err.Error(), "not bound") {
+		t.Fatalf("unbound Infer = %v, want a refusal naming the missing binding", err)
+	}
+	unserved := NewLocalService(srv.URL, "local", 4, 0, 0)
+	unserved.SetStreamInference(false)
+	if err := unserved.BindModel(testQwenModelID(), LocalModelProvider, "Qwen/Qwen3-32B"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unserved.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{
+		RequestID: "unserved", ModelID: testQwenModelID(), Capability: CapabilityLLMTextV1, Input: []byte("hi"),
+	})); err == nil || !strings.Contains(err.Error(), "vLLM serves") {
+		t.Fatalf("unserved Infer = %v, want a refusal naming what vLLM serves", err)
+	}
+	if len(*seen) != 0 {
+		t.Fatalf("a refused model reached generation: %d requests", len(*seen))
 	}
 }
