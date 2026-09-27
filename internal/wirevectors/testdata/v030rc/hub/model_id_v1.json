@@ -1,0 +1,305 @@
+{
+  "negative": [
+    {
+      "expect": "reject_provider_not_canonical",
+      "input": {
+        "provider": "huggingface"
+      },
+      "name": "provider_lower_case",
+      "reason": "The provider token is case-sensitive and never normalized."
+    },
+    {
+      "expect": "reject_provider_not_canonical",
+      "input": {
+        "provider": "HF"
+      },
+      "name": "provider_alias",
+      "reason": "Only the closed canonical tokens are accepted."
+    },
+    {
+      "expect": "reject_provider_not_canonical",
+      "input": {
+        "provider": ""
+      },
+      "name": "provider_empty",
+      "reason": "An empty provider is not a canonical token."
+    },
+    {
+      "expect": "reject_provider_not_supported",
+      "input": {
+        "provider": "OCI"
+      },
+      "name": "provider_not_supported",
+      "reason": "OCI is a canonical token, but only HUGGINGFACE is accepted in this version."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id": "Qwen3-8B"
+      },
+      "name": "repo_id_without_slash",
+      "reason": "A Hugging Face repo_id has exactly one slash."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id": "Qwen/Qwen3/8B"
+      },
+      "name": "repo_id_two_slashes",
+      "reason": "A Hugging Face repo_id has exactly one slash."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id": "Qwen/"
+      },
+      "name": "repo_id_empty_segment",
+      "reason": "Both segments must be non-empty."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id": "Qwen/Qwen3 8B"
+      },
+      "name": "repo_id_outside_charset",
+      "reason": "Only [A-Za-z0-9._-] is allowed in each segment."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id": " Qwen/Qwen3-8B"
+      },
+      "name": "repo_id_surrounding_whitespace",
+      "reason": "Leading or trailing whitespace is rejected, never trimmed."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id_hex": "5177656e2f43616665cc81"
+      },
+      "name": "repo_id_not_nfc",
+      "reason": "Not in NFC: e followed by U+0301 COMBINING ACUTE ACCENT, whose NFC form is the precomposed character. It is rejected, never normalized."
+    },
+    {
+      "expect": "reject_repo_id",
+      "input": {
+        "repo_id_length_bytes": 256
+      },
+      "name": "repo_id_too_long",
+      "reason": "repo_id is at most 255 bytes."
+    },
+    {
+      "expect": "reject_proposer_address",
+      "input": {
+        "proposer_address": "TRUEOPEN1RFJZ7R3U8T65TEAVH5UTQUJ3KWVSJ983P3JCLZ"
+      },
+      "name": "proposer_not_canonical_bech32",
+      "reason": "The address must be canonical lowercase Bech32."
+    },
+    {
+      "expect": "reject_proposer_address",
+      "input": {
+        "proposer_address": "cosmos1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+      },
+      "name": "proposer_wrong_hrp",
+      "reason": "The HRP must be trueopen."
+    },
+    {
+      "expect": "reject_chain_id",
+      "input": {
+        "chain_id": ""
+      },
+      "name": "chain_id_empty",
+      "reason": "chain_id is required and must equal the chain the registration is submitted to."
+    }
+  ],
+  "notes": [
+    "The identity is an opaque raw Hash32, derived from the immutable repository coordinates and the decoded proposer address.",
+    "P1 to P4 pin owner binding, case preservation and chain separation. Rows under tamper change the encoding and must not reproduce the base digest. Rows under negative must be rejected before any identity is derived; each names the input that differs from P1."
+  ],
+  "schema": "trueopen.hub.model_id.v1",
+  "source": "Model identity wire contract",
+  "vectors": [
+    {
+      "digest_hex": "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f",
+      "domain": "TRUEOPEN_MODEL_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "utf8": "HUGGINGFACE"
+        },
+        {
+          "name": "repo_id",
+          "type": "string",
+          "utf8": "trueopen/golden-model"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "proposer_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "model_id_v1",
+      "preimage_hex": "0000000000000014545255454f50454e5f4d4f44454c5f49445f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000000b48554747494e47464143450000000000000015747275656f70656e2f676f6c64656e2d6d6f64656c00000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "preimage_size_bytes": 129
+    },
+    {
+      "digest_hex": "97658dcd6086171667f4f3b3d03169480bfb4a170945552502fab70aa55fb324",
+      "domain": "TRUEOPEN_MODEL_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-testnet-1"
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "utf8": "HUGGINGFACE"
+        },
+        {
+          "name": "repo_id",
+          "type": "string",
+          "utf8": "Qwen/Qwen3-8B"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "proposer_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "model_id_p1_reference",
+      "note": "Reference identity for the owner, case and chain cases below.",
+      "preimage_hex": "0000000000000014545255454f50454e5f4d4f44454c5f49445f56310000000000000012747275656f70656e2d746573746e65742d31000000000000000b48554747494e4746414345000000000000000d5177656e2f5177656e332d384200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "preimage_size_bytes": 122,
+      "tamper": [
+        {
+          "change": "repo_id written as hf-Qwen/Qwen3-8B",
+          "digest_hex": "1580682794df1d3c5d412c721d8112a9067066dffc6ea11734c729ad47b2be6e",
+          "name": "repo_id_hf_prefix"
+        },
+        {
+          "change": "proposer_address framed as its Bech32 text instead of the 20 decoded bytes",
+          "digest_hex": "2aa92a9dc1d0692dc534b9353d7081850ed21924902d4833bd7ad935b73f5dd3",
+          "name": "proposer_as_bech32_text"
+        },
+        {
+          "change": "repo_id framed as the hex text of its UTF-8 bytes",
+          "digest_hex": "4c741a25602e9ae150400828268e80d6d4e4cb405a43b203b594fd3e055d89d6",
+          "name": "repo_id_hex_text"
+        },
+        {
+          "change": "fields concatenated without H_FIELDS_V1 length prefixes",
+          "digest_hex": "493710b4567751ea49d5da884aad18e508b002b1b869abbe85ba669d18563bc1",
+          "name": "bare_concatenation"
+        }
+      ]
+    },
+    {
+      "digest_hex": "682f097f6b85818382a116b6c735b34eb65869b9a191760636bfa4050d56cc2f",
+      "domain": "TRUEOPEN_MODEL_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-testnet-1"
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "utf8": "HUGGINGFACE"
+        },
+        {
+          "name": "repo_id",
+          "type": "string",
+          "utf8": "Qwen/Qwen3-8B"
+        },
+        {
+          "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "proposer_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "model_id_p2_other_owner",
+      "note": "Same repository as P1 under a different registrant: a different model. The identity is owner-bound.",
+      "preimage_hex": "0000000000000014545255454f50454e5f4d4f44454c5f49445f56310000000000000012747275656f70656e2d746573746e65742d31000000000000000b48554747494e4746414345000000000000000d5177656e2f5177656e332d38420000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+      "preimage_size_bytes": 122
+    },
+    {
+      "digest_hex": "063f3e3a016585596e38f9318bea32426eddf3481221f03168c560c731016de3",
+      "domain": "TRUEOPEN_MODEL_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-testnet-1"
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "utf8": "HUGGINGFACE"
+        },
+        {
+          "name": "repo_id",
+          "type": "string",
+          "utf8": "qwen/qwen3-8b"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "proposer_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "model_id_p3_case_preserved",
+      "note": "P1 with repo_id in lower case: a different model. repo_id is case-preserving and never folded.",
+      "preimage_hex": "0000000000000014545255454f50454e5f4d4f44454c5f49445f56310000000000000012747275656f70656e2d746573746e65742d31000000000000000b48554747494e4746414345000000000000000d7177656e2f7177656e332d386200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "preimage_size_bytes": 122
+    },
+    {
+      "digest_hex": "9c32ec7ab802204ef8dfcc1b72cb2e4e805feba967b30f2cd2eab8ca356f547a",
+      "domain": "TRUEOPEN_MODEL_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "name": "provider",
+          "type": "string",
+          "utf8": "HUGGINGFACE"
+        },
+        {
+          "name": "repo_id",
+          "type": "string",
+          "utf8": "Qwen/Qwen3-8B"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "proposer_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "model_id_p4_other_chain",
+      "note": "P1 on a different chain_id: a different model. Identities do not carry across chains.",
+      "preimage_hex": "0000000000000014545255454f50454e5f4d4f44454c5f49445f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000000b48554747494e4746414345000000000000000d5177656e2f5177656e332d384200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "preimage_size_bytes": 121
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "notes": [
+    "The Worker signs the seven-field H_FIELDS_V1 digest independently of TaskDataRequestAuthV1.",
+    "Plaintext Phase 0 requires attempt 0, stream_instance 1, an empty recipient key and two zero32 commitments."
+  ],
+  "rejected_cases": [
+    "attempt != 0",
+    "stream_instance != 1",
+    "nonempty user_recipient_pubkey",
+    "nonzero output_key_commitment",
+    "nonzero key_package_hash"
+  ],
+  "schema": "trueopen.nexus.output_stream_header.v1",
+  "source": "Signed OutputStreamHeaderV2 wire contract",
+  "vectors": [
+    {
+      "digest_hex": "403a6bd3bfc6163d9ee2aac6903627a82ecf5875c6f15aaf06a1b711d2280c01",
+      "signature_raw64_hex": "c00086ab5ce9e3aa7d5431740ecf7f4874fcd5b099e5f999936604133761b1664942ee026fdebe94cb664be41d2178541e09113a0128c4be1874f5060a6b57c4",
+      "domain": "TRUEOPEN_OUTPUT_STREAM_HEADER_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "attempt",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "name": "stream_instance",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "output_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "key_package_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "output_stream_header_v2_plaintext",
+      "preimage_hex": "0000000000000020545255454f50454e5f4f55545055545f53545245414d5f4845414445525f56310000000000000011747275656f70656e2d676f6c64656e2d310000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000000000000000000040000000100000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 217
+    }
+  ]
+}

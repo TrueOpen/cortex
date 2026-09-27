@@ -1,0 +1,2216 @@
+{
+  "notes": [
+    "TaskOrderV3 has 28 top-level fields and binds a raw Hash32 model ID.",
+    "Plaintext Phase 0 requires payload_mode PLAINTEXT, zero32 input_key_commitment and an empty user_recipient_pubkey.",
+    "The 20-field order opening remains under TRUEOPEN_ORDER_OPENING_V2 and also uses the raw model ID.",
+    "Each mutation recomputes a digest after changing one encoded leaf of the V3 field list."
+  ],
+  "schema": "trueopen.task.task_order.v3",
+  "source": "Task order and opening wire contract",
+  "vectors": [
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "d48c7062a64fcf6932aee1a935d9b0f30a04d954f40caa87f5ccf32a3696d59c",
+      "domain": "TRUEOPEN_TASK_ORDER_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "fields": [
+            {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 256
+            },
+            {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 30000
+            },
+            {
+              "fields": [
+                {
+                  "bool": true,
+                  "name": "sampling_enabled",
+                  "type": "bool"
+                },
+                {
+                  "name": "temperature_milli",
+                  "type": "uint32",
+                  "value": 700
+                },
+                {
+                  "name": "top_p_ppm",
+                  "type": "uint32",
+                  "value": 950000
+                },
+                {
+                  "name": "top_k",
+                  "type": "uint32",
+                  "value": 40
+                },
+                {
+                  "name": "seed",
+                  "type": "uint64",
+                  "value": 8675309
+                },
+                {
+                  "name": "presence_penalty_milli",
+                  "type": "int32",
+                  "value": -250
+                },
+                {
+                  "name": "frequency_penalty_milli",
+                  "type": "int32",
+                  "value": 125
+                },
+                {
+                  "name": "repetition_penalty_ppm",
+                  "type": "uint32",
+                  "value": 1050000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_sequences[0]",
+                      "type": "string",
+                      "utf8": "\u003c/s\u003e"
+                    },
+                    {
+                      "name": "stop_sequences[1]",
+                      "type": "string",
+                      "utf8": "STOP"
+                    }
+                  ],
+                  "name": "stop_sequences",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_token_ids[0]",
+                      "type": "uint32",
+                      "value": 11
+                    },
+                    {
+                      "name": "stop_token_ids[1]",
+                      "type": "uint32",
+                      "value": 220
+                    }
+                  ],
+                  "name": "stop_token_ids",
+                  "type": "frame"
+                }
+              ],
+              "name": "decoding_params",
+              "type": "frame"
+            }
+          ],
+          "name": "generation_params",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000"
+            }
+          ],
+          "name": "price_bid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "150000"
+            }
+          ],
+          "name": "max_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0"
+            }
+          ],
+          "name": "assignment_priority_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "250"
+            }
+          ],
+          "name": "tx_fee_reserve",
+          "type": "frame"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+          "name": "payload_mode",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "input_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1d1b84ccda3fea66a809c2a04cb3a1ba400323a9e7eefe575084bdad2de1d9ca",
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f41e4bec0cda51a0ab3c3eba25ea7193699fc52f4344fe5b0bfbc766f198aae5",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0975c9dc59859ab1d5b7b86a4b96b3a80b17bdade65db14a7e8759c3b96629dc",
+          "expect": "digest_changes",
+          "field_path": "user_address",
+          "name": "field.user_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "dc0052697eac0988f40336891fa717e58ef1c15821e322f31446fb979c839b06",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "35bf12ff18957a78aa6993795a5377500b5ee16c010aba31afdb2beffb959147",
+          "expect": "digest_changes",
+          "field_path": "order_sequence",
+          "name": "field.order_sequence"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8efb17c2b3b07f2f4c82f4ce1e962a8743bec27423c030f1cffe2becfff21fc1",
+          "expect": "digest_changes",
+          "field_path": "model_id",
+          "name": "field.model_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "7e394a221b40ff3fc7a23ea72a1da415cd4293556f23bc30e0d28633ac5b7bc4",
+          "expect": "digest_changes",
+          "field_path": "profile_version",
+          "name": "field.profile_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0969343013589fa18d6f444af0ed17cae6e647531293d6f5188752a24e2c6d71",
+          "expect": "digest_changes",
+          "field_path": "task_type",
+          "name": "field.task_type"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d5fbdc6b5ccf0627dc2195919949ee6cbae00d99e034d9555186693c5649fdb2",
+          "expect": "digest_changes",
+          "field_path": "input_hash",
+          "name": "field.input_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "92f8337aa042c82d50e64b2adc3cdffaf688b4fc758a06b8ef2822527694d152",
+          "expect": "digest_changes",
+          "field_path": "input_size_bytes",
+          "name": "field.input_size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "dad1ac6c402f697c08a63123c78408a53c297e8ef3f248ca5d0d98ac07a3b6a4",
+          "expect": "digest_changes",
+          "field_path": "input_bucket",
+          "name": "field.input_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "045c1147cd3657c55bd649530ad91a7c4b05e45fd1c8fe727497da3568930085",
+          "expect": "digest_changes",
+          "field_path": "output_budget_bucket",
+          "name": "field.output_budget_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "09c239fe26d20e1cdc0ff351942e439db5b1ef64d963934451f93d0604429817",
+          "expect": "digest_changes",
+          "field_path": "earliest_submit_height",
+          "name": "field.earliest_submit_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "49d4152b2bfac0d636f2f49f16a1251c71f424e4025c13f1dd9c0db449613550",
+          "expect": "digest_changes",
+          "field_path": "order_expire_height",
+          "name": "field.order_expire_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "81f5cb87086827ce849f1933fa31eb15e0546a64c8a0590c0f9f312e29c1576b",
+          "expect": "digest_changes",
+          "field_path": "timeout_bucket_version",
+          "name": "field.timeout_bucket_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a1924b7a6e3c7a580e7b529a42c2fb90c80d2708d388e5c0c94f3fe77c7eea19",
+          "expect": "digest_changes",
+          "field_path": "session_anchor_height",
+          "name": "field.session_anchor_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "25d8ccdb8ce728ba6c9a99b7c102650be952643f8060d1b79fe798391ab7af22",
+          "expect": "digest_changes",
+          "field_path": "session_anchor_block_hash",
+          "name": "field.session_anchor_block_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f7388e85879c4ecba896d046e54002246e8c0d09c7aca58385e438c4e9e7786a",
+          "expect": "digest_changes",
+          "field_path": "builder_set_id",
+          "name": "field.builder_set_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1f922405f084b43e6cbe8987a80c83fd82c013d7cb077170819fa7fb6c6e642e",
+          "expect": "digest_changes",
+          "field_path": "builder_set_hash",
+          "name": "field.builder_set_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "b67c1b337f8e82f7034cb66ef14c6c34cf3ba5f4feb60db46ba9b1ea672f93f5",
+          "expect": "digest_changes",
+          "field_path": "generation_params.generation_params_schema_version",
+          "name": "field.generation_params.generation_params_schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1abf97d78b7b6f5e2706a6638b29a55704db100fd6674809d3fe7dae271ddefc",
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_tokens",
+          "name": "field.generation_params.max_output_tokens"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "fbc7467b797c718d5d2550bbf71e403b8bfc606aef1d47c2fb97296b2fc4bc73",
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_duration",
+          "name": "field.generation_params.max_output_duration"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1b9366945c049d197bdabcf6aeaa6ab857209e28985f7648726920566abb2059",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.sampling_enabled",
+          "name": "field.generation_params.decoding_params.sampling_enabled"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "449a44247717f8babe72fdc7707b9b6d80bedfbe69d36439f990a12f9525ebfc",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.temperature_milli",
+          "name": "field.generation_params.decoding_params.temperature_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "eccc24090e478d7e6a1b6832b3529dff71a3bfed9a47efbed63a7d9dd5df2ba0",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_p_ppm",
+          "name": "field.generation_params.decoding_params.top_p_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "57484b27c9047f285d7080aad40a6b3031ba83adc7afe87c2e7db967232db8db",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_k",
+          "name": "field.generation_params.decoding_params.top_k"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8ac0cf2ead9cf17eb66a064950400bbbe91e5bd25c3bb3f2bb618d03b535a2b6",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.seed",
+          "name": "field.generation_params.decoding_params.seed"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "fc99dfdd6d76c548a4b9829fcd1231cda1acee8ab108727d18f1a3be087f737a",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.presence_penalty_milli",
+          "name": "field.generation_params.decoding_params.presence_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "51e66e4b59925e70a62594e73cdd4c1f7e9526fbd859ade18b7c2e2c6494ef03",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.frequency_penalty_milli",
+          "name": "field.generation_params.decoding_params.frequency_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8ea3fec6fc472f286c7629ae79808a9a50fba02eac92b14a1c71d845b5247f3e",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.repetition_penalty_ppm",
+          "name": "field.generation_params.decoding_params.repetition_penalty_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cd2f6a14c397ab3652c02ad46397285d5ccf78916b442e9f12b4ac583501b2b8",
+          "expect": "digest_changes",
+          "field_path": "price_bid.atomic_units",
+          "name": "field.price_bid.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c0b0aebf1611866986accd0ae95c171af933270e1cd201995b17afa21c9bd1b2",
+          "expect": "digest_changes",
+          "field_path": "max_fee.atomic_units",
+          "name": "field.max_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4cda4bf713d3a1ddca0d54a11b3bcd630e2c26bc0f20d021b2391805bbe756ae",
+          "expect": "digest_changes",
+          "field_path": "assignment_priority_fee.atomic_units",
+          "name": "field.assignment_priority_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2235c33e0e91d5da9ef1aeaf9debf2e5df8bde8a4166b37fa78d7253e0f47f79",
+          "expect": "digest_changes",
+          "field_path": "tx_fee_reserve.atomic_units",
+          "name": "field.tx_fee_reserve.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1ed96cce4512d66439966469cf7231dafc8d98c2f9944186dbaab17a9d3de68c",
+          "expect": "digest_changes",
+          "field_path": "deadline_policy.latency_class",
+          "name": "field.deadline_policy.latency_class"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "484863d4be680d003aa08c78ac9846b17e4c874bff8cf8c71cff916d2cd442ad",
+          "expect": "digest_changes",
+          "field_path": "__order",
+          "name": "field.__order"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "61a57d9bbaf5d7f5aeb581a0b93a77922475b06b6699f844e2948553178eff31",
+          "expect": "digest_changes",
+          "field_path": "__missing",
+          "name": "field.__missing"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "597f34a8a71676a438426194afae368a586d917e7b1f7768900dd24e36043777",
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cd2f6a14c397ab3652c02ad46397285d5ccf78916b442e9f12b4ac583501b2b8",
+          "expect": "digest_changes",
+          "field_path": "price_bid",
+          "name": "field.price_bid"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1ed96cce4512d66439966469cf7231dafc8d98c2f9944186dbaab17a9d3de68c",
+          "expect": "digest_changes",
+          "field_path": "deadline_policy",
+          "name": "field.deadline_policy"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "103f0ce7e8cf6c577b167093bbc50a0cb9e09a86b081b1ad0f2db3ac9c9c725a",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_sequences",
+          "name": "field.generation_params.decoding_params.stop_sequences"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a28047e253ec4fdac47829c60fb9de916f1d397794fe4b4d5c7433e3f302f2b1",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_token_ids",
+          "name": "field.generation_params.decoding_params.stop_token_ids"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "dfd49f0b0a13cb71dc94dfb292770f6e1fd7b377381c2e47025b2b88b0189d91",
+          "expect": "digest_changes",
+          "field_path": "payload_mode",
+          "name": "field.payload_mode"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5f0cc2c42f7b497a2107d446788ac782a7d028b42dfb0a62a82584380a4cbf42",
+          "expect": "digest_changes",
+          "field_path": "input_key_commitment",
+          "name": "field.input_key_commitment"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2235e84a8336b73fb62a39e212f29189e68bbe04a33884e198aa8cab98f293ca",
+          "expect": "digest_changes",
+          "field_path": "user_recipient_pubkey",
+          "name": "field.user_recipient_pubkey"
+        }
+      ],
+      "name": "task_order_v3_core",
+      "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000ed000000000000000400000001000000000000000800000000000001000000000000000008000000000000753000000000000000b90000000000000001010000000000000004000002bc0000000000000004000e7ef000000000000000040000002800000000000000080000000000845fed0000000000000004ffffff0600000000000000040000007d000000000000000400100590000000000000002400000000000000040000000200000000000000043c2f733e000000000000000453544f50000000000000002400000000000000040000000200000000000000040000000b0000000000000004000000dc000000000000000f000000000000000734303030303030000000000000000e00000000000000063135303030300000000000000009000000000000000130000000000000000b0000000000000003323530000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 855,
+      "producer": "TaskOrderHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "c4baf71741ddc326db4092c74a256f656531397551e7c58d9902ca143e249bc6",
+      "domain": "TRUEOPEN_ORDER_OPENING_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "generation_params_digest_hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cc0bf8efe50fcfea54d709ebbef5d63e5e393ea35fdecd80739b6f304f2c2867",
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6d466dfa256e9dfd8dc53dcb56311f9acec8de9b5286c89fb3344551dfbf67fc",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "7e2b89d417ee554df29c58b363dba1ce56f4cc8d65c1e267bd785fa6d50043de",
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        }
+      ],
+      "name": "order_opening_v2_core",
+      "preimage_hex": "0000000000000019545255454f50454e5f4f524445525f4f50454e494e475f56320000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a0000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000100000000000000040000000200000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000000800000000000010000000000000000004000000030000000000000004000000040000000000000020591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "preimage_size_bytes": 500,
+      "producer": "AcceptedOrderOpeningHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "3581941e085c723cf7f1b5ba21122bd7c6bcd14da66e039a9ba74a36dd1bc0ce",
+      "domain": "TRUEOPEN_TASK_ORDER_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "fields": [
+            {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "bool": false,
+                  "name": "sampling_enabled",
+                  "type": "bool"
+                },
+                {
+                  "name": "temperature_milli",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "name": "top_p_ppm",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "top_k",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "name": "seed",
+                  "type": "uint64",
+                  "value": 0
+                },
+                {
+                  "name": "presence_penalty_milli",
+                  "type": "int32",
+                  "value": -2000
+                },
+                {
+                  "name": "frequency_penalty_milli",
+                  "type": "int32",
+                  "value": -2000
+                },
+                {
+                  "name": "repetition_penalty_ppm",
+                  "type": "uint32",
+                  "value": 100000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 0
+                    }
+                  ],
+                  "name": "stop_sequences",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 0
+                    }
+                  ],
+                  "name": "stop_token_ids",
+                  "type": "frame"
+                }
+              ],
+              "name": "decoding_params",
+              "type": "frame"
+            }
+          ],
+          "name": "generation_params",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000"
+            }
+          ],
+          "name": "price_bid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "150000"
+            }
+          ],
+          "name": "max_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0"
+            }
+          ],
+          "name": "assignment_priority_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "250"
+            }
+          ],
+          "name": "tx_fee_reserve",
+          "type": "frame"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+          "name": "payload_mode",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "input_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c7123ff51de5861e1a0eb5f675d0f67d56f4b8c410f511c1acd3f751ff165f6a",
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8b77b857838c2a5108cde7d9fe0bd4c233c65875bbfd8650bdf6a0e47340983a",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4d5d381c35fbe2beb23720b5878fc7de197c312ccf40e4c65dac5be460ea55bc",
+          "expect": "digest_changes",
+          "field_path": "user_address",
+          "name": "field.user_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5be921e754f74aa4f683cbf601156a83944ea5c87c609bec494fad925e66629d",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "51a2cd8757e2754749206091450debcd5fe13f014afebdcc702244478ec5dc18",
+          "expect": "digest_changes",
+          "field_path": "order_sequence",
+          "name": "field.order_sequence"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1c155e3acf85ca069e0bb79119be10b4edcfdcefd3e738296d4d8d59bbe530ca",
+          "expect": "digest_changes",
+          "field_path": "model_id",
+          "name": "field.model_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4ddc741194ae3eb4fa662c8b68b270b20242a8bc35c8d7c4abded689ef67d7d7",
+          "expect": "digest_changes",
+          "field_path": "profile_version",
+          "name": "field.profile_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8b18a23f94ef28347d27dccb11224e35fbb5b31f46461f9ce5cf4b816f3dbe02",
+          "expect": "digest_changes",
+          "field_path": "task_type",
+          "name": "field.task_type"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "58e23f9e47795724e518c9eac645a9deee1154818174a58b110bc4070db6960b",
+          "expect": "digest_changes",
+          "field_path": "input_hash",
+          "name": "field.input_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "434185dd98c02cbf1d4e76fc986746225da5b1e798f707b7dcd7633b461d3e3c",
+          "expect": "digest_changes",
+          "field_path": "input_size_bytes",
+          "name": "field.input_size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "44e808855e12d23b96e41e8acdd26d57f5602718e7af55c12226d16f966efca0",
+          "expect": "digest_changes",
+          "field_path": "input_bucket",
+          "name": "field.input_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "9d7344f1a845253da0efb6e3263253605543eea3115ef48ce0e700257573d887",
+          "expect": "digest_changes",
+          "field_path": "output_budget_bucket",
+          "name": "field.output_budget_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2c81054ef05f0fccaeb0528cc4dbae2217aff4585f34b1b04c0682881912d1c8",
+          "expect": "digest_changes",
+          "field_path": "earliest_submit_height",
+          "name": "field.earliest_submit_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d06e0b800d4af4d348033207f4efd05b5093b8506df4999a40afdd386be9b6d9",
+          "expect": "digest_changes",
+          "field_path": "order_expire_height",
+          "name": "field.order_expire_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1c43b2eec5213d99291572d68082b6d93dbce2ade66a979fec7ad1a3b861f5e0",
+          "expect": "digest_changes",
+          "field_path": "timeout_bucket_version",
+          "name": "field.timeout_bucket_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c7cb9699534f6956f7f084b260750ec55f269d4c7266bbffe928310ee01f3445",
+          "expect": "digest_changes",
+          "field_path": "session_anchor_height",
+          "name": "field.session_anchor_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3ed960f7f902dc6a0545ee5185601533cefac34fb09b6c1bddcb62644cc7229a",
+          "expect": "digest_changes",
+          "field_path": "session_anchor_block_hash",
+          "name": "field.session_anchor_block_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "89a2520743429a0711d578fa7a9188b78ea302db8e00b614ad48ad1632ccfd33",
+          "expect": "digest_changes",
+          "field_path": "builder_set_id",
+          "name": "field.builder_set_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a51239778ac0e574ad81ea4d64fc4c96d037d436dc6ef2b79634fda527ed680b",
+          "expect": "digest_changes",
+          "field_path": "builder_set_hash",
+          "name": "field.builder_set_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0e2cde45c91846d72c22fdaa1487d98758b10f1120ded3d58bc2ea56a050f904",
+          "expect": "digest_changes",
+          "field_path": "generation_params.generation_params_schema_version",
+          "name": "field.generation_params.generation_params_schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8aeff09f8bcc0f692344a2a4f5eb9af408a9f7a87bda65f5de2ef9169ca026a0",
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_tokens",
+          "name": "field.generation_params.max_output_tokens"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1e5d26f7195ec04ffb00a1f4a89cd423d538e449ac841db6e3c02afe95ceae66",
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_duration",
+          "name": "field.generation_params.max_output_duration"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "90f7bc10d1a86fcbf291fe347c43c0a266effb0d4f0afa306e0b22796705a3f3",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.sampling_enabled",
+          "name": "field.generation_params.decoding_params.sampling_enabled"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "41da1975a424c1dd2c3a546f5e708ae9e473b667f391aa2a2bac41073bbeabcb",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.temperature_milli",
+          "name": "field.generation_params.decoding_params.temperature_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a88813d52a16cbefb4af02f68b28a2d35e5f68e4a99987c4f42a249119cddf02",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_p_ppm",
+          "name": "field.generation_params.decoding_params.top_p_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c350ea0f679c7d032fc2e9f8a212c2281cda60f2cd55a80ef263ee04cfea406b",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_k",
+          "name": "field.generation_params.decoding_params.top_k"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4fdabb15736d50c9e708bfbbc06bd45516b233b877045fc9155feb1e1d314bea",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.seed",
+          "name": "field.generation_params.decoding_params.seed"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6bac6c7888764704b1abbef11e7ffd7d43822c3ab5567e26205a0466824b7e80",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.presence_penalty_milli",
+          "name": "field.generation_params.decoding_params.presence_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6945cc298337c720bce957b9028ea8bf00cbd280d2664c1ccaa79f42657f90d6",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.frequency_penalty_milli",
+          "name": "field.generation_params.decoding_params.frequency_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "42daac520f99569e1a6db55f38e1c5db4490e10cdd779ea02c69b26d5c286ced",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.repetition_penalty_ppm",
+          "name": "field.generation_params.decoding_params.repetition_penalty_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "397c492d5f045ec255694dc8941d8a6afeff39d62a972a443a48f096cfe5390a",
+          "expect": "digest_changes",
+          "field_path": "price_bid.atomic_units",
+          "name": "field.price_bid.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a3244888a4007871ab4d9de31ee728c6211c757c05cb8c9396fd3a5bdb5f23a8",
+          "expect": "digest_changes",
+          "field_path": "max_fee.atomic_units",
+          "name": "field.max_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ff828111bf28a3902c29cf3c0f734c93893fe222316dd72233529af89ba2ea6c",
+          "expect": "digest_changes",
+          "field_path": "assignment_priority_fee.atomic_units",
+          "name": "field.assignment_priority_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5ee47b9f24236443344f1d2db90614151af03ab7f44693104213ef85dadf29a7",
+          "expect": "digest_changes",
+          "field_path": "tx_fee_reserve.atomic_units",
+          "name": "field.tx_fee_reserve.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "38f025448bdae3e2beaa6c74dd321d4acfb29e5f1b81f8c2db59ed715f1111cc",
+          "expect": "digest_changes",
+          "field_path": "deadline_policy.latency_class",
+          "name": "field.deadline_policy.latency_class"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "b59226a5fbb0866a73704dbe1223b029ba16e822e9fb0531e3bc9a49227b0fa5",
+          "expect": "digest_changes",
+          "field_path": "__order",
+          "name": "field.__order"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "51f6fb082e5d08ca8d1aab8601255815b21a41196f1f0bf29443fbabe8be5af5",
+          "expect": "digest_changes",
+          "field_path": "__missing",
+          "name": "field.__missing"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "772202066849e6fe1e962a84bda6ae19e6e39cf2b320037afa9162870f6c9668",
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "397c492d5f045ec255694dc8941d8a6afeff39d62a972a443a48f096cfe5390a",
+          "expect": "digest_changes",
+          "field_path": "price_bid",
+          "name": "field.price_bid"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "38f025448bdae3e2beaa6c74dd321d4acfb29e5f1b81f8c2db59ed715f1111cc",
+          "expect": "digest_changes",
+          "field_path": "deadline_policy",
+          "name": "field.deadline_policy"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "48366a6f95109b9a63bddfb36fefab02b470d6acd08a8daa91a7c48b669f8975",
+          "expect": "digest_changes",
+          "field_path": "payload_mode",
+          "name": "field.payload_mode"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ec20876b5eb30df65d5a6cb48da8511513369ddd4a56ff89a03a5effe115b065",
+          "expect": "digest_changes",
+          "field_path": "input_key_commitment",
+          "name": "field.input_key_commitment"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e61160339e92a131534e5183ca1b903dffcd6f2caf3c33a57df7f80d9ba64a9e",
+          "expect": "digest_changes",
+          "field_path": "user_recipient_pubkey",
+          "name": "field.user_recipient_pubkey"
+        }
+      ],
+      "name": "task_order_v3_lower_bound",
+      "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000bd00000000000000040000000100000000000000080000000000000001000000000000000800000000000000010000000000000089000000000000000100000000000000000400000000000000000000000400000001000000000000000400000000000000000000000800000000000000000000000000000004fffff8300000000000000004fffff8300000000000000004000186a0000000000000000c000000000000000400000000000000000000000c000000000000000400000000000000000000000f000000000000000734303030303030000000000000000e00000000000000063135303030300000000000000009000000000000000130000000000000000b0000000000000003323530000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 807,
+      "producer": "TaskOrderHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "7896801092fe735266aa04e3dd267813221538d973366a52e39b5a67f95ad336",
+      "domain": "TRUEOPEN_ORDER_OPENING_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "hex": "90e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d411",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "generation_params_digest_hex": "90e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d411",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "52ce93056b2e9d9d83450d292712ec5063f38d0196cd3fe5df1c4083d06dfce9",
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0d3b36b7b043e9a9f037a6cf589e34b8d2af0396a51b0fb8912f2396fcb27368",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "56b08615f2ae3eead2b722ad1d87c25ab867a1c6c42d02f2eda14f5a73144086",
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        }
+      ],
+      "name": "order_opening_v2_lower_bound",
+      "preimage_hex": "0000000000000019545255454f50454e5f4f524445525f4f50454e494e475f56320000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a000000000000002055555555555555555555555555555555555555555555555555555555555555550000000000000004000000010000000000000004000000020000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000080000000000001000000000000000000400000003000000000000000400000004000000000000002090e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d411000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "preimage_size_bytes": 500,
+      "producer": "AcceptedOrderOpeningHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "b484d8b5e75ae8be72035512de4436334c6b7b2c1ca0ac5dd9a50a764c2dc8ac",
+      "domain": "TRUEOPEN_TASK_ORDER_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "fields": [
+            {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 256
+            },
+            {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 30000
+            },
+            {
+              "fields": [
+                {
+                  "bool": true,
+                  "name": "sampling_enabled",
+                  "type": "bool"
+                },
+                {
+                  "name": "temperature_milli",
+                  "type": "uint32",
+                  "value": 700
+                },
+                {
+                  "name": "top_p_ppm",
+                  "type": "uint32",
+                  "value": 950000
+                },
+                {
+                  "name": "top_k",
+                  "type": "uint32",
+                  "value": 40
+                },
+                {
+                  "name": "seed",
+                  "type": "uint64",
+                  "value": 8675309
+                },
+                {
+                  "name": "presence_penalty_milli",
+                  "type": "int32",
+                  "value": -250
+                },
+                {
+                  "name": "frequency_penalty_milli",
+                  "type": "int32",
+                  "value": 125
+                },
+                {
+                  "name": "repetition_penalty_ppm",
+                  "type": "uint32",
+                  "value": 1050000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_sequences[0]",
+                      "type": "string",
+                      "utf8": "\u003c/s\u003e"
+                    },
+                    {
+                      "name": "stop_sequences[1]",
+                      "type": "string",
+                      "utf8": "STOP"
+                    }
+                  ],
+                  "name": "stop_sequences",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_token_ids[0]",
+                      "type": "uint32",
+                      "value": 11
+                    },
+                    {
+                      "name": "stop_token_ids[1]",
+                      "type": "uint32",
+                      "value": 220
+                    }
+                  ],
+                  "name": "stop_token_ids",
+                  "type": "frame"
+                }
+              ],
+              "name": "decoding_params",
+              "type": "frame"
+            }
+          ],
+          "name": "generation_params",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "price_bid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "max_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "assignment_priority_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "tx_fee_reserve",
+          "type": "frame"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+          "name": "payload_mode",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "input_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1d4bbcdd85cee85bbb7c5eb2c219ec08fd75df1a3a330208479997f2e8fb44dc",
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a02937c30f9513aab6b8b6f0a3f095c3eaf6957a9d693c9580cb9fd5aa47e274",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ad705d83040add747c9728bda4427c1fc7cf386795612fc4d8a26a0fb96c88b9",
+          "expect": "digest_changes",
+          "field_path": "user_address",
+          "name": "field.user_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e058a07d66440b806c85eb8e4f31c6fa4bb3cfe60b9878c890d09ace75ab1aa8",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "987b7382ae07f96d0496868718cea03593350bbbd43e59f2ec6686434898b5d6",
+          "expect": "digest_changes",
+          "field_path": "order_sequence",
+          "name": "field.order_sequence"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d55ecefe7ca08f75bd6bd951f93c4b896244d4674c88f8797862a0a2e9ab9a8c",
+          "expect": "digest_changes",
+          "field_path": "model_id",
+          "name": "field.model_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "693114cbc1374bb646235d0d181f35fe4056bea15b83c6a94c801168c2a7a8c8",
+          "expect": "digest_changes",
+          "field_path": "profile_version",
+          "name": "field.profile_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "429970f21f2a4997dfe8c0b268653e7bf072b2b0d86d2fba9e4ed92e4c7497a5",
+          "expect": "digest_changes",
+          "field_path": "task_type",
+          "name": "field.task_type"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f14e5be94c3e1325ccef7018c5edf0d46a1f67e83f34b2d53d57656254fb0058",
+          "expect": "digest_changes",
+          "field_path": "input_hash",
+          "name": "field.input_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "bf40d84156b755a7e3aedbcebbd96af41726faff5eb7876b0887094a02bb052b",
+          "expect": "digest_changes",
+          "field_path": "input_size_bytes",
+          "name": "field.input_size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "53e5dbcbfd044db5b1b7f68fdeba8557537663d57af66dfb8c4af8a397b12d0e",
+          "expect": "digest_changes",
+          "field_path": "input_bucket",
+          "name": "field.input_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3a2ae6a95bb818f88cc7f9a93f99477359af3241705cf8cc58c3858edceaaf82",
+          "expect": "digest_changes",
+          "field_path": "output_budget_bucket",
+          "name": "field.output_budget_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6662d87bffb9d06dd6b48e74882aec6d05b4ee59d7ebc8987b0f7c338751223c",
+          "expect": "digest_changes",
+          "field_path": "earliest_submit_height",
+          "name": "field.earliest_submit_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c949855b5036f715d2314ddd7e1b97db6e441f505f42d664c97560425a5ae3ee",
+          "expect": "digest_changes",
+          "field_path": "order_expire_height",
+          "name": "field.order_expire_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a17fa4249263a3b365a6d0780ad1b34b64db2606f1d6df8c19626c26369d5782",
+          "expect": "digest_changes",
+          "field_path": "timeout_bucket_version",
+          "name": "field.timeout_bucket_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "751ba8971682277d05ae8c037c0934b5b0af0234e3f69e398565c53e34d50811",
+          "expect": "digest_changes",
+          "field_path": "session_anchor_height",
+          "name": "field.session_anchor_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0f1b814c64d332e41812538d23122521178032c3baefb45b7b4f117c69433d7e",
+          "expect": "digest_changes",
+          "field_path": "session_anchor_block_hash",
+          "name": "field.session_anchor_block_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "de1047d398f7fc552f0867bed742d060a45fe78e226d3527d4a814137fc56a53",
+          "expect": "digest_changes",
+          "field_path": "builder_set_id",
+          "name": "field.builder_set_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ed5bb35594ceb8cf13404e439a22c7ebb2dfc15c244b086a20b9b90aab1de1a1",
+          "expect": "digest_changes",
+          "field_path": "builder_set_hash",
+          "name": "field.builder_set_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1d898846cd8dbd340b98ef04ea5424525cb8c99eebb1d05a565e47bea8d889e4",
+          "expect": "digest_changes",
+          "field_path": "generation_params.generation_params_schema_version",
+          "name": "field.generation_params.generation_params_schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e604ae172569afc56894a6cf058f542fd9ff41cb030e8bab5b3dbb4f08a65d3d",
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_tokens",
+          "name": "field.generation_params.max_output_tokens"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f47f85ce45515ff63df74e1d42f3d0bccab40149bba625bc207323247b321ceb",
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_duration",
+          "name": "field.generation_params.max_output_duration"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "80de3b26ee637e717bc6e1b44d2798468f00357fef8220d925f6dbb2f9cde44b",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.sampling_enabled",
+          "name": "field.generation_params.decoding_params.sampling_enabled"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "31712989ac23707570e3498505fd3d41b7aec9c2990a2f715908a3e1210ba0c3",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.temperature_milli",
+          "name": "field.generation_params.decoding_params.temperature_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "7976bb285323874b87ae75136e57a750a3e377bb7ae0773e6faace84cbf9ae81",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_p_ppm",
+          "name": "field.generation_params.decoding_params.top_p_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a3bc64acbee52d9bd8b04fe4b075f9845950dcae2ed6d8839e3c417ab11cdaa4",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_k",
+          "name": "field.generation_params.decoding_params.top_k"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c0acc0af6650b29527ff1d325fc3df6e66656ffae2aa28e97fbee3ca4c1b0462",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.seed",
+          "name": "field.generation_params.decoding_params.seed"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8286e099ed922a6b462fd42ac8e9f3a739ec611d7f2252d040d5e5472e768f27",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.presence_penalty_milli",
+          "name": "field.generation_params.decoding_params.presence_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e9ddef2e56655f4269599b5653149f3735b2b16f9846b98837a088659a2909cb",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.frequency_penalty_milli",
+          "name": "field.generation_params.decoding_params.frequency_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4f95e4451f4b4544ebb207345edee48e7d6274f4042d2ec9013587fd8d2d62b5",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.repetition_penalty_ppm",
+          "name": "field.generation_params.decoding_params.repetition_penalty_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8d7ae07db165a2d5c1213139bc6ffb96ee664d5fee4520a8aea3e54a1fce15aa",
+          "expect": "digest_changes",
+          "field_path": "price_bid.atomic_units",
+          "name": "field.price_bid.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c9c428cd6494e02f0377037f0ce0de439aca75404ecd835c50a0701b85aa0bd1",
+          "expect": "digest_changes",
+          "field_path": "max_fee.atomic_units",
+          "name": "field.max_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d061db23c2cd3bfa289f6e9dcb4dabc3a8f7c5eb0cadf9c04e4c9b165bdf3001",
+          "expect": "digest_changes",
+          "field_path": "assignment_priority_fee.atomic_units",
+          "name": "field.assignment_priority_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "70aae3ad03bdd6ae65eb1016ec82667bbcb58ecc6273d17ebe70b0b9f318e26b",
+          "expect": "digest_changes",
+          "field_path": "tx_fee_reserve.atomic_units",
+          "name": "field.tx_fee_reserve.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4147a1ffc09fa1916d72a93a059decafd80721d26881ead5412fc230cd5adb5c",
+          "expect": "digest_changes",
+          "field_path": "deadline_policy.latency_class",
+          "name": "field.deadline_policy.latency_class"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "35dc5cfd28707268df73741d29d82fefda7ad128685de3abfe95267de3056c43",
+          "expect": "digest_changes",
+          "field_path": "__order",
+          "name": "field.__order"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "389f415bdf683495d12bd898bfb823b81969a238b6963c9efad058a64005f8d1",
+          "expect": "digest_changes",
+          "field_path": "__missing",
+          "name": "field.__missing"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "54757796808ca886fb03cc5509dd0612b88aff34b13f66b6962d88cd5f8623ba",
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8d7ae07db165a2d5c1213139bc6ffb96ee664d5fee4520a8aea3e54a1fce15aa",
+          "expect": "digest_changes",
+          "field_path": "price_bid",
+          "name": "field.price_bid"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4147a1ffc09fa1916d72a93a059decafd80721d26881ead5412fc230cd5adb5c",
+          "expect": "digest_changes",
+          "field_path": "deadline_policy",
+          "name": "field.deadline_policy"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d20020c87ed7e5d0f72882f376e879f9910e29a2857c640e3de0f0b2903cea1a",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_sequences",
+          "name": "field.generation_params.decoding_params.stop_sequences"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e5b8eebbdb6718419b34a5ee4852e1dcfff8c92b570b40156977f01dfa778d69",
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_token_ids",
+          "name": "field.generation_params.decoding_params.stop_token_ids"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "bbebeb4dd76ee24d9c8808fd62b54878bc51732ed2190263349ae8776b405af6",
+          "expect": "digest_changes",
+          "field_path": "payload_mode",
+          "name": "field.payload_mode"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "22361e9cefadeb6ef92c2274f2ad54f5bb2494e1d6274a76fc8c29a3c5d31666",
+          "expect": "digest_changes",
+          "field_path": "input_key_commitment",
+          "name": "field.input_key_commitment"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "47cc7f86acf37fec4b38ad11072a5e6f5190cabc7b1c34e581ea0b1a5487dfa5",
+          "expect": "digest_changes",
+          "field_path": "user_recipient_pubkey",
+          "name": "field.user_recipient_pubkey"
+        }
+      ],
+      "name": "task_order_v3_max_amounts",
+      "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000ed000000000000000400000001000000000000000800000000000001000000000000000008000000000000753000000000000000b90000000000000001010000000000000004000002bc0000000000000004000e7ef000000000000000040000002800000000000000080000000000845fed0000000000000004ffffff0600000000000000040000007d000000000000000400100590000000000000002400000000000000040000000200000000000000043c2f733e000000000000000453544f50000000000000002400000000000000040000000200000000000000040000000b0000000000000004000000dc000000000000001c00000000000000143138343436373434303733373039353531363135000000000000001c00000000000000143138343436373434303733373039353531363135000000000000001c00000000000000143138343436373434303733373039353531363135000000000000001c00000000000000143138343436373434303733373039353531363135000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 918,
+      "producer": "TaskOrderHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "c4baf71741ddc326db4092c74a256f656531397551e7c58d9902ca143e249bc6",
+      "domain": "TRUEOPEN_ORDER_OPENING_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_anchor_block_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "generation_params_digest_hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cc0bf8efe50fcfea54d709ebbef5d63e5e393ea35fdecd80739b6f304f2c2867",
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6d466dfa256e9dfd8dc53dcb56311f9acec8de9b5286c89fb3344551dfbf67fc",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "7e2b89d417ee554df29c58b363dba1ce56f4cc8d65c1e267bd785fa6d50043de",
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        }
+      ],
+      "name": "order_opening_v2_max_amounts",
+      "preimage_hex": "0000000000000019545255454f50454e5f4f524445525f4f50454e494e475f56320000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a0000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000100000000000000040000000200000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000000800000000000010000000000000000004000000030000000000000004000000040000000000000020591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "preimage_size_bytes": 500,
+      "producer": "AcceptedOrderOpeningHash"
+    }
+  ]
+}
