@@ -663,8 +663,13 @@ func (r *countingProfileResolver) Calls(key string) int {
 
 func liveLikeProfileSnapshot(modelID, profileVersion string) chainclient.CurrentProfileSnapshot {
 	version, _ := strconv.ParseUint(profileVersion, 10, 32)
+	manifestHash := testManifestHash()
 	snapshot := chainclient.CurrentProfileSnapshot{
-		ModelID:        modelID,
+		ModelID: modelID,
+		// A chain-resolved profile is refused without a manifest that hashes to
+		// this, so every test installing a resolver must also install
+		// testManifestSource.
+		ManifestHash:   chainclient.ProtoBytes32(manifestHash[:]),
 		ProfileVersion: chainclient.NewProfileVersion(uint32(version)),
 		RuntimeClass:   defaultLocalRuntimeClass,
 		RequiredTopK:   20,

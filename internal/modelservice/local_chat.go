@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -252,7 +253,7 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	if err := ctx.Err(); err != nil && !chatBudgetStopped(&chatResp) {
 		return InferResponse{}, err
 	}
-	projected, err := projectChatToCompletion(chatResp)
+	projected, err := projectChatToCompletion(chatResp, profile.OutputDecoding)
 	if err != nil {
 		return InferResponse{}, err
 	}
@@ -416,13 +417,13 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 // are carried unchanged. This is also the authoritative point where each token id
 // is checked against its logprobs entry (decodeTokensFromLogprobs fails closed on a
 // mismatch), for both the non-streaming body and the reassembled stream.
-func projectChatToCompletion(chatResp chatCompletionResponse) (completionResponse, error) {
+func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmanifest.OutputDecodingV1) (completionResponse, error) {
 	if len(chatResp.Choices) == 0 {
 		return completionResponse{}, fmt.Errorf("modelservice local chat: empty choices")
 	}
 	c := chatResp.Choices[0]
 
-	text, err := decodeTokensFromLogprobs(c.TokenIDs, c.Logprobs)
+	text, err := decodeTokensFromLogprobs(c.TokenIDs, c.Logprobs, decoding)
 	if err != nil {
 		return completionResponse{}, err
 	}
@@ -476,7 +477,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 // the Verifier scores. A length or per-position mismatch fails closed. Special/EOS
 // tokens are decoded like any other, so the result corresponds byte-for-byte to the
 // full token_ids sequence (unlike the engine's message.content, which drops EOS).
-func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, error) {
+func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs, decoding modelmanifest.OutputDecodingV1) (string, error) {
 	if lp == nil || len(lp.Content) != len(tokenIDs) {
 		n := 0
 		if lp != nil {
@@ -484,10 +485,20 @@ func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, err
 		}
 		return "", fmt.Errorf("modelservice local chat: token_ids (%d) / logprobs (%d) length mismatch", len(tokenIDs), n)
 	}
+	// The alignment check runs over every position, the bytes only over the
+	// committed prefix. Those are different questions: alignment is about
+	// whether these logprob entries describe these token ids at all, and a
+	// mismatch in the EOS position is just as much a broken response as one in
+	// the middle -- it must not go unnoticed merely because its bytes are about
+	// to be dropped.
+	committed := decoding.CommittedTokenCount(tokenIDs)
 	var buf []byte
 	for i, e := range lp.Content {
 		if id, err := tokenIDFromKey(e.Token); err != nil || int64(id) != int64(tokenIDs[i]) {
 			return "", fmt.Errorf("modelservice local chat: token id mismatch at position %d: token_ids=%d logprobs token=%q", i, tokenIDs[i], e.Token)
+		}
+		if i >= committed {
+			continue
 		}
 		for _, v := range e.Bytes {
 			buf = append(buf, byte(v))
@@ -707,7 +718,19 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 			// delivery, so a decode/alignment error just drops this frame's text -- the
 			// authoritative check runs over the full reassembled sequence in
 			// projectChatToCompletion.
-			frameText, _ := decodeTokensFromLogprobs(cc.TokenIDs, cc.Logprobs)
+			//
+			// No output_decoding is passed, so no EOS is stripped here: a frame
+			// cannot know whether its last token is the generation's last one,
+			// and the committed output is decoded once over the whole sequence
+			// anyway. The consequence is that concat(TextDelta) is the full
+			// decoded output INCLUDING a trailing EOS, so it is one token longer
+			// than the committed output when the model stopped naturally. That
+			// is fine while this sink is unused -- it has no production caller,
+			// and SetInferStreamObserver is only reached from tests -- but the
+			// SubscribeOutput forwarder this is reserved for must hold the last
+			// token's bytes back until the stream ends, or a user would be shown
+			// a token the receipt does not commit to.
+			frameText, _ := decodeTokensFromLogprobs(cc.TokenIDs, cc.Logprobs, modelmanifest.OutputDecodingV1{})
 			pendingText = append(pendingText, frameText...)
 			cut := lastCompleteUTF8Boundary(pendingText)
 			textDelta := string(pendingText[:cut])

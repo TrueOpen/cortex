@@ -20,6 +20,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -50,6 +51,13 @@ type LocalService struct {
 	serviceID       string
 	http            *http.Client
 	profileResolver LocalProfileResolver
+
+	// manifestSource supplies the profile manifest that names this profile's
+	// eos_token_ids. It is required whenever profileResolver is set: that is
+	// the mode with a chain-registered profile, so it is the mode where the
+	// committed output has to match what a Verifier recomputes, and guessing
+	// the EOS set is exactly the divergence that cannot be detected locally.
+	manifestSource ManifestSource
 
 	// inferStreamObserver, when set, receives the per-frame delta of each SSE
 	// chunk during a streaming Infer. It is a best-effort delivery hook (nil by
@@ -185,6 +193,21 @@ func (s *LocalService) SetProfileResolver(resolver LocalProfileResolver) {
 	s.mu.Lock()
 	s.profileResolver = resolver
 	s.mu.Unlock()
+}
+
+// SetManifestSource installs where profile manifests are read from. Setting a
+// profile resolver without one leaves the node unable to resolve any profile:
+// see resolveLocalProfile for why that is a refusal rather than a fallback.
+func (s *LocalService) SetManifestSource(source ManifestSource) {
+	s.mu.Lock()
+	s.manifestSource = source
+	s.mu.Unlock()
+}
+
+func (s *LocalService) localManifestSource() ManifestSource {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.manifestSource
 }
 
 // SetStreamInference toggles the vLLM SSE transport for the generation path. It
@@ -377,6 +400,12 @@ type localModelProfile struct {
 	ContextLength  int
 	Sampling       localSamplingProfile
 	Verification   localVerificationProfile
+
+	// OutputDecoding decides which of the generated tokens the committed output
+	// covers. It is empty only on the dev path that has no chain profile at
+	// all; resolveLocalProfile refuses to return a chain-resolved profile
+	// without it.
+	OutputDecoding modelmanifest.OutputDecodingV1
 }
 
 type localSamplingProfile struct {
@@ -636,8 +665,58 @@ func (s *LocalService) resolveLocalProfile(ctx context.Context, modelID string, 
 	if err != nil {
 		return localModelProfile{}, err
 	}
+	resolved.OutputDecoding, err = s.resolveOutputDecoding(ctx, snapshot)
+	if err != nil {
+		return localModelProfile{}, err
+	}
 	s.rememberProfile(cacheKey, resolved)
 	return resolved, nil
+}
+
+// resolveOutputDecoding reads this profile's output_decoding out of a manifest
+// the chain vouches for.
+//
+// Every failure here refuses the profile instead of falling back, and the
+// fallback is what makes that worth spelling out: carrying on without the
+// block means keeping the trailing EOS in the committed output, which changes
+// output_hash. A node that did that would still look healthy, still sign
+// receipts, and disagree with every node that read the manifest -- and nothing
+// local could tell the two apart, because each one is internally consistent.
+// Refusing is loud and recoverable; guessing is silent and is a Worker fault.
+//
+// This only applies to chain-resolved profiles. resolveLocalProfile returns
+// before here when no profile resolver is installed, which is the dev and fake
+// path: there is no registered profile to disagree with there.
+func (s *LocalService) resolveOutputDecoding(ctx context.Context, snapshot chainclient.CurrentProfileSnapshot) (modelmanifest.OutputDecodingV1, error) {
+	modelID := strings.TrimSpace(snapshot.ModelID)
+	profileVersion := strings.TrimSpace(snapshot.ProfileVersion.String())
+	source := s.localManifestSource()
+	if source == nil {
+		return modelmanifest.OutputDecodingV1{}, fmt.Errorf(
+			"modelservice local: profile %s@%s is chain-registered but no model manifest source is configured; set model_management.manifest_dir",
+			modelID, profileVersion)
+	}
+	// ProtoBytes32 is a slice, so its length is a runtime fact rather than a
+	// compile-time one. Convert explicitly: the array conversion panics on a
+	// short read, and a malformed chain response should be an error like every
+	// other one here.
+	if len(snapshot.ManifestHash) != len(codec.Hash{}) {
+		return modelmanifest.OutputDecodingV1{}, fmt.Errorf(
+			"modelservice local: profile %s@%s: chain manifest_hash is %d bytes, want 32",
+			modelID, profileVersion, len(snapshot.ManifestHash))
+	}
+	var chainManifestHash codec.Hash
+	copy(chainManifestHash[:], snapshot.ManifestHash)
+
+	raw, err := source.ProfileManifest(ctx, modelID, profileVersion)
+	if err != nil {
+		return modelmanifest.OutputDecodingV1{}, fmt.Errorf("modelservice local: profile %s@%s: %w", modelID, profileVersion, err)
+	}
+	decoding, err := modelmanifest.LoadOutputDecoding(raw, chainManifestHash)
+	if err != nil {
+		return modelmanifest.OutputDecodingV1{}, fmt.Errorf("modelservice local: profile %s@%s: %w", modelID, profileVersion, err)
+	}
+	return decoding, nil
 }
 
 func defaultQwenSingleSampleProfile(modelID string, profileVersion string, servedModel string) localModelProfile {
@@ -1038,19 +1117,28 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 // values: comparing the two, and everything derived from the comparison, is
 // Cortex's job.
 //
-// One check the Verifier's evidence rules call for is deliberately NOT
-// here yet: `detokenize(token IDs) == text`. The Verifier binds the text to
-// `output_hash` and the token vectors to the A-level commitment, so what is
-// missing is only the tokenizer call, and it is missing for a reason rather
-// than by oversight: the engine does not render the stop-triggering token into
-// the text (measured on vLLM 0.25.1 / Qwen/Qwen3-8B: the returned IDs end in
-// 151645, the text does not, with skip_special_tokens=false), so a straight
-// comparison fails every normal EOS completion. Dropping the final token to
-// make it pass is what must not be done without first establishing that
-// token's identity, and this deployment exposes no authority for it --
-// `/tokenizer_info` answers 404, and the task's frozen generation params carry
-// only the *configured* StopTokenIDs, never the model's own EOS. Landing that
-// check needs an EOS-identity source decided first, not a looser comparison.
+// One check the Verifier's evidence rules call for is still NOT here:
+// `detokenize(T minus the trailing EOS) == committed output`. The Verifier
+// binds the text to `output_hash` and the token vectors to the A-level
+// commitment, so what is missing is only the tokenizer call.
+//
+// What used to be missing was the EOS identity, and this comment used to record
+// it: the engine does not render the stop-triggering token into the text
+// (measured on vLLM 0.25.1 / Qwen/Qwen3-8B: the returned IDs end in 151645, the
+// text does not, with skip_special_tokens=false), and the deployment exposed no
+// authority for that token -- `/tokenizer_info` answers 404, and the frozen
+// generation params carry only the *configured* StopTokenIDs, never the model's
+// own EOS. That part is no longer true. The profile manifest names the set in
+// output_decoding.eos_token_ids, internal/modelmanifest reads it out of bytes
+// checked against the on-chain manifest_hash, and the Worker side uses it
+// (localModelProfile.OutputDecoding).
+//
+// What remains missing is only the decode: this path makes no tokenizer call,
+// and vLLM's /detokenize does not expose the render_special_tokens and
+// clean_up_tokenization_spaces settings the block fixes, so the comparison
+// cannot yet be made byte-exact. The manifest's DECODE_VECTORS artifact exists
+// to settle that, and reading it needs an artifact channel this node does not
+// have. Landing the check needs that channel, not a looser comparison here.
 func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyResponse, error) {
 	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {
 		return VerifyResponse{}, err

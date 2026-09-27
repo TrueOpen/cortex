@@ -90,6 +90,19 @@ type ModelManagementConfig struct {
 	// ProbeTimeoutMs bounds /health, /v1/models, and /metrics probes. It should
 	// stay short so readiness decisions do not stall on a stuck vLLM.
 	ProbeTimeoutMs uint32 `yaml:"probe_timeout_ms"`
+	// ManifestDir holds one profile manifest per registered profile, named
+	// "<model_id>@<profile_version>.json". Required for transport local,
+	// because the manifest is the only source for this profile's
+	// output_decoding, and output_decoding.eos_token_ids decides which
+	// generated tokens the committed output covers.
+	//
+	// The files are not trusted for being local: each is checked against the
+	// manifest_hash the chain holds for that profile before any field is read,
+	// so a stale or wrong copy is refused rather than used. That is also why
+	// there is no default -- a node cannot invent this and must not guess it,
+	// since a wrong EOS set produces an output_hash no Verifier reproduces
+	// while the node itself sees nothing wrong.
+	ManifestDir string `yaml:"manifest_dir"`
 }
 
 // InferTimeout returns the inference timeout as a time.Duration. A value of
@@ -647,6 +660,7 @@ var deploymentEnvironment = map[string]string{
 	"CORTEX_MODEL_ENDPOINT":                     "model_endpoint",
 	"CORTEX_MODEL_TRANSPORT":                    "model_transport",
 	"CORTEX_MODEL_MAX_CONCURRENCY":              "model_max_concurrency",
+	"CORTEX_MODEL_MANIFEST_DIR":                 "model_manifest_dir",
 	"CORTEX_NODE_RPC":                           "node_rpc",
 	"CORTEX_NODE_REST":                          "node_rest",
 	"CORTEX_KEEPER_API":                         "keeper_api",
@@ -710,6 +724,8 @@ func setDeploymentValue(cfg *Config, key, value string) error {
 			return fmt.Errorf("model_max_concurrency %d exceeds uint32", parsed)
 		}
 		cfg.ModelManagement.MaxConcurrency = uint32(parsed)
+	case "model_manifest_dir":
+		cfg.ModelManagement.ManifestDir = value
 	case "node_rpc":
 		cfg.Node.RPCEndpoint = value
 	case "node_rest":
@@ -1005,6 +1021,13 @@ func (c *Config) Validate() error {
 	}
 	if modelTransport == "local" && c.ModelManagement.MaxConcurrency == 0 {
 		problems = append(problems, "model_management.max_concurrency must be greater than zero for transport local")
+	}
+	// Refused at startup rather than at the first task. The node cannot derive
+	// this directory, and without it every chain-registered profile fails to
+	// resolve, so letting the process come up would only move a certain and
+	// total failure to the point where a task is already assigned.
+	if modelTransport == "local" && strings.TrimSpace(c.ModelManagement.ManifestDir) == "" {
+		problems = append(problems, "model_management.manifest_dir is required for transport local: it supplies each profile's output_decoding, checked against the on-chain manifest_hash")
 	}
 	switch inputResolver {
 	case "", InputResolverFixture, InputResolverNexus:

@@ -161,6 +161,7 @@ func TestLocalSampledInferMarksPositionsWithoutValuesMissing(t *testing.T) {
 	defer srv.Close()
 	svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
 	svc.SetStreamInference(false)
+	svc.SetManifestSource(testManifestSource())
 	svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(k)})
 	g := localTestGeneration(testQwenModelID(), 1)
 	g.Params.DecodingParams = nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 900, TopPPPM: 950000, TopK: 40, Seed: 11, RepetitionPenaltyPPM: 1000000}
@@ -302,6 +303,7 @@ func TestLocalVerifyMarksUnscoredPositionsMissing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			srv, seen := newVLLMStub(t, genResponse(), verify)
 			svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+			svc.SetManifestSource(testManifestSource())
 			svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(7)})
 			resp, err := svc.Verify(context.Background(), boundLocalVerifyFixture(t, VerifyRequest{
 				RequestID: "verify-missing", ModelID: testQwenModelID(), Capability: CapabilityLLMTextV1,
