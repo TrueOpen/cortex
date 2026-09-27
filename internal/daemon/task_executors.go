@@ -665,17 +665,25 @@ func (p *evidenceWorkerPersistence) CheckpointInferOutput(ctx context.Context, t
 	}
 	// Write the artifact bytes to the evidence store first. Their digests are
 	// then included in the evidence manifest below.
+	// A zero-token generation (EOS first, or max_output_duration before the
+	// first token) has an empty output and an empty position-values artifact;
+	// both are legitimate and must be stored as such.
 	artifacts := []struct {
-		kind string
-		data []byte
+		kind       string
+		data       []byte
+		allowEmpty bool
 	}{
-		{kind: "worker-output", data: output},
+		{kind: "worker-output", data: output, allowEmpty: true},
 		{kind: "worker-token-ids-material", data: tokenIDs},
-		{kind: "worker-position-values-material", data: positionValues},
+		{kind: "worker-position-values-material", data: positionValues, allowEmpty: true},
 		{kind: "worker-output-descriptor", data: cp.DescriptorJSON},
 	}
 	for _, a := range artifacts {
-		if err := writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, taskID, a.kind, a.data); err != nil {
+		if p.evidence == nil {
+			return fmt.Errorf("task runner evidence store is required")
+		}
+		if _, err := p.evidence.Write(ctx, evidence.WriteRequest{TaskHash: p.taskHash, SessionID: p.task.SessionID, TaskID: taskID,
+			Kind: a.kind, Data: a.data, AllowEmpty: a.allowEmpty}); err != nil {
 			return err
 		}
 	}

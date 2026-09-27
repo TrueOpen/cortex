@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"os"
 	"path/filepath"
 	"testing"
@@ -509,5 +510,37 @@ func TestWorkerFinCheckpointStorageErrors(t *testing.T) {
 	}
 	if _, err := p.ReadArtifact(ctx, "task", worker.OutputStreamFinKind); err == nil || errors.Is(err, worker.ErrCheckpointNotFound) {
 		t.Fatalf("index failure must propagate: %v", err)
+	}
+}
+
+// A zero-token generation (EOS first) has an empty output and an empty
+// position-values artifact. Both are checkpointed and read back as empty.
+func TestCheckpointInferOutputStoresAZeroTokenGeneration(t *testing.T) {
+	ctx := context.Background()
+	p := newTestDocumentWorkerPersistence()
+	if err := layout.MergeInfer(ctx, p.store, layout.StoredHash(p.taskHash), layout.InferRecord{TaskID: "task-1", Stage: layout.StageQueued}); err != nil {
+		t.Fatalf("seed infer record: %v", err)
+	}
+	tokenIDs, err := modelservice.EncodeTokenIDsArtifact(modelservice.TokenIDs{Input: []uint32{1, 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	positionValues, err := modelservice.EncodePositionValuesArtifact(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(positionValues) != 0 {
+		t.Fatalf("an empty position-values artifact is %d bytes; this test expects it empty", len(positionValues))
+	}
+	cp := worker.InferOutputCheckpoint{JobID: "job-1", OutputRef: "output-ref", TokenIDsRef: "ids-ref",
+		PositionValuesRef: "values-ref", FinishReason: 1, DescriptorJSON: []byte(`{"finish_reason":1}`)}
+	if err := p.CheckpointInferOutput(ctx, "task-1", nil, tokenIDs, positionValues, cp); err != nil {
+		t.Fatalf("CheckpointInferOutput of a zero-token generation: %v", err)
+	}
+	for _, kind := range []string{"worker-output", "worker-position-values-material"} {
+		data, err := p.ReadArtifact(ctx, "task-1", kind)
+		if err != nil || len(data) != 0 {
+			t.Fatalf("ReadArtifact(%s) = %d bytes, %v, want an empty artifact", kind, len(data), err)
+		}
 	}
 }
