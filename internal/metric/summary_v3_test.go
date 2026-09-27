@@ -278,3 +278,39 @@ func TestCompareLeavesV3RefusesAVerifierSideEmptySet(t *testing.T) {
 		t.Fatalf("a comparable position alongside a Verifier gap was refused: %v", err)
 	}
 }
+
+// A top-k whose logprobs are all at vLLM's -9999 clamp is legal and finite;
+// union JS must normalize it by log-sum-exp instead of underflowing to zero.
+func TestUnionJSNormalizesVeryNegativeTopK(t *testing.T) {
+	clamped := func(ids ...uint32) []nodewire.TopKEntryV1 {
+		out := make([]nodewire.TopKEntryV1, len(ids))
+		for i, id := range ids {
+			out[i] = nodewire.TopKEntryV1{TokenID: id, LogprobFP1e6: -9999000000}
+		}
+		return out
+	}
+	normal := []nodewire.TopKEntryV1{{TokenID: 7, LogprobFP1e6: -100000}, {TokenID: 8, LogprobFP1e6: -2500000}, {TokenID: 9, LogprobFP1e6: -3000000}, {TokenID: 10, LogprobFP1e6: -4000000}}
+	for name, tc := range map[string]struct {
+		worker, verifier []nodewire.TopKEntryV1
+		wantZero         bool
+	}{
+		"worker clamped, verifier normal": {clamped(7, 8, 9, 10), normal, false},
+		"both clamped and equal":          {clamped(7, 8, 9, 10), clamped(7, 8, 9, 10), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			worker := []nodewire.PositionValueV1{{Position: 0, TokenID: 7, LogprobFP1e6: tc.worker[0].LogprobFP1e6, Rank: 1, TopK: tc.worker, Finite: true}}
+			verifier := []nodewire.PositionValueV1{{Position: 0, TokenID: 7, LogprobFP1e6: tc.verifier[0].LogprobFP1e6, Rank: 1, TopK: tc.verifier, Finite: true}}
+			samples, err := CompareLeavesV3(allCompared, 4, worker, verifier)
+			if err != nil {
+				t.Fatalf("compare refused a legal clamped top-k: %v", err)
+			}
+			if !samples[0].UnionJSFP1e6.Present || (tc.wantZero && samples[0].UnionJSFP1e6.Value != 0) {
+				t.Fatalf("union JS = %+v", samples[0].UnionJSFP1e6)
+			}
+			summary, err := SummaryV3(allCompared, 4, samples)
+			if err != nil || summary.FiniteCount != 1 || !summary.UnionJSP99FP1e6.Present {
+				t.Fatalf("summary = %+v, %v, want a normal one-leaf summary", summary, err)
+			}
+		})
+	}
+}

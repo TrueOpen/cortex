@@ -82,16 +82,27 @@ func UnionJSDivergence(a, b []TokenLogprob) (float64, bool) {
 
 // normalizedProbabilities returns one probability per union token, in union
 // order, summing to one over the tokens this side listed with a finite logprob.
+//
+// It normalizes by log-sum-exp: every logprob is shifted by this side's
+// maximum before exp, so a list of legal but very small logprobs (vLLM clamps
+// at -9999) does not underflow to an all-zero, unnormalizable distribution.
 func normalizedProbabilities(topK []TokenLogprob, union []uint32) ([]float64, bool) {
 	logprobs := make(map[uint32]float64, len(topK))
+	maxLogprob := math.Inf(-1)
 	for _, entry := range topK {
 		logprobs[entry.TokenID] = entry.Logprob
+		if isFinite(entry.Logprob) && entry.Logprob > maxLogprob {
+			maxLogprob = entry.Logprob
+		}
+	}
+	if math.IsInf(maxLogprob, -1) {
+		return nil, false
 	}
 	out := make([]float64, len(union))
 	total := 0.0
 	for i, token := range union {
 		if logprob, ok := logprobs[token]; ok && isFinite(logprob) {
-			out[i] = math.Exp(logprob)
+			out[i] = math.Exp(logprob - maxLogprob)
 			total += out[i]
 		}
 	}
