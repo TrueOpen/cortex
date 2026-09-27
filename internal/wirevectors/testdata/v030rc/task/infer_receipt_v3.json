@@ -1,0 +1,136 @@
+{
+  "commitment_list": {
+    "commitment_count": 2,
+    "digest_hex": "754b0e50ef71974fc5f5a1540cd31e5f63d26eaea763c2b2df679562c846e5e1",
+    "domain": "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1",
+    "items": [
+      {
+        "encoded_size_bytes": 817,
+        "evidence_hash_or_root_hex": "17b4b66711beba88ab8ea07f28d21576daa206c78583ec4f3023aaaa1fd7f44d",
+        "evidence_kind": 1,
+        "evidence_kind_name": "EVIDENCE_KIND_WORKER_VALUE_OPENING"
+      },
+      {
+        "encoded_size_bytes": 28,
+        "evidence_hash_or_root_hex": "e05b7964c469707fb6cc966a6617fe93a860fd5c57aa0342eda433494ddb83b6",
+        "evidence_kind": 4,
+        "evidence_kind_name": "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
+      }
+    ],
+    "preimage_hex": "0000000000000026545255454f50454e5f494e4645525f45564944454e43455f434f4d4d49544d454e54535f563100000000000000040000000200000000000000a40000000000000004000000020000000000000044000000000000000400000001000000000000002017b4b66711beba88ab8ea07f28d21576daa206c78583ec4f3023aaaa1fd7f44d0000000000000008000000000000033100000000000000440000000000000004000000040000000000000020e05b7964c469707fb6cc966a6617fe93a860fd5c57aa0342eda433494ddb83b60000000000000008000000000000001c",
+    "preimage_size_bytes": 230
+  },
+  "notes": [
+    "The two evidence commitments are sorted by EvidenceKind numeric value: Worker value before Worker token.",
+    "All four encryption commitments are zero Hash32 values in plaintext Phase 0.",
+    "The service signature is excluded from the receipt signing preimage."
+  ],
+  "rejected_encodings": [
+    "V2 receipt domain",
+    "one evidence commitment",
+    "text-encoded Hash32",
+    "nonzero plaintext encryption commitment"
+  ],
+  "schema": "trueopen.task.infer_receipt.v3",
+  "source": "Infer receipt wire contract",
+  "vectors": [
+    {
+      "contract_section": "Infer receipt wire contract",
+      "digest_hex": "15e29d03a8c636d37ec0b133c92db3c2fe7407bff68c7fec9a6980a54ca83247",
+      "domain": "TRUEOPEN_INFER_RECEIPT_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "worker_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "1d07690eb524833c073fe74787e52a25e426ed09013500d3dd43f7f363f65ec0",
+          "name": "output_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "output_size_bytes",
+          "type": "uint64",
+          "value": 6
+        },
+        {
+          "hex": "754b0e50ef71974fc5f5a1540cd31e5f63d26eaea763c2b2df679562c846e5e1",
+          "name": "evidence_commitments_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "name": "generated_token_count",
+          "type": "uint64",
+          "value": 3
+        },
+        {
+          "name": "output_leaf_count",
+          "type": "uint64",
+          "value": 3
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "output_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "worker_token_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "worker_value_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "ciphertext_output_root",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "infer_receipt_v3",
+      "preimage_hex": "0000000000000019545255454f50454e5f494e4645525f524543454950545f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000000070000000000000020333333333333333333333333333333333333333333333333333333333333333300000000000000201d07690eb524833c073fe74787e52a25e426ed09013500d3dd43f7f363f65ec0000000000000000800000000000000060000000000000020754b0e50ef71974fc5f5a1540cd31e5f63d26eaea763c2b2df679562c846e5e1000000000000000800000000000007d0000000000000000800000000000000030000000000000008000000000000000300000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 538,
+      "producer": "selected Worker"
+    }
+  ]
+}

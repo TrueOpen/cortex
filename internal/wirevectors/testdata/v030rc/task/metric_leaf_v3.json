@@ -1,0 +1,345 @@
+{
+  "notes": [
+    "The nested canonical leaf has 26 fields, including a raw Hash32 model ID and the Verifier value root.",
+    "The present and absent optional-ratio vectors are independent profile configurations."
+  ],
+  "rejected_encodings": [
+    "V2 metric domain",
+    "text-encoded model ID",
+    "omitted verifier value root",
+    "flattened nested leaf"
+  ],
+  "schema": "trueopen.task.metric_leaf.v3",
+  "source": "Metric leaf and Merkle root wire contract",
+  "vectors": [
+    {
+      "contract_section": "Metric leaf V3 wire contract",
+      "digest_hex": "93a748775f8951d3f03bff2acbad8be55f56f58b83544087e04cdcc7c49eea01",
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_LEAF_V3",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "judgment_function_version",
+              "type": "string",
+              "utf8": "PREFILL_GENERATED_TOKEN_METRICS_V1"
+            },
+            {
+              "name": "canonical_encoding_version",
+              "type": "string",
+              "utf8": "CANONICAL_OUTPUT_TEXT_V1"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "evidence_schema_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "metric_aggregate_proof_version",
+              "type": "string",
+              "utf8": "PREFILL_METRIC_AGGREGATE_PROOF_V1"
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "tokenizer_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 42
+            },
+            {
+              "name": "required_top_k",
+              "type": "uint32",
+              "value": 20
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1250000
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1200000
+            },
+            {
+              "name": "abs_logprob_diff_fp_1e6",
+              "type": "uint64",
+              "value": 50000
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 3
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "rank_delta",
+              "type": "int64",
+              "value": -1
+            },
+            {
+              "fields": [
+                {
+                  "name": "value",
+                  "type": "uint32",
+                  "value": 900000
+                }
+              ],
+              "name": "topk_jaccard_fp_1e6",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "fields": [
+                {
+                  "name": "value",
+                  "type": "uint32",
+                  "value": 50000
+                }
+              ],
+              "name": "union_js_fp_1e6",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "hex": "8888888888888888888888888888888888888888888888888888888888888888",
+              "name": "verifier_value_root",
+              "type": "bytes"
+            }
+          ],
+          "name": "canonical_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "metric_leaf_v3_both_optionals_present",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f544f4b454e5f4d45545249435f4c4541465f563300000000000000040000000100000000000002740000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f5631000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000000000000000000040000002a0000000000000004000000140000000000000008ffffffffffeced300000000000000008ffffffffffedb0800000000000000008000000000000c3500000000000000004000000030000000000000004000000020000000000000008ffffffffffffffff000000000000000d010000000000000004000dbba0000000000000000d0100000000000000040000c35000000000000000010000000000000000010100000000000000208888888888888888888888888888888888888888888888888888888888888888",
+      "preimage_size_bytes": 693,
+      "producer": "MetricLeafHash"
+    },
+    {
+      "contract_section": "Metric leaf V3 wire contract",
+      "digest_hex": "10b0f8146c94dd2c71078abeb65182bfa3f67b250140c85a67a646210ea892d4",
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_LEAF_V3",
+      "fields": [
+        {
+          "name": "leaf_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "name": "judgment_function_version",
+              "type": "string",
+              "utf8": "PREFILL_GENERATED_TOKEN_METRICS_V1"
+            },
+            {
+              "name": "canonical_encoding_version",
+              "type": "string",
+              "utf8": "CANONICAL_OUTPUT_TEXT_V1"
+            },
+            {
+              "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+              "name": "evidence_schema_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "metric_aggregate_proof_version",
+              "type": "string",
+              "utf8": "PREFILL_METRIC_AGGREGATE_PROOF_V1"
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "tokenizer_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            {
+              "name": "output_position",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "emitted_token_id",
+              "type": "uint32",
+              "value": 43
+            },
+            {
+              "name": "required_top_k",
+              "type": "uint32",
+              "value": 20
+            },
+            {
+              "name": "worker_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1300000
+            },
+            {
+              "name": "verifier_logprob_fp_1e6",
+              "type": "int64",
+              "value": -1300000
+            },
+            {
+              "name": "abs_logprob_diff_fp_1e6",
+              "type": "uint64",
+              "value": 0
+            },
+            {
+              "name": "worker_rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "verifier_rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "rank_delta",
+              "type": "int64",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "missing_flag",
+              "type": "bool",
+              "value": false
+            },
+            {
+              "name": "finite_flag",
+              "type": "bool",
+              "value": true
+            },
+            {
+              "hex": "8888888888888888888888888888888888888888888888888888888888888888",
+              "name": "verifier_value_root",
+              "type": "bytes"
+            }
+          ],
+          "name": "canonical_leaf_bytes",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "metric_leaf_v3_both_optionals_absent",
+      "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f544f4b454e5f4d45545249435f4c4541465f5633000000000000000400000001000000000000025c0000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000040000000100000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f5631000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000100000000000000040000002b0000000000000004000000140000000000000008ffffffffffec29e00000000000000008ffffffffffec29e0000000000000000800000000000000000000000000000004000000010000000000000004000000010000000000000008000000000000000000000000000000010000000000000000010000000000000000010000000000000000010100000000000000208888888888888888888888888888888888888888888888888888888888888888",
+      "preimage_size_bytes": 669,
+      "producer": "MetricLeafHash"
+    },
+    {
+      "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_ROOT_V3",
+      "framing": "MERKLE_ROOT_V1",
+      "leaves_hex": [
+        "93a748775f8951d3f03bff2acbad8be55f56f58b83544087e04cdcc7c49eea01"
+      ],
+      "name": "metric_root_v3_single_leaf",
+      "root_hex": "c3a4a3436a562d8511413e101e7b88d7eca88703ea6663ed6b913ceb8a113f06"
+    }
+  ]
+}
