@@ -1,6 +1,7 @@
 package metric
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -41,22 +42,16 @@ type AggregateProof struct {
 // the fix is not to register two new ones — it is to need none. A blob committed
 // to by a bare SHA-256 has no domain separation to provide.
 //
-// # What is in it, and what is still missing
+// # What is in it
 //
-// No monorepo document defines the CONTENT of aggregate_proof. keeper §5.14
-// defines only its hash, §10.11 rule 7 bounds its size together with result_reveal,
-// rule 8 says it uses "the canonical compact encoding bound to the profile" without
-// saying which, and §9.7 opening rule 5 says the proof plus the counts
-// and the finite/missing facts must satisfy the locked MetricSpec. On the normal
-// reveal path the chain hashes the blob and compares; it does not parse it.
-//
-// So the encoding below is Cortex's, and it is stated rather than implied:
+// 05-verification-algorithm section 7.1 defines the content, and wire
+// publishes it as metric_aggregate_proof_v1:
 //
 //	FRAME_V1(
 //	  utf8("PREFILL_METRIC_AGGREGATE_PROOF_V1"),   # self-describing version
 //	  utf8(chain_id),
 //	  task_id,
-//	  utf8(model_id),
+//	  model_id,                                     # raw 32 bytes
 //	  u32_be(profile_version),
 //	  utf8(judgment_function_version),
 //	  utf8(canonical_encoding_version),
@@ -86,12 +81,6 @@ type AggregateProof struct {
 // opening that reveals the leaves lets anyone recompute the summary and check
 // it. A proof that carried the aggregation inline would be O(tokens) inside a
 // consensus state whose bound nobody has published.
-//
-// It remains UNREGISTERED upstream. A second implementer cannot produce
-// byte-identical bytes from the specification, because the specification does
-// not describe them. That is an open protocol question raised on WORK-55, not a
-// property this package can fix; until it is answered the only thing the chain
-// relies on is that the hash is stable and the producer can reproduce it.
 func BuildAggregateProof(
 	binding Binding,
 	metricRoot codec.Hash,
@@ -112,10 +101,11 @@ func BuildAggregateProof(
 	if err != nil {
 		return AggregateProof{}, fmt.Errorf("derive metric_summary_hash for the aggregate proof: %w", err)
 	}
-	fields := append(
-		[]hfields.Field{hfields.String(AggregateProofVersionV1)},
-		binding.proofFields()...,
-	)
+	bindingFields, err := binding.proofFields()
+	if err != nil {
+		return AggregateProof{}, err
+	}
+	fields := append([]hfields.Field{hfields.String(AggregateProofVersionV1)}, bindingFields...)
 	fields = append(fields,
 		hfields.Hash(metricRoot),
 		hfields.Uint32(count),
@@ -130,11 +120,16 @@ func BuildAggregateProof(
 
 // proofFields is the locked binding as ordered frame fields, in Binding's own
 // declaration order — the same order the leaf preimage carries them in.
-func (b Binding) proofFields() []hfields.Field {
+// model_id is framed as its raw 32 bytes (05 section 7.1), like the leaf.
+func (b Binding) proofFields() ([]hfields.Field, error) {
+	rawModelID, err := hex.DecodeString(b.ModelID)
+	if err != nil || len(rawModelID) != len(codec.Hash{}) || hex.EncodeToString(rawModelID) != b.ModelID {
+		return nil, fmt.Errorf("aggregate proof model_id must be 64 lowercase hex characters")
+	}
 	return []hfields.Field{
 		hfields.String(b.ChainID),
 		hfields.Hash(b.TaskID),
-		hfields.String(b.ModelID),
+		hfields.Hash(codec.Hash(rawModelID)),
 		hfields.Uint32(b.ProfileVersion),
 		hfields.String(b.JudgmentFunctionVersion),
 		hfields.String(b.CanonicalEncodingVersion),
@@ -147,5 +142,5 @@ func (b Binding) proofFields() []hfields.Field {
 		hfields.Bool(b.Spec.CompareTopKJaccard),
 		hfields.Bool(b.Spec.CompareUnionJS),
 		hfields.Uint32(b.Spec.ComparedTopK),
-	}
+	}, nil
 }

@@ -35,7 +35,7 @@ const (
 	// The aggregate proof's own encoding is Cortex's rather than the protocol's
 	// (see BuildAggregateProof), which is exactly why it is pinned: nothing
 	// upstream would notice it moving.
-	fixtureAggregateProofHashHex = "68edd48784c103a582644611558ed2b560e723617df40afe550b20bc008e774d"
+	fixtureAggregateProofHashHex = "3f4d62acb4f82b5b460009c4301c0348daf561736e6873b764228a9c5fbfa837"
 )
 
 func TestMetricRootIsDeterministicForAFixedInput(t *testing.T) {

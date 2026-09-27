@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -180,7 +181,7 @@ func TestAggregateProofAgreesWithItsDocumentedEncoding(t *testing.T) {
 		[]byte(AggregateProofVersionV1),
 		[]byte(binding.ChainID),
 		binding.TaskID[:],
-		[]byte(binding.ModelID),
+		mustRawModelID(t, binding.ModelID),
 		specU32(binding.ProfileVersion),
 		[]byte(binding.JudgmentFunctionVersion),
 		[]byte(binding.CanonicalEncodingVersion),
@@ -206,4 +207,13 @@ func TestAggregateProofAgreesWithItsDocumentedEncoding(t *testing.T) {
 	if bytes.HasPrefix(material.AggregateProof.Bytes, []byte("TRUEOPEN_")) {
 		t.Fatalf("aggregate proof bytes begin with a domain")
 	}
+}
+
+func mustRawModelID(t *testing.T, modelID string) []byte {
+	t.Helper()
+	raw, err := hex.DecodeString(modelID)
+	if err != nil || len(raw) != 32 {
+		t.Fatalf("model_id %q is not Hash32 hex", modelID)
+	}
+	return raw
 }
