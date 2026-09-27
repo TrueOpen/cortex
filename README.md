@@ -501,8 +501,10 @@ only, no userinfo or fragment. Registration also checks its length against the
 chain parameter `max_manifest_uri_bytes`.
 
 Model/profile registration is an offline operator action and is intentionally
-not signed by cortexd. See [Model Registry Operations](docs/operations/model-registry.md)
-for the schema-v3 projection format and digest behavior.
+not signed by cortexd. The V3 projection format and its digests are
+implemented in `internal/keepercontract/model_registration.go` and checked
+byte for byte against wire's `hub/model_profile_canonical_v3.json` vector; see
+also [Fetching a registered model's manifest](#fetching-a-registered-models-manifest).
 Current Node registration is atomic through `MsgRegisterModelProfile`, the only
 model/profile creation message in the frozen `hub` contract.
 
