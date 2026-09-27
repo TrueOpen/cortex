@@ -333,11 +333,15 @@ func (r *TaskRunner) admitOpenVerify(ctx context.Context, envelope builderclient
 	if err != nil {
 		return fmt.Errorf("OpenVerify: %w", err)
 	}
-	if message.GetWorkerOperatorAddress() == "" || message.GetModelId() == "" || message.GetProfileVersion() == 0 || len(message.GetOutputHash()) != 32 {
+	if message.GetWorkerOperatorAddress() == "" || message.GetProfileVersion() == 0 || len(message.GetOutputHash()) != 32 {
 		return fmt.Errorf("OpenVerify missing required fields")
 	}
 	if len(message.GetTaskHash()) != 32 {
 		return fmt.Errorf("OpenVerify task_hash must be 32 bytes")
+	}
+	modelID, err := identity.ModelIDHex(message.GetModelId())
+	if err != nil {
+		return fmt.Errorf("OpenVerify model_id: %w", err)
 	}
 	if len(message.GetInferReceiptHash()) != 32 {
 		return fmt.Errorf("OpenVerify infer_receipt_hash must be 32 bytes")
@@ -348,7 +352,7 @@ func (r *TaskRunner) admitOpenVerify(ctx context.Context, envelope builderclient
 	trigger := verifierHandraiseTrigger{
 		Kind: "OpenVerify", TaskID: taskID,
 		Worker: message.GetWorkerOperatorAddress(), OutputHash: message.GetOutputHash(), TaskHash: codec.Hash(message.GetTaskHash()),
-		ModelID: message.GetModelId(), ProfileVersion: message.GetProfileVersion(), VerifyRound: message.GetVerifyRound(),
+		ModelID: modelID, ProfileVersion: message.GetProfileVersion(), VerifyRound: message.GetVerifyRound(),
 		InferReceiptHash:         codec.Hash(message.GetInferReceiptHash()),
 		SenderOperatorAddress:    envelope.SenderOperatorAddress,
 		DataReadyBuilderOperator: envelope.SenderOperatorAddress,

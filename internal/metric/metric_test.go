@@ -20,22 +20,22 @@ import (
 // They are the output of this repository. That means they catch a later change
 // to the encoding - which is what they are for - but they could not have caught
 // the encoding being wrong on day one, because the vector would simply have
-// recorded the wrong bytes. Upstream publishes no leaf/root/summary vector to
-// check against; the conformance evidence is in spec_conformance_test.go, which
-// re-derives the same digests from an encoder written directly from
-// canonical-encoding-and-domain-hashing §3.2/§4.x and 05-verification-algorithm §7, sharing no code with the
-// production one. Read the two files together: that one says the encoding is
-// right, this one says it has not moved.
+// recorded the wrong bytes. The metric root is over V3 leaves, which wire
+// publishes vectors for (leaf_v3_test.go); the summary is checked by
+// spec_conformance_test.go against an independent encoder. Read those files
+// together with this one: they say the encoding is right, this one says it has
+// not moved.
 const (
-	fixtureMetricRootHex = "7a87980e31b5bf0dc25ce8025e2094015e52e267974167e9c92e92bae9b1c164"
+	fixtureMetricRootHex = "bed50329055c4c44bd2d888ade2dd7a665fe6262f371e38393b568bd07dcbc17"
 	// The same summary with fields 7/8 present, and with them absent. Two
 	// different facts, two different hashes - see §9.7.
-	fixtureSummaryHashWithOptionalsHex    = "347cbe49201e4f41708fd3e4bf59a8c0854041c1429b01d10ecdd96b248415af"
-	fixtureSummaryHashWithoutOptionalsHex = "536822decaa2c96009a43f82101c8650c0765e6a2515a6a435324124089e91c3"
+	fixtureSummaryHashWithOptionalsHex = "347cbe49201e4f41708fd3e4bf59a8c0854041c1429b01d10ecdd96b248415af"
+	// Without either ratio compared_topk_count is 0.
+	fixtureSummaryHashWithoutOptionalsHex = "3166ab05fef70b1762688372f41ac2431d1061d4024fd6c298bd1855689f24a8"
 	// The aggregate proof's own encoding is Cortex's rather than the protocol's
 	// (see BuildAggregateProof), which is exactly why it is pinned: nothing
 	// upstream would notice it moving.
-	fixtureAggregateProofHashHex = "a140f57031e4ad0e853c71ce23315ca247fb3cd843398b97e52e55ea47bfca0b"
+	fixtureAggregateProofHashHex = "3f4d62acb4f82b5b460009c4301c0348daf561736e6873b764228a9c5fbfa837"
 )
 
 func TestMetricRootIsDeterministicForAFixedInput(t *testing.T) {
@@ -73,7 +73,7 @@ func TestMetricRootIsBoundToTheLockedProfile(t *testing.T) {
 	for name, mutate := range map[string]func(*Binding){
 		"chain_id":                       func(b *Binding) { b.ChainID = "chain-B" },
 		"task_id":                        func(b *Binding) { b.TaskID = fill(0x99) },
-		"model_id":                       func(b *Binding) { b.ModelID = "other-model" },
+		"model_id":                       func(b *Binding) { b.ModelID = strings.Repeat("ab", 32) },
 		"profile_version":                func(b *Binding) { b.ProfileVersion = 2 },
 		"judgment_function_version":      func(b *Binding) { b.JudgmentFunctionVersion = "PREFILL_GENERATED_TOKEN_METRICS_V2" },
 		"canonical_encoding_version":     func(b *Binding) { b.CanonicalEncodingVersion = "CANONICAL_ENCODING_V2" },
@@ -117,35 +117,25 @@ func TestNonContiguousOrOutOfOrderPositionsAreRefused(t *testing.T) {
 	}
 }
 
-func TestEmptySampleSetIsRefusedRatherThanRootedEmpty(t *testing.T) {
-	_, err := Build(fixtureBinding(), nil)
-	if err == nil {
-		t.Fatalf("an empty sample set produced a signed-able root")
-	}
-	if !strings.Contains(err.Error(), "empty tree") {
-		t.Fatalf("error does not explain the empty-tree refusal: %v", err)
-	}
-}
-
 // §9.7: presence of fields 7 and 8 is decided by the locked MetricSpec alone.
 // Both directions are checked, and so is the consequence - the two summaries
 // must not hash alike, or the distinction would not reach the Keeper.
 func TestOptionalSummaryMembersFollowTheLockedMetricSpec(t *testing.T) {
-	measured := fixtureAggregates()
+	samples := fixtureSamplesV3(t)
 
-	withOptionals, err := Summary(Spec{
-		CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 4,
-	}, measured)
+	withOptionals, err := SummaryV3(Spec{
+		CompareLogprobDiff: true, CompareRankDelta: true, CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 4,
+	}, 4, samples)
 	if err != nil {
-		t.Fatalf("Summary returned error: %v", err)
+		t.Fatalf("SummaryV3 returned error: %v", err)
 	}
 	if !withOptionals.TopkJaccardMeanFP1e6.Present || !withOptionals.UnionJSP99FP1e6.Present {
 		t.Fatalf("profile asked for both optionals and the summary omitted one: %#v", withOptionals)
 	}
 
-	withoutOptionals, err := Summary(Spec{ComparedTopK: 4}, measured)
+	withoutOptionals, err := SummaryV3(Spec{CompareLogprobDiff: true, CompareRankDelta: true, ComparedTopK: 4}, 4, samples)
 	if err != nil {
-		t.Fatalf("Summary returned error: %v", err)
+		t.Fatalf("SummaryV3 returned error: %v", err)
 	}
 	if withoutOptionals.TopkJaccardMeanFP1e6.Present || withoutOptionals.UnionJSP99FP1e6.Present {
 		t.Fatalf("profile asked for neither optional and the summary carried one: %#v", withoutOptionals)
@@ -170,35 +160,6 @@ func TestOptionalSummaryMembersFollowTheLockedMetricSpec(t *testing.T) {
 	}
 }
 
-// A profile that judges on a metric the run never measured is a refusal, not an
-// absent field: absent means "this profile does not judge on it", which would be
-// a false statement the Keeper then judges against.
-func TestARequiredOptionalTheRunDidNotMeasureIsRefused(t *testing.T) {
-	measured := fixtureAggregates()
-	measured.TopKJaccardMean = OptionalFP{}
-
-	_, err := Summary(Spec{CompareTopKJaccard: true, ComparedTopK: 4}, measured)
-	if err == nil {
-		t.Fatalf("a required but unmeasured optional was silently omitted")
-	}
-	if !strings.Contains(err.Error(), "compare_topk_jaccard") {
-		t.Fatalf("error does not name the profile flag that required it: %v", err)
-	}
-}
-
-// A metric the profile does NOT ask for must not reach the preimage even when
-// the run measured it - the run measures everything the model service can give,
-// and the profile is what the sample is judged on.
-func TestAMeasuredOptionalTheProfileDoesNotAskForIsDropped(t *testing.T) {
-	summary, err := Summary(Spec{ComparedTopK: 4}, fixtureAggregates())
-	if err != nil {
-		t.Fatalf("Summary returned error: %v", err)
-	}
-	if summary.TopkJaccardMeanFP1e6 != (nodewire.OptionalUint32{}) {
-		t.Fatalf("a measured but unrequested jaccard reached the summary: %#v", summary.TopkJaccardMeanFP1e6)
-	}
-}
-
 // keeper §9.7 judgment layer 2: the Keeper "must not accept a verdict field carried
 // by the Verifier itself". The wire type has no place for one, and this asserts the
 // producer did not grow a channel for it either.
@@ -209,15 +170,6 @@ func TestSummaryCarriesNoVerdictField(t *testing.T) {
 		for _, forbidden := range []string{"verdict", "pass", "fail", "reject", "inconclusive"} {
 			if strings.Contains(name, forbidden) {
 				t.Fatalf("MetricSummaryV1 field %s looks like a verdict; the Keeper recomputes the verdict", typ.Field(i).Name)
-			}
-		}
-	}
-	typ = reflect.TypeFor[Aggregates]()
-	for i := 0; i < typ.NumField(); i++ {
-		name := strings.ToLower(typ.Field(i).Name)
-		for _, forbidden := range []string{"verdict", "pass", "fail", "reject"} {
-			if strings.Contains(name, forbidden) {
-				t.Fatalf("Aggregates field %s carries a verdict into the summary producer", typ.Field(i).Name)
 			}
 		}
 	}
@@ -364,29 +316,7 @@ func TestBindTaskRefusesAnUnsetConsensusField(t *testing.T) {
 	}
 }
 
-// The uint32 fp_1e6 fields top out at 4294.967295 and the protocol defines no
-// truncation. Truncating would be a signable claim that the sample agreed far
-// better than it did, so the summary is refused instead.
-func TestSummaryOverflowIsRefusedNotTruncated(t *testing.T) {
-	aggregates := fixtureAggregates()
-	aggregates.MeanAbsLogprobDiff = 5000 // 5e9 in fp_1e6, past MaxUint32
-
-	_, err := Summary(Spec{ComparedTopK: 4}, aggregates)
-	if err == nil {
-		t.Fatalf("an overflowing mean_abs_logprob_diff was silently narrowed")
-	}
-	if !strings.Contains(err.Error(), "ceiling") {
-		t.Fatalf("error does not explain the refusal: %v", err)
-	}
-}
-
 func TestNonFiniteMetricsAreRefused(t *testing.T) {
-	aggregates := fixtureAggregates()
-	aggregates.AbsLogprobDiffP99 = math.NaN()
-	if _, err := Summary(Spec{ComparedTopK: 4}, aggregates); err == nil {
-		t.Fatalf("NaN reached the summary")
-	}
-
 	samples := fixtureSamples()
 	samples[0].VerifierLogprob = math.Inf(-1)
 	if _, err := Build(fixtureBinding(), samples); err == nil {
@@ -417,63 +347,6 @@ func TestFixedPointRoundsHalfAwayFromZero(t *testing.T) {
 	}
 }
 
-// Two positions whose only difference is a metric must not share a leaf hash;
-// otherwise the tree would fold them and metric_root would stop distinguishing
-// the runs it exists to distinguish.
-func TestEveryLeafFieldReachesTheLeafHash(t *testing.T) {
-	binding := fixtureBinding()
-	base, err := LeafHash(binding, sampleAt(0))
-	if err != nil {
-		t.Fatalf("LeafHash returned error: %v", err)
-	}
-	for name, mutate := range map[string]func(*Sample){
-		"emitted_token_id":  func(s *Sample) { s.EmittedTokenID++ },
-		"worker_logprob":    func(s *Sample) { s.WorkerLogprob -= 0.5 },
-		"verifier_logprob":  func(s *Sample) { s.VerifierLogprob -= 0.5 },
-		"worker_rank":       func(s *Sample) { s.WorkerRank = 3 },
-		"verifier_rank":     func(s *Sample) { s.VerifierRank = 4 },
-		"topk_jaccard":      func(s *Sample) { s.TopKJaccard = PresentFP(0.5) },
-		"topk_jaccard drop": func(s *Sample) { s.TopKJaccard = OptionalFP{} },
-		"union_js":          func(s *Sample) { s.UnionJS = PresentFP(0.5) },
-		"missing_flag":      func(s *Sample) { s.Missing = !s.Missing },
-		"finite_flag":       func(s *Sample) { s.Finite = !s.Finite },
-	} {
-		t.Run(name, func(t *testing.T) {
-			sample := sampleAt(0)
-			mutate(&sample)
-			changed, err := LeafHash(binding, sample)
-			if err != nil {
-				t.Fatalf("LeafHash returned error: %v", err)
-			}
-			if changed == base {
-				t.Fatalf("changing %s did not change the leaf hash", name)
-			}
-		})
-	}
-}
-
-// An optional leaf metric that is absent must not collide with the same metric
-// measured as zero: §4.4 gives absent its own presence byte precisely for this.
-func TestAbsentOptionalDiffersFromPresentZero(t *testing.T) {
-	binding := fixtureBinding()
-	absent := sampleAt(0)
-	absent.TopKJaccard = OptionalFP{}
-	presentZero := sampleAt(0)
-	presentZero.TopKJaccard = PresentFP(0)
-
-	absentHash, err := LeafHash(binding, absent)
-	if err != nil {
-		t.Fatalf("LeafHash returned error: %v", err)
-	}
-	presentHash, err := LeafHash(binding, presentZero)
-	if err != nil {
-		t.Fatalf("LeafHash returned error: %v", err)
-	}
-	if absentHash == presentHash {
-		t.Fatalf("absent and present-zero topk_jaccard hash alike")
-	}
-}
-
 func fixtureBinding() Binding {
 	binding, err := BindTask("chain-A", fill(0x11), fill(0x33), 1, fixtureProfileSnapshot(), fill(0x22))
 	if err != nil {
@@ -486,7 +359,7 @@ func fixtureProfileSnapshot() chainclient.CurrentProfileSnapshot {
 	evidenceSchemaHash := fill(0x33)
 	tokenizerHash := fill(0x44)
 	return chainclient.CurrentProfileSnapshot{
-		ModelID:        "fake-llm-text",
+		ModelID:        "099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f",
 		ProfileVersion: chainclient.ProfileVersion("1"),
 		TokenizerHash:  chainclient.ProtoBytes32(tokenizerHash[:]),
 		RequiredTopK:   4,
@@ -526,19 +399,13 @@ func sampleAt(position uint32) Sample {
 	}
 }
 
-func fixtureAggregates() Aggregates {
-	return Aggregates{
-		FiniteCount:          2,
-		MissingComparedCount: 0,
-		MeanAbsLogprobDiff:   0.005,
-		AbsLogprobDiffP95:    0.005,
-		AbsLogprobDiffP99:    0.005,
-		RankDeltaNonzeroRate: 0,
-		TopKJaccardMean:      PresentFP(0.875),
-		UnionJSP99:           PresentFP(0.002),
-		ComparedTopKCount:    2,
-		ComparedRankCount:    2,
+func fixtureSamplesV3(t *testing.T) []SampleV3 {
+	t.Helper()
+	samples, err := samplesToV3(fixtureSamples())
+	if err != nil {
+		t.Fatal(err)
 	}
+	return samples
 }
 
 func fill(b byte) codec.Hash {

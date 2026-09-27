@@ -118,18 +118,18 @@ func TestVerificationResultDigestUsesCanonicalValues(t *testing.T) {
 func validVerifierInput() VerifierPrecheckInput {
 	outputHash := codec.OutputHash([]byte("worker output"))
 	pkg := OutputPackageSummary{
-		TaskID:        "task-1",
-		OutputRef:     "cortex-artifact://fake/out?size=13",
-		TraceRef:      "cortex-artifact://fake/trace?size=5",
-		CheckpointRef: "cortex-artifact://fake/checkpoint?size=10",
-		OutputHash:    outputHash,
+		TaskID:            "task-1",
+		OutputRef:         "cortex-artifact://fake/out?size=13",
+		TokenIDsRef:       "cortex-artifact://fake/trace?size=5",
+		PositionValuesRef: "cortex-artifact://fake/checkpoint?size=10",
+		OutputHash:        outputHash,
 	}
 	pkg.PackageHash = codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(pkg.TaskID),
 		[]byte(pkg.OutputRef),
-		[]byte(pkg.TraceRef),
-		[]byte(pkg.CheckpointRef),
+		[]byte(pkg.TokenIDsRef),
+		[]byte(pkg.PositionValuesRef),
 		pkg.OutputHash[:],
 	)
 	return VerifierPrecheckInput{

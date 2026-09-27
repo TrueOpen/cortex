@@ -60,7 +60,7 @@ func (c *verifierEvidenceTaskDataClient) FinalizeVerifierEvidence(ctx context.Co
 	confirmation := builderclient.StorageConfirmation{
 		SchemaVersion: 1, ChainID: request.Receipt.ChainID, BuilderOperator: inputTestBuilder, ServiceAuthorizationNonce: 1,
 		Key: builderclient.EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, builderclient.DataKindEvidenceManifest,
-			hex.EncodeToString(request.Receipt.VerifierEvidenceBundleHash), builderclient.EvidenceProducerVerifier, request.VerifyRound, request.VerifierOperator),
+			hex.EncodeToString(request.Receipt.VerifierEvidenceBundleHash), builderclient.EvidenceProducerVerifier, request.VerifyRound, request.VerifierOperator, nodewire.EvidenceKindVerifierValueOpening),
 		SizeBytes: request.Receipt.VerifierEvidenceManifestSizeBytes, ArtifactTotalSizeBytes: uint64(len(c.uploads[0].Data)), RetentionUntilHeight: 500,
 	}
 	if c.confirmationMutation != nil {
@@ -84,7 +84,7 @@ type verifierPublisherFixture struct {
 	publisher            nexusVerifierEvidencePublisher
 	client               *verifierEvidenceTaskDataClient
 	state                verifier.TaskState
-	receipt              nodewire.ResultReceiptV2
+	receipt              nodewire.ResultReceiptV3
 	manifest, proof      []byte
 	endpoint             worker.BuilderEndpoint
 	db                   *store.Store
@@ -111,7 +111,8 @@ func newVerifierPublisherFixture(t *testing.T) verifierPublisherFixture {
 	state := verifier.TaskState{TaskID: outputTestTaskID, SessionID: strings.Repeat("11", 32), VerifyRound: 1}
 	manifest, err := (evidencebundle.Manifest{Version: 1, ChainID: outputTestChainID, TaskID: state.TaskID, TaskHash: taskHash.String(), VerifyRound: 1,
 		ProducerKind: "VERIFIER", ProducerOperator: inputTestOperator, EvidenceSchemaHash: evidenceTestSchemaHash,
-		Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("aggregate_proof", proof)}}).Encode()
+		EvidenceKind: evidencebundle.KindVerifierValueOpening,
+		Artifacts:    []evidencebundle.Artifact{evidencebundle.NewArtifact("aggregate_proof", proof)}}).Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,9 +122,10 @@ func newVerifierPublisherFixture(t *testing.T) verifierPublisherFixture {
 		t.Fatal(err)
 	}
 	generation := codec.HashBytes([]byte("generation"))
-	receipt := nodewire.ResultReceiptV2{SchemaVersion: 2, ChainID: outputTestChainID, TaskID: taskID, VerifyRound: 1, VerifierOperatorAddress: inputTestOperator,
+	receipt := nodewire.ResultReceiptV3{SchemaVersion: nodewire.ResultReceiptSchemaVersionV3, ChainID: outputTestChainID, TaskID: taskID, VerifyRound: 1, VerifierOperatorAddress: inputTestOperator,
 		ServiceAuthorizationNonce: 1, GenerationParamsDigest: generation[:], MetricRoot: bytes.Repeat([]byte{0x82}, 32), MetricSummary: nodewire.MetricSummaryV1{FiniteCount: 1},
-		AggregateProofHash: proofHash[:], VerifierEvidenceBundleHash: bundleHash[:], VerifierEvidenceManifestSizeBytes: uint64(len(manifest)), Salt: bytes.Repeat([]byte{0x83}, 32), ExpiryHeight: 300}
+		AggregateProofHash: proofHash[:], VerifierEvidenceBundleHash: bundleHash[:], VerifierEvidenceManifestSizeBytes: uint64(len(manifest)), Salt: bytes.Repeat([]byte{0x83}, 32), ExpiryHeight: 300,
+		VerifierValueRoot: bytes.Repeat([]byte{0x84}, 32), MetricLeafCount: 1, VerifierEvidenceKeyCommitment: make([]byte, 32)}
 	digest, err := nodewire.ResultReceiptSigningDigest(receipt)
 	if err != nil {
 		t.Fatal(err)

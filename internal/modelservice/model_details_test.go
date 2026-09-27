@@ -11,12 +11,12 @@ func TestFakeGetModelDetailsReturnsArtifactAndProvenanceDetails(t *testing.T) {
 	resp, err := fake.GetModelDetails(context.Background(), GetModelDetailsRequest{
 		RequestID:      "details-1",
 		ModelServiceID: fakeServiceID,
-		ModelID:        "fake-llm-text",
+		ModelID:        FakeModelID,
 	})
 	if err != nil {
 		t.Fatalf("GetModelDetails returned error: %v", err)
 	}
-	want := testModelDetailsFixture("fake-llm-text")
+	want := testModelDetailsFixture(FakeModelID)
 	if resp.RequestID != "details-1" || resp.ModelServiceID != fakeServiceID || !reflect.DeepEqual(resp.Details, want) || resp.Error != nil {
 		t.Fatalf("GetModelDetails = %#v, want details %#v", resp, want)
 	}
@@ -44,11 +44,11 @@ func TestFakeGetModelDetailsReturnsStructuredNotFound(t *testing.T) {
 
 func TestStaticClientDelegatesGetModelDetails(t *testing.T) {
 	client := StaticClient{Backend: NewFakeService()}
-	resp, err := client.GetModelDetails(context.Background(), GetModelDetailsRequest{ModelID: "fake-llm-text"})
+	resp, err := client.GetModelDetails(context.Background(), GetModelDetailsRequest{ModelID: FakeModelID})
 	if err != nil {
 		t.Fatalf("GetModelDetails returned error: %v", err)
 	}
-	if resp.Details.Identity.ModelID != "fake-llm-text" {
+	if resp.Details.Identity.ModelID != FakeModelID {
 		t.Fatalf("GetModelDetails details = %#v", resp.Details)
 	}
 }

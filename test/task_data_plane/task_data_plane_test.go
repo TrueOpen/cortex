@@ -27,6 +27,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
@@ -37,13 +38,14 @@ import (
 	"github.com/TrueOpen/cortex/internal/worker"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	nexusv1connect "github.com/TrueOpen/cortex/proto/nexus/v1/nexusv1connect"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	"github.com/TrueOpen/cortex/test/internal/generationfixture"
 )
 
 const (
 	proofChainID        = "trueopen-task-data-test-1"
 	proofBuilder        = "trueopen1j7r6u8nwvw93l2tc0wd75v07vu89lxyfqf8fut"
-	proofModelID        = "proof-llm-text"
+	proofModelID        = "f8b762b85eb8a524e7809a53bafb399f55bdac316c495822dcba0e029909daa0"
 	proofModelServiceID = "fake-model-service"
 	proofServiceKeyRef  = "test-cortex-service-key"
 	proofTokenCount     = uint64(4)
@@ -62,11 +64,6 @@ const (
 var (
 	proofInput  = []byte("contract-faithful input: alpha beta gamma delta epsilon")
 	proofOutput = []byte("€§¶, Cortex data plane") // deliberately multi-byte UTF-8
-	proofTrace  = []byte("proof trace")
-	// proofCheckpointArtifact is the second infer artifact. It is deliberately a
-	// different length from proofTrace so a swapped evidence commitment cannot
-	// pass an encoded_size_bytes check by coincidence.
-	proofCheckpointArtifact = []byte("proof checkpoint")
 
 	// The Worker operator's own key. Nexus's verifyRequesterKey accepts either a
 	// presented key that derives the requester operator address or one that is
@@ -162,7 +159,7 @@ func TestWorkerTaskDataPlaneInputPathAndReceiptRefusal(t *testing.T) {
 	// evidence a later reveal needs survives the refusal. The receipt evidence
 	// does not exist, so it must be absent rather than empty.
 	evidencePaths := h.checkpoints.evidencePaths()
-	for _, kind := range []string{"worker-output", "worker-trace", "worker-checkpoint"} {
+	for _, kind := range []string{"worker-output", "worker-token-ids-material", "worker-position-values-material"} {
 		path, ok := evidencePaths[kind]
 		if !ok {
 			t.Fatalf("durable %s evidence is missing", kind)
@@ -341,20 +338,79 @@ func TestNexusEnforcesOperatorRequesterAuthorization(t *testing.T) {
 func proofReceiptFacts(t *testing.T) builderclient.InferReceiptFacts {
 	t.Helper()
 	taskHash := codec.HashWithDomain("TRUEOPEN_TASK_ORDER_V1", []byte(proofTaskID))
-	generation := codec.HashWithDomain("TRUEOPEN_TASK_GENERATION_PARAMS_V1", []byte(proofTaskID))
+	generation := nodewire.GenerationParamsDigest(proofGenerationParams)
 	outputHash, _ := codec.OutputMMRRoot([][]byte{proofOutput})
 	inputHash, _ := nodewire.InputTokenIDsHash([]uint32{7})
 	generatedHash, _ := nodewire.GeneratedTokenIDsHash([]uint32{1, 2, 3, 4})
-	commitment, err := builderclient.WorkerValueEvidenceCommitment(builderclient.WorkerValueEvidenceFacts{ChainID: proofChainID, TaskID: proofTaskID, AcceptedTaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, GenerationParamsDigest: generation.String(), EvidenceSchemaHash: codec.HashWithDomain("TRUEOPEN_EVIDENCE_SCHEMA_V1", []byte(proofTaskID)).String(), OutputHash: outputHash, OutputSizeBytes: uint64(len(proofOutput)), OutputLeafCount: 1, GeneratedTokenCount: proofTokenCount, FinishReason: nodewire.FinishReasonV1EosToken, TraceRoot: codec.HashBytes(proofTrace), TraceEncodedSizeBytes: uint64(len(proofTrace)), CheckpointRoot: codec.HashBytes(proofCheckpointArtifact), CheckpointEncodedSizeBytes: uint64(len(proofCheckpointArtifact)), InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: 8, GeneratedTokenIDsSizeBytes: 20})
+	evidence := proofEvidence(t, taskHash.String())
+	commitments, err := builderclient.WorkerEvidenceCommitments(builderclient.WorkerEvidenceFacts{ChainID: proofChainID, TaskID: proofTaskID, AcceptedTaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, GenerationParamsDigest: generation.String(), EvidenceSchemaHash: proofEvidenceSchemaHash().String(), OutputHash: outputHash, OutputSizeBytes: uint64(len(proofOutput)), OutputLeafCount: 1, GeneratedTokenCount: proofTokenCount, FinishReason: nodewire.FinishReasonV1EosToken, InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: uint64(len(evidence.input)), GeneratedTokenIDsSizeBytes: uint64(len(evidence.generated)), WorkerValueRoot: evidence.valueRoot, WorkerValuesEncodedSizeBytes: uint64(len(evidence.values))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return builderclient.InferReceiptFacts{ChainID: proofChainID, TaskID: proofTaskID, TaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, ServiceAuthorizationNonce: proofServiceAuthorizationNonce, GenerationParamsDigest: generation.String(), OutputHash: outputHash, OutputLeafCount: 1, OutputSizeBytes: uint64(len(proofOutput)), GeneratedTokenCount: proofTokenCount, RequiredEvidenceCommitments: []builderclient.EvidenceCommitment{commitment}, ProfileEvidenceRequirements: builderclient.WorkerValueEvidenceRequirementsV2(), ExpiryHeight: proofInferDeadline}
+	return builderclient.InferReceiptFacts{ChainID: proofChainID, TaskID: proofTaskID, TaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, ServiceAuthorizationNonce: proofServiceAuthorizationNonce, GenerationParamsDigest: generation.String(), OutputHash: outputHash, OutputLeafCount: 1, OutputSizeBytes: uint64(len(proofOutput)), GeneratedTokenCount: proofTokenCount, RequiredEvidenceCommitments: commitments, ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(), ExpiryHeight: proofInferDeadline}
 }
 
-// proofSignedReceipt builds the frozen receipt through the production assembler
-// and signs the digest it returns with the Worker's registered CORTEX service
-// key, which is the only key Nexus will verify a relayed receipt against.
+// proofGenerationParams stands in for the proof task's canonical generation
+// parameters; the task-data plane only ever hashes these bytes.
+var proofGenerationParams = []byte(`{"proof":"generation params"}`)
+
+// proofRequiredTopK frames the proof Worker's worker_values.
+const proofRequiredTopK = 4
+
+func proofEvidenceSchemaHash() codec.Hash {
+	return codec.HashWithDomain("TRUEOPEN_EVIDENCE_SCHEMA_V1", []byte(proofTaskID))
+}
+
+// proofWorkerEvidence is the content of the proof Worker's two bundles.
+type proofWorkerEvidence struct {
+	input, generated, values     []byte
+	valueRoot                    codec.Hash
+	valueManifest, tokenManifest []byte
+}
+
+// proofValues are the position values of the proof generation [1, 2, 3, 4].
+func proofValues() []metric.PositionValue {
+	values := make([]metric.PositionValue, proofTokenCount)
+	for i := range values {
+		id := uint32(i + 1)
+		values[i] = metric.PositionValue{TokenID: id, Logprob: -0.25, Rank: 1, TopK: []metric.TokenLogprob{
+			{TokenID: id, Logprob: -0.25}, {TokenID: 100 + id, Logprob: -1}, {TokenID: 200 + id, Logprob: -2}, {TokenID: 300 + id, Logprob: -3},
+		}}
+	}
+	return values
+}
+
+func proofEvidence(t testing.TB, taskHash string) proofWorkerEvidence {
+	t.Helper()
+	var out proofWorkerEvidence
+	out.input, _ = nodewire.EncodeTokenIDs([]uint32{7})
+	out.generated, _ = nodewire.EncodeTokenIDs([]uint32{1, 2, 3, 4})
+	taskID, _ := hex.DecodeString(proofTaskID)
+	acceptedHash, _ := hex.DecodeString(taskHash)
+	binding := nodewire.WorkerValueBindingV1{ChainID: proofChainID, TaskID: taskID, AcceptedTaskHash: acceptedHash, WorkerOperatorAddress: proofWorkerOperator, RequiredTopK: proofRequiredTopK}
+	leaves, err := metric.ValueLeaves(proofValues(), proofRequiredTopK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.values, err = nodewire.EncodeWorkerValues(binding, leaves); err != nil {
+		t.Fatal(err)
+	}
+	if out.valueRoot, err = nodewire.WorkerValueRoot(binding, leaves); err != nil {
+		t.Fatal(err)
+	}
+	scope := func(kind string, artifacts ...evidencebundle.Artifact) []byte {
+		encoded, err := (evidencebundle.Manifest{Artifacts: artifacts, ChainID: proofChainID, EvidenceKind: kind, EvidenceSchemaHash: proofEvidenceSchemaHash().String(), Version: 1, ProducerKind: "WORKER", ProducerOperator: proofWorkerOperator, TaskHash: taskHash, TaskID: proofTaskID, VerifyRound: 1}).Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	out.valueManifest = scope(evidencebundle.KindWorkerValueOpening, evidencebundle.NewArtifact("worker_values", out.values))
+	out.tokenManifest = scope(evidencebundle.KindWorkerTokenOpening, evidencebundle.NewArtifact("generated_token_ids", out.generated),
+		evidencebundle.NewArtifact("generation_params", proofGenerationParams), evidencebundle.NewArtifact("input_token_ids", out.input))
+	return out
+}
+
 func proofSignedReceipt(t *testing.T, service *secp256k1.PrivateKey, facts builderclient.InferReceiptFacts) builderclient.SignedInferReceipt {
 	t.Helper()
 	receipt, digest, err := builderclient.BuildInferReceipt(facts)
@@ -481,12 +537,12 @@ func TestNexusFrozenInferReceiptRelayAndUpload(t *testing.T) {
 		if _, err := h.finalizeReceipt(context.Background(), receipt); err == nil {
 			t.Fatal("finalized output not committed by receipt")
 		}
-		req, err := h.finalizeRequest(context.Background(), receipt)
+		req, err := h.finalizeRequest(context.Background(), receipt, nodewire.EvidenceKindWorkerValueOpening)
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.TaskHash = strings.Repeat("99", 32)
-		_, err = h.ingress().FinalizeTaskResult(context.Background(), connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{TaskHash: req.TaskHash, SessionId: req.SessionID, TaskId: req.TaskID, Receipt: receiptToProto(receipt), RequestAuth: authToProto(req.Auth)}))
+		_, err = h.ingress().FinalizeTaskResult(context.Background(), connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{TaskHash: req.TaskHash, SessionId: req.SessionID, TaskId: req.TaskID, Receipt: receiptToProto(receipt), RequestAuth: authToProto(req.Auth), EvidenceKind: sharedv1.EvidenceKind(req.EvidenceKind)}))
 		if err == nil {
 			t.Fatal("finalize accepted mismatched task hash")
 		}
@@ -498,7 +554,8 @@ func TestWorkerTaskDataPlaneFinalizesAndRejectsBadConfirmations(t *testing.T) {
 		t.Run(fmt.Sprint("bad confirmation=", bad), func(t *testing.T) {
 			h := newTaskDataHarness(t, harnessOptions{behavior: nexusBehavior{confirmationSignatureBad: bad}})
 			h.executor.workerConfig.EvidenceSchemaHash = codec.HashBytes([]byte("profile")).String()
-			h.executor.workerConfig.ProfileEvidenceRequirements = builderclient.WorkerValueEvidenceRequirementsV2()
+			h.executor.workerConfig.ProfileEvidenceRequirements = builderclient.WorkerEvidenceRequirementsV3()
+			h.executor.workerConfig.RequiredTopK = proofRequiredTopK
 			if err := h.runner.RunOnce(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -508,7 +565,7 @@ func TestWorkerTaskDataPlaneFinalizesAndRejectsBadConfirmations(t *testing.T) {
 					t.Fatal("bad Builder signature released availability")
 				}
 			} else {
-				if h.executor.TerminalError() != nil || h.publisher.OutputAvailableCount() == 0 || len(h.checkpoints.storageConfirmations(proofTaskID)) != 2 {
+				if h.executor.TerminalError() != nil || h.publisher.OutputAvailableCount() == 0 || len(h.checkpoints.storageConfirmations(proofTaskID)) != 3 {
 					t.Fatalf("Worker did not finalize: %v", h.executor.TerminalError())
 				}
 				if h.nexus.Receipt().GeneratedTokenCount != proofTokenCount {
@@ -540,7 +597,8 @@ func TestWorkerTaskDataPlaneRetriesPreserveSignedMaterial(t *testing.T) {
 			}
 			h := newTaskDataHarness(t, harnessOptions{behavior: behavior})
 			h.executor.workerConfig.EvidenceSchemaHash = codec.HashBytes([]byte("profile")).String()
-			h.executor.workerConfig.ProfileEvidenceRequirements = builderclient.WorkerValueEvidenceRequirementsV2()
+			h.executor.workerConfig.ProfileEvidenceRequirements = builderclient.WorkerEvidenceRequirementsV3()
+			h.executor.workerConfig.RequiredTopK = proofRequiredTopK
 			var first builderclient.SignedInferReceipt
 			for round := 1; round <= transientFailures; round++ {
 				if round > 1 {
@@ -572,7 +630,7 @@ func TestWorkerTaskDataPlaneRetriesPreserveSignedMaterial(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.requireFinished(t)
-			if h.executor.TerminalError() != nil || h.model.InferCalls() != 1 || !reflect.DeepEqual(first, h.nexus.Receipt()) || len(h.checkpoints.storageConfirmations(proofTaskID)) != 2 {
+			if h.executor.TerminalError() != nil || h.model.InferCalls() != 1 || !reflect.DeepEqual(first, h.nexus.Receipt()) || len(h.checkpoints.storageConfirmations(proofTaskID)) != 3 {
 				t.Fatalf("retry changed durable material: %v", h.executor.TerminalError())
 			}
 			seen := map[string]bool{}
@@ -923,7 +981,11 @@ func (h *taskDataHarness) stageObject(ctx context.Context, key builderclient.Tas
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
-		stream, err := h.taskData.OpenTaskOutputStream(ctx, h.nexus.URL(), builderclient.OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: auth, ReplayChunks: []builderclient.OutputChunk{{Text: data, MMRRoot: root, WorkerSignature: compactSignature(h.servicePrivate, digest)}}})
+		headerDigest, err := builderclient.OutputStreamHeaderDigest(proofChainID, key.TaskHash)
+		if err != nil {
+			return builderclient.TaskDataMetadata{}, err
+		}
+		stream, err := h.taskData.OpenTaskOutputStream(ctx, h.nexus.URL(), builderclient.OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: auth, HeaderSignature: compactSignature(h.servicePrivate, headerDigest), ReplayChunks: []builderclient.OutputChunk{{Text: data, MMRRoot: root, WorkerSignature: compactSignature(h.servicePrivate, digest)}}})
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
@@ -947,22 +1009,29 @@ func (h *taskDataHarness) stageObject(ctx context.Context, key builderclient.Tas
 }
 func (h *taskDataHarness) stageBundle(t *testing.T, receipt builderclient.SignedInferReceipt) {
 	t.Helper()
-	manifest := proofManifestBytes(t, receipt.TaskHash)
-	input, _ := nodewire.EncodeTokenIDs([]uint32{7})
-	generated, _ := nodewire.EncodeTokenIDs([]uint32{1, 2, 3, 4})
-	for i, data := range [][]byte{proofCheckpointArtifact, proofTrace, manifest, input, generated} {
-		kind, hash := builderclient.DataKindEvidenceArtifact, codec.HashBytes(data)
-		if i == 2 {
-			kind, hash = builderclient.DataKindEvidenceManifest, receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot
+	evidence := proofEvidence(t, receipt.TaskHash)
+	for i, bundle := range []struct {
+		kind      nodewire.EvidenceKind
+		manifest  []byte
+		artifacts [][]byte
+	}{
+		{nodewire.EvidenceKindWorkerValueOpening, evidence.valueManifest, [][]byte{evidence.values}},
+		{nodewire.EvidenceKindWorkerTokenOpening, evidence.tokenManifest, [][]byte{evidence.generated, proofGenerationParams, evidence.input}},
+	} {
+		stage := func(dataKind builderclient.DataKind, hash string, data []byte) {
+			key := builderclient.EvidenceObjectKey(receipt.TaskHash, proofSessionID, proofTaskID, dataKind, hash, builderclient.EvidenceProducerWorker, 1, proofWorkerOperator, bundle.kind)
+			if _, err := h.stageObject(context.Background(), key, data, ""); err != nil {
+				t.Fatal(err)
+			}
 		}
-		key := builderclient.EvidenceObjectKey(receipt.TaskHash, proofSessionID, proofTaskID, kind, hash.String(), builderclient.EvidenceProducerWorker, 1, proofWorkerOperator)
-		if _, err := h.stageObject(context.Background(), key, data, ""); err != nil {
-			t.Fatal(err)
+		for _, data := range bundle.artifacts {
+			stage(builderclient.DataKindEvidenceArtifact, codec.HashBytes(data).String(), data)
 		}
+		stage(builderclient.DataKindEvidenceManifest, receipt.RequiredEvidenceCommitments[i].EvidenceHashOrRoot.String(), bundle.manifest)
 	}
 }
-func (h *taskDataHarness) finalizeRequest(ctx context.Context, receipt builderclient.SignedInferReceipt) (builderclient.FinalizeTaskResultRequest, error) {
-	req := builderclient.FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: proofSessionID, TaskID: proofTaskID, Receipt: receipt}
+func (h *taskDataHarness) finalizeRequest(ctx context.Context, receipt builderclient.SignedInferReceipt, kind nodewire.EvidenceKind) (builderclient.FinalizeTaskResultRequest, error) {
+	req := builderclient.FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: proofSessionID, TaskID: proofTaskID, Receipt: receipt, EvidenceKind: kind}
 	body, err := builderclient.TaskDataFinalizeResultBodyDigest(req)
 	if err != nil {
 		return req, err
@@ -970,12 +1039,21 @@ func (h *taskDataHarness) finalizeRequest(ctx context.Context, receipt buildercl
 	req.Auth, err = h.auth.SignRequest(ctx, "FinalizeTaskResult", h.outputKey(receipt), proofBuilder, body)
 	return req, err
 }
+
+// finalizeReceipt finalizes both Worker bundles, value then token, and returns
+// the last response.
 func (h *taskDataHarness) finalizeReceipt(ctx context.Context, receipt builderclient.SignedInferReceipt) (builderclient.FinalizeTaskResultResponse, error) {
-	req, err := h.finalizeRequest(ctx, receipt)
-	if err != nil {
-		return builderclient.FinalizeTaskResultResponse{}, err
+	var response builderclient.FinalizeTaskResultResponse
+	for _, kind := range []nodewire.EvidenceKind{nodewire.EvidenceKindWorkerValueOpening, nodewire.EvidenceKindWorkerTokenOpening} {
+		req, err := h.finalizeRequest(ctx, receipt, kind)
+		if err != nil {
+			return builderclient.FinalizeTaskResultResponse{}, err
+		}
+		if response, err = h.taskData.FinalizeTaskResult(ctx, h.nexus.URL(), req); err != nil {
+			return response, err
+		}
 	}
-	return h.taskData.FinalizeTaskResult(ctx, h.nexus.URL(), req)
+	return response, nil
 }
 func (h *taskDataHarness) fetchObject(key builderclient.TaskDataKey) error {
 	body, err := builderclient.TaskDataFetchBodyDigest(key, nil)
@@ -987,17 +1065,6 @@ func (h *taskDataHarness) fetchObject(key builderclient.TaskDataKey) error {
 		return err
 	}
 	return h.taskData.FetchTaskData(context.Background(), h.nexus.URL(), builderclient.FetchTaskDataRequest{Key: key, Auth: auth}, func(builderclient.TaskDataChunk) error { return nil })
-}
-func proofManifestBytes(t testing.TB, taskHash string) []byte {
-	t.Helper()
-	input, _ := nodewire.EncodeTokenIDs([]uint32{7})
-	generated, _ := nodewire.EncodeTokenIDs([]uint32{1, 2, 3, 4})
-	m := evidencebundle.Manifest{Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("checkpoint", proofCheckpointArtifact), evidencebundle.NewArtifact("generated_token_ids", generated), evidencebundle.NewArtifact("input_token_ids", input), evidencebundle.NewArtifact("trace", proofTrace)}, ChainID: proofChainID, EvidenceKind: "WORKER_VALUE_OPENING", EvidenceSchemaHash: codec.HashWithDomain("TRUEOPEN_EVIDENCE_SCHEMA_V1", []byte(proofTaskID)).String(), Version: 1, ProducerKind: "WORKER", ProducerOperator: proofWorkerOperator, TaskHash: taskHash, TaskID: proofTaskID, VerifyRound: 1}
-	encoded, err := m.Encode()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
 }
 
 // proofInferExecutor is the package-local assembly seam that production has not
@@ -1126,11 +1193,64 @@ func (p *proofCheckpoints) OutputStreamFrames(_ context.Context, taskID string) 
 		frames = append(frames, frame)
 	}
 }
-func (p *proofCheckpoints) CheckpointInferOutput(ctx context.Context, taskID string, output, trace, checkpoint []byte, cp worker.InferOutputCheckpoint) error {
+
+// PublishWorkerBundle stores one Worker bundle in the evidence store's bundle
+// layout, as the daemon does.
+func (p *proofCheckpoints) PublishWorkerBundle(ctx context.Context, _ string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error {
+	id, err := p.bundleID(kind)
+	if err != nil {
+		return err
+	}
+	_, err = p.evidence.PublishBundle(ctx, evidence.BundleRequest{ID: id, Manifest: manifest, Artifacts: artifacts})
+	return err
+}
+
+func (p *proofCheckpoints) WorkerBundle(_ context.Context, _ string, kind nodewire.EvidenceKind) ([]byte, map[string][]byte, error) {
+	id, err := p.bundleID(kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifestBytes, _, err := p.evidence.ReadBundleManifest(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifest, err := evidencebundle.Decode(manifestBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	artifacts := map[string][]byte{}
+	for _, artifact := range manifest.Artifacts {
+		raw, err := hex.DecodeString(artifact.ContentHash)
+		if err != nil || len(raw) != 32 {
+			return nil, nil, fmt.Errorf("artifact %s content hash is not Hash32", artifact.ID)
+		}
+		size, err := artifact.SizeBytes()
+		if err != nil {
+			return nil, nil, err
+		}
+		if artifacts[artifact.ID], err = p.evidence.ReadBundleArtifact(id, codec.Hash(raw), int64(size)); err != nil {
+			return nil, nil, err
+		}
+	}
+	return manifestBytes, artifacts, nil
+}
+
+func (p *proofCheckpoints) bundleID(kind nodewire.EvidenceKind) (evidence.BundleID, error) {
+	switch kind {
+	case nodewire.EvidenceKindWorkerTokenOpening:
+		return evidence.WorkerTokenBundle(p.taskHash), nil
+	case nodewire.EvidenceKindWorkerValueOpening:
+		return evidence.WorkerValueBundle(p.taskHash), nil
+	default:
+		return evidence.BundleID{}, fmt.Errorf("evidence kind %d is not a Worker bundle", kind)
+	}
+}
+
+func (p *proofCheckpoints) CheckpointInferOutput(ctx context.Context, taskID string, output, tokenIDs, positionValues []byte, cp worker.InferOutputCheckpoint) error {
 	for _, rec := range []worker.EvidenceRecord{
 		{TaskID: taskID, Kind: "worker-output", Data: output},
-		{TaskID: taskID, Kind: "worker-trace", Data: trace},
-		{TaskID: taskID, Kind: "worker-checkpoint", Data: checkpoint},
+		{TaskID: taskID, Kind: "worker-token-ids-material", Data: tokenIDs},
+		{TaskID: taskID, Kind: "worker-position-values-material", Data: positionValues},
 		{TaskID: taskID, Kind: "worker-output-descriptor", Data: cp.DescriptorJSON},
 	} {
 		if err := p.WriteEvidence(ctx, rec); err != nil {
@@ -1364,34 +1484,25 @@ func (s staticLiability) TaskLiability(_ context.Context, sessionID, taskID, ope
 	return s.liability, nil
 }
 
-func proofLiability(assignment chainclient.AssignmentFinalized) chainclient.TaskLiabilitySnapshot {
-	return chainclient.TaskLiabilitySnapshot{
-		SessionID: assignment.SessionID, TaskID: assignment.TaskID, OperatorAddress: assignment.Winner, Duty: "WORKER",
-		BondVersion: 1, CapabilityVersion: 1, ReservedAmount: 100, Status: "RESERVED",
-		CreatedHeight: chainclient.NewUint64String(assignment.WinnerConfirmHeight), ModelID: assignment.ModelID,
-		ProfileVersion: chainclient.NewProfileVersion(assignment.ProfileVersion),
-	}
-}
-
 type proofModel struct {
 	modelservice.Client
-	mu            sync.Mutex
-	inferCalls    int
-	inferInput    []byte
-	outputRef     string
-	traceRef      string
-	checkpointRef string
-	tokenCount    uint64
-	fake          *modelservice.FakeService
-	output        []byte
+	mu                sync.Mutex
+	inferCalls        int
+	inferInput        []byte
+	outputRef         string
+	tokenIDsRef       string
+	positionValuesRef string
+	tokenCount        uint64
+	fake              *modelservice.FakeService
+	output            []byte
 }
 
 func newProofModel(t *testing.T, fake *modelservice.FakeService, output []byte, tokenCount uint64) *proofModel {
 	t.Helper()
 	return &proofModel{
 		Client: fake, fake: fake, output: append([]byte(nil), output...), outputRef: fake.PutArtifactForTest(output),
-		traceRef:      fake.PutArtifactForTest(proofTrace),
-		checkpointRef: fake.PutArtifactForTest(proofCheckpointArtifact), tokenCount: tokenCount,
+		tokenIDsRef:       fake.PutArtifactForTest(proofTokenIDsMaterial(t)),
+		positionValuesRef: fake.PutArtifactForTest(proofPositionValuesMaterial(t)), tokenCount: tokenCount,
 	}
 }
 
@@ -1400,19 +1511,19 @@ func (m *proofModel) Infer(_ context.Context, req modelservice.InferRequest) (mo
 	m.inferCalls++
 	m.inferInput = append([]byte(nil), req.Input...)
 	m.mu.Unlock()
-	traceRef, checkpointRef := m.traceRef, m.checkpointRef
+	tokenIDsRef, positionValuesRef := m.tokenIDsRef, m.positionValuesRef
 	if req.Generation != nil {
-		trace, checkpoint, err := generationfixture.Evidence(req, m.output, m.tokenCount)
+		tokenIDs, positionValues, err := generationfixture.Material(req, m.tokenCount)
 		if err != nil {
 			return modelservice.InferResponse{}, err
 		}
-		traceRef, checkpointRef = m.fake.PutArtifactForTest(trace), m.fake.PutArtifactForTest(checkpoint)
+		tokenIDsRef, positionValuesRef = m.fake.PutArtifactForTest(tokenIDs), m.fake.PutArtifactForTest(positionValues)
 	}
 	return modelservice.InferResponse{
 		RequestID: req.RequestID, ModelServiceID: req.ModelServiceID, JobID: req.JobID,
 		TaskID: req.TaskID, ModelID: req.ModelID, ProfileVersion: req.ProfileVersion,
 		RequestDigest: append([]byte(nil), req.RequestDigest...), OutputRef: m.outputRef,
-		TraceRef: traceRef, CheckpointRef: checkpointRef,
+		TokenIDsRef: tokenIDsRef, PositionValuesRef: positionValuesRef,
 		GeneratedTokenCount: m.tokenCount, WorkUnit: 17,
 		FinishReason: nodewire.FinishReasonV1EosToken, GenerationParamsDigest: append([]byte(nil), req.GenerationParamsDigest...),
 	}, nil
@@ -1460,4 +1571,22 @@ func mustOpenStore(t *testing.T, path string) *store.Store {
 		t.Fatalf("store.Open: %v", err)
 	}
 	return db
+}
+
+func proofTokenIDsMaterial(t testing.TB) []byte {
+	t.Helper()
+	data, err := modelservice.EncodeTokenIDsArtifact(modelservice.TokenIDs{Input: []uint32{7}, Generated: []uint32{1, 2, 3, 4}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func proofPositionValuesMaterial(t testing.TB) []byte {
+	t.Helper()
+	data, err := modelservice.EncodePositionValuesArtifact(proofValues())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

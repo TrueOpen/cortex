@@ -14,8 +14,8 @@ type KeeperIdentityReader interface {
 	CortexNode(context.Context, string) (chainclient.CortexNodeSnapshot, error)
 	ServiceBond(context.Context, string) (chainclient.ServiceBondSnapshot, error)
 	CurrentServiceKey(context.Context, string, string, uint64) (chainclient.ServiceKeySnapshot, error)
-	ModelCapability(context.Context, string, string, string) (chainclient.ModelCapabilitySnapshot, error)
-	ModelSupport(context.Context, string, string, string) (chainclient.ModelSupportSnapshot, error)
+	ModelCapability(context.Context, string, string) (chainclient.ModelCapabilitySnapshot, error)
+	ModelSupport(context.Context, string, string) (chainclient.ModelSupportSnapshot, error)
 }
 
 func checkKeeperIdentity(ctx context.Context, identity config.LocalIdentityConfig, reader KeeperIdentityReader, currentHeight uint64) (string, error) {
@@ -122,14 +122,14 @@ func checkKeeperModelReadiness(ctx context.Context, identity config.LocalIdentit
 	}
 	for _, profile := range profiles {
 		profileVersion := fmt.Sprintf("%d", profile.ProfileVersion)
-		capability, err := reader.ModelCapability(ctx, operator, profile.ModelID, profileVersion)
+		capability, err := reader.ModelCapability(ctx, operator, profile.ModelID)
 		if err != nil {
 			return fmt.Errorf("query Keeper model capability %s@%s: %w", profile.ModelID, profileVersion, err)
 		}
 		if err := capability.Validate(); err != nil {
 			return err
 		}
-		if capability.OperatorAddress != operator || capability.ModelID != profile.ModelID || capability.ProfileVersion.Uint32() != profile.ProfileVersion {
+		if capability.OperatorAddress != operator || capability.ModelID != profile.ModelID {
 			return fmt.Errorf("Keeper model capability identity does not match %s@%s", profile.ModelID, profileVersion)
 		}
 		// Both capabilities are required now that duty selection is retired: a
@@ -142,11 +142,11 @@ func checkKeeperModelReadiness(ctx context.Context, identity config.LocalIdentit
 		if !capability.VerificationCapability {
 			return fmt.Errorf("Keeper model capability does not enable VERIFIER verification for %s@%s", profile.ModelID, profileVersion)
 		}
-		support, err := reader.ModelSupport(ctx, operator, profile.ModelID, profileVersion)
+		support, err := reader.ModelSupport(ctx, operator, profile.ModelID)
 		if err != nil {
 			return fmt.Errorf("query Keeper model support %s@%s: %w", profile.ModelID, profileVersion, err)
 		}
-		if support.OperatorAddress != operator || support.ModelID != profile.ModelID || support.ProfileVersion.Uint32() != profile.ProfileVersion {
+		if support.OperatorAddress != operator || support.ModelID != profile.ModelID {
 			return fmt.Errorf("Keeper model support identity does not match %s@%s", profile.ModelID, profileVersion)
 		}
 		if err := support.Validate(); err != nil {

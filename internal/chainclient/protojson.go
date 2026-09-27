@@ -37,6 +37,17 @@ func (v *ProtoBytes32) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &encoded); err != nil {
 		return fmt.Errorf("protobuf bytes32 must be a base64 JSON string")
 	}
+	// A Hash32 field wire annotates as REST_BYTES_ENCODING_HASH32_LOWER_HEX
+	// arrives as 64 lowercase hex characters (see restProtoJSON). Base64 of 32
+	// bytes is always 44 characters, so the two forms cannot be confused.
+	if len(encoded) == 64 && strings.ToLower(encoded) == encoded {
+		raw, err := hex.DecodeString(encoded)
+		if err != nil {
+			return fmt.Errorf("protobuf bytes32 hex must decode to exactly 32 bytes")
+		}
+		*v = append((*v)[:0], raw...)
+		return nil
+	}
 	raw, err := base64.StdEncoding.Strict().DecodeString(encoded)
 	if err != nil || len(raw) != 32 {
 		return fmt.Errorf("protobuf bytes32 must decode to exactly 32 bytes")

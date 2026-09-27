@@ -60,7 +60,7 @@ func TestEvaluateAndHandraisePersistsBeforePublishingWorkerHandraise(t *testing.
 
 	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID,
 		SessionID:     event.SessionID,
-		OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: "model-1", ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120,
+		OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120,
 		HandraiseExpireHeight:     150,
 		ServiceAuthorizationNonce: workerTestHandraiseNonce,
 		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
@@ -101,7 +101,7 @@ func TestEvaluateAndHandraisePersistsBeforePublishingWorkerHandraise(t *testing.
 	if nexusEnvelope.Kind != builderclient.KindWorkerHandraise || nexusEnvelope.SenderOperatorAddress != workerTestOperatorAddress ||
 		handraise.GetSchemaVersion() != 1 || handraise.GetChainId() != h.worker.cfg.ChainID ||
 		hex.EncodeToString(handraise.GetTaskId()) != event.TaskID ||
-		!bytes.Equal(handraise.GetTaskHash(), wantTaskHash[:]) || handraise.GetModelId() != "model-1" || handraise.GetProfileVersion() != 1 ||
+		!bytes.Equal(handraise.GetTaskHash(), wantTaskHash[:]) || hex.EncodeToString(handraise.GetModelId()) != workerTestModelID || handraise.GetProfileVersion() != 1 ||
 		hex.EncodeToString(handraise.GetMember().GetCandidatePoolSnapshotId()) != wantMember.CandidatePoolSnapshotID ||
 		handraise.GetMember().GetOperatorAddress() != wantMember.OperatorAddress ||
 		handraise.GetDuty() != 1 ||
@@ -143,7 +143,7 @@ func TestEvaluateAndHandraiseRejectDoesNotPersistOrPublish(t *testing.T) {
 
 	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID,
 		SessionID:     event.SessionID,
-		OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: "model-1", ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120,
+		OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120,
 		HandraiseExpireHeight:     150,
 		ServiceAuthorizationNonce: workerTestHandraiseNonce,
 		Precheck:                  precheck})
@@ -172,7 +172,7 @@ func TestEvaluateAndHandraiseEmitsNoPayloadKeyringHash(t *testing.T) {
 	h.worker.cfg.Persistence = recorder
 	event := finalizedTask()
 
-	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: "model-1", ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
+	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
 		ServiceAuthorizationNonce: workerTestHandraiseNonce,
 		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
 		Precheck:                  validWorkerPrecheck()})
@@ -206,7 +206,7 @@ func TestEvaluateAndHandraiseEmitsNoPayloadKeyringHash(t *testing.T) {
 // window, both of which still gate signing.
 func TestEvaluateAndHandraiseStillRefusesBrokenIdentityAndHeightWindow(t *testing.T) {
 	event := finalizedTask()
-	valid := WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: "model-1", ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
+	valid := WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
 		ServiceAuthorizationNonce: workerTestHandraiseNonce,
 		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
 		Precheck:                  validWorkerPrecheck()}
@@ -255,7 +255,7 @@ func TestEvaluateAndHandraiseStillRefusesBrokenIdentityAndHeightWindow(t *testin
 // on the wire that authenticates nothing.
 func TestEvaluateAndHandraiseRefusesMissingEnvelopeIdentity(t *testing.T) {
 	event := finalizedTask()
-	valid := WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: "model-1", ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
+	valid := WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
 		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
 		ServiceAuthorizationNonce: workerTestHandraiseNonce,
 		Precheck:                  validWorkerPrecheck()}
@@ -300,7 +300,7 @@ func TestEvaluateAndHandraiseRequiresEnvelopeSignerOutsideFixtures(t *testing.T)
 	h.worker.cfg.Persistence = recorder
 	event := finalizedTask()
 
-	_, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: "model-1", ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
+	_, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
 		ServiceAuthorizationNonce: workerTestHandraiseNonce,
 		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
 		Precheck:                  validWorkerPrecheck()})
@@ -344,7 +344,7 @@ func nodewireTestHandraise() nodewire.WorkerHandraiseV1 {
 	return nodewire.WorkerHandraiseV1{
 		SchemaVersion: 1, ChainID: "chain-A",
 		TaskID: bytes.Repeat([]byte{0xab}, 32), TaskHash: bytes.Repeat([]byte{0xcd}, 32),
-		ModelID: "model-1", ProfileVersion: 1,
+		ModelID: bytes.Repeat([]byte{0x01}, 32), ProfileVersion: 1,
 		Member: nodewire.CandidateMemberRefV1{
 			CandidatePoolSnapshotID: bytes.Repeat([]byte{0x11}, 32),
 			Slot:                    1, SlotVersion: 1, OperatorAddress: workerTestOperatorAddress,
@@ -373,7 +373,7 @@ func TestFinalizedLocalWinnerRunsInferenceThenRefusesTheFrozenReceipt(t *testing
 		Winner:                 workerTestOperatorAddress,
 		WinnerConfirmHeight:    200,
 		InferDeadlineHeight:    225,
-		ModelID:                "fake-llm-text",
+		ModelID:                modelservice.FakeModelID,
 		ProfileVersion:         1,
 		Capability:             modelservice.CapabilityLLMTextV1,
 		Input:                  []byte("hello"),
@@ -459,7 +459,7 @@ func TestFinalizedRemoteWinnerDoesNotStartInfer(t *testing.T) {
 		TaskID:              "task-1",
 		Winner:              "other-worker",
 		WinnerConfirmHeight: 200,
-		ModelID:             "fake-llm-text",
+		ModelID:             modelservice.FakeModelID,
 		ProfileVersion:      1,
 		Capability:          modelservice.CapabilityLLMTextV1,
 		Input:               []byte("hello"),
@@ -703,10 +703,10 @@ func TestWorkerRetriesWithStableReceiptAndOutputMaterial(t *testing.T) {
 	if h.model.InferCalls != 1 {
 		t.Fatalf("model infer calls = %d, want the durable prepared output reused", h.model.InferCalls)
 	}
-	// The first evidence artifact fails once, then four artifacts and manifest
-	// are staged on retry. The already stored output stream is reused.
-	if len(h.taskData.relays) != 2 || len(h.taskData.uploads) != 6 {
-		t.Fatalf("relay/upload attempts = %d/%d, want 2/6", len(h.taskData.relays), len(h.taskData.uploads))
+	// The first evidence artifact fails once, then four artifacts and two
+	// manifests are staged on retry. The already stored output stream is reused.
+	if len(h.taskData.relays) != 2 || len(h.taskData.uploads) != 7 {
+		t.Fatalf("relay/upload attempts = %d/%d, want 2/7", len(h.taskData.relays), len(h.taskData.uploads))
 	}
 	for index, upload := range h.taskData.uploads[:2] {
 		if upload.Key.Kind != builderclient.DataKindEvidenceArtifact {
@@ -747,7 +747,7 @@ func TestWorkerPublishesOutputAvailableOnlyAfterValidConfirmation(t *testing.T) 
 		t.Fatalf("events = %#v, want verified confirmation persisted before availability release", events)
 	}
 	// Finalization confirms the OUTPUT and the complete evidence manifest.
-	if len(h.persistence.confirmations) != 2 || !pendingOutputAvailable(h.persistence.outbox) {
+	if len(h.persistence.confirmations) != 3 || !pendingOutputAvailable(h.persistence.outbox) {
 		t.Fatalf("confirmation/outbox = %d/%#v", len(h.persistence.confirmations), h.persistence.outbox)
 	}
 }
@@ -767,8 +767,8 @@ func TestWorkerRestartAfterAvailabilityReleaseDoesNotDowngradeOrRepublish(t *tes
 				t.Fatalf("restarted HandleAssignmentFinalized: %v", err)
 			}
 			// The stored output and manifest confirmations avoid repeating any of
-			// the four uploads or the finalization request after restart.
-			if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 5 || len(h.persistence.confirmations) != 2 {
+			// the six uploads or the finalization request after restart.
+			if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 6 || len(h.persistence.confirmations) != 3 {
 				t.Fatalf("restart duplicated relay/upload/confirmation = %d/%d/%d",
 					len(h.taskData.relays), len(h.taskData.uploads), len(h.persistence.confirmations))
 			}
@@ -1041,16 +1041,19 @@ func TestWorkerRevealNormalPathUsesBuilderEvenWhenTxConfigured(t *testing.T) {
 func testSubmitInferReceiptMessage(taskID, submitter string) txclient.SubmitInferReceiptMessage {
 	digest := codec.HashWithDomain("TEST_TASK_ID_V1", []byte(taskID))
 	hash := txclient.ProtoBytes32(fmt.Sprintf("%x", digest[:]))
+	zero := txclient.ProtoBytes32(strings.Repeat("00", 32))
 	return txclient.SubmitInferReceiptMessage{
 		Receipt: txclient.InferReceiptMessage{
-			SchemaVersion: txclient.InferReceiptSchemaVersionV2, ChainID: "trueopen-devnet-1",
+			SchemaVersion: txclient.InferReceiptSchemaVersionV3, ChainID: "trueopen-devnet-1",
 			TaskID: hash, TaskHash: hash, WorkerOperatorAddress: workerTestOperatorAddress,
 			ServiceAuthorizationNonce: 3, GenerationParamsDigest: hash, OutputHash: hash,
 			OutputSizeBytes: 2_048, GeneratedTokenCount: 32, OutputLeafCount: 2,
 			RequiredEvidenceCommitments: []txclient.EvidenceCommitmentMessage{
 				{EvidenceKind: txclient.EvidenceKindWorkerValueOpening, EvidenceHashOrRoot: hash, EncodedSizeBytes: 256},
+				{EvidenceKind: txclient.EvidenceKindWorkerTokenOpening, EvidenceHashOrRoot: hash, EncodedSizeBytes: 136},
 			},
 			ExpiryHeight: 300, ServiceSignature: txclient.ProtoBytes(strings.Repeat("ab", 64)),
+			OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
 		},
 		SubmitterAddress: submitter,
 	}
@@ -1284,6 +1287,9 @@ func newHarnessWithConfig(t *testing.T, mutate func(*Config)) harness {
 		// come from. Both are keyed by task id, so a reader pointed at the wrong
 		// task serves visibly different bytes.
 		TaskFacts: taskFacts,
+		GenerationReader: generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
+			return workerTestGeneration(), nil
+		}),
 		// SnapshotReader re-reads the canonical assignment before the worker
 		// accepts an event. Tests use a fixed snapshot that matches the event.
 		SnapshotReader: snapshotReader,
@@ -1310,6 +1316,13 @@ func newHarnessWithConfig(t *testing.T, mutate func(*Config)) harness {
 // address codec bytes, and a placeholder such as "worker-1" is refused outright.
 const workerTestOperatorAddress = "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
 
+// workerTestRequiredTopK frames the harness worker_values; the mocked engines
+// report one alternative per position.
+const workerTestRequiredTopK = 1
+
+// workerTestModelID is the Hash32 model id, as canonical hex, the harness serves.
+const workerTestModelID = "0101010101010101010101010101010101010101010101010101010101010101"
+
 // workerTestHandraiseNonce is the committed ServiceKey authorization_nonce a
 // handraise caller reads with taskdataauth.CommittedBusEnvelopeIdentity and hands
 // to EvaluateAndHandraise for envelope field 7. It is deliberately not 1 so an
@@ -1335,9 +1348,23 @@ func (h harness) seedPreparedOutput(t *testing.T, event chainclient.AssignmentFi
 // workerTestServedTaskFacts is what the Keeper's frozen section 16.2 read serves
 // for one task. It is the single source for both fixture facts, so the seeded
 // prepared output and the production fetch cannot drift apart.
+// workerTestGeneration is the harness task's generation context: its digest is
+// the served generation_params_digest and its canonical bytes are the A-level
+// generation_params artifact.
+func workerTestGeneration() nodewire.GenerationContext {
+	return nodewire.GenerationContext{
+		ModelID: finalizedTask().ModelID, ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 1,
+		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: 1024, MaxOutputDuration: 30000,
+			DecodingParams: nodewire.DecodingParamsV1{TopPPPM: 1000000, RepetitionPenaltyPPM: 1000000}},
+	}
+}
+
 func workerTestServedTaskFacts(taskID string) taskfacts.Facts {
 	accepted := codec.HashWithDomain("WORKER_TEST_ACCEPTED_TASK_HASH_V1", []byte(taskID))
-	generation := codec.HashWithDomain("WORKER_TEST_GENERATION_PARAMS_DIGEST_V1", []byte(taskID))
+	generation, err := workerTestGeneration().Digest()
+	if err != nil {
+		panic(err)
+	}
 	return taskfacts.Facts{
 		TaskID: taskID,
 		TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
@@ -1497,6 +1524,11 @@ type recordingTaskData struct {
 	retention                    uint64
 	mutateConfirmation           func(*builderclient.StorageConfirmation)
 	mutateConfirmationBeforeSign func(*builderclient.StorageConfirmation)
+	// finalizeErrors fails the next finalize of a bundle kind once each.
+	finalizeErrors map[nodewire.EvidenceKind][]error
+	// finalizeCalls counts every finalize request per bundle kind, including
+	// ones the Builder answers idempotently.
+	finalizeCalls map[nodewire.EvidenceKind]int
 }
 
 func (*recordingTaskData) GetTaskDataMetadata(context.Context, string, builderclient.GetTaskDataMetadataRequest) (builderclient.TaskDataMetadata, error) {
@@ -1550,6 +1582,14 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 	c.endpoints = append(c.endpoints, endpoint)
 	pin, _ := builderclient.TLSPubkeyHashFromContext(ctx)
 	c.pins = append(c.pins, pin)
+	if c.finalizeCalls == nil {
+		c.finalizeCalls = map[nodewire.EvidenceKind]int{}
+	}
+	c.finalizeCalls[request.EvidenceKind]++
+	if errs := c.finalizeErrors[request.EvidenceKind]; len(errs) > 0 {
+		c.finalizeErrors[request.EvidenceKind] = errs[1:]
+		return builderclient.FinalizeTaskResultResponse{}, errs[0]
+	}
 	result, err := c.FakeClient.FinalizeTaskResult(ctx, endpoint, request)
 	if err != nil {
 		return result, err
@@ -1629,6 +1669,55 @@ type recordingPersistence struct {
 	receipts            []InferReceiptCheckpoint
 	confirmations       []StorageConfirmationCheckpoint
 	events              *[]string
+	bundles             map[string]recordedBundle
+	// publishErrors fails the next PublishWorkerBundle of a kind once each.
+	publishErrors map[nodewire.EvidenceKind][]error
+}
+
+// recordedBundle is one published Worker bundle.
+type recordedBundle struct {
+	manifest  []byte
+	artifacts map[string][]byte
+}
+
+func (r *recordingPersistence) PublishWorkerBundle(_ context.Context, taskID string, kind nodewire.EvidenceKind, manifest []byte, artifacts [][]byte) error {
+	if errs := r.publishErrors[kind]; len(errs) > 0 {
+		r.publishErrors[kind] = errs[1:]
+		return errs[0]
+	}
+	decoded, err := evidencebundle.Decode(manifest)
+	if err != nil {
+		return err
+	}
+	byHash := make(map[string][]byte, len(artifacts))
+	for _, data := range artifacts {
+		byHash[codec.HashBytes(data).String()] = append([]byte(nil), data...)
+	}
+	bundle := recordedBundle{manifest: append([]byte(nil), manifest...), artifacts: map[string][]byte{}}
+	for _, artifact := range decoded.Artifacts {
+		bundle.artifacts[artifact.ID] = byHash[artifact.ContentHash]
+	}
+	key := fmt.Sprintf("%s/%d", taskID, kind)
+	if existing, ok := r.bundles[key]; ok {
+		if !bytes.Equal(existing.manifest, manifest) {
+			return fmt.Errorf("bundle %s already published with a different manifest", key)
+		}
+		return nil
+	}
+	if r.bundles == nil {
+		r.bundles = map[string]recordedBundle{}
+	}
+	r.bundles[key] = bundle
+	r.record(fmt.Sprintf("bundle:%d", kind))
+	return nil
+}
+
+func (r *recordingPersistence) WorkerBundle(_ context.Context, taskID string, kind nodewire.EvidenceKind) ([]byte, map[string][]byte, error) {
+	bundle, ok := r.bundles[fmt.Sprintf("%s/%d", taskID, kind)]
+	if !ok {
+		return nil, nil, ErrCheckpointNotFound
+	}
+	return bundle.manifest, bundle.artifacts, nil
 }
 
 func (r *recordingPersistence) ReadArtifact(_ context.Context, taskID, kind string) ([]byte, error) {
@@ -1691,10 +1780,10 @@ func (r *recordingPersistence) WriteEvidence(_ context.Context, record EvidenceR
 	return nil
 }
 
-func (r *recordingPersistence) CheckpointInferOutput(_ context.Context, taskID string, output, trace, checkpoint []byte, cp InferOutputCheckpoint) error {
+func (r *recordingPersistence) CheckpointInferOutput(_ context.Context, taskID string, output, tokenIDs, positionValues []byte, cp InferOutputCheckpoint) error {
 	r.evidence = append(r.evidence, EvidenceRecord{TaskID: taskID, Kind: "worker-output", Data: append([]byte(nil), output...)})
-	r.evidence = append(r.evidence, EvidenceRecord{TaskID: taskID, Kind: "worker-trace", Data: append([]byte(nil), trace...)})
-	r.evidence = append(r.evidence, EvidenceRecord{TaskID: taskID, Kind: "worker-checkpoint", Data: append([]byte(nil), checkpoint...)})
+	r.evidence = append(r.evidence, EvidenceRecord{TaskID: taskID, Kind: "worker-token-ids-material", Data: append([]byte(nil), tokenIDs...)})
+	r.evidence = append(r.evidence, EvidenceRecord{TaskID: taskID, Kind: "worker-position-values-material", Data: append([]byte(nil), positionValues...)})
 	r.evidence = append(r.evidence, EvidenceRecord{TaskID: taskID, Kind: "worker-output-descriptor", Data: append([]byte(nil), cp.DescriptorJSON...)})
 	r.record("checkpoint:infer-output")
 	return nil
@@ -1767,8 +1856,8 @@ func (m *nondeterministicModel) Infer(ctx context.Context, request modelservice.
 	}
 	suffix := fmt.Sprintf("-%d", m.calls)
 	response.OutputRef = m.PutArtifactForTest([]byte("varying output" + suffix))
-	response.TraceRef = m.PutArtifactForTest([]byte("varying trace" + suffix))
-	response.CheckpointRef = m.PutArtifactForTest([]byte("varying checkpoint" + suffix))
+	response.TokenIDsRef = m.PutArtifactForTest([]byte("varying trace" + suffix))
+	response.PositionValuesRef = m.PutArtifactForTest([]byte("varying checkpoint" + suffix))
 	return response, nil
 }
 
@@ -1848,7 +1937,7 @@ func finalizedTask() chainclient.AssignmentFinalized {
 		Winner:                 workerTestOperatorAddress,
 		WinnerConfirmHeight:    200,
 		InferDeadlineHeight:    230,
-		ModelID:                "fake-llm-text",
+		ModelID:                modelservice.FakeModelID,
 		ProfileVersion:         1,
 		Capability:             modelservice.CapabilityLLMTextV1,
 		Input:                  []byte("hello"),
@@ -1917,7 +2006,6 @@ func validWorkerPrecheck() policy.WorkerPrecheckInput {
 		SupportedProfiles:               []string{modelservice.CapabilityLLMTextV1},
 		AvailableSlots:                  1,
 		CapacitySnapshotRef:             "capacity://snapshot/1",
-		RewardEligible:                  true,
 		SelfRescueGasAvailable:          true,
 		SelfRescueGasBudgetNanoTRUEOPEN: 10,
 	}
@@ -1945,7 +2033,7 @@ func TestWorkerRelaysExactReceiptAndEvidenceFacts(t *testing.T) {
 	if relay.Receipt.TaskHash == hex.EncodeToString(event.OrderDigest[:]) {
 		t.Fatal("relayed task_hash is the order digest, which the frozen contract forbids")
 	}
-	if relay.Receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV2 ||
+	if relay.Receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV3 ||
 		relay.Receipt.ChainID != "chain-A" ||
 		relay.Receipt.WorkerOperatorAddress != workerTestOperatorAddress ||
 		relay.Receipt.ServiceAuthorizationNonce == 0 ||
@@ -1955,35 +2043,25 @@ func TestWorkerRelaysExactReceiptAndEvidenceFacts(t *testing.T) {
 	if relay.Receipt.OutputSizeBytes != uint64(len(storedOutput)) || relay.Receipt.OutputLeafCount != 1 {
 		t.Fatalf("receipt output facts = %#v, streamed bytes = %d", relay.Receipt, len(storedOutput))
 	}
-	// The V2 Worker value commitment binds all four artifacts and their checked
-	// total size. Its typed root is distinct from the manifest's content hash.
-	if len(relay.Receipt.RequiredEvidenceCommitments) != 1 {
-		t.Fatalf("evidence commitments = %#v, want exactly one WORKER_VALUE_OPENING element",
-			relay.Receipt.RequiredEvidenceCommitments)
+	// The receipt carries the value and the token commitments, each a typed
+	// digest distinct from its manifest's content hash and sized to its bundle.
+	if len(relay.Receipt.RequiredEvidenceCommitments) != 2 {
+		t.Fatalf("evidence commitments = %#v, want the value and token openings", relay.Receipt.RequiredEvidenceCommitments)
 	}
-	commitment := relay.Receipt.RequiredEvidenceCommitments[0]
-	if commitment.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening ||
-		commitment.EvidenceHashOrRoot == (codec.Hash{}) {
-		t.Fatalf("relayed evidence commitment = %#v", commitment)
-	}
-	trace, err := h.persistence.ReadArtifact(context.Background(), event.TaskID, "worker-trace")
-	if err != nil {
-		t.Fatalf("read worker trace artifact: %v", err)
-	}
-	checkpoint, err := h.persistence.ReadArtifact(context.Background(), event.TaskID, "worker-checkpoint")
-	if err != nil {
-		t.Fatalf("read worker checkpoint artifact: %v", err)
-	}
-	if commitment.EvidenceHashOrRoot == codec.HashBytes(trace) ||
-		commitment.EvidenceHashOrRoot == codec.HashBytes(checkpoint) {
-		t.Fatal("evidence_hash_or_root is a bare artifact hash, not the worker value commitment digest")
-	}
-	manifest, err := evidencebundle.Decode(h.taskData.uploads[4].Data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if commitment.EncodedSizeBytes != manifest.TotalSize() {
-		t.Fatalf("evidence encoded_size_bytes = %d, want artifact total %d", commitment.EncodedSizeBytes, manifest.TotalSize())
+	for i, want := range []struct {
+		kind       nodewire.EvidenceKind
+		manifestAt int
+	}{{nodewire.EvidenceKindWorkerValueOpening, 1}, {nodewire.EvidenceKindWorkerTokenOpening, 5}} {
+		commitment := relay.Receipt.RequiredEvidenceCommitments[i]
+		manifestBytes := h.taskData.uploads[want.manifestAt].Data
+		manifest, err := evidencebundle.Decode(manifestBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if commitment.EvidenceKind != want.kind || commitment.EvidenceHashOrRoot == (codec.Hash{}) ||
+			commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestBytes) || commitment.EncodedSizeBytes != manifest.CommittedSize() {
+			t.Fatalf("relayed evidence commitment %d = %#v", i, commitment)
+		}
 	}
 	finalize := h.taskData.FinalizedTaskResults[0]
 	if relay.Receipt.ServiceSignature == "" || !reflect.DeepEqual(relay.Receipt, finalize.Receipt) {
@@ -2037,8 +2115,13 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 		}
 	}
 	// And the read really happened, for exactly the task in hand.
-	if len(h.taskFacts.asked) != 2 || h.taskFacts.asked[0] != finalizedTask().TaskID || h.taskFacts.asked[1] != finalizedTask().TaskID {
+	if len(h.taskFacts.asked) < 2 {
 		t.Fatalf("task facts asked = %#v, want stream and receipt reads for the finalized assignment", h.taskFacts.asked)
+	}
+	for _, asked := range h.taskFacts.asked {
+		if asked != finalizedTask().TaskID {
+			t.Fatalf("task facts asked = %#v, want only the finalized assignment", h.taskFacts.asked)
+		}
 	}
 	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 {
 		t.Fatalf("refusal reached the network: relays=%d uploads=%d", len(h.taskData.relays), len(h.taskData.uploads))
@@ -2067,11 +2150,23 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 func TestWorkerReceiptCarriesTheServedTaskFacts(t *testing.T) {
 	h := newHarness(t)
 	event := finalizedTask()
+	// The served digest is of parameters only this test's order carries, so it
+	// cannot be the harness default; the generation_params artifact must hash
+	// to it.
+	generation := workerTestGeneration()
+	generation.Params.DecodingParams.Seed = 0x6c6c
+	generationDigest, err := generation.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.worker.cfg.GenerationReader = generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
+		return generation.Clone(), nil
+	})
 	served := taskfacts.Facts{
 		TaskID: event.TaskID,
 		TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
 			AcceptedTaskHash:       chainclient.ProtoBytes32(bytes.Repeat([]byte{0x5b}, 32)),
-			GenerationParamsDigest: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x6c}, 32)),
+			GenerationParamsDigest: chainclient.ProtoBytes32(generationDigest[:]),
 		},
 	}
 	h.taskFacts.override = func(string) (taskfacts.Facts, error) { return served, nil }

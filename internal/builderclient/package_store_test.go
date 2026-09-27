@@ -24,7 +24,7 @@ func TestFixtureOutputPackageStoreSharesCanonicalPackage(t *testing.T) {
 	}
 	pkg := OutputPackage{
 		SessionID: "session-1", TaskID: "task-1", ModelID: "model-1", ProfileVersion: "llm_text_v1",
-		OutputRef: "cortex-artifact://model/output?size=1", TraceRef: "cortex-artifact://model/trace?size=1", CheckpointRef: "cortex-artifact://model/checkpoint?size=1",
+		OutputRef: "cortex-artifact://model/output?size=1", TokenIDsRef: "cortex-artifact://model/trace?size=1", PositionValuesRef: "cortex-artifact://model/checkpoint?size=1",
 		OutputHash: codec.HashWithDomain("OUTPUT", []byte("output")), ReceiptHash: codec.HashWithDomain("RECEIPT", []byte("receipt")),
 		ReceiptPayload: []byte("receipt-payload"), WorkerSignature: []byte("worker-signature"),
 	}

@@ -75,7 +75,7 @@ func TestRegistrationSubmitterBroadcastsAtomicCurrentMessage(t *testing.T) {
 	if _, err := submitter.SubmitModelProfile(context.Background(), message); err != nil {
 		t.Fatalf("SubmitModelProfile error = %v", err)
 	}
-	if len(tx.requests) != 1 || tx.requests[0].Kind != txclient.MsgRegisterModelProfile || tx.requests[0].TaskID != "model-profile-registration:hf-qwen3-8b/1" {
+	if len(tx.requests) != 1 || tx.requests[0].Kind != txclient.MsgRegisterModelProfile || tx.requests[0].TaskID != "model-profile-registration:"+message.Profile.ModelID.Hex()+"/1" {
 		t.Fatalf("registration request = %#v", tx.requests)
 	}
 }
@@ -127,10 +127,10 @@ func TestTxSupportConfirmerRefusesOperatorDeclarationAndStillSubmitsDailyConfirm
 		Signer: digestSigner, ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
 		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
 		GasPayer:        "trueopen1service", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},
-		SupportedProfiles: []keepercontract.ProfileRef{{ModelID: "model-a", ProfileVersion: 1}},
+		SupportedModels: []string{"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"},
 	})
 	material := SupportMaterial{
-		ModelID: "model-a", ProfileVersion: "1", SupporterAddress: "trueopen1node", SupportMode: SupportModeDeclared, Supported: true,
+		ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1", SupporterAddress: "trueopen1node", SupportMode: SupportModeDeclared, Supported: true,
 		InferenceCapability: true, VerificationCapability: true,
 	}
 
@@ -178,25 +178,17 @@ func TestTxSupportConfirmerDailyConfirmationCoversEveryConfiguredProfile(t *test
 		Signer: digestSigner, ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
 		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
 		// Deliberately out of order: the confirmer must sort into Node's order.
-		SupportedProfiles: []keepercontract.ProfileRef{
-			{ModelID: "model-b", ProfileVersion: 1},
-			{ModelID: "model-a", ProfileVersion: 10},
-			{ModelID: "model-a", ProfileVersion: 2},
-		},
+		SupportedModels: []string{"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b", "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"},
 	})
-	wantProfiles := []keepercontract.ProfileRef{
-		{ModelID: "model-a", ProfileVersion: 2},
-		{ModelID: "model-a", ProfileVersion: 10},
-		{ModelID: "model-b", ProfileVersion: 1},
-	}
-	wantDigest, err := keepercontract.DailySupportConfirmation("chain-1", operator, 1, 3, 199, wantProfiles)
+	wantModels := []string{"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"}
+	wantDigest, err := keepercontract.DailySupportConfirmation("chain-1", operator, 1, 3, 199, wantModels)
 	if err != nil {
 		t.Fatalf("expected digest: %v", err)
 	}
 
 	for _, requested := range []SupportMaterial{
-		{ModelID: "model-b", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true},
-		{ModelID: "model-a", ProfileVersion: "2", SupportMode: SupportModeDaily, Supported: true},
+		{ModelID: "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true},
+		{ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true},
 	} {
 		if _, err := confirmer.ConfirmSupport(ctx, requested); err != nil {
 			t.Fatalf("daily ConfirmSupport(%s@%s) error = %v", requested.ModelID, requested.ProfileVersion, err)
@@ -217,13 +209,13 @@ func TestTxSupportConfirmerDailyConfirmationCoversEveryConfiguredProfile(t *test
 		if len(batch.Confirmations) != 1 {
 			t.Fatalf("confirmation %d carries %d operator confirmations, want 1", index, len(batch.Confirmations))
 		}
-		got := batch.Confirmations[0].SupportedProfiles
-		if len(got) != len(wantProfiles) {
-			t.Fatalf("confirmation %d supported_profiles = %#v, want %#v", index, got, wantProfiles)
+		got := batch.Confirmations[0].SupportedModels
+		if len(got) != len(wantModels) {
+			t.Fatalf("confirmation %d supported_models = %#v, want %#v", index, got, wantModels)
 		}
-		for position, profile := range got {
-			if profile.ModelID != wantProfiles[position].ModelID || uint32(profile.ProfileVersion) != wantProfiles[position].ProfileVersion {
-				t.Fatalf("confirmation %d supported_profiles = %#v, want %#v", index, got, wantProfiles)
+		for position, model := range got {
+			if model.Hex() != wantModels[position] {
+				t.Fatalf("confirmation %d supported_models = %#v, want %#v", index, got, wantModels)
 			}
 		}
 		if want := "model-support-daily:" + operator + ":1"; request.TaskID != want {
@@ -232,7 +224,7 @@ func TestTxSupportConfirmerDailyConfirmationCoversEveryConfiguredProfile(t *test
 	}
 }
 
-func TestTxSupportConfirmerRejectsDailySupportForUnconfiguredProfile(t *testing.T) {
+func TestTxSupportConfirmerRejectsDailySupportForUnconfiguredModel(t *testing.T) {
 	ctx := context.Background()
 	tx := &recordingTxClient{}
 	signCalls := 0
@@ -245,29 +237,21 @@ func TestTxSupportConfirmerRejectsDailySupportForUnconfiguredProfile(t *testing.
 		ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
 		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
 	}
-	daily := SupportMaterial{ModelID: "model-c", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true}
+	daily := SupportMaterial{ModelID: "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true}
 
-	options.SupportedProfiles = []keepercontract.ProfileRef{{ModelID: "model-a", ProfileVersion: 1}}
+	options.SupportedModels = []string{"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"}
 	_, err := NewTxSupportConfirmer(tx, options).ConfirmSupport(ctx, daily)
-	if err == nil || !strings.Contains(err.Error(), "model-c@1") {
-		t.Fatalf("unconfigured ConfirmSupport error = %v, want model-c@1 named", err)
+	if err == nil || !strings.Contains(err.Error(), daily.ModelID) {
+		t.Fatalf("unconfigured ConfirmSupport error = %v, want the model named", err)
 	}
 
-	options.SupportedProfiles = nil
+	options.SupportedModels = nil
 	if _, err := NewTxSupportConfirmer(tx, options).ConfirmSupport(ctx, daily); err == nil {
 		t.Fatal("ConfirmSupport without configured profiles error = nil")
 	}
 
 	if signCalls != 0 || len(tx.requests) != 0 {
 		t.Fatalf("refused confirmation signed %d times or submitted %#v", signCalls, tx.requests)
-	}
-}
-
-func TestTxSupportConfirmerRejectsNonNumericProfileIdentity(t *testing.T) {
-	for _, profile := range []string{"", "0", "01", "profile-v1", " 1"} {
-		if _, err := canonicalSupportProfileVersion(profile); err == nil {
-			t.Fatalf("canonicalSupportProfileVersion(%q) error = nil", profile)
-		}
 	}
 }
 
@@ -280,11 +264,11 @@ func TestTxSupportConfirmerRejectsRecoveryByte(t *testing.T) {
 	confirmer := NewTxSupportConfirmer(tx, TxSupportConfirmerOptions{
 		ChainID: "chain-1", OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc", Signer: digestSigner,
 		ServiceKeyRef: "kms://service", ServiceAddress: "trueopen1service",
-		ServiceIdentity:   func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
-		SupportedProfiles: []keepercontract.ProfileRef{{ModelID: "model-a", ProfileVersion: 1}},
+		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
+		SupportedModels: []string{"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"},
 	})
 	_, err := confirmer.ConfirmSupport(ctx, SupportMaterial{
-		ModelID: "model-a", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true, EpochIndex: 7,
+		ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1", SupportMode: SupportModeDaily, Supported: true, EpochIndex: 7,
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid signature length") {
 		t.Fatalf("ConfirmSupport error = %v, want strict 64-byte signature rejection", err)

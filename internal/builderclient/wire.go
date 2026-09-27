@@ -63,12 +63,13 @@ func WorkerHandraiseProto(handraise nodewire.WorkerHandraiseV1) (*bustaskv1.Work
 		ChainId:                   handraise.ChainID,
 		TaskId:                    append([]byte(nil), handraise.TaskID...),
 		TaskHash:                  append([]byte(nil), handraise.TaskHash...),
-		ModelId:                   handraise.ModelID,
+		ModelId:                   append([]byte(nil), handraise.ModelID...),
 		ProfileVersion:            handraise.ProfileVersion,
 		Member:                    candidateMemberProto(handraise.Member),
 		Duty:                      duty,
 		ServiceAuthorizationNonce: handraise.ServiceAuthorizationNonce,
 		ExpiryHeight:              handraise.ExpiryHeight,
+		RecipientPubkey:           append([]byte(nil), handraise.RecipientPubkey...),
 		ServiceSignature:          append([]byte(nil), handraise.ServiceSignature...),
 	}, nil
 }
@@ -89,7 +90,7 @@ func WorkerHandraiseFromProto(message *bustaskv1.WorkerHandraiseV1) (nodewire.Wo
 		ChainID:        message.GetChainId(),
 		TaskID:         append([]byte(nil), message.GetTaskId()...),
 		TaskHash:       append([]byte(nil), message.GetTaskHash()...),
-		ModelID:        message.GetModelId(),
+		ModelID:        append([]byte(nil), message.GetModelId()...),
 		ProfileVersion: message.GetProfileVersion(),
 		Member: nodewire.CandidateMemberRefV1{
 			CandidatePoolSnapshotID: append([]byte(nil), member.GetCandidatePoolSnapshotId()...),
@@ -100,6 +101,7 @@ func WorkerHandraiseFromProto(message *bustaskv1.WorkerHandraiseV1) (nodewire.Wo
 		Duty:                      nodewire.Duty(message.GetDuty()),
 		ServiceAuthorizationNonce: message.GetServiceAuthorizationNonce(),
 		ExpiryHeight:              message.GetExpiryHeight(),
+		RecipientPubkey:           append([]byte(nil), message.GetRecipientPubkey()...),
 		ServiceSignature:          append([]byte(nil), message.GetServiceSignature()...),
 	}, nil
 }
@@ -121,12 +123,13 @@ func VerifierHandraiseProto(handraise nodewire.VerifierHandraiseV1) (*bustaskv1.
 		VerifyRound:               handraise.VerifyRound,
 		InferReceiptHash:          append([]byte(nil), handraise.InferReceiptHash...),
 		OutputHash:                append([]byte(nil), handraise.OutputHash...),
-		ModelId:                   handraise.ModelID,
+		ModelId:                   append([]byte(nil), handraise.ModelID...),
 		ProfileVersion:            handraise.ProfileVersion,
 		Member:                    candidateMemberProto(handraise.Member),
 		Duty:                      duty,
 		ServiceAuthorizationNonce: handraise.ServiceAuthorizationNonce,
 		ExpiryHeight:              handraise.ExpiryHeight,
+		RecipientPubkey:           append([]byte(nil), handraise.RecipientPubkey...),
 		ServiceSignature:          append([]byte(nil), handraise.ServiceSignature...),
 	}, nil
 }
@@ -134,7 +137,7 @@ func VerifierHandraiseProto(handraise nodewire.VerifierHandraiseV1) (*bustaskv1.
 // ResultReceiptProto projects the signed digest-authority result receipt onto
 // the frozen wire message. The optional MetricSummaryV1 members map presence
 // exactly: an absent OptionalUint32 stays absent on the wire.
-func ResultReceiptProto(receipt nodewire.ResultReceiptV2) (*bustaskv1.ResultReceiptV2, error) {
+func ResultReceiptProto(receipt nodewire.ResultReceiptV3) (*bustaskv1.ResultReceiptV3, error) {
 	if err := validateCompactSignature(receipt.ServiceSignature); err != nil {
 		return nil, err
 	}
@@ -159,7 +162,7 @@ func ResultReceiptProto(receipt nodewire.ResultReceiptV2) (*bustaskv1.ResultRece
 		value := receipt.MetricSummary.UnionJSP99FP1e6.Value
 		summary.UnionJsP99Fp_1E6 = &value
 	}
-	return &bustaskv1.ResultReceiptV2{
+	return &bustaskv1.ResultReceiptV3{
 		SchemaVersion:                     receipt.SchemaVersion,
 		ChainId:                           receipt.ChainID,
 		TaskId:                            append([]byte(nil), receipt.TaskID...),
@@ -175,6 +178,9 @@ func ResultReceiptProto(receipt nodewire.ResultReceiptV2) (*bustaskv1.ResultRece
 		Salt:                              append([]byte(nil), receipt.Salt...),
 		ExpiryHeight:                      receipt.ExpiryHeight,
 		ServiceSignature:                  append([]byte(nil), receipt.ServiceSignature...),
+		VerifierValueRoot:                 append([]byte(nil), receipt.VerifierValueRoot...),
+		MetricLeafCount:                   receipt.MetricLeafCount,
+		VerifierEvidenceKeyCommitment:     append([]byte(nil), receipt.VerifierEvidenceKeyCommitment...),
 	}, nil
 }
 

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,19 +18,19 @@ import (
 // This file implements the chat generation path: it interprets req.Input as an
 // OpenAI Chat Completions request body (see proto/cortex/v1/chat_input.proto),
 // calls vLLM's /v1/chat/completions, and projects the response back onto the
-// same completionResponse shape the raw-text path (inferV0) produces, so all
-// downstream trace/checkpoint building and the Verifier are unchanged.
+// same completionResponse shape the raw-text path (inferV0) produces, so the
+// token-id and position-value material and the Verifier are unchanged.
 //
 // The transport mirrors inferV0: the streamInference switch (SetStreamInference,
 // default on) selects SSE vs. a single JSON body, and reassembleChatStream folds
 // the server-sent chunks back into the SAME chatCompletionResponse a non-streaming
-// call would decode -- so the committed output, trace and checkpoint are
+// call would decode -- so the committed output and material are
 // byte-identical regardless of which transport ran, and streaming is a node-local
 // detail never carried on the protocol. Verify is always non-streaming.
 //
 // Output is NOT the engine's detokenized message.content, nor a ChatCompletion
-// JSON envelope: the delivered output, the streamed chunk text, trace.Output and
-// checkpoint.Output are all the RAW TEXT decoded from the committed token_ids --
+// JSON envelope: the delivered output and the streamed chunk text are both the
+// RAW TEXT decoded from the committed token_ids --
 // each generated token's bytes (logprobs.content[i].bytes) concatenated in order
 // (decodeTokensFromLogprobs). This makes every text artifact correspond
 // byte-for-byte to the token_ids the Verifier scores (including the trailing EOS
@@ -188,7 +187,7 @@ type chatRespTopLogprob struct {
 // anything else is the legacy raw-text prompt served by inferV0. (Capability-based
 // routing via a dedicated llm_chat_v1 is the eventual mechanism.)
 func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return InferResponse{}, err
 	}
 	input, isChat, err := parseChatInferInput(req.Input)
@@ -262,7 +261,6 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	}
 	// outputBytes is nil so the delivered output defaults to choice.Text -- the raw
 	// text decoded from the committed token_ids (set by projectChatToCompletion).
-	// The delivered output, trace.Output and checkpoint.Output are thus identical.
 	// req.Generation is now set, so buildInferResultFromCompletion re-derives the
 	// chain-bound evidence contract (ValidateGenerationEvidence) for the chat path
 	// exactly as for inferV0. projectChatToCompletion already normalised the chat-only
@@ -412,8 +410,8 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 
 // projectChatToCompletion maps a chat response onto the completionResponse shape
 // the shared post-processing consumes. choice.Text is the RAW TEXT decoded from
-// the committed token_ids (decodeTokensFromLogprobs) -- it is both trace.Output and,
-// because Infer passes outputBytes=nil, the delivered output. The token-level
+// the committed token_ids (decodeTokensFromLogprobs) -- because Infer passes
+// outputBytes=nil, it is the delivered output. The token-level
 // fields (token ids and logprobs) are what the Verifier reconstructs from, and they
 // are carried unchanged. This is also the authoritative point where each token id
 // is checked against its logprobs entry (decodeTokensFromLogprobs fails closed on a
@@ -432,7 +430,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 	// vLLM's chat endpoint reports "tool_calls" when the model finished its turn by
 	// emitting a tool call. That is not a member of the frozen finish set, and it is
 	// the model completing its turn at the EOS boundary, so it is normalised to
-	// "eos_token" HERE -- before the trace/checkpoint are built from this value and
+	// "eos_token" HERE -- before the material is built from this value and
 	// before ValidateGenerationEvidence re-derives the finish reason from it -- so
 	// the whole pipeline (resolver, evidence, Verifier) sees one in-set value. The
 	// raw-text path never sees "tool_calls"; with this normalisation the chat path's
@@ -447,16 +445,12 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 		logprobs = &completionLogprobs{
 			Tokens:        make([]string, 0, len(c.Logprobs.Content)),
 			TokenLogprobs: make([]float64, 0, len(c.Logprobs.Content)),
-			TopLogprobs:   make([]map[string]float64, 0, len(c.Logprobs.Content)),
+			TopLogprobs:   make([]TopLogprobRow, 0, len(c.Logprobs.Content)),
 		}
 		for _, entry := range c.Logprobs.Content {
 			logprobs.Tokens = append(logprobs.Tokens, entry.Token)
 			logprobs.TokenLogprobs = append(logprobs.TokenLogprobs, entry.Logprob)
-			top := make(map[string]float64, len(entry.TopLogprobs))
-			for _, t := range entry.TopLogprobs {
-				top[normalizeTokenKey(t.Token)] = t.Logprob
-			}
-			logprobs.TopLogprobs = append(logprobs.TopLogprobs, top)
+			logprobs.TopLogprobs = append(logprobs.TopLogprobs, chatTopLogprobRow(entry.TopLogprobs))
 		}
 	}
 
@@ -492,7 +486,7 @@ func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, err
 	}
 	var buf []byte
 	for i, e := range lp.Content {
-		if normalizeTokenKey(e.Token) != strconv.Itoa(tokenIDs[i]) {
+		if id, err := tokenIDFromKey(e.Token); err != nil || int64(id) != int64(tokenIDs[i]) {
 			return "", fmt.Errorf("modelservice local chat: token id mismatch at position %d: token_ids=%d logprobs token=%q", i, tokenIDs[i], e.Token)
 		}
 		for _, v := range e.Bytes {
@@ -791,16 +785,21 @@ func defaultChatRole(role string) string {
 // chatLogprobDeltas projects a chunk's logprobs.content into the positional
 // (token_logprobs, top_logprobs) shape InferStreamFrame carries, matching what the
 // raw-text path emits.
-func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []map[string]float64) {
+func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []TopLogprobRow) {
 	tokenLogprobs := make([]float64, 0, len(lp.Content))
-	topLogprobs := make([]map[string]float64, 0, len(lp.Content))
+	topLogprobs := make([]TopLogprobRow, 0, len(lp.Content))
 	for _, entry := range lp.Content {
 		tokenLogprobs = append(tokenLogprobs, entry.Logprob)
-		top := make(map[string]float64, len(entry.TopLogprobs))
-		for _, t := range entry.TopLogprobs {
-			top[normalizeTokenKey(t.Token)] = t.Logprob
-		}
-		topLogprobs = append(topLogprobs, top)
+		topLogprobs = append(topLogprobs, chatTopLogprobRow(entry.TopLogprobs))
 	}
 	return tokenLogprobs, topLogprobs
+}
+
+// chatTopLogprobRow keeps chat's already rank-ordered top_logprobs list as is.
+func chatTopLogprobRow(entries []chatRespTopLogprob) TopLogprobRow {
+	row := make(TopLogprobRow, len(entries))
+	for i, t := range entries {
+		row[i] = TopLogprob{Token: t.Token, Logprob: t.Logprob}
+	}
+	return row
 }

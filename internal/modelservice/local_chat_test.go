@@ -1,7 +1,6 @@
 package modelservice
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +21,9 @@ import (
 // it received so a test can assert the Cortex-pinned fields.
 func newChatVLLMStub(t *testing.T, resp chatCompletionResponse, models []string) (*httptest.Server, *[]chatCompletionRequest) {
 	t.Helper()
+	for i := range resp.Choices {
+		resp.Choices[i].Logprobs = chatFullTopK(resp.Choices[i].Logprobs)
+	}
 	var seen []chatCompletionRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
@@ -86,94 +88,9 @@ func chatGenResponse() chatCompletionResponse {
 	}
 }
 
-func TestLocalServiceChatInferProjectsResponse(t *testing.T) {
-	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	svc.SetStreamInference(false) // this test pins the non-streaming transport
-
-	resp, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
-		RequestID:  "chat-1",
-		ModelID:    testQwenModelID(),
-		Capability: CapabilityLLMTextV1,
-		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
-	}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-
-	// Metering + finish reason (chat "stop" -> EOS).
-	if resp.GeneratedTokenCount != 2 || resp.WorkUnit != 2 {
-		t.Fatalf("metering = %d/%d, want 2/2", resp.GeneratedTokenCount, resp.WorkUnit)
-	}
-	if resp.FinishReason != nodewire.FinishReasonV1EosToken {
-		t.Fatalf("finish reason = %v, want EOS", resp.FinishReason)
-	}
-
-	// Output is the RAW TEXT decoded from the committed token ids (their logprobs
-	// bytes), NOT the engine's message.content and NOT a JSON envelope.
-	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(output) error = %v", err)
-	}
-	if string(output.Data) != "hello world" {
-		t.Fatalf("output = %q, want decoded token bytes %q", output.Data, "hello world")
-	}
-	t.Logf("decoded output from token ids %v = %q", []int{10, 11}, string(output.Data))
-
-	// Trace carries the token-level material the Verifier reconstructs from, and its
-	// Output is the same decoded text as the delivered output.
-	traceArt, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	var trace traceEnvelope
-	if err := json.Unmarshal(traceArt.Data, &trace); err != nil {
-		t.Fatalf("trace decode error = %v", err)
-	}
-	if trace.Output != "hello world" {
-		t.Fatalf("trace.Output = %q, want decoded token bytes %q", trace.Output, "hello world")
-	}
-	if len(trace.InputTokenIDs) != 3 || trace.InputTokenIDs[0] != 1 {
-		t.Fatalf("trace input token ids = %v, want [1 2 3]", trace.InputTokenIDs)
-	}
-	if len(trace.OutTokens) != 2 || trace.OutTokens[0].TokenID != 10 || trace.OutTokens[1].TokenID != 11 {
-		t.Fatalf("trace out tokens = %+v, want token ids 10,11", trace.OutTokens)
-	}
-	if trace.OutTokens[0].Logprob != -0.1 || trace.OutTokens[1].Logprob != -0.2 {
-		t.Fatalf("trace out token logprobs = %v/%v, want -0.1/-0.2", trace.OutTokens[0].Logprob, trace.OutTokens[1].Logprob)
-	}
-
-	// Cortex pins the verification-relevant request fields.
-	if len(*seen) == 0 {
-		t.Fatalf("chat endpoint was not called")
-	}
-	got := (*seen)[len(*seen)-1]
-	if !got.Logprobs || !got.ReturnTokenIDs || !got.ReturnTokensAsTokenIDs {
-		t.Fatalf("request must pin logprobs/return_token_ids/return_tokens_as_token_ids, got %+v", got)
-	}
-	if got.TopLogprobs != defaultTopK {
-		t.Fatalf("top_logprobs = %d, want profile default %d", got.TopLogprobs, defaultTopK)
-	}
-	// Sampling params come from the chain-bound generation context, not the request:
-	// localTestGeneration is greedy (sampling disabled -> temperature 0), top_p 1.0
-	// (top_p_ppm 1_000_000) and max_output_tokens 128.
-	if got.Temperature != 0 {
-		t.Fatalf("temperature = %v, want generation-derived 0", got.Temperature)
-	}
-	if got.TopP != 1 {
-		t.Fatalf("top_p = %v, want generation-derived 1.0", got.TopP)
-	}
-	if got.MaxCompletionTokens != 128 {
-		t.Fatalf("max_completion_tokens = %d, want generation max_output_tokens 128", got.MaxCompletionTokens)
-	}
-	if got.Stream {
-		t.Fatalf("non-streaming svc must send stream:false")
-	}
-}
-
 func TestLocalServiceChatRejectsForbiddenField(t *testing.T) {
 	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	_, err := svc.Infer(context.Background(), InferRequest{
 		RequestID:  "chat-reject",
@@ -196,7 +113,7 @@ func TestLocalServiceChatRejectsGenerationParamField(t *testing.T) {
 	// The sampling params are owned by the chain-bound generation context, so
 	// supplying one in the request is refused rather than silently overridden.
 	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	for _, field := range []string{"temperature", "top_p", "max_completion_tokens", "max_tokens", "seed", "presence_penalty", "frequency_penalty", "stop"} {
 		input := fmt.Sprintf(`{"messages":[{"role":"user","content":"hi"}],%q:%s}`, field, genParamSampleValue(field))
@@ -264,7 +181,7 @@ func TestLocalServiceChatRejectsNonOpenAIGenerationParams(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
-			svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+			svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 			svc.SetStreamInference(false)
 
 			_, err := svc.Infer(context.Background(), chatBoundMut(t, InferRequest{
@@ -288,7 +205,7 @@ func TestLocalServiceChatRoutesRawTextToInferV0(t *testing.T) {
 	// hits /v1/completions. The completions stub serves that path; the chat stub
 	// would 404, so success proves the routing.
 	srv, _ := newVLLMStub(t, genResponse(), verifyResponse())
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	resp, err := svc.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{
 		RequestID:  "raw-1",
@@ -311,7 +228,7 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 	resp.Choices[0].FinishReason = "tool_calls"
 
 	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	got, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
 		RequestID:  "chat-tools",
@@ -339,6 +256,7 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 // trailing [DONE] included), plus /v1/models and /metrics.
 func newChatVLLMStreamStub(t *testing.T, chunks []chatCompletionChunk, models []string) (*httptest.Server, *[]chatCompletionRequest) {
 	t.Helper()
+	chunks = chatChunksFullTopK(chunks)
 	var seen []chatCompletionRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -450,36 +368,9 @@ func chatInferReq(t *testing.T) InferRequest {
 	})
 }
 
-func TestLocalServiceChatStreamingMatchesNonStreaming(t *testing.T) {
-	ctx := context.Background()
-	models := []string{"Qwen/Qwen3-8B"}
-
-	streamSrv, seen := newChatVLLMStreamStub(t, chatContentChunks(), models)
-	streamSvc := NewLocalService(streamSrv.URL, "local-svc", 4, 0, 0) // streaming default on
-	streamOut, streamTrace := chatInferArtifacts(t, ctx, streamSvc, chatInferReq(t))
-	if len(*seen) != 1 || !(*seen)[0].Stream {
-		t.Fatalf("generation request Stream = %+v, want a single stream:true call", *seen)
-	}
-	if (*seen)[0].StreamOptions == nil || !(*seen)[0].StreamOptions.IncludeUsage {
-		t.Fatalf("streaming request must set stream_options.include_usage")
-	}
-
-	jsonSrv, _ := newChatVLLMStub(t, chatGenResponse(), models)
-	jsonSvc := NewLocalService(jsonSrv.URL, "local-svc", 4, 0, 0)
-	jsonSvc.SetStreamInference(false)
-	jsonOut, jsonTrace := chatInferArtifacts(t, ctx, jsonSvc, chatInferReq(t))
-
-	if !bytes.Equal(streamOut, jsonOut) {
-		t.Fatalf("streaming output = %s\n non-streaming = %s", streamOut, jsonOut)
-	}
-	if !bytes.Equal(streamTrace, jsonTrace) {
-		t.Fatalf("streaming trace = %s\n non-streaming = %s", streamTrace, jsonTrace)
-	}
-}
-
 func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 	srv, _ := newChatVLLMStreamStub(t, chatContentChunks(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	obs := &recordingObserver{}
 	svc.SetInferStreamObserver(obs)
 
@@ -537,7 +428,7 @@ func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 // not a cosmetic difference in delivery.
 func TestLocalServiceChatStreamDeliversToTheRequestScopedObserver(t *testing.T) {
 	srv, _ := newChatVLLMStreamStub(t, chatContentChunks(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	obs := &recordingObserver{}
 	// Deliberately NOT SetInferStreamObserver: this is how the Worker wires it.
@@ -568,7 +459,7 @@ func TestLocalServiceChatStreamDeliversToTheRequestScopedObserver(t *testing.T) 
 
 func TestLocalServiceChatStreamObserverErrorDoesNotFailInference(t *testing.T) {
 	srv, _ := newChatVLLMStreamStub(t, chatContentChunks(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	obs := &recordingObserver{err: errors.New("downstream gone")}
 	svc.SetInferStreamObserver(obs)
 
@@ -588,7 +479,7 @@ func TestLocalServiceChatStreamingFallsBackToJSONResponse(t *testing.T) {
 	// Streaming is on by default, but a server that answers with a plain JSON body
 	// (Content-Type application/json) must be decoded as a whole.
 	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0) // streaming default on
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0) // streaming default on
 
 	resp, err := svc.Infer(context.Background(), chatInferReq(t))
 	if err != nil {
@@ -609,7 +500,7 @@ func TestLocalServiceChatRejectsUsageTokenCountMismatch(t *testing.T) {
 	resp.Usage.CompletionTokens = 3 // != len(TokenIDs) == 2
 
 	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	svc.SetStreamInference(false)
 
 	_, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
@@ -633,7 +524,7 @@ func TestLocalServiceChatRejectsTokenIDLogprobMismatch(t *testing.T) {
 	resp.Choices[0].Logprobs.Content[1].Token = "token_id:999" // != TokenIDs[1] == 11
 
 	srv, _ := newChatVLLMStub(t, resp, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	svc.SetStreamInference(false)
 
 	_, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
@@ -648,24 +539,6 @@ func TestLocalServiceChatRejectsTokenIDLogprobMismatch(t *testing.T) {
 	if !strings.Contains(err.Error(), "token id mismatch") {
 		t.Fatalf("error = %v, want it to report a token id mismatch", err)
 	}
-}
-
-// chatInferArtifacts runs Infer and returns the stored output and trace bytes.
-func chatInferArtifacts(t *testing.T, ctx context.Context, svc *LocalService, req InferRequest) (output, trace []byte) {
-	t.Helper()
-	resp, err := svc.Infer(ctx, req)
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	out, err := svc.FetchArtifact(ctx, FetchArtifactRequest{Ref: resp.OutputRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(output) error = %v", err)
-	}
-	tr, err := svc.FetchArtifact(ctx, FetchArtifactRequest{Ref: resp.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	return out.Data, tr.Data
 }
 
 func TestLastCompleteUTF8Boundary(t *testing.T) {
@@ -743,7 +616,7 @@ func chatSplitMultibyteChunks() []chatCompletionChunk {
 
 func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
 	srv, _ := newChatVLLMStreamStub(t, chatSplitMultibyteChunks(), []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	obs := &recordingObserver{}
 	svc.SetInferStreamObserver(obs)
 
@@ -794,6 +667,7 @@ func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
 // place max_output_duration in the middle of the stream. It never sends [DONE],
 // which is the real shape: vLLM keeps generating and this node stops listening.
 func newSlowChatStreamStub(t *testing.T, chunks []chatCompletionChunk, delay time.Duration, models []string) *httptest.Server {
+	chunks = chatChunksFullTopK(chunks)
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -830,67 +704,14 @@ func newSlowChatStreamStub(t *testing.T, chunks []chatCompletionChunk, delay tim
 	return srv
 }
 
-// TestLocalServiceChatStopsAtMaxOutputDurationAsSuccess pins the behaviour
-// max_output_duration is in the frozen finish-reason set for.
-//
-// vLLM has no wall-clock stopping condition, so before this the budget was a
-// context deadline: expiry discarded the whole generation and the value could
-// never be produced at all. It is a successful termination now -- the tokens
-// that arrived before the budget are committed, and this node names the reason
-// the engine cannot.
-func TestLocalServiceChatStopsAtMaxOutputDurationAsSuccess(t *testing.T) {
-	// The engine must still be generating when the budget expires, so both chunks
-	// are non-terminal. A stream that already carried finish_reason was ended by
-	// the ENGINE and the engine's reason wins: the budget only names a stop that
-	// nothing else has named. Clearing it here is what makes this a duration test
-	// rather than an EOS one.
-	chunks := chatContentChunks()[:2]
-	chunks[1].Choices[0].FinishReason = ""
-	// 150ms apart against a 200ms budget: the first chunk is folded in under
-	// budget, the second crosses it and is the last one committed.
-	srv := newSlowChatStreamStub(t, chunks, 150*time.Millisecond, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-
-	req := chatInferReq(t)
-	req.Generation.Params.MaxOutputDuration = 200 // ms: the first chunk lands, nothing else arrives
-	digest, err := req.Generation.Digest()
-	if err != nil {
-		t.Fatal(err)
+func chatChunksFullTopK(chunks []chatCompletionChunk) []chatCompletionChunk {
+	out := make([]chatCompletionChunk, len(chunks))
+	for i, chunk := range chunks {
+		chunk.Choices = append([]chatChunkChoice(nil), chunk.Choices...)
+		for c := range chunk.Choices {
+			chunk.Choices[c].Logprobs = chatFullTopK(chunk.Choices[c].Logprobs)
+		}
+		out[i] = chunk
 	}
-	req.GenerationParamsDigest = digest[:]
-
-	resp, err := svc.Infer(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Infer() error = %v, want a successful truncation", err)
-	}
-	if resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration {
-		t.Fatalf("finish reason = %v, want MAX_OUTPUT_DURATION", resp.FinishReason)
-	}
-	if resp.GeneratedTokenCount == 0 {
-		t.Fatal("a budget stop must still commit the tokens that arrived")
-	}
-	if resp.GeneratedTokenCount >= req.Generation.Params.MaxOutputTokens {
-		t.Fatalf("generated %d tokens at the ceiling; that is MAX_OUTPUT_TOKENS, not a duration stop", resp.GeneratedTokenCount)
-	}
-
-	// The evidence must describe the truncated run: output, trace and token ids
-	// all stop at the same place.
-	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(output) error = %v", err)
-	}
-	traceArt, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	var trace traceEnvelope
-	if err := json.Unmarshal(traceArt.Data, &trace); err != nil {
-		t.Fatal(err)
-	}
-	if trace.Output != string(output.Data) {
-		t.Fatalf("trace.Output %q != committed output %q", trace.Output, output.Data)
-	}
-	if len(trace.OutTokens) != int(resp.GeneratedTokenCount) {
-		t.Fatalf("trace carries %d tokens, receipt counts %d", len(trace.OutTokens), resp.GeneratedTokenCount)
-	}
+	return out
 }

@@ -1,6 +1,7 @@
 package chainclient
 
 import (
+	"encoding/hex"
 	"strings"
 
 	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
@@ -22,7 +23,7 @@ func currentProfileSnapshotFromWire(profile *hubv1.ProfileState) CurrentProfileS
 	}
 	verification := profile.GetVerificationProfile()
 	return CurrentProfileSnapshot{
-		ModelID:                   profile.GetModelId(),
+		ModelID:                   hex.EncodeToString(profile.GetModelId()),
 		ProfileVersion:            NewProfileVersion(profile.GetProfileVersion()),
 		ManifestHash:              ProtoBytes32(profile.GetManifestHash()),
 		TokenizerHash:             ProtoBytes32(profile.GetTokenizerHash()),
@@ -95,9 +96,6 @@ func currentProfileSnapshotFromWire(profile *hubv1.ProfileState) CurrentProfileS
 		},
 		SchemaHash:             ProtoBytes32(profile.GetSchemaHash()),
 		Status:                 strings.TrimPrefix(hubv1.ModelProfileStatus(profile.GetStatus()).String(), "MODEL_PROFILE_STATUS_"),
-		ActiveSupportStake:     NewUint64String(profile.GetActiveSupportStake()),
-		EligibleSupportStake:   NewUint64String(profile.GetEligibleSupportStake()),
-		ActiveSupporterCount:   profile.GetActiveSupporterCount(),
 		StatusSource:           strings.TrimPrefix(hubv1.ProfileStatusSource(profile.GetStatusSource()).String(), "PROFILE_STATUS_SOURCE_"),
 		RegistrationFeePaid:    NewUint64String(profile.GetRegistrationFeePaid()),
 		PreviousProfileVersion: NewProfileVersion(profile.GetPreviousProfileVersion()),
@@ -105,5 +103,11 @@ func currentProfileSnapshotFromWire(profile *hubv1.ProfileState) CurrentProfileS
 		RegistrationDigest:     ProtoBytes32(profile.GetRegistrationDigest()),
 		CreatedHeight:          NewUint64String(profile.GetCreatedHeight()),
 		UpdatedHeight:          NewUint64String(profile.GetUpdatedHeight()),
+		Source: CurrentProfileSourceSnapshot{
+			SourceURI: profile.GetSource().GetSourceUri(), Revision: profile.GetSource().GetRevision(),
+			ResolverVersion: profile.GetSource().GetResolverVersion(), RepoType: profile.GetSource().GetRepoType(),
+		},
+		ToolCallParser:  CurrentParserSnapshot{Name: profile.GetToolCallParser().GetName(), Version: profile.GetToolCallParser().GetVersion()},
+		ReasoningParser: CurrentParserSnapshot{Name: profile.GetReasoningParser().GetName(), Version: profile.GetReasoningParser().GetVersion()},
 	}
 }

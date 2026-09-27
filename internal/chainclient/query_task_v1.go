@@ -50,7 +50,7 @@ func snapshotFromWireTask(sessionID string, requestedTaskID []byte, response *ta
 	}
 	assignment := AssignmentSnapshot{
 		SessionID: gotSession, TaskID: hex.EncodeToString(core.TaskId), OrderSequence: NewUint64String(core.OrderSequence),
-		AcceptedOrderPayloadHash: inputHash, ModelID: core.ModelId, ProfileVersion: NewProfileVersion(core.ProfileVersion),
+		AcceptedOrderPayloadHash: inputHash, ModelID: hex.EncodeToString(core.ModelId), ProfileVersion: NewProfileVersion(core.ProfileVersion),
 		TaskReceiptFactsSnapshot: TaskReceiptFactsSnapshot{AcceptedTaskHash: ProtoBytes32(acceptedTaskHash[:])},
 	}
 	if view := active.Assignment; view != nil {
@@ -89,7 +89,7 @@ func snapshotFromTerminalTask(sessionID string, requestedTaskID []byte, terminal
 	}
 	return TaskSnapshot{
 		Status: TaskStatusTerminal, UpdatedHeight: NewUint64String(terminal.CompactedHeight), CurrentContract: true,
-		Assignment: AssignmentSnapshot{SessionID: gotSession, TaskID: hex.EncodeToString(terminal.TaskId), OrderSequence: NewUint64String(terminal.OrderSequence), ModelID: terminal.ModelId, ProfileVersion: NewProfileVersion(terminal.ProfileVersion), SelectedWorker: terminal.GetWinnerWorker(), TaskReceiptFactsSnapshot: TaskReceiptFactsSnapshot{AcceptedTaskHash: ProtoBytes32(terminal.TaskHash), GenerationParamsDigest: ProtoBytes32(terminal.GenerationParamsDigest), ProfileExecutionSnapshotHash: ProtoBytes32(terminal.ProfileExecutionSnapshotHash)}},
+		Assignment: AssignmentSnapshot{SessionID: gotSession, TaskID: hex.EncodeToString(terminal.TaskId), OrderSequence: NewUint64String(terminal.OrderSequence), ModelID: hex.EncodeToString(terminal.ModelId), ProfileVersion: NewProfileVersion(terminal.ProfileVersion), SelectedWorker: terminal.GetWinnerWorker(), TaskReceiptFactsSnapshot: TaskReceiptFactsSnapshot{AcceptedTaskHash: ProtoBytes32(terminal.TaskHash), GenerationParamsDigest: ProtoBytes32(terminal.GenerationParamsDigest), ProfileExecutionSnapshotHash: ProtoBytes32(terminal.ProfileExecutionSnapshotHash)}},
 		Settlement: SettlementSnapshot{TaskVerdict: strings.TrimPrefix(terminal.Verdict.String(), "TASK_VERDICT_"), SettlementHeight: NewUint64String(terminal.SettlementHeight)},
 	}, nil
 }

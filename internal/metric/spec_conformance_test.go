@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -54,8 +55,6 @@ func specHFields(domain string, values ...[]byte) codec.Hash {
 // single row is visible.
 func specU32(v uint32) []byte { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); return b }
 func specU64(v uint64) []byte { b := make([]byte, 8); binary.BigEndian.PutUint64(b, v); return b }
-func specI64(v int64) []byte  { return specU64(uint64(v)) }
-func specI32(v int32) []byte  { return specU32(uint32(v)) }
 
 func specBool(v bool) []byte {
 	if v {
@@ -73,111 +72,6 @@ func specOptional(present bool, value []byte) []byte {
 	return append([]byte{1}, specFrame(value)...)
 }
 
-// TestLeafHashAgreesWithAnIndependentSpecEncoder drives the production leaf
-// derivation and a from-the-text one against the same sample.
-//
-// The leaf formula (05-verification-algorithm §7) is
-//
-//	leaf_hash = H_FIELDS_V1(leaf_domain, leaf_version, canonical_leaf_bytes)
-//
-// so the top level has exactly two fields and the leaf's own fields live inside
-// canonical_leaf_bytes as a nested frame. Flattening them into the top level is
-// the single most plausible way to get this wrong, and it is what this test
-// would catch first.
-func TestLeafHashAgreesWithAnIndependentSpecEncoder(t *testing.T) {
-	binding := fixtureBinding()
-
-	for name, sample := range map[string]Sample{
-		"both optionals present": sampleAt(0),
-		"optionals absent": func() Sample {
-			s := sampleAt(1)
-			s.TopKJaccard = OptionalFP{}
-			s.UnionJS = OptionalFP{}
-			return s
-		}(),
-		"missing and not finite": func() Sample {
-			s := sampleAt(2)
-			s.Missing = true
-			s.Finite = false
-			s.VerifierRank = 0
-			return s
-		}(),
-		"verifier ranks the token lower": func() Sample {
-			s := sampleAt(3)
-			s.WorkerRank = 1
-			s.VerifierRank = 9
-			return s
-		}(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			got, err := LeafHash(binding, sample)
-			if err != nil {
-				t.Fatalf("LeafHash returned error: %v", err)
-			}
-			if got != specLeafHash(t, binding, sample) {
-				t.Fatalf("production leaf hash %s disagrees with the independent spec encoder.\n"+
-					"One of the two misread 05-verification-algorithm §7 or canonical-encoding-and-domain-hashing §1.2/§4.3/§4.4.", got)
-			}
-		})
-	}
-}
-
-// specLeafHash independently encodes the released V2 metric field table.
-func specLeafHash(t *testing.T, binding Binding, sample Sample) codec.Hash {
-	t.Helper()
-
-	// *_fp_1e6 = value * 1_000_000, rounded half away from zero.
-	fp := func(v float64) int64 {
-		scaled := v * 1_000_000
-		if scaled < 0 {
-			return int64(scaled - 0.5)
-		}
-		return int64(scaled + 0.5)
-	}
-	workerLogprob := fp(sample.WorkerLogprob)
-	verifierLogprob := fp(sample.VerifierLogprob)
-	absDiff := workerLogprob - verifierLogprob
-	if absDiff < 0 {
-		absDiff = -absDiff
-	}
-
-	optional := func(o OptionalFP) []byte {
-		if !o.Present {
-			return specOptional(false, nil)
-		}
-		return specOptional(true, specU32(uint32(fp(o.Value))))
-	}
-
-	canonicalLeafBytes := specFrame(
-		[]byte(binding.ChainID),
-		binding.TaskID[:],
-		binding.TaskHash[:],
-		specU32(binding.VerifyRound),
-		[]byte(binding.ModelID),
-		specU32(binding.ProfileVersion),
-		[]byte(binding.JudgmentFunctionVersion),
-		[]byte(binding.CanonicalEncodingVersion),
-		binding.EvidenceSchemaHash[:],
-		[]byte(binding.MetricAggregateProofVersion),
-		binding.TokenizerHash[:],
-		binding.GenerationParamsDigest[:],
-		specU32(sample.OutputPosition),
-		specU32(sample.EmittedTokenID),
-		specU32(binding.RequiredTopK),
-		specI64(workerLogprob),
-		specI64(verifierLogprob),
-		specU64(uint64(absDiff)),
-		specU32(sample.WorkerRank),
-		specU32(sample.VerifierRank),
-		specI64(int64(sample.VerifierRank)-int64(sample.WorkerRank)),
-		optional(sample.TopKJaccard),
-		optional(sample.UnionJS),
-		specBool(sample.Missing),
-		specBool(sample.Finite),
-	)
-	return specHFields(DomainLeafV2, specU32(LeafVersionV1), canonicalLeafBytes)
-}
-
 // TestMetricSummaryHashAgreesWithAnIndependentSpecEncoder transcribes the §9.7
 // field-number table and checks the production digest against it.
 //
@@ -192,9 +86,9 @@ func TestMetricSummaryHashAgreesWithAnIndependentSpecEncoder(t *testing.T) {
 		"only jaccard required":   {CompareTopKJaccard: true, ComparedTopK: 4},
 	} {
 		t.Run(name, func(t *testing.T) {
-			summary, err := Summary(spec, fixtureAggregates())
+			summary, err := SummaryV3(spec, 4, fixtureSamplesV3(t))
 			if err != nil {
-				t.Fatalf("Summary returned error: %v", err)
+				t.Fatalf("SummaryV3 returned error: %v", err)
 			}
 			got, err := nodewire.MetricSummaryHash(summary)
 			if err != nil {
@@ -224,20 +118,20 @@ func TestMetricSummaryHashAgreesWithAnIndependentSpecEncoder(t *testing.T) {
 }
 
 // TestResultCommitmentHashAgreesWithAnIndependentSpecEncoder covers all seven
-// V2 commitment fields using an independent framing implementation.
+// V3 commitment fields using an independent framing implementation.
 func TestResultCommitmentHashAgreesWithAnIndependentSpecEncoder(t *testing.T) {
 	const verifier = "trueopen1c5mpzp95cwm4syklatc07u2p2knan53rl38lmx"
 	taskID := fill(0x11)
-	revealHash := fill(0x22)
+	valueRoot := fill(0x22)
 	proofHash := fill(0x33)
 
-	got, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV2{
+	got, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{
 		ChainID:                 "chain-A",
 		TaskID:                  taskID[:],
 		TaskHash:                proofHash[:],
 		VerifyRound:             1,
 		VerifierOperatorAddress: verifier,
-		ResultPayloadHash:       revealHash[:],
+		VerifierValueRoot:       valueRoot[:],
 		Salt:                    proofHash[:],
 	})
 	if err != nil {
@@ -249,13 +143,13 @@ func TestResultCommitmentHashAgreesWithAnIndependentSpecEncoder(t *testing.T) {
 		t.Fatalf("CanonicalOperatorAddressBytes returned error: %v", err)
 	}
 	want := specHFields(
-		nodewire.DomainResultCommitmentV2,
+		nodewire.DomainResultCommitmentV3,
 		[]byte("chain-A"),
 		taskID[:],
 		proofHash[:],
 		specU32(1),
 		verifierBytes,
-		revealHash[:],
+		valueRoot[:],
 		proofHash[:],
 	)
 	if got != want {
@@ -285,7 +179,7 @@ func TestAggregateProofAgreesWithItsDocumentedEncoding(t *testing.T) {
 		[]byte(AggregateProofVersionV1),
 		[]byte(binding.ChainID),
 		binding.TaskID[:],
-		[]byte(binding.ModelID),
+		mustRawModelID(t, binding.ModelID),
 		specU32(binding.ProfileVersion),
 		[]byte(binding.JudgmentFunctionVersion),
 		[]byte(binding.CanonicalEncodingVersion),
@@ -311,4 +205,13 @@ func TestAggregateProofAgreesWithItsDocumentedEncoding(t *testing.T) {
 	if bytes.HasPrefix(material.AggregateProof.Bytes, []byte("TRUEOPEN_")) {
 		t.Fatalf("aggregate proof bytes begin with a domain")
 	}
+}
+
+func mustRawModelID(t *testing.T, modelID string) []byte {
+	t.Helper()
+	raw, err := hex.DecodeString(modelID)
+	if err != nil || len(raw) != 32 {
+		t.Fatalf("model_id %q is not Hash32 hex", modelID)
+	}
+	return raw
 }

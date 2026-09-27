@@ -14,7 +14,7 @@ import (
 
 const (
 	taskDataCompactSignatureLen = 64
-	storageConfirmationDomain   = "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V1"
+	storageConfirmationDomain   = "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2"
 	taskDataProcedurePrefix     = "/nexus.v1.IngressAPI/"
 )
 
@@ -50,6 +50,9 @@ func ValidateTaskDataKey(key TaskDataKey) error {
 	return err
 }
 
+// taskDataObjectFrame is the nine-field TaskDataObjectRefV1 of wire v0.3.0.
+// INPUT and OUTPUT carry EVIDENCE_KIND_UNSPECIFIED; a Worker bundle carries
+// its A-level or B-level kind; a Verifier bundle carries VERIFIER_VALUE_OPENING.
 func taskDataObjectFrame(key TaskDataKey) (hfields.Field, error) {
 	var hashes [4][]byte
 	for i, f := range []struct{ name, value string }{{"task_hash", key.TaskHash}, {"session_id", key.SessionID}, {"task_id", key.TaskID}, {"content_hash", key.ContentHash}} {
@@ -71,15 +74,29 @@ func taskDataObjectFrame(key TaskDataKey) (hfields.Field, error) {
 		if key.VerifyRound == 0 || key.VerifyRound > 2 || (key.EvidenceProducerKind == EvidenceProducerWorker && key.VerifyRound != 1) {
 			return hfields.Field{}, fmt.Errorf("evidence verify round does not match producer")
 		}
+		switch key.EvidenceProducerKind {
+		case EvidenceProducerWorker:
+			if key.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening && key.EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
+				return hfields.Field{}, fmt.Errorf("Worker evidence must be WORKER_VALUE_OPENING or WORKER_TOKEN_OPENING")
+			}
+		default:
+			if key.EvidenceKind != nodewire.EvidenceKindVerifierValueOpening {
+				return hfields.Field{}, fmt.Errorf("Verifier evidence must be VERIFIER_VALUE_OPENING")
+			}
+		}
 		var err error
 		operator, err = nodewire.CanonicalOperatorAddressBytes("producer_operator", key.ProducerOperator)
 		if err != nil {
 			return hfields.Field{}, err
 		}
-	} else if key.EvidenceProducerKind != EvidenceProducerUnspecified || key.VerifyRound != 0 || key.ProducerOperator != "" {
-		return hfields.Field{}, fmt.Errorf("non-evidence object must omit producer and verify round")
+	} else if key.EvidenceProducerKind != EvidenceProducerUnspecified || key.VerifyRound != 0 || key.ProducerOperator != "" || key.EvidenceKind != nodewire.EvidenceKindUnspecified {
+		return hfields.Field{}, fmt.Errorf("non-evidence object must omit producer, verify round and evidence kind")
 	}
-	return hfields.Frame(hfields.Bytes(hashes[0]), hfields.Bytes(hashes[1]), hfields.Bytes(hashes[2]), hfields.Uint32(uint32(key.Kind)), hfields.Bytes(hashes[3]), hfields.Uint32(uint32(key.EvidenceProducerKind)), hfields.Uint32(key.VerifyRound), hfields.Optional(evidence, hfields.Bytes(operator))), nil
+	return hfields.Frame(
+		hfields.Bytes(hashes[0]), hfields.Bytes(hashes[1]), hfields.Bytes(hashes[2]), hfields.Uint32(uint32(key.Kind)),
+		hfields.Bytes(hashes[3]), hfields.Uint32(uint32(key.EvidenceProducerKind)), hfields.Uint32(key.VerifyRound),
+		hfields.Optional(evidence, hfields.Bytes(operator)), hfields.Uint32(uint32(key.EvidenceKind)),
+	), nil
 }
 
 func TaskDataRequestSigningHash(auth TaskDataRequestAuth) (codec.Hash, error) {
@@ -108,7 +125,7 @@ func TaskDataMetadataBodyDigest(key TaskDataKey) (codec.Hash, error) {
 	if err != nil {
 		return codec.Hash{}, err
 	}
-	return hfields.Digest("TRUEOPEN_TASK_DATA_METADATA_BODY_V1", frame)
+	return hfields.Digest("TRUEOPEN_TASK_DATA_METADATA_BODY_V2", frame)
 }
 
 func TaskDataFetchBodyDigest(key TaskDataKey, bounds *TaskDataRange) (codec.Hash, error) {
@@ -123,7 +140,7 @@ func TaskDataFetchBodyDigest(key TaskDataKey, bounds *TaskDataRange) (codec.Hash
 			return codec.Hash{}, fmt.Errorf("task data range is empty or overflows")
 		}
 	}
-	return hfields.Digest("TRUEOPEN_TASK_DATA_FETCH_BODY_V1", frame, hfields.Optional(bounds != nil, hfields.Frame(hfields.Uint64(offset), hfields.Uint64(length))))
+	return hfields.Digest("TRUEOPEN_TASK_DATA_FETCH_BODY_V2", frame, hfields.Optional(bounds != nil, hfields.Frame(hfields.Uint64(offset), hfields.Uint64(length))))
 }
 
 func TaskDataUploadBodyDigest(key TaskDataKey, size uint64, mediaType string) (codec.Hash, error) {
@@ -140,7 +157,7 @@ func TaskDataUploadBodyDigest(key TaskDataKey, size uint64, mediaType string) (c
 	if strings.TrimSpace(mediaType) != mediaType || strings.ContainsRune(mediaType, '\x00') {
 		return codec.Hash{}, fmt.Errorf("media_type is not canonical")
 	}
-	return hfields.Digest("TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1", frame, hfields.Uint64(size), hfields.String(mediaType))
+	return hfields.Digest("TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2", frame, hfields.Uint64(size), hfields.String(mediaType))
 }
 
 func finalizeScope(taskHash, sessionID, taskID string) ([]hfields.Field, error) {
@@ -163,6 +180,9 @@ func TaskDataFinalizeResultBodyDigest(request FinalizeTaskResultRequest) (codec.
 	if request.Receipt.TaskHash != request.TaskHash || request.Receipt.TaskID != request.TaskID {
 		return codec.Hash{}, fmt.Errorf("finalize receipt task identity mismatch")
 	}
+	if request.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening && request.EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
+		return codec.Hash{}, fmt.Errorf("a result finalize must name one Worker evidence kind")
+	}
 	if err := validateSignedInferReceipt(request.Receipt); err != nil {
 		return codec.Hash{}, err
 	}
@@ -172,11 +192,13 @@ func TaskDataFinalizeResultBodyDigest(request FinalizeTaskResultRequest) (codec.
 	}
 	signature, _ := hex.DecodeString(request.Receipt.ServiceSignature)
 	signatureDigest := codec.HashBytes(signature)
-	return taskDataFinalizeResultDigest(fields, digest, signatureDigest)
+	return taskDataFinalizeResultDigest(fields, digest, signatureDigest, request.EvidenceKind)
 }
 
-func taskDataFinalizeResultDigest(scope []hfields.Field, receiptDigest, signatureDigest codec.Hash) (codec.Hash, error) {
-	return hfields.Digest("TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V1", append(scope, hfields.Hash(receiptDigest), hfields.Hash(signatureDigest))...)
+// taskDataFinalizeResultDigest finalizes one Worker bundle, so the body
+// authenticates which of the two kinds it closes.
+func taskDataFinalizeResultDigest(scope []hfields.Field, receiptDigest, signatureDigest codec.Hash, kind nodewire.EvidenceKind) (codec.Hash, error) {
+	return hfields.Digest("TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2", append(scope, hfields.Hash(receiptDigest), hfields.Hash(signatureDigest), hfields.Uint32(uint32(kind)))...)
 }
 
 func TaskDataFinalizeVerifierBodyDigest(request FinalizeVerifierEvidenceRequest) (codec.Hash, error) {
@@ -202,7 +224,7 @@ func TaskDataFinalizeVerifierBodyDigest(request FinalizeVerifierEvidenceRequest)
 }
 
 func taskDataFinalizeVerifierDigest(scope []hfields.Field, round uint32, operator []byte, receiptDigest, signatureDigest codec.Hash) (codec.Hash, error) {
-	return hfields.Digest("TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V1", append(scope, hfields.Uint32(round), hfields.Bytes(operator), hfields.Hash(receiptDigest), hfields.Hash(signatureDigest))...)
+	return hfields.Digest("TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V2", append(scope, hfields.Uint32(round), hfields.Bytes(operator), hfields.Hash(receiptDigest), hfields.Hash(signatureDigest))...)
 }
 
 func StorageConfirmationSigningHash(c StorageConfirmation) (codec.Hash, error) {
@@ -272,9 +294,9 @@ func InferReceiptSigningDigest(receipt SignedInferReceipt) (codec.Hash, error) {
 	return nodewire.InferReceiptSigningDigest(wire)
 }
 
-func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV2, error) {
+func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV3, error) {
 	if err := validateInferReceiptFacts(receipt); err != nil {
-		return nodewire.InferReceiptV2{}, err
+		return nodewire.InferReceiptV3{}, err
 	}
 	taskID, _ := decodeCanonicalTaskDataHash(receipt.TaskID)
 	taskHash, _ := decodeCanonicalTaskDataHash(receipt.TaskHash)
@@ -289,7 +311,8 @@ func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV2, erro
 			EncodedSizeBytes:   commitment.EncodedSizeBytes,
 		}
 	}
-	return nodewire.InferReceiptV2{
+	zero := make([]byte, 32)
+	return nodewire.InferReceiptV3{
 		SchemaVersion:               receipt.SchemaVersion,
 		ChainID:                     receipt.ChainID,
 		TaskID:                      taskID,
@@ -303,6 +326,10 @@ func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV2, erro
 		RequiredEvidenceCommitments: commitments,
 		ExpiryHeight:                receipt.ExpiryHeight,
 		GeneratedTokenCount:         receipt.GeneratedTokenCount,
+		OutputKeyCommitment:         zero,
+		WorkerTokenKeyCommitment:    zero,
+		WorkerValueKeyCommitment:    zero,
+		CiphertextOutputRoot:        zero,
 	}, nil
 }
 
@@ -323,9 +350,9 @@ func validateSignedInferReceipt(receipt SignedInferReceipt) error {
 // other version would hash fine here and be refused by both Nexus admission and
 // the Keeper handler.
 func validateInferReceiptFacts(receipt SignedInferReceipt) error {
-	if receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV2 {
+	if receipt.SchemaVersion != nodewire.InferReceiptSchemaVersionV3 {
 		return fmt.Errorf("infer receipt schema_version must be %d, got %d",
-			nodewire.InferReceiptSchemaVersionV2, receipt.SchemaVersion)
+			nodewire.InferReceiptSchemaVersionV3, receipt.SchemaVersion)
 	}
 	if !canonicalTaskDataText(receipt.ChainID) || !canonicalTaskDataText(receipt.WorkerOperatorAddress) {
 		return fmt.Errorf("infer receipt chain id and worker operator address must be canonical text")

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,7 +69,7 @@ func TestProductionVerifyExecutorUsesKeeperInferReceiptDigest(t *testing.T) {
 	task := store.VerifyTask{
 		TaskID: taskID, SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("accepted-order")),
-		ModelID:     "model-1", ProfileVersion: 1, Capability: "llm-text",
+		ModelID:     testModelID, ProfileVersion: 1, Capability: "llm-text",
 		WorkerAddress: "worker-1", BuilderOperatorAddress: "builder-1",
 		OutputDigest: outputHash, InferReceiptDigest: receiptHash,
 		VerifyRound: 1, OpenVerifyHeight: 10, CommitDeadlineHeight: 30, DeadlineHeight: 40,
@@ -148,7 +150,7 @@ func TestVerifyExecutorReadsTheFrozenWindowRatherThanTheHandraiseWindow(t *testi
 	task := store.VerifyTask{
 		TaskID: taskID, SessionID: sessionID, OrderSequence: 1,
 		OrderDigest: codec.HashBytes([]byte("accepted-order")),
-		ModelID:     "model-1", ProfileVersion: 1, Capability: "llm-text",
+		ModelID:     testModelID, ProfileVersion: 1, Capability: "llm-text",
 		WorkerAddress: "worker-1", BuilderOperatorAddress: "builder-1",
 		OutputDigest: outputHash, InferReceiptDigest: receiptHash,
 		VerifyRound: 1, OpenVerifyHeight: 586, CommitDeadlineHeight: 886, DeadlineHeight: 1286,
@@ -402,14 +404,14 @@ func TestCheckpointInferOutputSetsFinishReasonAndArtifacts(t *testing.T) {
 	checkpoint := []byte("checkpoint")
 	descriptor := []byte(`{"finish_reason":1}`)
 	cp := worker.InferOutputCheckpoint{
-		JobID: "job-1", OutputRef: "output-ref", TraceRef: "trace-ref",
-		CheckpointRef: "checkpoint-ref", FinishReason: 1, DescriptorJSON: descriptor,
+		JobID: "job-1", OutputRef: "output-ref", TokenIDsRef: "trace-ref",
+		PositionValuesRef: "checkpoint-ref", FinishReason: 1, DescriptorJSON: descriptor,
 	}
 	if err := p.CheckpointInferOutput(ctx, "task-1", output, trace, checkpoint, cp); err != nil {
 		t.Fatalf("CheckpointInferOutput: %v", err)
 	}
 
-	for _, kind := range []string{"worker-output", "worker-trace", "worker-checkpoint", "worker-output-descriptor"} {
+	for _, kind := range []string{"worker-output", "worker-token-ids-material", "worker-position-values-material", "worker-output-descriptor"} {
 		data, err := p.ReadArtifact(ctx, "task-1", kind)
 		if err != nil {
 			t.Fatalf("ReadArtifact(%s): %v", kind, err)
@@ -509,5 +511,38 @@ func TestWorkerFinCheckpointStorageErrors(t *testing.T) {
 	}
 	if _, err := p.ReadArtifact(ctx, "task", worker.OutputStreamFinKind); err == nil || errors.Is(err, worker.ErrCheckpointNotFound) {
 		t.Fatalf("index failure must propagate: %v", err)
+	}
+}
+
+// A zero-token generation (max_output_duration before the first token) has an
+// empty output and an empty position-values artifact. Both are checkpointed
+// and read back as empty.
+func TestCheckpointInferOutputStoresAZeroTokenGeneration(t *testing.T) {
+	ctx := context.Background()
+	p := newTestDocumentWorkerPersistence()
+	if err := layout.MergeInfer(ctx, p.store, layout.StoredHash(p.taskHash), layout.InferRecord{TaskID: "task-1", Stage: layout.StageQueued}); err != nil {
+		t.Fatalf("seed infer record: %v", err)
+	}
+	tokenIDs, err := modelservice.EncodeTokenIDsArtifact(modelservice.TokenIDs{Input: []uint32{1, 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	positionValues, err := modelservice.EncodePositionValuesArtifact(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(positionValues) != 0 {
+		t.Fatalf("an empty position-values artifact is %d bytes; this test expects it empty", len(positionValues))
+	}
+	cp := worker.InferOutputCheckpoint{JobID: "job-1", OutputRef: "output-ref", TokenIDsRef: "ids-ref",
+		PositionValuesRef: "values-ref", FinishReason: nodewire.FinishReasonV1MaxOutputDuration, DescriptorJSON: []byte(`{"finish_reason":4}`)}
+	if err := p.CheckpointInferOutput(ctx, "task-1", nil, tokenIDs, positionValues, cp); err != nil {
+		t.Fatalf("CheckpointInferOutput of a zero-token generation: %v", err)
+	}
+	for _, kind := range []string{"worker-output", "worker-position-values-material"} {
+		data, err := p.ReadArtifact(ctx, "task-1", kind)
+		if err != nil || len(data) != 0 {
+			t.Fatalf("ReadArtifact(%s) = %d bytes, %v, want an empty artifact", kind, len(data), err)
+		}
 	}
 }

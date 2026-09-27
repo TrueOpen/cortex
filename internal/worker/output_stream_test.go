@@ -149,7 +149,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 	const servedModel = "test/live-stream"
 	const first = "first-frame-text"
 	const tail = "tail"
-	modelID := "hf-" + codec.HashBytes([]byte("huggingface:"+servedModel)).String()
+	modelID := codec.HashBytes([]byte("huggingface:" + servedModel)).String()
 	prefixSent := make(chan struct{})
 	var generationComplete atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -169,7 +169,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 			}
 			payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{
 				"text": text, "finish_reason": finish, "prompt_token_ids": []int{42}, "token_ids": []int{token},
-				"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []map[string]float64{{fmt.Sprintf("token_id:%d", token): -0.25}}},
+				"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(token, -0.25)}},
 			}}})
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 			w.(http.Flusher).Flush()
@@ -191,6 +191,9 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 	event.ModelID = modelID
 	h.snapshotReader.seedFrom(event)
 	service := modelservice.NewLocalService(server.URL, "live-stream", 1, 5*time.Second, time.Second)
+	if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
+		t.Fatal(err)
+	}
 	service.SetStreamInference(true)
 	h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "live-stream"
 	data := &observedTaskData{recordingTaskData: h.taskData}
@@ -298,7 +301,7 @@ func TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration(t *testi
 	if !bytes.Equal(before, replayed) {
 		t.Fatal("resume changed signed frame bytes")
 	}
-	if result.TaskDataReceipt.OutputLeafCount != uint64(len(frames)) || len(h.persistence.confirmations) != 2 {
+	if result.TaskDataReceipt.OutputLeafCount != uint64(len(frames)) || len(h.persistence.confirmations) != 3 {
 		t.Fatal("resumed finalization lost receipt or storage facts")
 	}
 	// One relay, not two: the first attempt never got past the Fin, so the
@@ -386,7 +389,7 @@ func TestOutputStreamRecorderEnforcesLimitsBeforeSigningExtraFrames(t *testing.T
 
 func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 	const servedModel = "test/empty-output"
-	modelID := "hf-" + codec.HashBytes([]byte("huggingface:"+servedModel)).String()
+	modelID := codec.HashBytes([]byte("huggingface:" + servedModel)).String()
 	var inferCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -399,9 +402,12 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 			return
 		}
 		inferCalls.Add(1)
+		// EOS first: vLLM reports the EOS token id as the one generated token
+		// and renders no text for it, so the output is empty (an EOS finish
+		// needs at least one token).
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
-			"text": "", "finish_reason": "stop", "prompt_token_ids": []int{42}, "token_ids": []int{},
-			"logprobs": map[string]any{"token_logprobs": []float64{}, "top_logprobs": []map[string]float64{}},
+			"text": "", "finish_reason": "stop", "prompt_token_ids": []int{42}, "token_ids": []int{2},
+			"logprobs": map[string]any{"token_logprobs": []float64{-0.1}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(2, -0.1)}},
 		}}})
 	}))
 	defer server.Close()
@@ -411,6 +417,9 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 	event.ModelID = modelID
 	h.snapshotReader.seedFrom(event)
 	service := modelservice.NewLocalService(server.URL, "empty-output", 1, 5*time.Second, time.Second)
+	if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
+		t.Fatal(err)
+	}
 	service.SetStreamInference(false)
 	h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "empty-output"
 	result, err := h.worker.HandleAssignmentFinalized(context.Background(), event)
@@ -421,17 +430,17 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 	if err != nil || len(frames) != 1 || frames[0].Seq != 0 || len(frames[0].Text) != 0 || len(frames[0].WorkerSignature) != 64 {
 		t.Fatalf("empty output journal=%+v error=%v", frames, err)
 	}
-	if result.TaskDataReceipt.OutputSizeBytes != 0 || result.TaskDataReceipt.GeneratedTokenCount != 0 || result.TaskDataReceipt.OutputLeafCount != 1 || result.TaskDataReceipt.OutputHash != frames[0].MMRRoot.String() {
+	if result.TaskDataReceipt.OutputSizeBytes != 0 || result.TaskDataReceipt.GeneratedTokenCount != 1 || result.TaskDataReceipt.OutputLeafCount != 1 || result.TaskDataReceipt.OutputHash != frames[0].MMRRoot.String() {
 		t.Fatalf("empty receipt=%+v", result.TaskDataReceipt)
 	}
-	if len(h.persistence.confirmations) != 2 || len(h.taskData.FinalizedTaskResults) != 1 {
+	if len(h.persistence.confirmations) != 3 || len(h.taskData.FinalizedTaskResults) != 2 {
 		t.Fatal("empty output was not finalized")
 	}
 	recovered, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inferCalls.Load() != 1 || !reflect.DeepEqual(recovered.TaskDataReceipt, result.TaskDataReceipt) || len(h.taskData.FinalizedTaskResults) != 1 {
+	if inferCalls.Load() != 1 || !reflect.DeepEqual(recovered.TaskDataReceipt, result.TaskDataReceipt) || len(h.taskData.FinalizedTaskResults) != 2 {
 		t.Fatal("empty-output recovery reran generation or changed finalized receipt")
 	}
 }
@@ -451,7 +460,7 @@ func (m *transientArtifactModel) FetchArtifact(ctx context.Context, request mode
 }
 
 func TestWorkerRetriesCompletedGenerationArtifactReadsWithoutResigningPrefix(t *testing.T) {
-	for _, kind := range []string{"output", "trace", "checkpoint"} {
+	for _, kind := range []string{"output", "token_ids", "position_values"} {
 		t.Run(kind, func(t *testing.T) {
 			h := newHarness(t)
 			enableEvidenceSchema(&h)
@@ -476,7 +485,7 @@ func TestWorkerRetriesCompletedGenerationArtifactReadsWithoutResigningPrefix(t *
 				t.Fatal(err)
 			}
 			after, _ := json.Marshal(recovered)
-			if h.model.InferCalls != 1 || !bytes.Equal(original, after) || len(h.persistence.confirmations) != 2 {
+			if h.model.InferCalls != 1 || !bytes.Equal(original, after) || len(h.persistence.confirmations) != 3 {
 				t.Fatal("artifact retry reran generation or changed signed frames")
 			}
 		})
@@ -545,7 +554,8 @@ type failingSecondFrameSigner struct {
 
 func (s *failingSecondFrameSigner) SignDigest(ctx context.Context, request signer.DigestRequest) ([]byte, error) {
 	s.calls++
-	if s.calls == 2 {
+	// Call 1 signs the output stream header, call 2 the first frame.
+	if s.calls == 3 {
 		return nil, signer.ErrRetryable
 	}
 	return s.DigestSigner.SignDigest(ctx, request)
@@ -556,7 +566,7 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 		t.Run(failure, func(t *testing.T) {
 			const servedModel = "test/deferred-frame"
 			parts := []string{"first-frame-text", "second-frame-two", "third-frame-tail"}
-			modelID := "hf-" + codec.HashBytes([]byte("huggingface:"+servedModel)).String()
+			modelID := codec.HashBytes([]byte("huggingface:" + servedModel)).String()
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				if request.URL.Path == "/v1/models" {
@@ -576,7 +586,7 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 					}
 					payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{
 						"text": part, "finish_reason": finish, "prompt_token_ids": []int{42}, "token_ids": []int{index + 7},
-						"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []map[string]float64{{fmt.Sprintf("token_id:%d", index+7): -0.25}}},
+						"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(index+7, -0.25)}},
 					}}})
 					_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 					w.(http.Flusher).Flush()
@@ -590,6 +600,9 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 			event.ModelID = modelID
 			h.snapshotReader.seedFrom(event)
 			service := modelservice.NewLocalService(server.URL, "deferred-frame", 1, 5*time.Second, time.Second)
+			if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
+				t.Fatal(err)
+			}
 			service.SetStreamInference(true)
 			h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "deferred-frame"
 			if failure == "signer" {

@@ -173,7 +173,7 @@ func inferWithStreamedFrames(t *testing.T, frames []completionResponse, budget u
 	t.Helper()
 	models := []string{"Qwen/Qwen3-8B"}
 	srv, _ := newVLLMStreamStub(t, frames, verifyResponse(), models)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	generation := localTestGeneration(testQwenModelID(), 1)
 	generation.Params.MaxOutputTokens = budget

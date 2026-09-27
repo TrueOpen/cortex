@@ -2,7 +2,9 @@ package builderclient
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"github.com/TrueOpen/cortex/internal/hfields"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +28,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 		t.Fatal(err)
 	}
 	request := OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: taskDataTestRequestAuth(t, pair, "UploadTaskOutputStream", key, body)}
+	request.HeaderSignature = signOutputStreamHeader(t, pair, request)
 	mmr, _ := codec.NewMMR("TRUEOPEN_OUTPUT_MMR_V1")
 	for i, text := range chunks {
 		if err := mmr.Append([]byte(text)); err != nil {
@@ -219,7 +222,7 @@ func TestOutputStreamRejectsInvalidFin(t *testing.T) {
 			case "unspecified":
 				finish.FinishReason = nodewire.FinishReasonV1Unspecified
 			case "unknown":
-				finish.FinishReason = nodewire.FinishReasonV1MaxOutputDuration + 1
+				finish.FinishReason = nodewire.FinishReasonV1StopToken + 1
 			case "signature":
 				finish.WorkerSignature = nil
 			}
@@ -514,5 +517,35 @@ func TestOutputStreamSealedBuilderEndsStreamBeforeFin(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 		})
+	}
+}
+
+// signOutputStreamHeader is the Worker's signature over the plaintext
+// OutputStreamHeaderV2 of the request's task.
+func signOutputStreamHeader(t *testing.T, pair taskDataTestKeyPair, request OutputStreamRequest) []byte {
+	t.Helper()
+	digest, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pair.sign(t, digest)
+}
+
+// The output stream body digest is TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2 over the
+// nine-field OUTPUT reference (evidence_kind included) with the unknown ZERO32
+// content hash, size 0 and no media type; the retired V1 domain is not used.
+func TestOutputStreamBodyDigestIsUploadBodyV2(t *testing.T) {
+	taskHash, sessionID, taskID := strings.Repeat("11", 32), strings.Repeat("22", 32), strings.Repeat("33", 32)
+	got, err := TaskDataOutputStreamBodyDigest(taskHash, sessionID, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := func(s string) []byte { b, _ := hex.DecodeString(s); return b }
+	ref := hfields.Frame(hfields.Bytes(raw(taskHash)), hfields.Bytes(raw(sessionID)), hfields.Bytes(raw(taskID)),
+		hfields.Uint32(uint32(DataKindOutput)), hfields.Bytes(make([]byte, 32)), hfields.Uint32(0), hfields.Uint32(0),
+		hfields.Optional(false, hfields.Bytes(nil)), hfields.Uint32(0))
+	want, err := hfields.Digest("TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2", ref, hfields.Uint64(0), hfields.String(""))
+	if err != nil || got != want {
+		t.Fatalf("output stream body digest = %s, want the V2 projection %s (%v)", got, want, err)
 	}
 }

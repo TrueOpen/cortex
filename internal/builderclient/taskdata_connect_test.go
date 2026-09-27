@@ -2,10 +2,18 @@ package builderclient
 
 import (
 	"bytes"
-	"connectrpc.com/connect"
 	"context"
 	"encoding/hex"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
@@ -14,13 +22,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/proto"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
 type taskDataTestHandler struct {
@@ -198,21 +199,26 @@ func taskDataTestReceipt(t *testing.T, keyPair taskDataTestKeyPair, chainID stri
 		t.Fatal(err)
 	}
 	receipt := SignedInferReceipt{
-		SchemaVersion:             nodewire.InferReceiptSchemaVersionV2,
+		SchemaVersion:             nodewire.InferReceiptSchemaVersionV3,
 		ChainID:                   chainID,
 		TaskID:                    taskDataTestTaskID,
 		TaskHash:                  strings.Repeat("22", 32),
 		WorkerOperatorAddress:     keyPair.address(t),
 		ServiceAuthorizationNonce: 9,
-		GenerationParamsDigest:    strings.Repeat("33", 32),
+		GenerationParamsDigest:    nodewire.GenerationParamsDigest(taskDataTestGenerationParams).String(),
 		OutputHash:                hex.EncodeToString(outputHash[:]),
 		OutputSizeBytes:           uint64(len(data)),
 		OutputLeafCount:           1,
 		RequiredEvidenceCommitments: []EvidenceCommitment{
 			{
 				EvidenceKind:       nodewire.EvidenceKindWorkerValueOpening,
-				EvidenceHashOrRoot: codec.HashBytes([]byte("trace")),
+				EvidenceHashOrRoot: codec.HashBytes([]byte("worker values")),
 				EncodedSizeBytes:   7,
+			},
+			{
+				EvidenceKind:       nodewire.EvidenceKindWorkerTokenOpening,
+				EvidenceHashOrRoot: codec.HashBytes([]byte("token ids")),
+				EncodedSizeBytes:   9,
 			},
 		},
 		ExpiryHeight: 400, GeneratedTokenCount: 3,
@@ -236,7 +242,7 @@ func taskDataTestRequestAuth(t *testing.T, keyPair taskDataTestKeyPair, method s
 }
 func taskDataTestUploadRequest(t *testing.T, keyPair taskDataTestKeyPair, data []byte) UploadTaskResultRequest {
 	t.Helper()
-	key := EvidenceObjectKey(strings.Repeat("22", 32), strings.Repeat("11", 32), taskDataTestTaskID, DataKindEvidenceArtifact, "", EvidenceProducerWorker, 1, keyPair.address(t))
+	key := EvidenceObjectKey(strings.Repeat("22", 32), strings.Repeat("11", 32), taskDataTestTaskID, DataKindEvidenceArtifact, "", EvidenceProducerWorker, 1, keyPair.address(t), nodewire.EvidenceKindWorkerValueOpening)
 	hash := codec.HashBytes(data)
 	key.ContentHash = hex.EncodeToString(hash[:])
 	digest, err := TaskDataUploadBodyDigest(key, uint64(len(data)), "")
@@ -569,3 +575,7 @@ func TestConnectTaskDataClientClosesUploadResponseBodyOnSuccess(t *testing.T) {
 		t.Fatalf("upload response bodies opened = %d, closed = %d, want every body closed", opened, closed)
 	}
 }
+
+// taskDataTestGenerationParams stands in for a task's canonical generation
+// parameters: consumers of the A-level bundle only hash these bytes.
+var taskDataTestGenerationParams = []byte(`{"fixture":"generation params"}`)

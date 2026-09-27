@@ -3,16 +3,17 @@ package keepercontract
 import (
 	"encoding/hex"
 	"encoding/json"
-	"github.com/TrueOpen/cortex/internal/codec"
-	"github.com/TrueOpen/cortex/internal/txclient"
-	"github.com/TrueOpen/cortex/internal/wirevectors"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
-// The released V2 model fixture is verified by wirevectors.File.
-const modelProfileCanonicalGoldenPath = "hub/model_profile_canonical_v2.json"
+// The released V3 model fixture is verified by wirevectors.File.
+const modelProfileCanonicalGoldenPath = "hub/model_profile_canonical_v3.json"
 
 type modelProfileCanonicalGolden struct {
 	Schema              string         `json:"schema"`
@@ -26,7 +27,7 @@ type modelProfileCanonicalGolden struct {
 
 func loadModelProfileCanonicalGolden(t *testing.T) modelProfileCanonicalGolden {
 	t.Helper()
-	raw, err := wirevectors.File("hub/model_profile_canonical_v2.json")
+	raw, err := wirevectors.File("hub/model_profile_canonical_v3.json")
 	if err != nil {
 		t.Fatalf("read %s: %v", modelProfileCanonicalGoldenPath, err)
 	}
@@ -37,7 +38,7 @@ func loadModelProfileCanonicalGolden(t *testing.T) modelProfileCanonicalGolden {
 	return golden
 }
 
-// The model fixture declares its V2 Worker commitment requirement and hash.
+// The model fixture declares its two Worker commitment requirements and hash.
 var wireGoldenEvidenceSchemaHash = func() string {
 	raw, err := wirevectors.File(modelProfileCanonicalGoldenPath)
 	if err != nil {
@@ -51,7 +52,7 @@ var wireGoldenEvidenceSchemaHash = func() string {
 }()
 
 func TestModelProfileCanonicalGoldenIsWireVerbatim(t *testing.T) {
-	_, err := wirevectors.File("hub/model_profile_canonical_v2.json")
+	_, err := wirevectors.File("hub/model_profile_canonical_v3.json")
 	if err != nil {
 		t.Fatalf("read %s: %v", modelProfileCanonicalGoldenPath, err)
 	}
@@ -107,7 +108,7 @@ func TestCanonicalModelProfileProjectionAgreesWithWireGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectionHash := codec.HashV1("TRUEOPEN_MODEL_CHAIN_PROJECTION_V2", expectedProjection)
+	projectionHash := codec.HashV1("TRUEOPEN_MODEL_CHAIN_PROJECTION_V3", expectedProjection)
 	if projectionHash.String() != strings.TrimPrefix(golden.ChainProjectionHash, "0x") {
 		t.Fatalf("chain projection hash %s, published %s", projectionHash, golden.ChainProjectionHash)
 	}
@@ -119,7 +120,7 @@ func TestCanonicalModelProfileProjectionAgreesWithWireGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := codec.HashV1("TRUEOPEN_MODEL_REGISTRATION_DIGEST_V2", expectedPayload); digest != want {
+	if want := codec.HashV1("TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3", expectedPayload); digest != want {
 		t.Fatalf("registration digest %x, independent formula %x", digest, want)
 	}
 }

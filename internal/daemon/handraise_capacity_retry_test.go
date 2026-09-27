@@ -27,13 +27,13 @@ func capacityTestResolver(t *testing.T, snapshot modelservice.ResourceSnapshot) 
 func capacityTestWorkerCandidate() WorkerHandraiseCandidate {
 	return WorkerHandraiseCandidate{
 		TaskID: identity.TaskIDString(capacityTestSession, 1), SessionID: capacityTestSession, OrderSequence: 1,
-		ModelID: "fake-llm-text", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+		ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
 	}
 }
 
 func capacityTestVerifierCandidate() VerifierHandraiseCandidate {
 	return VerifierHandraiseCandidate{
-		TaskID: "task-2", SessionID: "session-2", ModelID: "fake-llm-text", ProfileVersion: 1,
+		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 	}
 }

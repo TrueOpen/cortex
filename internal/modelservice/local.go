@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +11,6 @@ import (
 	"math"
 	"net/http"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +18,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
@@ -33,45 +31,18 @@ const (
 	defaultTopP                         = 1.0
 	defaultTopKSample                   = 0
 	defaultSeed                         = 0
-	missingLogprob                      = -100.0
 	localVerifierID                     = "local-vllm-verifier-v1"
 	defaultLocalRuntimeClass            = "CAUSAL_LM_PREFILL_LOGPROBS_V1"
-	defaultLocalTraceMode               = "vllm_prompt_logprobs_full_prefill"
 	defaultLocalJudgmentFunctionVersion = "PREFILL_GENERATED_TOKEN_METRICS_V1"
 	defaultLocalCanonicalEncoding       = "CANONICAL_OUTPUT_TEXT_V1"
 	defaultLocalMetricProofVersion      = "PREFILL_METRIC_AGGREGATE_PROOF_V1"
 	defaultLocalTokenScope              = "ALL_GENERATED_OUTPUT_TOKENS"
 	defaultLocalNumericScale            = "FP_1E6"
-	huggingFaceModelIDPrefix            = "hf-"
-	huggingFaceModelIDDomain            = "huggingface:"
-)
-
-const (
-	verdictPass         = "PASS_SINGLE"
-	verdictPassStrict   = "PASS_SINGLE_STRICT"
-	verdictReject       = "REJECT_SINGLE"
-	verdictInconclusive = "INCONCLUSIVE_SINGLE"
-)
-
-const (
-	passMinFiniteCount          = 5
-	passMeanAbsLogprobDiffMax   = 0.018
-	passAbsLogprobDiffP95Max    = 0.100
-	passAbsLogprobDiffP99Max    = 0.200
-	passRankMismatchRateMax     = 0.025
-	passTopKJaccardMeanMin      = 0.935
-	passUnionJSP99Max           = 0.012
-	rejectMeanAbsLogprobDiffMin = 0.023
-	rejectAbsLogprobDiffP95Min  = 0.130
-	rejectAbsLogprobDiffP99Min  = 0.280
-	rejectRankMismatchRateMin   = 0.040
-	rejectTopKJaccardMeanMax    = 0.910
-	rejectUnionJSP99Min         = 0.025
 )
 
 // LocalService is an in-process model service that fulfils Infer/Verify by
 // calling a local vLLM OpenAI-compatible /v1/completions endpoint. Produced
-// artifacts (output, trace, checkpoint, verify sample sequence) are kept in an
+// artifacts (output, token ids, position values, verify sample sequence) are kept in an
 // in-memory store and served back through FetchArtifact, mirroring FakeService.
 type LocalService struct {
 	baseURL         string
@@ -105,14 +76,13 @@ type LocalService struct {
 	// always non-streaming.
 	streamInference bool
 
-	// configuredModelIDs are the chain model identifiers this node declares
-	// support for. vLLM serves its own names (Qwen/Qwen3-8B), so without these
-	// the node can never advertise the protocol id handraise matches on.
-	configuredModelIDs []string
-
 	mu        sync.RWMutex
 	artifacts map[string][]byte
-	aliases   map[string]string // protocol model id -> vLLM served model id
+	// models binds each chain model id this node serves to the repository vLLM
+	// serves it under. The binding comes from the chain (ModelState provider and
+	// repo_id), set by BindModel at startup: a model id is a hash over the
+	// proposer too, so it cannot be derived from the served name.
+	models map[string]string
 	// profiles caches resolved profiles by "<model_id>@<profile_version>".
 	//
 	// Keeper has no message that edits a registered profile in place: changing
@@ -136,21 +106,10 @@ type LocalProfileResolver interface {
 	ResolveLocalProfile(context.Context, string, string) (chainclient.CurrentProfileSnapshot, error)
 }
 
-func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTimeout, probeTimeout time.Duration, configuredModelIDs ...string) *LocalService {
+func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTimeout, probeTimeout time.Duration) *LocalService {
 	serviceID = strings.TrimSpace(serviceID)
 	if serviceID == "" {
 		serviceID = defaultLocalSvcID
-	}
-	ids := make([]string, 0, len(configuredModelIDs))
-	seenIDs := make(map[string]struct{}, len(configuredModelIDs))
-	for _, id := range configuredModelIDs {
-		if trimmed := strings.TrimSpace(id); trimmed != "" {
-			if _, exists := seenIDs[trimmed]; exists {
-				continue
-			}
-			seenIDs[trimmed] = struct{}{}
-			ids = append(ids, trimmed)
-		}
 	}
 	if inferTimeout <= 0 {
 		inferTimeout = 60 * time.Second
@@ -159,19 +118,51 @@ func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTime
 		probeTimeout = 5 * time.Second
 	}
 	return &LocalService{
-		baseURL:            normalizeLocalBaseURL(baseURL),
-		apiKey:             defaultVLLMAPIKey,
-		serviceID:          serviceID,
-		maxConcurrency:     maxConcurrency,
-		configuredModelIDs: ids,
-		http:               &http.Client{},
-		artifacts:          make(map[string][]byte),
-		aliases:            make(map[string]string),
-		profiles:           make(map[string]localModelProfile),
-		inferTimeout:       inferTimeout,
-		probeTimeout:       probeTimeout,
-		streamInference:    true,
+		baseURL:         normalizeLocalBaseURL(baseURL),
+		apiKey:          defaultVLLMAPIKey,
+		serviceID:       serviceID,
+		maxConcurrency:  maxConcurrency,
+		http:            &http.Client{},
+		artifacts:       make(map[string][]byte),
+		models:          make(map[string]string),
+		profiles:        make(map[string]localModelProfile),
+		inferTimeout:    inferTimeout,
+		probeTimeout:    probeTimeout,
+		streamInference: true,
 	}
+}
+
+// LocalModelProvider is the only source provider the local adapter serves:
+// vLLM loads and names its models by Hugging Face repo id.
+const LocalModelProvider = identity.ModelProviderHuggingFace
+
+// BindModel records that modelID is served by vLLM under repoID, the model's
+// on-chain repo_id. provider is the model's on-chain source provider and must
+// be LocalModelProvider. Only bound models are advertised or served.
+func (s *LocalService) BindModel(modelID, provider, repoID string) error {
+	if provider != LocalModelProvider {
+		return fmt.Errorf("modelservice local: model %s has source provider %q; the local adapter serves only %s",
+			modelID, provider, LocalModelProvider)
+	}
+	if strings.TrimSpace(modelID) != modelID || modelID == "" || strings.TrimSpace(repoID) != repoID || repoID == "" {
+		return fmt.Errorf("modelservice local: model binding %q -> %q must be non-empty and trimmed", modelID, repoID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if bound, ok := s.models[modelID]; ok && bound != repoID {
+		return fmt.Errorf("modelservice local: model %s is already bound to %s", modelID, bound)
+	}
+	s.models[modelID] = repoID
+	return nil
+}
+
+// CheckServed reports whether vLLM currently serves the repository modelID is
+// bound to. An unbound model or an unserved repository is an error.
+func (s *LocalService) CheckServed(ctx context.Context, modelID string) error {
+	ctx, cancel := s.withProbeTimeout(ctx)
+	defer cancel()
+	_, err := s.resolveServedModel(ctx, modelID)
+	return err
 }
 
 // withInferTimeout returns a context bound by the configured inference timeout.
@@ -241,7 +232,7 @@ type InferStreamFrame struct {
 	TextDelta     string
 	TokenIDs      []int
 	TokenLogprobs []float64
-	TopLogprobs   []map[string]float64
+	TopLogprobs   []TopLogprobRow
 	FinishReason  string
 	// Done is true on the final frame (the [DONE] sentinel or stream EOF).
 	Done bool
@@ -298,9 +289,61 @@ type logprobEntry struct {
 // inline-anonymous) so the chat path can construct it when it projects a chat
 // response onto completionResponse for the shared post-processing.
 type completionLogprobs struct {
-	Tokens        []string             `json:"tokens"`
-	TokenLogprobs []float64            `json:"token_logprobs"`
-	TopLogprobs   []map[string]float64 `json:"top_logprobs"`
+	Tokens        []string        `json:"tokens"`
+	TokenLogprobs []float64       `json:"token_logprobs"`
+	TopLogprobs   []TopLogprobRow `json:"top_logprobs"`
+	// absent marks positions whose token_logprobs entry vLLM wrote as null.
+	// Such a position has no value; nil means every entry was present.
+	absent []bool
+}
+
+// UnmarshalJSON reads token_logprobs entries that may be null.
+func (l *completionLogprobs) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Tokens        []string        `json:"tokens"`
+		TokenLogprobs []*float64      `json:"token_logprobs"`
+		TopLogprobs   []TopLogprobRow `json:"top_logprobs"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*l = completionLogprobs{Tokens: raw.Tokens, TopLogprobs: raw.TopLogprobs}
+	if raw.TokenLogprobs != nil {
+		l.TokenLogprobs = make([]float64, len(raw.TokenLogprobs))
+	}
+	for i, logprob := range raw.TokenLogprobs {
+		if logprob == nil {
+			if l.absent == nil {
+				l.absent = make([]bool, len(raw.TokenLogprobs))
+			}
+			l.absent[i] = true
+			continue
+		}
+		l.TokenLogprobs[i] = *logprob
+	}
+	return nil
+}
+
+// logprobAbsent reports whether position i's token logprob was null.
+func (l *completionLogprobs) logprobAbsent(i int) bool {
+	return i < len(l.absent) && l.absent[i]
+}
+
+// appendFrom appends one streamed chunk's logprobs, keeping the null marks
+// aligned with token_logprobs.
+func (l *completionLogprobs) appendFrom(src *completionLogprobs) {
+	if src.absent != nil {
+		for len(l.absent) < len(l.TokenLogprobs) {
+			l.absent = append(l.absent, false)
+		}
+		l.absent = append(l.absent, src.absent...)
+		for len(l.absent) < len(l.TokenLogprobs)+len(src.TokenLogprobs) {
+			l.absent = append(l.absent, false)
+		}
+	}
+	l.Tokens = append(l.Tokens, src.Tokens...)
+	l.TokenLogprobs = append(l.TokenLogprobs, src.TokenLogprobs...)
+	l.TopLogprobs = append(l.TopLogprobs, src.TopLogprobs...)
 }
 
 // completionChoice is one /v1/completions choice, named so the chat path can
@@ -334,19 +377,16 @@ type localModelProfile struct {
 	ContextLength  int
 	Sampling       localSamplingProfile
 	Verification   localVerificationProfile
-	Thresholds     singleSampleThresholds
 }
 
 type localSamplingProfile struct {
-	Temperature            float64
-	TopP                   float64
-	TopK                   int
-	Seed                   int
-	Logprobs               int
-	PromptLogprobs         int
-	SkipSpecialTokens      bool
-	ReturnTokenIDs         bool
-	ReturnTokensAsTokenIDs bool
+	Temperature       float64
+	TopP              float64
+	TopK              int
+	Seed              int
+	Logprobs          int
+	PromptLogprobs    int
+	SkipSpecialTokens bool
 }
 
 type localVerificationProfile struct {
@@ -354,7 +394,6 @@ type localVerificationProfile struct {
 	JudgmentFunctionVersion     string
 	CanonicalEncodingVersion    string
 	MetricAggregateProofVersion string
-	TraceMode                   string
 	TokenScope                  string
 	IncludeGeneratedSpecial     bool
 	IncludePromptTokens         bool
@@ -363,81 +402,6 @@ type localVerificationProfile struct {
 	RequireFinishReason         bool
 	ComparedTopK                int
 	NumericScale                string
-	MissingLogprob              float64
-}
-
-// tokenLogprob records the vLLM output token id and its logprob at one position.
-type tokenLogprob struct {
-	TokenID     int                `json:"token_id"`
-	Logprob     float64            `json:"logprob"`
-	Rank        int                `json:"rank,omitempty"`
-	TopLogprobs map[string]float64 `json:"top_logprobs,omitempty"`
-}
-
-// traceEnvelope is the local-defined trace/checkpoint payload written by Infer
-// and read back by Verify.
-type traceEnvelope struct {
-	Generation            *nodewire.GenerationContext `json:"generation_context"`
-	ModelID               string                      `json:"model_id,omitempty"`
-	ProfileVersion        string                      `json:"profile_version,omitempty"`
-	Output                string                      `json:"output"`
-	InputTokenIDs         []int                       `json:"input_token_ids"`
-	InputTokenIDsHash     string                      `json:"input_token_ids_hash,omitempty"`
-	GeneratedTokenIDsHash string                      `json:"generated_token_ids_hash,omitempty"`
-	GeneratedTokenCount   int                         `json:"generated_token_count,omitempty"`
-	FinishReason          string                      `json:"finish_reason,omitempty"`
-	StopReason            json.RawMessage             `json:"stop_reason,omitempty"`
-	OutTokens             []tokenLogprob              `json:"out_tokens"`
-}
-
-// verificationValue records the verifier-side recomputation for one output
-// token position.
-type verificationValue struct {
-	Position int      `json:"position"`
-	TokenID  int      `json:"token_id"`
-	Logprob  *float64 `json:"logprob,omitempty"`
-	Rank     int      `json:"rank,omitempty"`
-	Present  bool     `json:"present"`
-}
-
-type verificationEnvelope struct {
-	Verdict        string                 `json:"verdict"`
-	RawVerdict     string                 `json:"raw_verdict"`
-	RejectReasons  []string               `json:"reject_reasons,omitempty"`
-	Metrics        singleSampleMetrics    `json:"metrics"`
-	Values         []verificationValue    `json:"values"`
-	Policy         singleSampleThresholds `json:"policy"`
-	MissingLogprob float64                `json:"missing_logprob"`
-	VerifierID     string                 `json:"verifier_id"`
-}
-
-type singleSampleMetrics struct {
-	FiniteCount          int      `json:"finite_count"`
-	MissingSelectedCount int      `json:"missing_selected_count"`
-	MeanAbsLogprobDiff   float64  `json:"mean_abs_logprob_diff"`
-	AbsLogprobDiffP95    float64  `json:"abs_logprob_diff_p95"`
-	AbsLogprobDiffP99    float64  `json:"abs_logprob_diff_p99"`
-	RankDeltaNonzeroRate float64  `json:"rank_delta_nonzero_rate"`
-	TopKJaccardMean      *float64 `json:"topk_jaccard_mean,omitempty"`
-	UnionJSP99           *float64 `json:"union_js_p99,omitempty"`
-	ComparedTopKCount    int      `json:"compared_topk_count"`
-	ComparedRankCount    int      `json:"compared_rank_count"`
-}
-
-type singleSampleThresholds struct {
-	PassMinFiniteCount          int     `json:"pass_min_finite_count"`
-	PassMeanAbsLogprobDiffMax   float64 `json:"pass_mean_abs_logprob_diff_max"`
-	PassAbsLogprobDiffP95Max    float64 `json:"pass_abs_logprob_diff_p95_max"`
-	PassAbsLogprobDiffP99Max    float64 `json:"pass_abs_logprob_diff_p99_max"`
-	PassRankMismatchRateMax     float64 `json:"pass_rank_mismatch_rate_max"`
-	PassTopKJaccardMeanMin      float64 `json:"pass_topk_jaccard_mean_min"`
-	PassUnionJSP99Max           float64 `json:"pass_union_js_p99_max"`
-	RejectMeanAbsLogprobDiffMin float64 `json:"reject_mean_abs_logprob_diff_min"`
-	RejectAbsLogprobDiffP95Min  float64 `json:"reject_abs_logprob_diff_p95_min"`
-	RejectAbsLogprobDiffP99Min  float64 `json:"reject_abs_logprob_diff_p99_min"`
-	RejectRankMismatchRateMin   float64 `json:"reject_rank_mismatch_rate_min"`
-	RejectTopKJaccardMeanMax    float64 `json:"reject_topk_jaccard_mean_max"`
-	RejectUnionJSP99Min         float64 `json:"reject_union_js_p99_min"`
 }
 
 func (s *LocalService) Health(ctx context.Context, req HealthRequest) (HealthResponse, error) {
@@ -470,11 +434,11 @@ func (s *LocalService) ListCapabilities(ctx context.Context, req ListCapabilitie
 	capabilities := make([]ManagedModelCapability, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
 		capabilities = append(capabilities, ManagedModelCapability{
-			ModelID:            modelID,
-			Capability:         CapabilityLLMTextV1,
-			SupportsTrace:      true,
-			SupportsCheckpoint: true,
-			SupportsBatchLog:   true,
+			ModelID:                modelID,
+			Capability:             CapabilityLLMTextV1,
+			SupportsTokenIDs:       true,
+			SupportsPositionValues: true,
+			SupportsBatchLog:       true,
 		})
 	}
 	return ListCapabilitiesResponse{
@@ -605,42 +569,31 @@ func (s *LocalService) GetModelDetails(_ context.Context, req GetModelDetailsReq
 	}, nil
 }
 
+// capabilityModelIDs lists the bound models whose repository vLLM serves.
 func (s *LocalService) capabilityModelIDs(servedModels []string) []string {
-	s.rememberVLLMModelAliases(servedModels)
-	served := normalizedServedModels(servedModels)
-	configured := s.configuredModelIDSet()
-	modelIDs := make([]string, 0, len(servedModels))
-	seen := make(map[string]struct{}, len(servedModels))
-	for _, model := range served {
-		modelID := localHuggingFaceModelID(model)
-		if modelID == "" {
-			continue
-		}
-		if !modelIDAllowed(modelID, configured) {
-			continue
-		}
-		if _, ok := seen[modelID]; ok {
-			continue
-		}
-		seen[modelID] = struct{}{}
-		modelIDs = append(modelIDs, modelID)
+	served := make(map[string]struct{}, len(servedModels))
+	for _, model := range normalizedServedModels(servedModels) {
+		served[model] = struct{}{}
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	modelIDs := make([]string, 0, len(s.models))
+	for modelID, repoID := range s.models {
+		if _, ok := served[repoID]; ok {
+			modelIDs = append(modelIDs, modelID)
+		}
+	}
+	slices.Sort(modelIDs)
 	return modelIDs
 }
 
 func (s *LocalService) LoadModel(ctx context.Context, req LoadModelRequest) (LoadModelResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return LoadModelResponse{}, err
 	}
-	servedModel, err := s.resolveServedModel(ctx, req.ModelID)
-	if err != nil {
+	if _, err := s.resolveServedModel(ctx, req.ModelID); err != nil {
 		return LoadModelResponse{}, err
 	}
-	s.mu.Lock()
-	if strings.TrimSpace(req.ModelID) != "" {
-		s.aliases[strings.TrimSpace(req.ModelID)] = servedModel
-	}
-	s.mu.Unlock()
 	return LoadModelResponse{
 		RequestID:      req.RequestID,
 		ModelServiceID: s.serviceID,
@@ -650,7 +603,7 @@ func (s *LocalService) LoadModel(ctx context.Context, req LoadModelRequest) (Loa
 }
 
 func (s *LocalService) Estimate(_ context.Context, req EstimateRequest) (EstimateResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return EstimateResponse{}, err
 	}
 	return EstimateResponse{
@@ -695,22 +648,19 @@ func defaultQwenSingleSampleProfile(modelID string, profileVersion string, serve
 		RuntimeClass:   defaultLocalRuntimeClass,
 		RequiredTopK:   defaultTopK,
 		Sampling: localSamplingProfile{
-			Temperature:            0,
-			TopP:                   defaultTopP,
-			TopK:                   defaultTopKSample,
-			Seed:                   defaultSeed,
-			Logprobs:               defaultTopK,
-			PromptLogprobs:         defaultTopK,
-			SkipSpecialTokens:      false,
-			ReturnTokenIDs:         true,
-			ReturnTokensAsTokenIDs: true,
+			Temperature:       0,
+			TopP:              defaultTopP,
+			TopK:              defaultTopKSample,
+			Seed:              defaultSeed,
+			Logprobs:          defaultTopK,
+			PromptLogprobs:    defaultTopK,
+			SkipSpecialTokens: false,
 		},
 		Verification: localVerificationProfile{
 			ProfileID:                   1,
 			JudgmentFunctionVersion:     defaultLocalJudgmentFunctionVersion,
 			CanonicalEncodingVersion:    defaultLocalCanonicalEncoding,
 			MetricAggregateProofVersion: defaultLocalMetricProofVersion,
-			TraceMode:                   defaultLocalTraceMode,
 			TokenScope:                  defaultLocalTokenScope,
 			IncludeGeneratedSpecial:     true,
 			IncludePromptTokens:         false,
@@ -719,9 +669,7 @@ func defaultQwenSingleSampleProfile(modelID string, profileVersion string, serve
 			RequireFinishReason:         true,
 			ComparedTopK:                defaultTopK,
 			NumericScale:                defaultLocalNumericScale,
-			MissingLogprob:              missingLogprob,
 		},
-		Thresholds: localSingleSampleThresholds(),
 	}
 }
 
@@ -816,17 +764,12 @@ func applyCurrentProfileSnapshot(profile localModelProfile, snapshot chainclient
 		return localModelProfile{}, err
 	}
 
-	thresholds, ok, err := currentProfileThresholds(snapshot)
-	if err != nil {
-		return localModelProfile{}, err
-	}
-	// Judging under the built-in defaults instead would record a policy the
-	// chain never registered, and Node cannot judge an all-zero set: its pass
-	// and reject bounds always overlap.
-	if !ok {
+	// The chain judges the summary against these thresholds; Node cannot judge
+	// an all-zero set, because its pass and reject bounds always overlap, so a
+	// profile without them is refused rather than served.
+	if !currentProfileThresholdsPresent(snapshot.VerificationThresholds) {
 		return localModelProfile{}, fmt.Errorf("resolved model profile %s@%s has no verification_thresholds", profile.ModelID, profile.ProfileVersion)
 	}
-	profile.Thresholds = thresholds
 	return profile, nil
 }
 
@@ -876,32 +819,6 @@ func checkSupportedVerificationSpec(snapshot chainclient.CurrentProfileSnapshot)
 	return nil
 }
 
-func currentProfileThresholds(snapshot chainclient.CurrentProfileSnapshot) (singleSampleThresholds, bool, error) {
-	thresholds := snapshot.VerificationThresholds
-	if !currentProfileThresholdsPresent(thresholds) {
-		return singleSampleThresholds{}, false, nil
-	}
-	scale, err := currentProfileNumericScale(snapshot.VerificationProfile.Metrics.NumericScale)
-	if err != nil {
-		return singleSampleThresholds{}, false, err
-	}
-	return singleSampleThresholds{
-		PassMinFiniteCount:          int(thresholds.PassMinFiniteCount),
-		PassMeanAbsLogprobDiffMax:   scale(thresholds.PassMeanAbsLogprobDiffMax),
-		PassAbsLogprobDiffP95Max:    scale(thresholds.PassAbsLogprobDiffP95Max),
-		PassAbsLogprobDiffP99Max:    scale(thresholds.PassAbsLogprobDiffP99Max),
-		PassRankMismatchRateMax:     scale(thresholds.PassRankDeltaNonzeroRateMax),
-		PassTopKJaccardMeanMin:      scale(thresholds.PassTopKJaccardMeanMin),
-		PassUnionJSP99Max:           scale(thresholds.PassUnionJSP99Max),
-		RejectMeanAbsLogprobDiffMin: scale(thresholds.RejectMeanAbsLogprobDiffMin),
-		RejectAbsLogprobDiffP95Min:  scale(thresholds.RejectAbsLogprobDiffP95Min),
-		RejectAbsLogprobDiffP99Min:  scale(thresholds.RejectAbsLogprobDiffP99Min),
-		RejectRankMismatchRateMin:   scale(thresholds.RejectRankDeltaNonzeroRateMin),
-		RejectTopKJaccardMeanMax:    scale(thresholds.RejectTopKJaccardMeanMax),
-		RejectUnionJSP99Min:         scale(thresholds.RejectUnionJSP99Min),
-	}, true, nil
-}
-
 func currentProfileThresholdsPresent(thresholds chainclient.CurrentVerificationThresholdsSnapshot) bool {
 	return thresholds.PassMinFiniteCount != 0 ||
 		thresholds.PassMaxMissingComparedCount != 0 ||
@@ -919,17 +836,6 @@ func currentProfileThresholdsPresent(thresholds chainclient.CurrentVerificationT
 		thresholds.RejectUnionJSP99Min != 0
 }
 
-func currentProfileNumericScale(raw string) (func(uint32) float64, error) {
-	switch normalizeCurrentProfileEnum(raw, "NUMERIC_SCALE_") {
-	case "", "FP_1E6":
-		return func(value uint32) float64 {
-			return float64(value) / 1_000_000
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported resolved profile numeric_scale %q", raw)
-	}
-}
-
 func normalizeCurrentProfileEnum(value, prefix string) string {
 	return strings.TrimPrefix(strings.TrimSpace(value), prefix)
 }
@@ -939,7 +845,7 @@ func normalizeCurrentProfileEnum(value, prefix string) string {
 // and is dispatched to by Infer (local_chat.go) when the input is not a chat
 // payload.
 func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResponse, error) {
-	if err := validateCapability(req.Capability, true, true); err != nil {
+	if err := validateCapability(req.Capability); err != nil {
 		return InferResponse{}, err
 	}
 	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {
@@ -1023,15 +929,12 @@ func completionFinishResolver(req InferRequest) finishReasonResolver {
 
 // buildInferResultFromCompletion turns a decoded /v1/completions response (or a
 // chat response projected onto the same shape) into the InferResponse plus the
-// stored output/trace/checkpoint artifacts. It is shared by inferV0 and the chat
-// path so both produce byte-identical trace/checkpoint envelopes and the Verifier
+// stored output, token-id and position-value artifacts. It is shared by inferV0
+// and the chat path so both produce byte-identical material and the Verifier
 // sees one shape regardless of which endpoint generated the tokens.
 //
 // outputBytes is the artifact to commit and deliver as the output. Pass nil to
-// commit the raw generated text (choice.Text) -- the inferV0 behaviour; the chat
-// path passes a full OpenAI ChatCompletion object instead, which is why the output
-// artifact and trace.Output are decoupled here: trace.Output stays the model's
-// text while the delivered output can be a richer envelope.
+// commit the raw generated text (choice.Text).
 //
 // resolveFinish computes the frozen finish reason; each path supplies its own so
 // the completions path can honour generation parameters while the chat path keeps
@@ -1047,7 +950,8 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	if len(choice.PromptTokenIDs) == 0 && len(req.Input) > 0 {
 		return InferResponse{}, fmt.Errorf("modelservice local infer: missing prompt token ids")
 	}
-	if choice.Logprobs == nil || len(choice.Logprobs.TokenLogprobs) != len(choice.TokenIDs) {
+	// A generation stopped before its first token has no logprobs block.
+	if len(choice.TokenIDs) > 0 && (choice.Logprobs == nil || len(choice.Logprobs.TokenLogprobs) != len(choice.TokenIDs)) {
 		return InferResponse{}, fmt.Errorf("modelservice local infer: generated token logprobs are incomplete")
 	}
 	finishReason, err := resolveFinish(choice.FinishReason, choice.StopReason, uint64(len(choice.TokenIDs)))
@@ -1055,59 +959,49 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		return InferResponse{}, err
 	}
 
-	outTokens := make([]tokenLogprob, 0, len(choice.TokenIDs))
-	generatedTokenIDs := make([]int, 0, len(choice.TokenIDs))
-	for i, id := range choice.TokenIDs {
-		generatedTokenIDs = append(generatedTokenIDs, id)
-		topLogprobs := topLogprobsAt(choice.Logprobs.TopLogprobs, i)
-		outTokens = append(outTokens, tokenLogprob{
-			TokenID:     id,
-			Logprob:     choice.Logprobs.TokenLogprobs[i],
-			Rank:        rankForToken(id, topLogprobs),
-			TopLogprobs: topLogprobs,
-		})
-	}
-
-	trace := traceEnvelope{
-		Generation:            req.Generation,
-		ModelID:               profile.ModelID,
-		ProfileVersion:        profile.ProfileVersion,
-		Output:                choice.Text,
-		InputTokenIDs:         choice.PromptTokenIDs,
-		InputTokenIDsHash:     hashTokenIDs(choice.PromptTokenIDs),
-		GeneratedTokenIDsHash: hashTokenIDs(generatedTokenIDs),
-		GeneratedTokenCount:   len(generatedTokenIDs),
-		FinishReason:          choice.FinishReason,
-		StopReason:            choice.StopReason,
-		OutTokens:             outTokens,
-	}
-	traceBytes, err := json.Marshal(trace)
+	inputIDs, err := tokenIDsUint32("prompt_token_ids", choice.PromptTokenIDs)
 	if err != nil {
-		return InferResponse{}, fmt.Errorf("modelservice local infer: marshal trace: %w", err)
+		return InferResponse{}, fmt.Errorf("modelservice local infer: %w", err)
 	}
-	checkpointBytes, err := json.Marshal(traceEnvelope{
-		Generation:            req.Generation,
-		ModelID:               profile.ModelID,
-		ProfileVersion:        profile.ProfileVersion,
-		Output:                choice.Text,
-		InputTokenIDs:         choice.PromptTokenIDs,
-		InputTokenIDsHash:     hashTokenIDs(choice.PromptTokenIDs),
-		GeneratedTokenIDsHash: hashTokenIDs(generatedTokenIDs),
-		GeneratedTokenCount:   len(generatedTokenIDs),
-		FinishReason:          choice.FinishReason,
-		StopReason:            choice.StopReason,
-	})
+	generatedIDs, err := tokenIDsUint32("token_ids", choice.TokenIDs)
 	if err != nil {
-		return InferResponse{}, fmt.Errorf("modelservice local infer: marshal checkpoint: %w", err)
+		return InferResponse{}, fmt.Errorf("modelservice local infer: %w", err)
 	}
+	values := make([]metric.PositionValue, len(generatedIDs))
+	for i, id := range generatedIDs {
+		var row TopLogprobRow
+		if i < len(choice.Logprobs.TopLogprobs) {
+			row = choice.Logprobs.TopLogprobs[i]
+		}
+		// A position the engine reported no logprob or no top-k for has no
+		// value: it becomes a missing leaf rather than a refusal.
+		if choice.Logprobs.logprobAbsent(i) || len(row) == 0 {
+			values[i] = metric.PositionValue{TokenID: id, Missing: true}
+			continue
+		}
+		topK, err := completionTopK(i, id, row, profile.RequiredTopK)
+		if err != nil {
+			return InferResponse{}, fmt.Errorf("modelservice local infer: %w", err)
+		}
+		values[i] = metric.PositionValue{TokenID: id, Logprob: choice.Logprobs.TokenLogprobs[i], Rank: rankIn(id, topK), TopK: topK}
+	}
+	ids := TokenIDs{Input: inputIDs, Generated: generatedIDs}
 	// The chain-bound generation contract is re-derived here for both paths: the
 	// raw-text path (inferV0) and the chat path (Infer) each carry and validate
-	// req.Generation, so the evidence is checked against the frozen parameters
+	// req.Generation, so the material is checked against the frozen parameters
 	// regardless of which endpoint generated the tokens.
 	if req.Generation != nil {
-		if _, _, err := ValidateGenerationEvidence(req.Generation, req.GenerationParamsDigest, []byte(choice.Text), traceBytes, checkpointBytes); err != nil {
+		if _, err := ValidateGenerationMaterial(req.Generation, req.GenerationParamsDigest, ids, values); err != nil {
 			return InferResponse{}, err
 		}
+	}
+	tokenIDsBytes, err := EncodeTokenIDsArtifact(ids)
+	if err != nil {
+		return InferResponse{}, fmt.Errorf("modelservice local infer: encode token ids: %w", err)
+	}
+	positionValuesBytes, err := EncodePositionValuesArtifact(values)
+	if err != nil {
+		return InferResponse{}, fmt.Errorf("modelservice local infer: encode position values: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return InferResponse{}, err
@@ -1117,9 +1011,9 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		outputBytes = []byte(choice.Text)
 	}
 	outputRef := s.putArtifact(outputBytes)
-	traceRef := s.putArtifact(traceBytes)
-	checkpointRef := s.putArtifact(checkpointBytes)
-	generatedTokenCount := uint64(trace.GeneratedTokenCount)
+	tokenIDsRef := s.putArtifact(tokenIDsBytes)
+	positionValuesRef := s.putArtifact(positionValuesBytes)
+	generatedTokenCount := uint64(len(generatedIDs))
 
 	return InferResponse{
 		RequestID:              req.RequestID,
@@ -1131,33 +1025,32 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		RequestDigest:          req.RequestDigest,
 		GenerationParamsDigest: slices.Clone(req.GenerationParamsDigest),
 		OutputRef:              outputRef,
-		TraceRef:               traceRef,
-		CheckpointRef:          checkpointRef,
+		TokenIDsRef:            tokenIDsRef,
+		PositionValuesRef:      positionValuesRef,
 		GeneratedTokenCount:    generatedTokenCount,
 		WorkUnit:               generatedTokenCount,
 		FinishReason:           finishReason,
 	}, nil
 }
 
-// Verify re-runs the committed token IDs as a prefill and scores them. One
-// check data-plane-and-evidence-transfer.md §9.1 names is deliberately NOT here yet:
-// `detokenize(token IDs) == text`. Everything it depends on is in place — the
-// Verifier rebuilds the output MMR from `chunk_lengths[]` and binds the text to
-// `output_hash` (internal/verifier/worker_commitment.go), and
-// ValidateTokenIDArtifacts binds the raw token vectors to the authenticated
-// trace and checkpoint — so what is missing is only the tokenizer call, and it
-// is missing for a reason rather than by oversight: the engine does not render
-// the stop-triggering token into the text (measured on vLLM 0.25.1 /
-// Qwen/Qwen3-8B: the returned IDs end in 151645, the text does not, with
-// skip_special_tokens=false), so a straight comparison fails every normal EOS
-// completion. Dropping the final token to make it pass is what must not be
-// done without first establishing that token's identity, and this deployment
-// exposes no authority for it — `/tokenizer_info` answers 404, and the task's
-// frozen generation params carry only the *configured* StopTokenIDs, never the
-// model's own EOS. `TokenIDArtifacts` therefore proves the raw artifacts equal
-// the trace, not that they mean the same text as the output; do not describe it
-// as the §9.1 check. Landing that check needs an EOS-identity source decided
-// first, not a looser comparison here.
+// Verify re-runs the Worker's committed token IDs as a prefill and reports the
+// verifier's own value at every generated position. It never sees the Worker's
+// values: comparing the two, and everything derived from the comparison, is
+// Cortex's job.
+//
+// One check the Verifier's evidence rules call for is deliberately NOT
+// here yet: `detokenize(token IDs) == text`. The Verifier binds the text to
+// `output_hash` and the token vectors to the A-level commitment, so what is
+// missing is only the tokenizer call, and it is missing for a reason rather
+// than by oversight: the engine does not render the stop-triggering token into
+// the text (measured on vLLM 0.25.1 / Qwen/Qwen3-8B: the returned IDs end in
+// 151645, the text does not, with skip_special_tokens=false), so a straight
+// comparison fails every normal EOS completion. Dropping the final token to
+// make it pass is what must not be done without first establishing that
+// token's identity, and this deployment exposes no authority for it --
+// `/tokenizer_info` answers 404, and the task's frozen generation params carry
+// only the *configured* StopTokenIDs, never the model's own EOS. Landing that
+// check needs an EOS-identity source decided first, not a looser comparison.
 func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyResponse, error) {
 	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {
 		return VerifyResponse{}, err
@@ -1170,30 +1063,26 @@ func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyRes
 		ctx, cancel = context.WithDeadline(ctx, time.UnixMilli(req.DeadlineMS))
 		defer cancel()
 	}
-	item, err := validateVerifyRequest(req)
-	if err != nil {
+	if err := validateVerifyRequest(req); err != nil {
 		return VerifyResponse{}, err
 	}
-	var env traceEnvelope
-	if err := json.Unmarshal(item.Trace, &env); err != nil {
-		return VerifyResponse{}, fmt.Errorf("modelservice local verify: unmarshal trace: %w", err)
-	}
-	if _, _, err := ValidateGenerationEvidence(req.Generation, req.GenerationParamsDigest, []byte(env.Output), item.Trace, item.Checkpoint); err != nil {
-		return VerifyResponse{}, err
+	if uint64(len(req.TokenIDs.Generated)) > req.Generation.Params.MaxOutputTokens {
+		return VerifyResponse{}, Deterministic(FaultCodeTokenBudgetExceeded,
+			fmt.Errorf("Worker generated token count exceeds the order's max_output_tokens"),
+			FaultInt("generated_token_count", len(req.TokenIDs.Generated)), FaultUint("max_output_tokens", req.Generation.Params.MaxOutputTokens))
 	}
 	profile, err := s.resolveLocalProfile(ctx, req.ModelID, req.ProfileVersion)
 	if err != nil {
 		return VerifyResponse{}, err
 	}
-	if err := validateTraceProfile(req, profile, env); err != nil {
-		return VerifyResponse{}, err
-	}
 
-	inputLen := len(env.InputTokenIDs)
-	prompt := make([]int, 0, inputLen+len(env.OutTokens))
-	prompt = append(prompt, env.InputTokenIDs...)
-	for _, t := range env.OutTokens {
-		prompt = append(prompt, t.TokenID)
+	inputLen := len(req.TokenIDs.Input)
+	prompt := make([]int, 0, inputLen+len(req.TokenIDs.Generated))
+	for _, id := range req.TokenIDs.Input {
+		prompt = append(prompt, int(id))
+	}
+	for _, id := range req.TokenIDs.Generated {
+		prompt = append(prompt, int(id))
 	}
 
 	topK := profile.Sampling.PromptLogprobs
@@ -1210,8 +1099,8 @@ func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyRes
 		Seed:                   &seed,
 		PromptLogprobs:         &topK,
 		Stream:                 false,
-		ReturnTokenIDs:         profile.Sampling.ReturnTokenIDs,
-		ReturnTokensAsTokenIDs: profile.Sampling.ReturnTokensAsTokenIDs,
+		ReturnTokenIDs:         true,
+		ReturnTokensAsTokenIDs: true,
 		SkipSpecialTokens:      &skipSpecial,
 	}
 	var resp completionResponse
@@ -1227,523 +1116,48 @@ func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyRes
 		return VerifyResponse{}, fmt.Errorf("modelservice local verify: empty choices")
 	}
 	recomputed := resp.Choices[0].PromptLogprobs
-
-	metrics, metricSamples, err := computeSingleSampleMetrics(
-		env.OutTokens, inputLen, recomputed, profile.Verification.ComparedTopK, profile.Verification.MissingLogprob)
+	values := make([]metric.PositionValue, len(req.TokenIDs.Generated))
+	for i, id := range req.TokenIDs.Generated {
+		value := metric.PositionValue{TokenID: id, Missing: true}
+		if row := inputLen + i; row < len(recomputed) {
+			ordered, byID, err := promptTopK(row, recomputed[row])
+			if err != nil {
+				return VerifyResponse{}, fmt.Errorf("modelservice local verify: %w", err)
+			}
+			value.TopK = ordered
+			if entry, ok := byID[id]; ok && entry.Rank >= 0 {
+				value.Missing, value.Logprob, value.Rank = false, entry.Logprob, uint32(entry.Rank)
+			}
+		}
+		values[i] = value
+	}
+	sequenceBytes, err := EncodePositionValuesArtifact(values)
 	if err != nil {
-		return VerifyResponse{}, err
-	}
-	rawVerdict, rejectReasons := classifySingleSampleWithThresholds(metrics, profile.Thresholds)
-	verdict := verdictPass
-	mismatchCount := 0
-	if rawVerdict == verdictReject {
-		verdict = verdictReject
-		mismatchCount = len(rejectReasons)
-	}
-	positions := outputTokenPositions(len(env.OutTokens))
-	values := verificationSequence(env.OutTokens, inputLen, recomputed, profile.Verification.MissingLogprob)
-
-	sequenceBytes, err := json.Marshal(verificationEnvelope{
-		Verdict:        verdict,
-		RawVerdict:     rawVerdict,
-		RejectReasons:  rejectReasons,
-		Metrics:        metrics,
-		Values:         values,
-		Policy:         profile.Thresholds,
-		MissingLogprob: profile.Verification.MissingLogprob,
-		VerifierID:     localVerifierID,
-	})
-	if err != nil {
-		return VerifyResponse{}, fmt.Errorf("modelservice local verify: marshal sample sequence: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return VerifyResponse{}, err
+		return VerifyResponse{}, fmt.Errorf("modelservice local verify: encode verifier values: %w", err)
 	}
 	sequenceRef := s.putArtifact(sequenceBytes)
-
+	tokenMaterial, err := EncodeTokenIDsArtifact(req.TokenIDs)
+	if err != nil {
+		return VerifyResponse{}, err
+	}
 	sampleDigest := codec.HashBytes(req.Sample)
-	materialDigest := codec.HashWithDomain("CORTEX_LOCAL_VERIFY_MATERIAL_V1", req.Sample, item.Trace, item.Checkpoint)
+	materialDigest := codec.HashWithDomain("CORTEX_LOCAL_VERIFY_MATERIAL_V2", req.Sample, tokenMaterial)
 
 	return VerifyResponse{
-		RequestID:                      req.RequestID,
-		ModelServiceID:                 s.serviceID,
-		JobID:                          req.JobID,
-		TaskID:                         req.TaskID,
-		ModelID:                        req.ModelID,
-		ProfileVersion:                 req.ProfileVersion,
-		RequestDigest:                  req.RequestDigest,
-		GenerationParamsDigest:         slices.Clone(req.GenerationParamsDigest),
-		VerifierID:                     localVerifierID,
-		MainMismatchCount:              mismatchCount,
-		SelectedPositionsOrCheckpoints: positions,
-		SampleValueSequenceRef:         sequenceRef,
-		SampleDigest:                   sampleDigest[:],
-		MaterialDigest:                 materialDigest[:],
-		// The metric material: one sample per generated token position, plus the
-		// aggregation the summary is narrowed from. Both are carried on the
-		// response rather than only inside the sample-sequence artifact, because
-		// the verifier must derive metric_root and MetricSummaryV1 from the same
-		// run that produced the compact reveal - re-reading a JSON artifact would
-		// be a second source that can disagree with the first.
-		MetricSamples: metricSamples,
+		RequestID:              req.RequestID,
+		ModelServiceID:         s.serviceID,
+		JobID:                  req.JobID,
+		TaskID:                 req.TaskID,
+		ModelID:                req.ModelID,
+		ProfileVersion:         req.ProfileVersion,
+		RequestDigest:          req.RequestDigest,
+		GenerationParamsDigest: slices.Clone(req.GenerationParamsDigest),
+		VerifierID:             localVerifierID,
+		SampleValueSequenceRef: sequenceRef,
+		SampleDigest:           sampleDigest[:],
+		MaterialDigest:         materialDigest[:],
+		VerifierValues:         values,
 	}, nil
-}
-
-func verificationSequence(trace []tokenLogprob, inputLen int, recomputed []map[string]logprobEntry, missingValue float64) []verificationValue {
-	values := make([]verificationValue, 0, len(trace))
-	for i, t := range trace {
-		entry, ok := recomputedEntryFor(t.TokenID, inputLen+i, recomputed)
-		value := verificationValue{
-			Position: i,
-			TokenID:  t.TokenID,
-			Present:  ok,
-		}
-		if ok {
-			lp := entry.Logprob
-			value.Logprob = &lp
-			value.Rank = entry.Rank
-		} else {
-			lp := missingValue
-			value.Logprob = &lp
-		}
-		values = append(values, value)
-	}
-	return values
-}
-
-// computeSingleSampleMetrics compares the worker's captured trace against the
-// verifier's recomputed prompt_logprobs and returns both halves of the result:
-// the aggregates the local verdict is classified from, and one metric sample per
-// generated token position.
-//
-// The comparison itself is metric.CompareSamples; this adapts the trace and the
-// prompt_logprobs rows to its per-position values. The samples exist because
-// metric_root is a Merkle tree over per-position leaves (05-verification-algorithm §7)
-// and the aggregates alone cannot reconstruct them, and the aggregates are
-// derived from the same samples, so summary and leaves describe one comparison.
-//
-// missingLogprob is the profile's stand-in for a position the verifier has no
-// entry for. The leaf still carries it - the position happened, and dropping it
-// would renumber every later output_position - beside missing_flag saying the
-// value is a substitute rather than a measurement.
-func computeSingleSampleMetrics(
-	trace []tokenLogprob, inputLen int, recomputed []map[string]logprobEntry, comparedTopK int, missingLogprob float64,
-) (singleSampleMetrics, []metric.Sample, error) {
-	keys := newTokenKeyIDs()
-	workerValues := make([]metric.PositionValue, 0, len(trace))
-	verifierValues := make([]metric.PositionValue, 0, len(trace))
-	for i, worker := range trace {
-		entry, selectedPresent := recomputedEntryFor(worker.TokenID, inputLen+i, recomputed)
-		if _, err := leafUint32("output_position", i); err != nil {
-			return singleSampleMetrics{}, nil, err
-		}
-		tokenID, err := leafUint32("emitted_token_id", worker.TokenID)
-		if err != nil {
-			return singleSampleMetrics{}, nil, err
-		}
-		workerRank, err := leafUint32("worker_rank", worker.Rank)
-		if err != nil {
-			return singleSampleMetrics{}, nil, err
-		}
-		verifier := metric.PositionValue{
-			TokenID: tokenID,
-			Missing: !selectedPresent,
-			TopK:    keys.orderedTopK(promptTopLogprobsAt(recomputed, inputLen+i)),
-		}
-		if selectedPresent {
-			if verifier.Rank, err = leafUint32("verifier_rank", entry.Rank); err != nil {
-				return singleSampleMetrics{}, nil, err
-			}
-			verifier.Logprob = entry.Logprob
-		}
-		workerValues = append(workerValues, metric.PositionValue{
-			TokenID: tokenID,
-			Logprob: worker.Logprob,
-			Rank:    workerRank,
-			TopK:    keys.orderedTopK(normalizeTopLogprobs(worker.TopLogprobs)),
-		})
-		verifierValues = append(verifierValues, verifier)
-	}
-	samples, err := metric.CompareSamples(workerValues, verifierValues, comparedTopK, missingLogprob)
-	if err != nil {
-		return singleSampleMetrics{}, nil, err
-	}
-
-	// The local verdict classifies from the SAME aggregation the submitted
-	// summary is narrowed from. There is one aggregator (metric.AggregateFromSamples)
-	// and this is a projection of it - a second pass here is exactly how the
-	// number an operator reads and the number the Keeper judges start to differ.
-	return localMetricsFromAggregates(metric.AggregateFromSamples(samples, uint32(comparedTopK))), samples, nil
-}
-
-// promptTopLogprobsAt returns the verifier's finite prompt_logprobs at one
-// position, keyed by normalized token key.
-func promptTopLogprobsAt(rows []map[string]logprobEntry, position int) map[string]float64 {
-	if position < 0 || position >= len(rows) {
-		return nil
-	}
-	out := make(map[string]float64, len(rows[position]))
-	for key, entry := range rows[position] {
-		if !finite(entry.Logprob) {
-			continue
-		}
-		out[normalizeTokenKey(key)] = entry.Logprob
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// tokenKeyIDs turns the normalized string keys of a top-logprobs map into the
-// token ids metric.CompareSamples compares. A numeric key is its own id. vLLM
-// reports text keys when return_tokens_as_token_ids is off; those have no id,
-// so each distinct one is given a stand-in counting down from MaxUint32, shared
-// across both sides of one verify so equal text still compares equal.
-type tokenKeyIDs struct {
-	text map[string]uint32
-	next uint32
-}
-
-func newTokenKeyIDs() *tokenKeyIDs {
-	return &tokenKeyIDs{text: map[string]uint32{}, next: math.MaxUint32}
-}
-
-func (k *tokenKeyIDs) id(key string) uint32 {
-	if id, err := strconv.ParseUint(key, 10, 32); err == nil && strconv.FormatUint(id, 10) == key {
-		return uint32(id)
-	}
-	if id, ok := k.text[key]; ok {
-		return id
-	}
-	id := k.next
-	k.text[key] = id
-	k.next--
-	return id
-}
-
-// orderedTopK lists a normalized top-logprobs map in the order the previous
-// map-based comparison truncated it: logprob descending, then key ascending
-// as a string. Truncation to compared_top_k then keeps the same entries.
-func (k *tokenKeyIDs) orderedTopK(in map[string]float64) []metric.TokenLogprob {
-	if len(in) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(in))
-	for key := range in {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if in[keys[i]] == in[keys[j]] {
-			return keys[i] < keys[j]
-		}
-		return in[keys[i]] > in[keys[j]]
-	})
-	out := make([]metric.TokenLogprob, len(keys))
-	for i, key := range keys {
-		out[i] = metric.TokenLogprob{TokenID: k.id(key), Logprob: in[key]}
-	}
-	return out
-}
-
-// localMetricsFromAggregates projects the canonical aggregation into the local
-// classifier's shape. It converts nothing: presence stays presence, and the
-// counts are the same integers.
-func localMetricsFromAggregates(aggregates metric.Aggregates) singleSampleMetrics {
-	metrics := singleSampleMetrics{
-		FiniteCount:          aggregates.FiniteCount,
-		MissingSelectedCount: aggregates.MissingComparedCount,
-		MeanAbsLogprobDiff:   aggregates.MeanAbsLogprobDiff,
-		AbsLogprobDiffP95:    aggregates.AbsLogprobDiffP95,
-		AbsLogprobDiffP99:    aggregates.AbsLogprobDiffP99,
-		RankDeltaNonzeroRate: aggregates.RankDeltaNonzeroRate,
-		ComparedTopKCount:    aggregates.ComparedTopKCount,
-		ComparedRankCount:    aggregates.ComparedRankCount,
-	}
-	if aggregates.TopKJaccardMean.Present {
-		value := aggregates.TopKJaccardMean.Value
-		metrics.TopKJaccardMean = &value
-	}
-	if aggregates.UnionJSP99.Present {
-		value := aggregates.UnionJSP99.Value
-		metrics.UnionJSP99 = &value
-	}
-	return metrics
-}
-
-// leafUint32 narrows a model service int to the unsigned width the metric leaf
-// frames, and REFUSES anything that does not fit.
-//
-// It used to clamp to zero. That was wrong in a way that only shows up much
-// later: token id 0 is a legal token and rank 0 is the wire's "no rank
-// reported" spelling, so a clamped transport fault becomes an ordinary-looking
-// leaf. The leaf is then hashed into metric_root, signed, and put on chain -
-// and the mismatch only surfaces at a VERIFIER_VALUE_OPENING that can never be
-// satisfied, because the true value was destroyed at this line.
-func leafUint32(name string, value int) (uint32, error) {
-	if value < 0 || int64(value) > math.MaxUint32 {
-		return 0, fmt.Errorf(
-			"modelservice local verify: %s = %d does not fit the metric leaf's uint32 field; refusing rather "+
-				"than clamping, because a clamped value hashes into metric_root as a plausible one", name, value)
-	}
-	return uint32(value), nil
-}
-
-func classifySingleSampleWithThresholds(metrics singleSampleMetrics, thresholds singleSampleThresholds) (string, []string) {
-	var rejectReasons []string
-	if metrics.MissingSelectedCount > 0 {
-		rejectReasons = append(rejectReasons, "missing_selected_count")
-	}
-	if metrics.MeanAbsLogprobDiff >= thresholds.RejectMeanAbsLogprobDiffMin {
-		rejectReasons = append(rejectReasons, "mean_abs_logprob_diff")
-	}
-	if metrics.AbsLogprobDiffP95 >= thresholds.RejectAbsLogprobDiffP95Min {
-		rejectReasons = append(rejectReasons, "abs_logprob_diff_p95")
-	}
-	if metrics.AbsLogprobDiffP99 >= thresholds.RejectAbsLogprobDiffP99Min {
-		rejectReasons = append(rejectReasons, "abs_logprob_diff_p99")
-	}
-	if metrics.RankDeltaNonzeroRate >= thresholds.RejectRankMismatchRateMin {
-		rejectReasons = append(rejectReasons, "rank_delta_nonzero_rate")
-	}
-	if metrics.TopKJaccardMean != nil && *metrics.TopKJaccardMean <= thresholds.RejectTopKJaccardMeanMax {
-		rejectReasons = append(rejectReasons, "topk_jaccard_mean")
-	}
-	if metrics.UnionJSP99 != nil && *metrics.UnionJSP99 >= thresholds.RejectUnionJSP99Min {
-		rejectReasons = append(rejectReasons, "union_js_p99")
-	}
-	if len(rejectReasons) > 0 {
-		return verdictReject, rejectReasons
-	}
-
-	// Pass thresholds are inclusive. There is no dead band: a sample either meets
-	// every pass threshold, triggers a reject threshold, or is missing required
-	// fields and is inconclusive. The reject boundaries are inclusive to match the
-	// chain's JudgeMetricSample in x/task/types/metric_judgment.go.
-	if metrics.FiniteCount >= thresholds.PassMinFiniteCount &&
-		metrics.MissingSelectedCount == 0 &&
-		metrics.ComparedRankCount == metrics.FiniteCount &&
-		metrics.ComparedTopKCount == metrics.FiniteCount &&
-		metrics.MeanAbsLogprobDiff <= thresholds.PassMeanAbsLogprobDiffMax &&
-		metrics.AbsLogprobDiffP95 <= thresholds.PassAbsLogprobDiffP95Max &&
-		metrics.AbsLogprobDiffP99 <= thresholds.PassAbsLogprobDiffP99Max &&
-		metrics.RankDeltaNonzeroRate <= thresholds.PassRankMismatchRateMax &&
-		metrics.TopKJaccardMean != nil && *metrics.TopKJaccardMean >= thresholds.PassTopKJaccardMeanMin &&
-		metrics.UnionJSP99 != nil && *metrics.UnionJSP99 <= thresholds.PassUnionJSP99Max {
-		return verdictPassStrict, nil
-	}
-	return verdictInconclusive, nil
-}
-
-func localSingleSampleThresholds() singleSampleThresholds {
-	return singleSampleThresholds{
-		PassMinFiniteCount:          passMinFiniteCount,
-		PassMeanAbsLogprobDiffMax:   passMeanAbsLogprobDiffMax,
-		PassAbsLogprobDiffP95Max:    passAbsLogprobDiffP95Max,
-		PassAbsLogprobDiffP99Max:    passAbsLogprobDiffP99Max,
-		PassRankMismatchRateMax:     passRankMismatchRateMax,
-		PassTopKJaccardMeanMin:      passTopKJaccardMeanMin,
-		PassUnionJSP99Max:           passUnionJSP99Max,
-		RejectMeanAbsLogprobDiffMin: rejectMeanAbsLogprobDiffMin,
-		RejectAbsLogprobDiffP95Min:  rejectAbsLogprobDiffP95Min,
-		RejectAbsLogprobDiffP99Min:  rejectAbsLogprobDiffP99Min,
-		RejectRankMismatchRateMin:   rejectRankMismatchRateMin,
-		RejectTopKJaccardMeanMax:    rejectTopKJaccardMeanMax,
-		RejectUnionJSP99Min:         rejectUnionJSP99Min,
-	}
-}
-
-func validateCheckpoint(data []byte, trace traceEnvelope) error {
-	var checkpoint traceEnvelope
-	if err := json.Unmarshal(data, &checkpoint); err != nil {
-		return fmt.Errorf("modelservice local verify: unmarshal checkpoint: %w", err)
-	}
-	if checkpoint.Output != trace.Output || !slices.Equal(checkpoint.InputTokenIDs, trace.InputTokenIDs) || len(checkpoint.OutTokens) != 0 {
-		return fmt.Errorf("modelservice local verify: checkpoint does not match trace")
-	}
-	if trace.Generation == nil {
-		return fmt.Errorf("trace generation context is required")
-	}
-	digest, err := trace.Generation.Digest()
-	if err != nil {
-		return err
-	}
-	if err := ValidateGenerationContext(checkpoint.Generation, digest[:], trace.ModelID, trace.ProfileVersion); err != nil {
-		return fmt.Errorf("checkpoint: %w", err)
-	}
-	if checkpoint.ModelID != trace.ModelID || checkpoint.ProfileVersion != trace.ProfileVersion || checkpoint.GeneratedTokenCount != trace.GeneratedTokenCount ||
-		checkpoint.InputTokenIDsHash != trace.InputTokenIDsHash || checkpoint.GeneratedTokenIDsHash != trace.GeneratedTokenIDsHash ||
-		checkpoint.FinishReason != trace.FinishReason || !bytes.Equal(checkpoint.StopReason, trace.StopReason) {
-		return fmt.Errorf("modelservice local verify: checkpoint metadata does not match trace")
-	}
-	return nil
-}
-
-func validateTraceProfile(req VerifyRequest, profile localModelProfile, trace traceEnvelope) error {
-	if trace.ModelID != "" && req.ModelID != "" && trace.ModelID != req.ModelID {
-		return fmt.Errorf("modelservice local verify: trace model_id %q does not match request model_id %q", trace.ModelID, req.ModelID)
-	}
-	if trace.ProfileVersion != "" && req.ProfileVersion != "" && trace.ProfileVersion != req.ProfileVersion {
-		return fmt.Errorf("modelservice local verify: trace profile_version %q does not match request profile_version %q", trace.ProfileVersion, req.ProfileVersion)
-	}
-	if profile.Verification.RequireFinishReason && strings.TrimSpace(trace.FinishReason) == "" {
-		return fmt.Errorf("modelservice local verify: trace missing finish reason")
-	}
-	if profile.Verification.RequireOutputTokenIDs && len(trace.OutTokens) != trace.GeneratedTokenCount {
-		return fmt.Errorf("modelservice local verify: generated token count does not match trace")
-	}
-	if trace.InputTokenIDsHash != "" && trace.InputTokenIDsHash != hashTokenIDs(trace.InputTokenIDs) {
-		return fmt.Errorf("modelservice local verify: input token ids hash mismatch")
-	}
-	if trace.GeneratedTokenIDsHash != "" && trace.GeneratedTokenIDsHash != hashGeneratedTokenIDs(trace.OutTokens) {
-		return fmt.Errorf("modelservice local verify: generated token ids hash mismatch")
-	}
-	return nil
-}
-
-func topLogprobsAt(rows []map[string]float64, position int) map[string]float64 {
-	if position < 0 || position >= len(rows) {
-		return nil
-	}
-	return normalizeTopLogprobs(rows[position])
-}
-
-func recomputedEntryFor(tokenID int, position int, recomputed []map[string]logprobEntry) (logprobEntry, bool) {
-	if position < 0 || position >= len(recomputed) {
-		return logprobEntry{}, false
-	}
-	for _, key := range tokenKeyCandidates(tokenID) {
-		if entry, ok := recomputed[position][key]; ok {
-			return entry, true
-		}
-	}
-	want := strconv.Itoa(tokenID)
-	for key, entry := range recomputed[position] {
-		if normalizeTokenKey(key) == want {
-			return entry, true
-		}
-	}
-	return logprobEntry{}, false
-}
-
-func rankForToken(tokenID int, topLogprobs map[string]float64) int {
-	if len(topLogprobs) == 0 {
-		return 0
-	}
-	type tokenScore struct {
-		token   string
-		logprob float64
-	}
-	scores := make([]tokenScore, 0, len(topLogprobs))
-	for token, logprob := range topLogprobs {
-		if finite(logprob) {
-			scores = append(scores, tokenScore{token: normalizeTokenKey(token), logprob: logprob})
-		}
-	}
-	sort.Slice(scores, func(i, j int) bool {
-		if scores[i].logprob == scores[j].logprob {
-			return scores[i].token < scores[j].token
-		}
-		return scores[i].logprob > scores[j].logprob
-	})
-	want := strconv.Itoa(tokenID)
-	for i, score := range scores {
-		if score.token == want {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-func normalizeTopLogprobs(in map[string]float64) map[string]float64 {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]float64, len(in))
-	for key, value := range in {
-		if finite(value) {
-			out[normalizeTokenKey(key)] = value
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func normalizeTokenKey(key string) string {
-	key = strings.TrimSpace(key)
-	for _, prefix := range []string{"token_id:", "token_id=", "id:", "id="} {
-		key = strings.TrimPrefix(key, prefix)
-	}
-	return strings.TrimSpace(key)
-}
-
-func tokenKeyCandidates(tokenID int) []string {
-	id := strconv.Itoa(tokenID)
-	return []string{id, "token_id:" + id, "token_id=" + id, "id:" + id, "id=" + id}
-}
-
-func finite(v float64) bool {
-	return !math.IsNaN(v) && !math.IsInf(v, 0)
-}
-
-func mean(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, value := range values {
-		total += value
-	}
-	return total / float64(len(values))
-}
-
-func percentile(values []float64, q float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sorted := append([]float64(nil), values...)
-	sort.Float64s(sorted)
-	if q <= 0 {
-		return sorted[0]
-	}
-	if q >= 1 {
-		return sorted[len(sorted)-1]
-	}
-	index := int(math.Ceil(q*float64(len(sorted)))) - 1
-	if index < 0 {
-		index = 0
-	}
-	if index >= len(sorted) {
-		index = len(sorted) - 1
-	}
-	return sorted[index]
-}
-
-func outputTokenPositions(n int) []int {
-	if n == 0 {
-		return nil
-	}
-	positions := make([]int, n)
-	for i := range positions {
-		positions[i] = i
-	}
-	return positions
-}
-
-func hashGeneratedTokenIDs(tokens []tokenLogprob) string {
-	ids := make([]int, 0, len(tokens))
-	for _, token := range tokens {
-		ids = append(ids, token.TokenID)
-	}
-	return hashTokenIDs(ids)
-}
-
-func hashTokenIDs(ids []int) string {
-	payload, _ := json.Marshal(ids)
-	sum := codec.HashBytes(payload)
-	return fmt.Sprintf("%x", sum[:])
 }
 
 func (s *LocalService) FetchArtifact(_ context.Context, req FetchArtifactRequest) (Artifact, error) {
@@ -1793,53 +1207,19 @@ func (s *LocalService) resolveServedModel(ctx context.Context, modelID string) (
 		return "", fmt.Errorf("modelservice local: model_id is required to resolve a vLLM served model")
 	}
 	s.mu.RLock()
-	if servedModel := strings.TrimSpace(s.aliases[modelID]); servedModel != "" {
-		s.mu.RUnlock()
-		return servedModel, nil
-	}
+	repoID, bound := s.models[modelID]
 	s.mu.RUnlock()
-
+	if !bound {
+		return "", fmt.Errorf("modelservice local: model_id %s is not bound to a repository; bind it from its chain ModelState first", modelID)
+	}
 	models, err := s.listVLLMModels(ctx)
 	if err != nil {
 		return "", err
 	}
-	if len(models) == 0 {
-		return "", fmt.Errorf("modelservice local: vLLM returned no served models")
+	if !slices.Contains(normalizedServedModels(models), repoID) {
+		return "", fmt.Errorf("modelservice local: model %s is registered for %s, but vLLM serves [%s]", modelID, repoID, strings.Join(models, ", "))
 	}
-	s.rememberVLLMModelAliases(models)
-	if servedModel := s.servedModelForAlias(modelID); servedModel != "" {
-		return servedModel, nil
-	}
-	// Name the served models and the derivation, so an operator can tell a
-	// misconfigured model id from a model registered outside the HuggingFace
-	// scheme this derivation covers.
-	return "", fmt.Errorf("modelservice local: model_id %q is not mapped to a vLLM served model; "+
-		"vLLM serves [%s] and chain ids are derived as \"hf-\"+sha256(\"huggingface:\"+repo_id)",
-		modelID, strings.Join(models, ", "))
-}
-
-// localHuggingFaceModelID derives the chain model id for a vLLM served model
-// name. It reproduces the Node's derivation for HuggingFace-sourced models:
-// sha256("huggingface:" + repo_id), rendered as "hf-<hex>".
-//
-// This is a protocol assumption, not a local convention -- it is what lets a
-// node advertise the id handraise matches on without being told the mapping.
-// It only covers HuggingFace repo ids. A model registered from another source,
-// or any change to the Node's derivation, will not be matched here, and the
-// node will simply not advertise it (see resolveServedModel for the error an
-// operator sees).
-func localHuggingFaceModelID(repoID string) string {
-	repoID = strings.TrimSpace(repoID)
-	if repoID == "" {
-		return ""
-	}
-	if strings.HasPrefix(repoID, huggingFaceModelIDPrefix) && len(strings.TrimPrefix(repoID, huggingFaceModelIDPrefix)) == sha256.Size*2 {
-		if _, err := hex.DecodeString(strings.TrimPrefix(repoID, huggingFaceModelIDPrefix)); err == nil {
-			return repoID
-		}
-	}
-	sum := sha256.Sum256([]byte(huggingFaceModelIDDomain + repoID))
-	return huggingFaceModelIDPrefix + hex.EncodeToString(sum[:])
+	return repoID, nil
 }
 
 func normalizedServedModels(servedModels []string) []string {
@@ -1857,60 +1237,6 @@ func normalizedServedModels(servedModels []string) []string {
 		out = append(out, servedModel)
 	}
 	return out
-}
-
-// modelIDAllowed filters derived chain model ids down to the ones this node
-// declares support for.
-//
-// An empty set means "no filter", not "allow nothing": LocalService is also
-// constructed without configured ids in tests and by callers that have no
-// registration to filter against. Production safety comes from the caller --
-// BuildDependencies always passes the configured profiles, and real-mode config
-// validation requires them -- rather than from this default.
-func modelIDAllowed(modelID string, configured map[string]struct{}) bool {
-	if len(configured) == 0 {
-		return true
-	}
-	_, ok := configured[modelID]
-	return ok
-}
-
-func (s *LocalService) configuredModelIDSet() map[string]struct{} {
-	if len(s.configuredModelIDs) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(s.configuredModelIDs))
-	for _, modelID := range s.configuredModelIDs {
-		set[modelID] = struct{}{}
-	}
-	return set
-}
-
-func (s *LocalService) rememberVLLMModelAliases(servedModels []string) {
-	servedModels = normalizedServedModels(servedModels)
-	configured := s.configuredModelIDSet()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, servedModel := range servedModels {
-		modelID := localHuggingFaceModelID(servedModel)
-		if modelID == "" {
-			continue
-		}
-		if !modelIDAllowed(modelID, configured) {
-			continue
-		}
-		s.aliases[modelID] = servedModel
-	}
-}
-
-func (s *LocalService) servedModelForAlias(modelID string) string {
-	modelID = strings.TrimSpace(modelID)
-	if modelID == "" {
-		return ""
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return strings.TrimSpace(s.aliases[modelID])
 }
 
 func normalizeLocalBaseURL(raw string) string {
@@ -2194,9 +1520,7 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 				if dst.Logprobs == nil {
 					dst.Logprobs = &completionLogprobs{}
 				}
-				dst.Logprobs.Tokens = append(dst.Logprobs.Tokens, src.Tokens...)
-				dst.Logprobs.TokenLogprobs = append(dst.Logprobs.TokenLogprobs, src.TokenLogprobs...)
-				dst.Logprobs.TopLogprobs = append(dst.Logprobs.TopLogprobs, src.TopLogprobs...)
+				dst.Logprobs.appendFrom(src)
 			}
 			if len(cc.PromptLogprobs) > 0 {
 				dst.PromptLogprobs = append(dst.PromptLogprobs, cc.PromptLogprobs...)

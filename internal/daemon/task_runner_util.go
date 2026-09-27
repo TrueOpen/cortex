@@ -17,7 +17,7 @@ import (
 
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {
 	return policy.OutputPackageSummary{
-		TaskID: pkg.TaskID, OutputRef: pkg.OutputRef, TraceRef: pkg.TraceRef, CheckpointRef: pkg.CheckpointRef,
+		TaskID: pkg.TaskID, OutputRef: pkg.OutputRef, TokenIDsRef: pkg.TokenIDsRef, PositionValuesRef: pkg.PositionValuesRef,
 		OutputHash: pkg.OutputHash, PackageHash: pkg.PackageHash,
 		FromTaskData: pkg.Provenance == builderclient.OutputPackageFromTaskData,
 	}

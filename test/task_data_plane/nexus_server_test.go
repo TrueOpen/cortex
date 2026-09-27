@@ -276,7 +276,7 @@ func (n *nexusProofServer) GetTaskDataMetadata(_ context.Context, req *connect.R
 		response.InferReceipt = receiptToProto(*metadata.SignedInferReceipt)
 	}
 	if b := metadata.EvidenceBundle; b != nil {
-		response.EvidenceBundle = &nexusv1.EvidenceBundleSummaryV1{EvidenceBundleHash: b.EvidenceBundleHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
+		response.EvidenceBundle = &nexusv1.EvidenceBundleSummaryV1{EvidenceManifestHash: b.EvidenceManifestHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
 	}
 	return connect.NewResponse(response), nil
 }
@@ -465,7 +465,7 @@ func (n *nexusProofServer) FinalizeTaskResult(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	request := builderclient.FinalizeTaskResultRequest{TaskHash: req.Msg.TaskHash, SessionID: req.Msg.SessionId, TaskID: req.Msg.TaskId, Receipt: receipt, Auth: proofAuthFromProto(req.Msg.RequestAuth)}
+	request := builderclient.FinalizeTaskResultRequest{TaskHash: req.Msg.TaskHash, SessionID: req.Msg.SessionId, TaskID: req.Msg.TaskId, Receipt: receipt, Auth: proofAuthFromProto(req.Msg.RequestAuth), EvidenceKind: nodewire.EvidenceKind(req.Msg.GetEvidenceKind())}
 	body, err := builderclient.TaskDataFinalizeResultBodyDigest(request)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -545,7 +545,7 @@ func proofKeyFromProto(ref *nexusv1.TaskDataObjectRefV1) (builderclient.TaskData
 	if ref == nil {
 		return builderclient.TaskDataKey{}, errors.New("object ref is missing")
 	}
-	key := builderclient.TaskDataKey{TaskHash: ref.TaskHash, SessionID: ref.SessionId, TaskID: ref.TaskId, Kind: builderclient.DataKind(ref.ObjectKind), ContentHash: ref.ContentHash, EvidenceProducerKind: builderclient.EvidenceProducerKind(ref.EvidenceProducerKind), VerifyRound: ref.VerifyRound, ProducerOperator: ref.GetProducerOperator()}
+	key := builderclient.TaskDataKey{TaskHash: ref.TaskHash, SessionID: ref.SessionId, TaskID: ref.TaskId, Kind: builderclient.DataKind(ref.ObjectKind), ContentHash: ref.ContentHash, EvidenceProducerKind: builderclient.EvidenceProducerKind(ref.EvidenceProducerKind), VerifyRound: ref.VerifyRound, ProducerOperator: ref.GetProducerOperator(), EvidenceKind: nodewire.EvidenceKind(ref.GetEvidenceKind())}
 	return key, builderclient.ValidateTaskDataKey(key)
 }
 func proofFetchHeader(key builderclient.TaskDataKey, total, offset, length uint64) *nexusv1.FetchTaskDataResponse {
@@ -556,7 +556,7 @@ func proofFetchChunk(offset uint64, data []byte, eof bool) *nexusv1.FetchTaskDat
 }
 func proofHex(s string) []byte { data, _ := hex.DecodeString(s); return data }
 func proofKeyToProto(key builderclient.TaskDataKey) *nexusv1.TaskDataObjectRefV1 {
-	ref := &nexusv1.TaskDataObjectRefV1{TaskHash: key.TaskHash, SessionId: key.SessionID, TaskId: key.TaskID, ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: key.ContentHash, EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound}
+	ref := &nexusv1.TaskDataObjectRefV1{TaskHash: key.TaskHash, SessionId: key.SessionID, TaskId: key.TaskID, ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: key.ContentHash, EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound, EvidenceKind: sharedv1.EvidenceKind(key.EvidenceKind)}
 	if key.ProducerOperator != "" {
 		operator := key.ProducerOperator
 		ref.ProducerOperator = &operator
@@ -587,7 +587,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 	n.uploadCalls++
 	n.uploadDigests = append(n.uploadDigests, body)
 	n.relayObservedBeforeRelease = n.relayObservedBeforeRelease || n.relayAccepted
-	request := builderclient.OutputStreamRequest{TaskHash: header.TaskHash, SessionID: header.SessionId, TaskID: header.TaskId, Auth: proofAuthFromProto(header.RequestAuth), ReplayChunks: append([]builderclient.OutputChunk(nil), n.outputFrames...)}
+	request := builderclient.OutputStreamRequest{TaskHash: header.TaskHash, SessionID: header.SessionId, TaskID: header.TaskId, Auth: proofAuthFromProto(header.RequestAuth), HeaderSignature: header.GetWorkerSignature(), ReplayChunks: append([]builderclient.OutputChunk(nil), n.outputFrames...)}
 	inner, err := n.objects.OpenTaskOutputStream(ctx, "", request)
 	progress := &nexusv1.OutputStreamProgressV1{}
 	if len(n.outputFrames) > 0 {
@@ -797,7 +797,7 @@ func (n *nexusProofServer) recordAuthAttempt(method string, nonce []byte, expiry
 // from a request-level field: a request-level list could never be covered by
 // service_signature, which is why field 5 of SubmitInferReceiptRequest is
 // reserved.
-func receiptFromProto(receipt *taskv1.InferReceiptV2) (builderclient.SignedInferReceipt, error) {
+func receiptFromProto(receipt *taskv1.InferReceiptV3) (builderclient.SignedInferReceipt, error) {
 	if receipt == nil {
 		return builderclient.SignedInferReceipt{}, errors.New("signed infer receipt is missing")
 	}
@@ -842,7 +842,7 @@ func receiptFromProto(receipt *taskv1.InferReceiptV2) (builderclient.SignedInfer
 // client owns an unexported copy of it; this one exists so a test can put a
 // request on the wire that the real client refuses to build, which is the only
 // way to reach the server-side rules that guard against a hostile Builder.
-func receiptToProto(receipt builderclient.SignedInferReceipt) *taskv1.InferReceiptV2 {
+func receiptToProto(receipt builderclient.SignedInferReceipt) *taskv1.InferReceiptV3 {
 	commitments := make([]*taskv1.EvidenceCommitmentV1, 0, len(receipt.RequiredEvidenceCommitments))
 	for _, commitment := range receipt.RequiredEvidenceCommitments {
 		root := commitment.EvidenceHashOrRoot
@@ -852,7 +852,7 @@ func receiptToProto(receipt builderclient.SignedInferReceipt) *taskv1.InferRecei
 			EncodedSizeBytes:   commitment.EncodedSizeBytes,
 		})
 	}
-	return &taskv1.InferReceiptV2{
+	return &taskv1.InferReceiptV3{
 		SchemaVersion:               receipt.SchemaVersion,
 		ChainId:                     receipt.ChainID,
 		TaskId:                      proofHex(receipt.TaskID),
@@ -867,6 +867,10 @@ func receiptToProto(receipt builderclient.SignedInferReceipt) *taskv1.InferRecei
 		RequiredEvidenceCommitments: commitments,
 		ExpiryHeight:                receipt.ExpiryHeight,
 		ServiceSignature:            proofHex(receipt.ServiceSignature),
+		OutputKeyCommitment:         make([]byte, 32),
+		WorkerTokenKeyCommitment:    make([]byte, 32),
+		WorkerValueKeyCommitment:    make([]byte, 32),
+		CiphertextOutputRoot:        make([]byte, 32),
 	}
 }
 

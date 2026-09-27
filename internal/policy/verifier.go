@@ -10,12 +10,12 @@ import (
 )
 
 type OutputPackageSummary struct {
-	TaskID        string
-	OutputRef     string
-	TraceRef      string
-	CheckpointRef string
-	OutputHash    codec.Hash
-	PackageHash   codec.Hash
+	TaskID            string
+	OutputRef         string
+	TokenIDsRef       string
+	PositionValuesRef string
+	OutputHash        codec.Hash
+	PackageHash       codec.Hash
 	// FromTaskData marks a package confirmed by reading the OUTPUT object off
 	// the task-data plane rather than by loading a canonical package from a
 	// store the Worker and the Verifier share. Such a package carries no
@@ -147,15 +147,15 @@ func validateOutputPackage(pkg OutputPackageSummary) error {
 		}
 		return nil
 	}
-	if pkg.TaskID == "" || pkg.OutputRef == "" || pkg.TraceRef == "" || pkg.CheckpointRef == "" || pkg.OutputHash == (codec.Hash{}) || pkg.PackageHash == (codec.Hash{}) {
+	if pkg.TaskID == "" || pkg.OutputRef == "" || pkg.TokenIDsRef == "" || pkg.PositionValuesRef == "" || pkg.OutputHash == (codec.Hash{}) || pkg.PackageHash == (codec.Hash{}) {
 		return fmt.Errorf("L2_OUTPUT_PACKAGE_MISSING")
 	}
 	expected := codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(pkg.TaskID),
 		[]byte(pkg.OutputRef),
-		[]byte(pkg.TraceRef),
-		[]byte(pkg.CheckpointRef),
+		[]byte(pkg.TokenIDsRef),
+		[]byte(pkg.PositionValuesRef),
 		pkg.OutputHash[:],
 	)
 	if !bytes.Equal(pkg.PackageHash[:], expected[:]) {

@@ -212,6 +212,48 @@ model profile. When both model-subscription environment variables are set,
 `CORTEX_NEXUS_SUBSCRIBE_MODELS` wins, and `--nexus-subscribe-models` wins over
 both.
 
+### Model ids
+
+A `model_id` is the chain's Hash32 model id, written as 64 lowercase hex
+characters, in `local_identity.supported_model_profiles`
+(`<model_id>@<profile_version>=<capability>`), `nexus.subscribe_models`,
+`CORTEX_MODEL_ID` and `CORTEX_MODEL_PROFILES`. A name such as `llama-main` is
+refused. Look the id up from the model's source on chain:
+
+```sh
+bin/cortexctl model find --rpc <keeper-rpc> --provider HUGGINGFACE --repo <owner/name> --format json
+```
+
+At startup, and on every readiness check, each configured model id is read
+from its chain ModelState and bound to that model's `repo_id`. The local vLLM
+adapter serves only `HUGGINGFACE` sources, and the vLLM served model name
+(`--served-model-name`, or the model path vLLM reports under `/v1/models`)
+must equal the chain `repo_id` exactly. Until it does, `model_service` stays red
+with one of these reasons:
+
+- `query ModelState <id>`: the id is not registered on this chain;
+- `has source provider "<p>"; the local adapter serves only HUGGINGFACE`;
+- `model <id> is registered for <repo>, but vLLM serves [...]`: the served
+  model name differs from the chain `repo_id`;
+- a vLLM health or `/v1/models` error: vLLM is not answering.
+
+### Upgrading to v0.3
+
+v0.3 changes the Worker evidence (two bundles of token ids and per-position
+values instead of a trace and a checkpoint) and the receipts (InferReceiptV3,
+ResultReceiptV3). A task started by an older node cannot be finished or
+verified under v0.3, so `cortexd` refuses to start while the store holds
+pre-v0.3 data (trace or checkpoint evidence, or an infer receipt that is not a
+readable V3 receipt) of a task whose local record is not yet terminal or
+settled. Drain those tasks on the previous release first, or start v0.3 from
+an empty `store.path` and `artifacts.root`. The check reads only the local
+store: v0.3 starts from a fresh genesis, so the new chain knows nothing about
+these tasks.
+
+Pre-v0.3 evidence of finished tasks does not block startup: it is logged as a
+warning and removed by the normal retention cleanup (`cortexctl evidence
+cleanup`) once its retention has passed.
+
 ### Config migration from the legacy parser
 
 The old parser accepted comma-separated scalars for list fields. Strict YAML
@@ -502,9 +544,9 @@ adapter, or broadcast path for them.
 
 Challenge verifier mode is disabled by default and alert-only when not enabled.
 When enabled, the challenge FSM uses a separate challenge state domain,
-persists observations under independent `challenge_id`, validates original
-trace/checkpoint/verifier-set bindings before compute, verifies against
-original checkpoint material, submits challenge commit/result txs through
+persists observations under independent `challenge_id`, validates the original
+Worker evidence bundles and verifier-set bindings before compute, verifies
+against the original committed material, submits challenge commit/result txs through
 `txclient`, and mirrors final challenge outcome only from accepted Keeper
 events.
 

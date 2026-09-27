@@ -1,13 +1,12 @@
 package verifier
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelservice"
@@ -15,126 +14,84 @@ import (
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 )
 
-func generationEvidenceFixture(t *testing.T, h harness) (TaskState, nodewire.GenerationContext, codec.Hash) {
-	t.Helper()
-	state := h.validTask()
-	state.OpenVerifyAccepted = true
-	state.ConfirmedOutput = []byte("worker output")
-	state.OutputPackage.OutputHash, _ = codec.OutputMMRRootFromLengths(state.ConfirmedOutput, state.ConfirmedOutputChunkLengths)
-	state.OutputPackage.OutputRef, state.OutputPackage.TraceRef, state.OutputPackage.CheckpointRef = "", "", ""
-	state.OutputPackage.FromTaskData = true
-	state.ConfirmedFinishReason = nodewire.FinishReasonV1EosToken
-	generation := nodewire.GenerationContext{
-		ModelID: state.ModelID, ProfileVersion: state.ProfileVersion, TaskType: 2, OutputBudgetBucket: 1,
-		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: 1024, MaxOutputDuration: 30000,
-			DecodingParams: nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 700, TopPPPM: 950000, RepetitionPenaltyPPM: 1000000}},
-	}
-	digest, err := generation.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	trace := map[string]any{
-		"generation_context": generation, "model_id": state.ModelID, "profile_version": fmt.Sprint(state.ProfileVersion),
-		"output": string(state.ConfirmedOutput), "input_token_ids": []int{1},
-		"input_token_ids_hash":     fmt.Sprint(codec.HashBytes([]byte("[1]"))),
-		"generated_token_ids_hash": fmt.Sprint(codec.HashBytes([]byte("[7]"))),
-		"generated_token_count":    1, "finish_reason": "stop",
-		"out_tokens": []map[string]any{{"token_id": 7, "logprob": -0.25, "rank": 1, "top_logprobs": map[string]float64{"token_id:7": -0.25}}},
-	}
-	state.ConfirmedTrace, err = json.Marshal(trace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	trace["out_tokens"] = nil
-	state.ConfirmedCheckpoint, err = json.Marshal(trace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.verifier.cfg.FakeOutput = false
-	h.verifier.cfg.TaskFacts = taskfacts.ReaderFunc(func(_ context.Context, taskID string) (taskfacts.Facts, error) {
-		facts := servedTaskFacts(taskID)
-		facts.GenerationParamsDigest = chainclient.ProtoBytes32(digest[:])
-		return facts, nil
-	})
-	state.WorkerAddress = "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
-	bindWorkerReceiptForTest(t, h.verifier, &state)
-	return state, generation, digest
-}
+const generationTestTaskID = "41b9f86c8b73b7d740c641c07e7a4b9994a2563abff4bf0020b2189a2b70af63"
 
-func TestVerifierUsesGenerationFromEvidenceWithoutOriginalOrder(t *testing.T) {
-	h := newHarness(t)
-	state, generation, digest := generationEvidenceFixture(t, h)
-	result, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if err != nil || !result.Started {
-		t.Fatalf("verify committed evidence: %v", err)
-	}
-	if len(h.model.verifyRequests) != 1 {
-		t.Fatalf("verify calls=%d", len(h.model.verifyRequests))
-	}
-	req := h.model.verifyRequests[0]
-	if req.Generation == nil || req.Generation.Params.MaxOutputTokens != generation.Params.MaxOutputTokens || !bytes.Equal(req.GenerationParamsDigest, digest[:]) {
-		t.Fatalf("Verifier dropped committed generation context: %+v", req)
+func generationTestContext() nodewire.GenerationContext {
+	return nodewire.GenerationContext{
+		ModelID: modelservice.FakeModelID, ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 1,
+		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: 64, MaxOutputDuration: 30000,
+			DecodingParams: nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 700, TopPPPM: 950000,
+				Seed: 9, RepetitionPenaltyPPM: 1000000, StopSequences: []string{"</s>"}, StopTokenIDs: []uint32{}}},
 	}
 }
 
-func TestVerifierRejectsTamperedGenerationBeforeScoring(t *testing.T) {
-	for _, name := range []string{"missing context", "wrong digest", "wrong model", "changed checkpoint", "missing committed finish reason"} {
-		t.Run(name, func(t *testing.T) {
-			h := newHarness(t)
-			state, _, _ := generationEvidenceFixture(t, h)
-			switch name {
-			case "missing context":
-				state.ConfirmedTrace = []byte(`{"output":"worker output"}`)
-			case "wrong digest":
-				h.verifier.cfg.TaskFacts = fixtureTaskFacts{}
-			case "wrong model":
-				state.ConfirmedTrace = bytes.ReplaceAll(state.ConfirmedTrace, []byte(state.ModelID), []byte("different-model"))
-			case "changed checkpoint":
-				state.ConfirmedCheckpoint = bytes.Replace(state.ConfirmedCheckpoint, []byte(`"max_output_tokens":1024`), []byte(`"max_output_tokens":8`), 1)
-			case "missing committed finish reason":
-				state.ConfirmedFinishReason = nodewire.FinishReasonV1Unspecified
-			}
-			_, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-			if err == nil || h.model.VerifyCalls != 0 {
-				t.Fatalf("err=%v verify calls=%d", err, h.model.VerifyCalls)
-			}
-			if !strings.Contains(err.Error(), "generation") && !strings.Contains(err.Error(), "model/profile") {
-				t.Fatalf("unexpected refusal: %v", err)
-			}
-		})
-	}
+// generationTestVerifier serves chainDigest as the task's generation_params_digest.
+func generationTestVerifier(chainDigest codec.Hash, fake bool) *Verifier {
+	return &Verifier{cfg: Config{FakeOutput: fake, TaskFacts: taskfacts.ReaderFunc(func(_ context.Context, taskID string) (taskfacts.Facts, error) {
+		accepted := codec.HashBytes([]byte("accepted"))
+		profile := codec.HashBytes([]byte("profile"))
+		return taskfacts.Facts{TaskID: taskID, TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
+			AcceptedTaskHash: chainclient.ProtoBytes32(accepted[:]), GenerationParamsDigest: chainclient.ProtoBytes32(chainDigest[:]),
+			ProfileExecutionSnapshotHash: chainclient.ProtoBytes32(profile[:]),
+		}}, nil
+	})}}
 }
 
-func TestVerifierRejectsCommittedEOSWithLengthEvidenceBeforeScoring(t *testing.T) {
-	h := newHarness(t)
-	state, generation, _ := generationEvidenceFixture(t, h)
-	generation.Params.MaxOutputTokens = 1
-	digest, err := generation.Digest()
+// The prefill's parameters come only from the confirmed A-level artifact,
+// checked against the chain and the receipt by hashing the received bytes.
+func TestVerifierTakesGenerationOnlyFromTheConfirmedArtifact(t *testing.T) {
+	want := generationTestContext()
+	raw, err := want.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, artifact := range []*[]byte{&state.ConfirmedTrace, &state.ConfirmedCheckpoint} {
-		var env map[string]any
-		if err := json.Unmarshal(*artifact, &env); err != nil {
-			t.Fatal(err)
-		}
-		env["generation_context"], env["finish_reason"] = generation, "length"
-		*artifact, err = json.Marshal(env)
-		if err != nil {
-			t.Fatal(err)
+	digest := nodewire.GenerationParamsDigest(raw)
+	state := TaskState{TaskID: generationTestTaskID, ModelID: want.ModelID, ProfileVersion: 1,
+		ConfirmedInferReceipt: &builderclient.SignedInferReceipt{GenerationParamsDigest: digest.String()}}
+
+	got, gotDigest, err := generationTestVerifier(digest, false).taskGeneration(context.Background(), state, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*got, want) || codec.Hash(gotDigest) != digest {
+		t.Fatalf("generation = %+v digest %x, want the artifact's parameters and digest", *got, gotDigest)
+	}
+
+	other := codec.HashBytes([]byte("other params"))
+	for name, run := range map[string]func() error{
+		"missing artifact": func() error {
+			_, _, err := generationTestVerifier(digest, false).taskGeneration(context.Background(), state, nil)
+			return err
+		},
+		"chain digest differs": func() error {
+			_, _, err := generationTestVerifier(other, false).taskGeneration(context.Background(), state, raw)
+			return err
+		},
+		"receipt digest differs": func() error {
+			mismatched := state
+			mismatched.ConfirmedInferReceipt = &builderclient.SignedInferReceipt{GenerationParamsDigest: other.String()}
+			_, _, err := generationTestVerifier(digest, false).taskGeneration(context.Background(), mismatched, raw)
+			return err
+		},
+		"html escaped bytes": func() error {
+			escaped := []byte(strings.Replace(string(raw), "</s>", `\u003c/s\u003e`, 1))
+			_, _, err := generationTestVerifier(nodewire.GenerationParamsDigest(escaped), false).taskGeneration(context.Background(), state, escaped)
+			return err
+		},
+		"other model": func() error {
+			foreign := state
+			foreign.ModelID = strings.Repeat("ab", 32)
+			_, _, err := generationTestVerifier(digest, false).taskGeneration(context.Background(), foreign, raw)
+			return err
+		},
+	} {
+		if run() == nil {
+			t.Fatalf("%s: generation accepted", name)
 		}
 	}
-	h.verifier.cfg.TaskFacts = taskfacts.ReaderFunc(func(_ context.Context, taskID string) (taskfacts.Facts, error) {
-		facts := servedTaskFacts(taskID)
-		facts.GenerationParamsDigest = chainclient.ProtoBytes32(digest[:])
-		return facts, nil
-	})
-	_, reason, err := modelservice.ValidateGenerationEvidence(&generation, digest[:], state.ConfirmedOutput, state.ConfirmedTrace, state.ConfirmedCheckpoint)
-	if err != nil || reason != nodewire.FinishReasonV1MaxOutputTokens {
-		t.Fatalf("fixture must be valid length-at-limit evidence: reason=%v err=%v", reason, err)
-	}
-	_, err = h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if err == nil || h.model.VerifyCalls != 0 {
-		t.Fatalf("committed EOS and length evidence must refuse before scoring: err=%v calls=%d", err, h.model.VerifyCalls)
+
+	// Only the fake/dev configuration may prefill without parameters.
+	if got, _, err := generationTestVerifier(digest, true).taskGeneration(context.Background(), state, nil); err != nil || got != nil {
+		t.Fatalf("fake verifier without artifact = %+v, %v", got, err)
 	}
 }

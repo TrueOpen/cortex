@@ -258,7 +258,7 @@ func TestStoreWritePublishesEachClassUnderTheTaskDirectory(t *testing.T) {
 	}{
 		{kind: string(layout.ArtifactTaskInput), data: []byte("the input"), wantDir: filepath.Join(taskDir, "input")},
 		{kind: string(layout.ArtifactWorkerOutput), data: []byte("the output"), wantDir: filepath.Join(taskDir, "output")},
-		{kind: string(layout.ArtifactWorkerTrace), data: []byte("the trace"), wantDir: filepath.Join(taskDir, "evidence", "artifacts")},
+		{kind: string(layout.ArtifactWorkerTokenIDsMaterial), data: []byte("the trace"), wantDir: filepath.Join(taskDir, "evidence", "artifacts")},
 	} {
 		ref, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: testCase.kind, Data: testCase.data})
 		if err != nil {
@@ -295,7 +295,7 @@ func TestStoreWriteRequiresATaskHashAndAKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore returned error: %v", err)
 	}
-	if _, err := evidenceStore.Write(ctx, WriteRequest{Kind: "worker-trace", Data: []byte("orphan")}); !errors.Is(err, ErrTaskHashRequired) {
+	if _, err := evidenceStore.Write(ctx, WriteRequest{Kind: "worker-token-ids-material", Data: []byte("orphan")}); !errors.Is(err, ErrTaskHashRequired) {
 		t.Fatalf("Write without a task hash error = %v, want %v", err, ErrTaskHashRequired)
 	}
 	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: codec.HashBytes([]byte("t")), Data: []byte("kindless")}); !errors.Is(err, ErrKindRequired) {
@@ -312,7 +312,7 @@ func TestStoreWriteIsIdempotentForIdenticalBytesAtTheSameLocator(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("idempotent"))
 	data := []byte("same evidence payload")
 
-	for _, kind := range []string{string(layout.ArtifactWorkerOutput), string(layout.ArtifactWorkerTrace)} {
+	for _, kind := range []string{string(layout.ArtifactWorkerOutput), string(layout.ArtifactWorkerTokenIDsMaterial)} {
 		first, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: kind, Data: data})
 		if err != nil {
 			t.Fatalf("first Write %s returned error: %v", kind, err)
@@ -380,12 +380,12 @@ func TestStoreWriteRefusesASecondDigestUnderOneEvidenceKind(t *testing.T) {
 	}
 	taskHash := codec.HashBytes([]byte("write-once-trace"))
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: []byte("the trace"),
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: []byte("the trace"),
 	}); err != nil {
 		t.Fatalf("first Write returned error: %v", err)
 	}
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: []byte("another trace"),
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: []byte("another trace"),
 	}); !errors.Is(err, ErrLocalArtifactConflict) {
 		t.Fatalf("conflicting Write error = %v, want %v", err, ErrLocalArtifactConflict)
 	}
@@ -450,7 +450,7 @@ func TestStoreWriteLeavesNothingStaged(t *testing.T) {
 		t.Fatalf("NewStore returned error: %v", err)
 	}
 	taskHash := codec.HashBytes([]byte("staging-drained"))
-	for _, kind := range []string{string(layout.ArtifactTaskInput), string(layout.ArtifactWorkerOutput), string(layout.ArtifactWorkerTrace)} {
+	for _, kind := range []string{string(layout.ArtifactTaskInput), string(layout.ArtifactWorkerOutput), string(layout.ArtifactWorkerTokenIDsMaterial)} {
 		if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: kind, Data: []byte("payload for " + kind)}); err != nil {
 			t.Fatalf("Write %s returned error: %v", kind, err)
 		}
@@ -554,7 +554,7 @@ func TestStoreRejectsSymlinkEscape(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("symlinked-object"))
 	data := []byte("escape")
 	digest := codec.HashBytes(data)
-	finalPath := taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTrace), digest)
+	finalPath := taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTokenIDsMaterial), digest)
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0o700); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestStoreRejectsSymlinkEscape(t *testing.T) {
 		t.Fatalf("Symlink returned error: %v", err)
 	}
 
-	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: data}); !errors.Is(err, ErrEvidenceEscape) {
+	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data}); !errors.Is(err, ErrEvidenceEscape) {
 		t.Fatalf("Write symlink escape error = %v, want %v", err, ErrEvidenceEscape)
 	}
 }
@@ -588,7 +588,7 @@ func TestStoreRejectsSymlinkedTaskShardEscape(t *testing.T) {
 	}
 
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: []byte("escape"),
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: []byte("escape"),
 	}); !errors.Is(err, ErrEvidenceEscape) {
 		t.Fatalf("Write parent symlink escape error = %v, want %v", err, ErrEvidenceEscape)
 	}
@@ -623,7 +623,7 @@ func TestStoreRejectsSymlinkedClassDirectoryAlreadyHoldingAValidObject(t *testin
 		t.Fatalf("Symlink returned error: %v", err)
 	}
 
-	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: data}); !errors.Is(err, ErrEvidenceEscape) {
+	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data}); !errors.Is(err, ErrEvidenceEscape) {
 		t.Fatalf("Write error = %v, want %v: an outside object was adopted as this task's artifact", err, ErrEvidenceEscape)
 	}
 }
@@ -676,7 +676,7 @@ func TestStoreRejectsHardlinkEscape(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("hardlinked-object"))
 	data := []byte("hardlink")
 	digest := codec.HashBytes(data)
-	finalPath := taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTrace), digest)
+	finalPath := taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTokenIDsMaterial), digest)
 	if err := os.MkdirAll(filepath.Dir(finalPath), 0o700); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestStoreRejectsHardlinkEscape(t *testing.T) {
 		t.Fatalf("Link returned error: %v", err)
 	}
 
-	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: data}); !errors.Is(err, ErrEvidenceEscape) {
+	if _, err := evidenceStore.Write(ctx, WriteRequest{TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data}); !errors.Is(err, ErrEvidenceEscape) {
 		t.Fatalf("Write hardlink escape error = %v, want %v", err, ErrEvidenceEscape)
 	}
 }
@@ -739,7 +739,7 @@ func TestReadTaskKindRejectsASymlinkedTaskDirectory(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("symlinked-task-dir"))
 	data := []byte("symlinked-root")
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: data,
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data,
 	}); err != nil {
 		t.Fatalf("Write returned error: %v", err)
 	}
@@ -752,7 +752,7 @@ func TestReadTaskKindRejectsASymlinkedTaskDirectory(t *testing.T) {
 		t.Fatalf("Symlink returned error: %v", err)
 	}
 
-	if _, err := evidenceStore.ReadTaskKind(ctx, taskHash, string(layout.ArtifactWorkerTrace)); !errors.Is(err, ErrEvidenceEscape) {
+	if _, err := evidenceStore.ReadTaskKind(ctx, taskHash, string(layout.ArtifactWorkerTokenIDsMaterial)); !errors.Is(err, ErrEvidenceEscape) {
 		t.Fatalf("ReadTaskKind error = %v, want %v", err, ErrEvidenceEscape)
 	}
 }
@@ -796,7 +796,7 @@ func TestVerifyTaskObjectsReportsCommittedBytesThatAreGone(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("lost-bytes"))
 	data := []byte("committed evidence")
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: data,
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data,
 	}); err != nil {
 		t.Fatalf("Write returned error: %v", err)
 	}
@@ -804,7 +804,7 @@ func TestVerifyTaskObjectsReportsCommittedBytesThatAreGone(t *testing.T) {
 		t.Fatalf("VerifyTaskObjects on an intact task returned error: %v", err)
 	}
 
-	if err := os.Remove(taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTrace), codec.HashBytes(data))); err != nil {
+	if err := os.Remove(taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTokenIDsMaterial), codec.HashBytes(data))); err != nil {
 		t.Fatalf("Remove committed object returned error: %v", err)
 	}
 	if err := evidenceStore.VerifyTaskObjects(ctx, taskHash); !errors.Is(err, ErrEvidenceUnavailable) {
@@ -831,11 +831,11 @@ func TestVerifyTaskObjectsReportsCorruptedCommittedBytes(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("corrupt-bytes"))
 	data := []byte("committed evidence")
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: data,
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: data,
 	}); err != nil {
 		t.Fatalf("Write returned error: %v", err)
 	}
-	path := taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTrace), codec.HashBytes(data))
+	path := taskObjectPath(t, root, taskHash, string(layout.ArtifactWorkerTokenIDsMaterial), codec.HashBytes(data))
 	if err := os.WriteFile(path, []byte("not the committed evidence"), 0o600); err != nil {
 		t.Fatalf("WriteFile corrupted object returned error: %v", err)
 	}
@@ -862,7 +862,7 @@ func TestVerifyTaskObjectsDistinguishesATrashedTaskFromALostOne(t *testing.T) {
 	}
 	taskHash := codec.HashBytes([]byte("trashed-task"))
 	if _, err := evidenceStore.Write(ctx, WriteRequest{
-		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTrace), Data: []byte("retired evidence"),
+		TaskHash: taskHash, Kind: string(layout.ArtifactWorkerTokenIDsMaterial), Data: []byte("retired evidence"),
 	}); err != nil {
 		t.Fatalf("Write returned error: %v", err)
 	}

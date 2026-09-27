@@ -10,8 +10,6 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
-
-	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 type recordingPublisher struct {
@@ -251,33 +249,5 @@ func TestNewNATSPublisherDoesNotDialDuringConstruction(t *testing.T) {
 	}
 	if publisher == nil {
 		t.Fatalf("NewNATSPublisher() publisher = nil")
-	}
-}
-
-func validOutputPackage(t *testing.T, taskID string) OutputPackage {
-	t.Helper()
-	outputHash := codec.HashWithDomain("OUTPUT", []byte(taskID))
-	packageHash := codec.HashWithDomain("PACKAGE", []byte(taskID), outputHash[:])
-	receiptHash := codec.HashWithDomain("RECEIPT", []byte(taskID), outputHash[:], packageHash[:])
-	receiptPayload, err := EncodeInferReceiptMaterial(InferReceiptMaterial{
-		TaskID:              taskID,
-		OutputRef:           "cortex-artifact://svc/output/" + taskID,
-		OutputHash:          outputHash,
-		PackageHash:         packageHash,
-		ReceiptResultHash:   receiptHash,
-		ActualOutputSummary: "5 bytes output",
-	})
-	if err != nil {
-		t.Fatalf("EncodeInferReceiptMaterial returned error: %v", err)
-	}
-	return OutputPackage{
-		TaskID:         taskID,
-		OutputRef:      "cortex-artifact://svc/output/" + taskID,
-		TraceRef:       "cortex-artifact://svc/trace/" + taskID,
-		CheckpointRef:  "cortex-artifact://svc/checkpoint/" + taskID,
-		OutputHash:     outputHash,
-		PackageHash:    packageHash,
-		ReceiptHash:    receiptHash,
-		ReceiptPayload: receiptPayload,
 	}
 }

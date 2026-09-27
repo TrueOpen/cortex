@@ -1,6 +1,7 @@
 package builderclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -101,16 +102,19 @@ func (c *ConnectTaskDataClient) GetTaskDataMetadata(ctx context.Context, endpoin
 	result.RetainUntilHeight = response.Msg.RetainUntilHeight
 	if response.Msg.EvidenceBundle != nil {
 		b := response.Msg.EvidenceBundle
-		if request.Key.Kind != DataKindEvidenceManifest || (request.Key.EvidenceProducerKind != EvidenceProducerWorker && b.EvidenceBundleHash != request.Key.ContentHash) || b.ManifestSizeBytes != result.SizeBytes || b.ArtifactCount == 0 {
+		// A Worker manifest is addressed by its typed commitment, not by the hash
+		// of its bytes; only a Verifier manifest's content hash is the manifest
+		// hash itself.
+		if request.Key.Kind != DataKindEvidenceManifest || (request.Key.EvidenceProducerKind != EvidenceProducerWorker && b.EvidenceManifestHash != request.Key.ContentHash) || b.ManifestSizeBytes != result.SizeBytes || b.ArtifactCount == 0 {
 			return TaskDataMetadata{}, fmt.Errorf("evidence bundle summary does not match manifest")
 		}
-		if _, err := taskDataHash("evidence_bundle_hash", b.EvidenceBundleHash); err != nil {
+		if _, err := taskDataHash("evidence_manifest_hash", b.EvidenceManifestHash); err != nil {
 			return TaskDataMetadata{}, err
 		}
 		if _, err := taskDataHash("evidence_schema_hash", b.EvidenceSchemaHash); err != nil {
 			return TaskDataMetadata{}, err
 		}
-		result.EvidenceBundle = &EvidenceBundleSummary{EvidenceBundleHash: b.EvidenceBundleHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
+		result.EvidenceBundle = &EvidenceBundleSummary{EvidenceManifestHash: b.EvidenceManifestHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
 	} else if request.Key.Kind == DataKindEvidenceManifest {
 		return TaskDataMetadata{}, fmt.Errorf("manifest metadata requires bundle summary")
 	}
@@ -313,7 +317,7 @@ func (c *ConnectTaskDataClient) FinalizeTaskResult(ctx context.Context, endpoint
 	if err != nil {
 		return FinalizeTaskResultResponse{}, err
 	}
-	req := connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, Receipt: signedInferReceiptToProto(request.Receipt), RequestAuth: taskDataRequestAuthToProto(request.Auth)})
+	req := connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, Receipt: signedInferReceiptToProto(request.Receipt), RequestAuth: taskDataRequestAuthToProto(request.Auth), EvidenceKind: sharedv1.EvidenceKind(request.EvidenceKind)})
 	c.authorize(req.Header())
 	response, err := client.FinalizeTaskResult(ctx, req)
 	if err != nil {
@@ -327,23 +331,33 @@ func (c *ConnectTaskDataClient) FinalizeTaskResult(ctx context.Context, endpoint
 	if err != nil {
 		return FinalizeTaskResultResponse{}, err
 	}
+	// One finalize closes one Worker bundle, so exactly one bundle confirmation
+	// comes back: the one for the requested kind's commitment.
 	confirmations := response.Msg.EvidenceBundleConfirmations
-	if len(confirmations) != len(request.Receipt.RequiredEvidenceCommitments) {
-		return FinalizeTaskResultResponse{}, fmt.Errorf("finalize requires one confirmation for each committed evidence bundle")
+	if len(confirmations) != 1 {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("finalize of one Worker bundle requires exactly one bundle confirmation, got %d", len(confirmations))
 	}
-	result := FinalizeTaskResultResponse{Idempotent: response.Msg.Idempotent, OutputConfirmation: output}
-	for i, commitment := range request.Receipt.RequiredEvidenceCommitments {
-		key := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, request.Receipt.WorkerOperatorAddress)
-		if confirmations[i] == nil || confirmations[i].SizeBytes == 0 || confirmations[i].ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
-			return FinalizeTaskResultResponse{}, fmt.Errorf("Worker bundle confirmation must bind manifest size and committed artifact total")
+	var commitment *EvidenceCommitment
+	for i := range request.Receipt.RequiredEvidenceCommitments {
+		if request.Receipt.RequiredEvidenceCommitments[i].EvidenceKind == request.EvidenceKind {
+			commitment = &request.Receipt.RequiredEvidenceCommitments[i]
 		}
-		confirmation, err := validateFinalizeConfirmation(confirmations[i], request.Auth, key, confirmations[i].SizeBytes)
-		if err != nil {
-			return FinalizeTaskResultResponse{}, err
-		}
-		result.EvidenceBundleConfirmations = append(result.EvidenceBundleConfirmations, confirmation)
 	}
-	return result, nil
+	if commitment == nil {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("receipt commits no evidence of kind %d", request.EvidenceKind)
+	}
+	key = EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, request.Receipt.WorkerOperatorAddress, commitment.EvidenceKind)
+	// artifact_total_size_bytes counts every artifact, so for the A-level bundle
+	// it also counts generation_params, which the committed encoded_size_bytes
+	// does not. The caller checks the exact total against its own manifest.
+	if confirmations[0] == nil || confirmations[0].SizeBytes == 0 || confirmations[0].ArtifactTotalSizeBytes < commitment.EncodedSizeBytes {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("Worker bundle confirmation must bind manifest size and cover the committed artifacts")
+	}
+	confirmation, err := validateFinalizeConfirmation(confirmations[0], request.Auth, key, confirmations[0].SizeBytes)
+	if err != nil {
+		return FinalizeTaskResultResponse{}, err
+	}
+	return FinalizeTaskResultResponse{Idempotent: response.Msg.Idempotent, OutputConfirmation: output, EvidenceBundleConfirmations: []StorageConfirmation{confirmation}}, nil
 }
 
 func (c *ConnectTaskDataClient) FinalizeVerifierEvidence(ctx context.Context, endpoint string, request FinalizeVerifierEvidenceRequest) (FinalizeVerifierEvidenceResponse, error) {
@@ -374,7 +388,7 @@ func (c *ConnectTaskDataClient) FinalizeVerifierEvidence(ctx context.Context, en
 	if response == nil || response.Msg == nil || !response.Msg.Accepted {
 		return FinalizeVerifierEvidenceResponse{}, fmt.Errorf("verifier evidence finalization was not accepted")
 	}
-	key := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(request.Receipt.VerifierEvidenceBundleHash), EvidenceProducerVerifier, request.VerifyRound, request.VerifierOperator)
+	key := EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(request.Receipt.VerifierEvidenceBundleHash), EvidenceProducerVerifier, request.VerifyRound, request.VerifierOperator, nodewire.EvidenceKindVerifierValueOpening)
 	confirmation, err := validateFinalizeConfirmation(response.Msg.EvidenceBundleConfirmation, request.Auth, key, request.Receipt.VerifierEvidenceManifestSizeBytes)
 	if err != nil {
 		return FinalizeVerifierEvidenceResponse{}, err
@@ -601,7 +615,7 @@ func storageConfirmationFromProto(wire *nexusv1.BuilderStorageConfirmationV1) (S
 }
 
 func taskDataKeyToProto(key TaskDataKey) *nexusv1.TaskDataObjectRefV1 {
-	result := &nexusv1.TaskDataObjectRefV1{TaskHash: key.TaskHash, SessionId: key.SessionID, TaskId: key.TaskID, ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: key.ContentHash, EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound}
+	result := &nexusv1.TaskDataObjectRefV1{TaskHash: key.TaskHash, SessionId: key.SessionID, TaskId: key.TaskID, ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: key.ContentHash, EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound, EvidenceKind: sharedv1.EvidenceKind(key.EvidenceKind)}
 	if key.ProducerOperator != "" {
 		operator := key.ProducerOperator
 		result.ProducerOperator = &operator
@@ -613,7 +627,7 @@ func taskDataKeyFromProto(wire *nexusv1.TaskDataObjectRefV1) (TaskDataKey, error
 	if wire == nil {
 		return TaskDataKey{}, fmt.Errorf("task data object ref is required")
 	}
-	key := TaskDataKey{TaskHash: wire.TaskHash, SessionID: wire.SessionId, TaskID: wire.TaskId, Kind: DataKind(wire.ObjectKind), ContentHash: wire.ContentHash, EvidenceProducerKind: EvidenceProducerKind(wire.EvidenceProducerKind), VerifyRound: wire.VerifyRound, ProducerOperator: wire.GetProducerOperator()}
+	key := TaskDataKey{TaskHash: wire.TaskHash, SessionID: wire.SessionId, TaskID: wire.TaskId, Kind: DataKind(wire.ObjectKind), ContentHash: wire.ContentHash, EvidenceProducerKind: EvidenceProducerKind(wire.EvidenceProducerKind), VerifyRound: wire.VerifyRound, ProducerOperator: wire.GetProducerOperator(), EvidenceKind: nodewire.EvidenceKind(wire.EvidenceKind)}
 	if wire.ProducerOperator != nil && key.ProducerOperator == "" {
 		return TaskDataKey{}, fmt.Errorf("present producer operator cannot be empty")
 	}
@@ -634,22 +648,31 @@ func taskDataRequestAuthToProto(auth TaskDataRequestAuth) *nexusv1.TaskDataReque
 	return &nexusv1.TaskDataRequestAuthV1{SchemaVersion: auth.SchemaVersion, ChainId: auth.ChainID, BuilderOperatorAddress: auth.BuilderAddress, RpcMethod: auth.Method, BodyDigest: hex.EncodeToString(auth.BodyDigest[:]), RequesterKind: nexusv1.TaskDataRequesterKindV1(auth.RequesterKind), RequesterAddress: auth.Requester, ServiceAuthorizationNonce: auth.ServiceAuthorizationNonce, RequestNonce: append([]byte(nil), auth.RequestNonce...), ExpiryHeight: auth.ExpiresAtHeight, Signature: append([]byte(nil), auth.Signature...)}
 }
 
-func signedInferReceiptToProto(receipt SignedInferReceipt) *taskv1.InferReceiptV2 {
+func signedInferReceiptToProto(receipt SignedInferReceipt) *taskv1.InferReceiptV3 {
 	taskID, _ := hex.DecodeString(receipt.TaskID)
 	taskHash, _ := hex.DecodeString(receipt.TaskHash)
 	generation, _ := hex.DecodeString(receipt.GenerationParamsDigest)
 	output, _ := hex.DecodeString(receipt.OutputHash)
 	signature, _ := hex.DecodeString(receipt.ServiceSignature)
-	result := &taskv1.InferReceiptV2{SchemaVersion: receipt.SchemaVersion, ChainId: receipt.ChainID, TaskId: taskID, TaskHash: taskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, ServiceAuthorizationNonce: receipt.ServiceAuthorizationNonce, GenerationParamsDigest: generation, OutputHash: output, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount, ExpiryHeight: receipt.ExpiryHeight, ServiceSignature: signature, GeneratedTokenCount: receipt.GeneratedTokenCount}
+	zero := make([]byte, 32)
+	result := &taskv1.InferReceiptV3{SchemaVersion: receipt.SchemaVersion, ChainId: receipt.ChainID, TaskId: taskID, TaskHash: taskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, ServiceAuthorizationNonce: receipt.ServiceAuthorizationNonce, GenerationParamsDigest: generation, OutputHash: output, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount, ExpiryHeight: receipt.ExpiryHeight, ServiceSignature: signature, GeneratedTokenCount: receipt.GeneratedTokenCount,
+		OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero}
 	for _, item := range receipt.RequiredEvidenceCommitments {
 		result.RequiredEvidenceCommitments = append(result.RequiredEvidenceCommitments, &taskv1.EvidenceCommitmentV1{EvidenceKind: sharedv1.EvidenceKind(item.EvidenceKind), EvidenceHashOrRoot: append([]byte(nil), item.EvidenceHashOrRoot[:]...), EncodedSizeBytes: item.EncodedSizeBytes})
 	}
 	return result
 }
 
-func signedInferReceiptFromProto(wire *taskv1.InferReceiptV2) (SignedInferReceipt, error) {
+func signedInferReceiptFromProto(wire *taskv1.InferReceiptV3) (SignedInferReceipt, error) {
 	if wire == nil {
 		return SignedInferReceipt{}, fmt.Errorf("infer receipt is missing")
+	}
+	// The key slots are not carried by SignedInferReceipt, so a non-zero one
+	// would be silently dropped; refuse it instead.
+	for name, slot := range map[string][]byte{"output_key_commitment": wire.OutputKeyCommitment, "worker_token_key_commitment": wire.WorkerTokenKeyCommitment, "worker_value_key_commitment": wire.WorkerValueKeyCommitment, "ciphertext_output_root": wire.CiphertextOutputRoot} {
+		if len(slot) != 32 || !bytes.Equal(slot, make([]byte, 32)) {
+			return SignedInferReceipt{}, fmt.Errorf("infer receipt %s must be ZERO32 while only PLAINTEXT is accepted", name)
+		}
 	}
 	receipt := SignedInferReceipt{SchemaVersion: wire.SchemaVersion, ChainID: wire.ChainId, TaskID: hex.EncodeToString(wire.TaskId), TaskHash: hex.EncodeToString(wire.TaskHash), WorkerOperatorAddress: wire.WorkerOperatorAddress, ServiceAuthorizationNonce: wire.ServiceAuthorizationNonce, GenerationParamsDigest: hex.EncodeToString(wire.GenerationParamsDigest), OutputHash: hex.EncodeToString(wire.OutputHash), OutputSizeBytes: wire.OutputSizeBytes, OutputLeafCount: wire.OutputLeafCount, ExpiryHeight: wire.ExpiryHeight, ServiceSignature: hex.EncodeToString(wire.ServiceSignature), GeneratedTokenCount: wire.GeneratedTokenCount}
 	for _, item := range wire.RequiredEvidenceCommitments {

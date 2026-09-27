@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	wirebus "github.com/TrueOpen/wire/bus"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	wirebus "github.com/TrueOpen/wire/bus"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"

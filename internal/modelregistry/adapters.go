@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -90,7 +91,7 @@ func NewCurrentRegistrationSubmitter(tx txclient.Client, options TxSubmitterOpti
 }
 
 func (s txSubmitter) SubmitModelProfile(ctx context.Context, message txclient.RegisterModelProfileMessage) (string, error) {
-	taskID := "model-profile-registration:" + message.Profile.ModelID + "/" + strconv.FormatUint(uint64(message.Profile.ProfileVersion), 10)
+	taskID := "model-profile-registration:" + string(message.Profile.ModelID) + "/" + strconv.FormatUint(uint64(message.Profile.ProfileVersion), 10)
 	return s.submitKeeperRegistration(ctx, taskID, txclient.MsgRegisterModelProfile, message)
 }
 
@@ -164,11 +165,12 @@ type TxSupportConfirmerOptions struct {
 	GasPayer        string
 	FeeCap          txclient.Coin
 	FeeGrant        string
-	// SupportedProfiles is every profile this node is configured to support
-	// (local_identity.supported_model_profiles), in any order. Node keeps one
-	// daily support record per (epoch, operator), so each daily confirmation
-	// carries this whole set rather than the one model it was requested for.
-	SupportedProfiles []keepercontract.ProfileRef
+	// SupportedModels is every model this node is configured to support
+	// (the models of local_identity.supported_model_profiles), in any order.
+	// Node keeps one daily support record per (epoch, operator), so each daily
+	// confirmation carries this whole set rather than the one model it was
+	// requested for.
+	SupportedModels []string
 }
 
 type txSupportConfirmer struct {
@@ -196,11 +198,7 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 		if c.options.ServiceIdentity == nil {
 			return "", fmt.Errorf("current service identity reader is required")
 		}
-		profileVersion, err := canonicalSupportProfileVersion(material.ProfileVersion)
-		if err != nil {
-			return "", err
-		}
-		profiles, err := c.dailySupportProfiles(keepercontract.ProfileRef{ModelID: material.ModelID, ProfileVersion: profileVersion})
+		models, err := c.dailySupportModels(material.ModelID)
 		if err != nil {
 			return "", err
 		}
@@ -213,7 +211,7 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 		}
 		material.EpochIndex = epoch
 		digest, err := keepercontract.DailySupportConfirmation(
-			c.options.ChainID, c.options.OperatorAddress, material.EpochIndex, nonce, expiryHeight, profiles,
+			c.options.ChainID, c.options.OperatorAddress, material.EpochIndex, nonce, expiryHeight, models,
 		)
 		if err != nil {
 			return "", err
@@ -222,13 +220,13 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 		if err != nil {
 			return "", err
 		}
-		supportedProfiles := make([]txclient.SupportedProfileRef, 0, len(profiles))
-		for _, profile := range profiles {
-			supportedProfiles = append(supportedProfiles, txclient.SupportedProfileRef{ModelID: profile.ModelID, ProfileVersion: txclient.ProtoUint32(profile.ProfileVersion)})
+		supportedModels := make([]txclient.ProtoBytes32, len(models))
+		for i, model := range models {
+			supportedModels[i] = txclient.ProtoBytes32(model)
 		}
 		confirmations := []txclient.ModelSupportConfirmation{{
 			OperatorAddress:           c.options.OperatorAddress,
-			SupportedProfiles:         supportedProfiles,
+			SupportedModels:           supportedModels,
 			ServiceAuthorizationNonce: txclient.ProtoUint64(nonce), ExpiryHeight: txclient.ProtoUint64(expiryHeight),
 			ServiceSignature: txclient.ProtoBytes(signature),
 		}}
@@ -244,14 +242,6 @@ func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material Support
 	}
 }
 
-func canonicalSupportProfileVersion(value string) (uint32, error) {
-	parsed, err := strconv.ParseUint(value, 10, 32)
-	if err != nil || parsed == 0 || strconv.FormatUint(parsed, 10) != value {
-		return 0, fmt.Errorf("model support profile_version must be a canonical non-zero uint32")
-	}
-	return uint32(parsed), nil
-}
-
 func (c txSupportConfirmer) sign(ctx context.Context, digest codec.Hash) (string, error) {
 	signature, err := c.options.Signer.SignDigest(ctx, signer.DigestRequest{KeyRef: c.options.ServiceKeyRef, ExpectedSignerAddress: c.options.ServiceAddress, Digest: digest})
 	if err != nil {
@@ -263,24 +253,22 @@ func (c txSupportConfirmer) sign(ctx context.Context, digest codec.Hash) (string
 	return hex.EncodeToString(signature), nil
 }
 
-// dailySupportProfiles returns the configured profile set in Node's canonical
-// order, after checking that the requested profile belongs to it. Confirming a
-// profile outside the configured set would drop every configured one from the
+// dailySupportModels returns the configured model set in Node's canonical
+// order, after checking that the requested model belongs to it. Confirming a
+// model outside the configured set would drop every configured one from the
 // epoch's single record.
-func (c txSupportConfirmer) dailySupportProfiles(requested keepercontract.ProfileRef) ([]keepercontract.ProfileRef, error) {
-	if len(c.options.SupportedProfiles) == 0 {
+func (c txSupportConfirmer) dailySupportModels(requested string) ([]string, error) {
+	if len(c.options.SupportedModels) == 0 {
 		return nil, fmt.Errorf("daily support requires the configured local_identity.supported_model_profiles")
 	}
-	profiles, err := keepercontract.CanonicalProfileRefs(c.options.SupportedProfiles)
+	models, err := keepercontract.CanonicalModelIDs(c.options.SupportedModels)
 	if err != nil {
-		return nil, fmt.Errorf("configured supported profiles: %w", err)
+		return nil, fmt.Errorf("configured supported models: %w", err)
 	}
-	for _, profile := range profiles {
-		if profile == requested {
-			return profiles, nil
-		}
+	if !slices.Contains(models, requested) {
+		return nil, fmt.Errorf("model %s is not in local_identity.supported_model_profiles", requested)
 	}
-	return nil, fmt.Errorf("model profile %s@%d is not in local_identity.supported_model_profiles", requested.ModelID, requested.ProfileVersion)
+	return models, nil
 }
 
 func (c txSupportConfirmer) submitAndConfirm(ctx context.Context, material SupportMaterial, taskID string, kind txclient.Kind, message any, materialDigest codec.Hash) (string, error) {

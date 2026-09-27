@@ -17,7 +17,7 @@ import (
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-func TestTaskOrderEIP712V2PublishedDigest(t *testing.T) {
+func TestTaskOrderEIP712PublishedDigest(t *testing.T) {
 	raw, err := wirevectors.File("shared/account_signing_v1.json")
 	if err != nil {
 		t.Fatal(err)
@@ -49,8 +49,8 @@ func TestTaskOrderEIP712V2PublishedDigest(t *testing.T) {
 		}
 		return v
 	}
-	order := taskOrderV2{ChainID: m["chainId"], UserAddress: m["user"], SessionID: b("sessionId"), OrderSequence: taskOrderUint64(u("orderSequence")),
-		ModelID: m["modelId"], ProfileVersion: uint32(u("profileVersion")), MaxFee: taskOrderAmount{AtomicUnits: m["maxFee"]},
+	order := taskOrderV3{ChainID: m["chainId"], UserAddress: m["user"], SessionID: b("sessionId"), OrderSequence: taskOrderUint64(u("orderSequence")),
+		ModelID: b("modelId"), ProfileVersion: uint32(u("profileVersion")), MaxFee: taskOrderAmount{AtomicUnits: m["maxFee"]},
 		EarliestSubmitHeight: taskOrderUint64(u("earliestSubmitHeight")), OrderExpireHeight: taskOrderUint64(u("orderExpireHeight"))}
 	chainID, err := strconv.ParseUint(fixture.TaskOrder.Domain.ChainID, 10, 64)
 	if err != nil {
@@ -64,8 +64,8 @@ func TestTaskOrderEIP712V2PublishedDigest(t *testing.T) {
 	}
 }
 
-func TestSignedOrderV2VerifiesAddressAndEverySignedScope(t *testing.T) {
-	var order taskv1.TaskOrderV2
+func TestSignedOrderVerifiesAddressAndEverySignedScope(t *testing.T) {
+	var order taskv1.TaskOrderV3
 	if err := protojson.Unmarshal(goldenTaskOrderJSON(t), &order); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestSignedOrderV2VerifiesAddressAndEverySignedScope(t *testing.T) {
 	}
 	compact := ecdsa.SignCompact(key, digest[:], false)
 	signature := append(append([]byte(nil), compact[1:]...), compact[0])
-	encode := func(o *taskv1.TaskOrderV2, sig []byte) string {
+	encode := func(o *taskv1.TaskOrderV3, sig []byte) string {
 		raw, err := proto.Marshal(&taskv1.SignedOrderV2{Order: o, SignatureScheme: "eip712", UserSignature: sig})
 		if err != nil {
 			t.Fatal(err)
@@ -95,16 +95,16 @@ func TestSignedOrderV2VerifiesAddressAndEverySignedScope(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name   string
-		mutate func(*taskv1.TaskOrderV2)
+		mutate func(*taskv1.TaskOrderV3)
 	}{
-		{"chain", func(o *taskv1.TaskOrderV2) { o.ChainId += "-changed" }},
-		{"price", func(o *taskv1.TaskOrderV2) { o.PriceBid.AtomicUnits = "4" }},
-		{"generation", func(o *taskv1.TaskOrderV2) { o.GenerationParams.DecodingParams.Seed++ }},
-		{"user", func(o *taskv1.TaskOrderV2) { o.UserAddress = "trueopen1kxet8d94k6mm3wd6hw7tm04lcrqu9s7yxckkka" }},
-		{"legacy schema", func(o *taskv1.TaskOrderV2) { o.SchemaVersion = 1 }},
+		{"chain", func(o *taskv1.TaskOrderV3) { o.ChainId += "-changed" }},
+		{"price", func(o *taskv1.TaskOrderV3) { o.PriceBid.AtomicUnits = "4" }},
+		{"generation", func(o *taskv1.TaskOrderV3) { o.GenerationParams.DecodingParams.Seed++ }},
+		{"user", func(o *taskv1.TaskOrderV3) { o.UserAddress = "trueopen1kxet8d94k6mm3wd6hw7tm04lcrqu9s7yxckkka" }},
+		{"legacy schema", func(o *taskv1.TaskOrderV3) { o.SchemaVersion = 2 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			changed := proto.Clone(&order).(*taskv1.TaskOrderV2)
+			changed := proto.Clone(&order).(*taskv1.TaskOrderV3)
 			tc.mutate(changed)
 			if err := VerifySignedOrderEnvelope(encode(changed, signature), 424242, "uusdc"); err == nil {
 				t.Fatal("mutated scope accepted")

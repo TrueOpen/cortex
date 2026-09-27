@@ -19,7 +19,6 @@ func TestWorkerL0L4AnyFailureDoesNotSignHandraise(t *testing.T) {
 		{"L1 support window missing", func(in *WorkerPrecheckInput) { in.SupportFreshnessWindow = 0 }, "L1_SUPPORT_STALE"},
 		{"L2 unsupported profile", func(in *WorkerPrecheckInput) { in.Profile = "image_v1" }, "L2_UNSUPPORTED_PROFILE"},
 		{"L3 insufficient capacity", func(in *WorkerPrecheckInput) { in.AvailableSlots = 0 }, "L3_INSUFFICIENT_CAPACITY"},
-		{"L4 reward ineligible", func(in *WorkerPrecheckInput) { in.RewardEligible = false }, "L4_REWARD_INELIGIBLE"},
 	}
 
 	for _, tt := range tests {
@@ -40,9 +39,6 @@ func TestWorkerL0L4AnyFailureDoesNotSignHandraise(t *testing.T) {
 			}
 			if decision.CapacitySnapshotRef == "" {
 				t.Fatalf("capacity snapshot ref should be retained for audit")
-			}
-			if decision.RewardEligibilityEstimate {
-				t.Fatalf("reward estimate should reflect failed eligibility")
 			}
 		})
 	}
@@ -127,8 +123,34 @@ func validWorkerPrecheck() WorkerPrecheckInput {
 		SupportedProfiles:               []string{modelservice.CapabilityLLMTextV1},
 		AvailableSlots:                  1,
 		CapacitySnapshotRef:             "capacity://snapshot/1",
-		RewardEligible:                  true,
 		SelfRescueGasAvailable:          true,
 		SelfRescueGasBudgetNanoTRUEOPEN: 10,
+	}
+}
+
+// Phase 0 runs no reward-eligibility gate: a first-P30 DECLARED_BOOTSTRAP node
+// with no stake at all passes, and no Worker refusal is an L4 code.
+func TestWorkerPrecheckPassesZeroStakeDeclaredBootstrap(t *testing.T) {
+	in := validWorkerPrecheck()
+	in.SupportState, in.P30ColdStartCandidate, in.SupportLastConfirmedHeight = SupportDeclaredBootstrap, true, 0
+	decision := EvaluateWorkerPrecheck(in)
+	if !decision.Accepted || !decision.ShouldSignWorkerHandraise || decision.RejectCode != "" {
+		t.Fatalf("zero-stake DECLARED_BOOTSTRAP decision = %+v, want accepted", decision)
+	}
+	for _, mutate := range []func(*WorkerPrecheckInput){
+		func(in *WorkerPrecheckInput) { in.ChainSynced = false },
+		func(in *WorkerPrecheckInput) { in.P30ColdStartCandidate = false },
+		func(in *WorkerPrecheckInput) { in.SupportedProfiles = nil },
+		func(in *WorkerPrecheckInput) { in.AvailableSlots = 0 },
+	} {
+		refused := in
+		mutate(&refused)
+		decision := EvaluateWorkerPrecheck(refused)
+		if decision.Accepted || decision.ShouldSignWorkerHandraise || decision.RejectCode == "" {
+			t.Fatalf("mutated input was not refused: %+v", decision)
+		}
+		if strings.HasPrefix(decision.RejectCode, "L4") {
+			t.Fatalf("Worker precheck refused with %s; Phase 0 has no L4 gate", decision.RejectCode)
+		}
 	}
 }

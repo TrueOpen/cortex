@@ -10,7 +10,7 @@ import (
 // DomainOutputStreamHeaderV1 is the Worker's signature domain over
 // OutputStreamHeaderV2 in wire v0.3.0 (TrueOpen/wire#14,
 // task/output_stream_header_v1.json). The header is signed independently of the
-// task-data request authentication. Nothing produces it yet.
+// task-data request authentication.
 const DomainOutputStreamHeaderV1 = "TRUEOPEN_OUTPUT_STREAM_HEADER_V1"
 
 // OutputStreamHeaderV2 is the signed part of the Worker's output stream header.

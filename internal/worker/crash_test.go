@@ -15,7 +15,8 @@ import (
 func enableEvidenceSchema(h *harness) {
 	inputs := workerTestWorkerValueEvidenceInputs()
 	h.worker.cfg.EvidenceSchemaHash = inputs.EvidenceSchemaHash
-	h.worker.cfg.ProfileEvidenceRequirements = builderclient.WorkerValueEvidenceRequirementsV2()
+	h.worker.cfg.ProfileEvidenceRequirements = builderclient.WorkerEvidenceRequirementsV3()
+	h.worker.cfg.RequiredTopK = workerTestRequiredTopK
 }
 
 // NoKeysRemainForTaskID is a shared assertion for crash/cleanup tests. It fails

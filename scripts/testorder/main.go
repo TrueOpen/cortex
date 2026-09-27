@@ -109,7 +109,7 @@ func main() {
 	chainID := flag.String("chain-id", "trueopen-localnet-1", "chain id")
 	evmChainID := flag.Uint64("evm-chain-id", 0, "authoritative EVM chain id for the EIP-712 order domain")
 	feeDenom := flag.String("fee-denom", "", "authoritative fee denomination for the EIP-712 order")
-	modelID := flag.String("model-id", "", "chain model id")
+	modelID := flag.String("model-id", "", "chain model id (64 lowercase hex)")
 	profileVersion := flag.Uint("profile-version", 1, "chain profile version")
 	builderAddr := flag.String("builder", "", "builder address to attribute the order to")
 	deadlineHeight := flag.Uint64("deadline-height", 0, "order deadline height")
@@ -389,12 +389,16 @@ func buildOrderFrame(spec orderSpec, envelopeSigner builderclient.BusEnvelopeSig
 	// stores the matching bytes at <fixture_root>/inputs/<digest>.bin.
 	payload := []byte("hello from cortex testorder " + sessionID)
 	payloadDigest := codec.HashBytes(payload)
+	modelID, err := identity.ModelIDBytes(spec.modelID)
+	if err != nil {
+		return orderFrame{}, fmt.Errorf("model id: %w", err)
+	}
 	orderValue := func(value string) *bussharedv1.Amount { return &bussharedv1.Amount{AtomicUnits: value} }
 	signedOrder := &bustaskv1.SignedOrderV2{
-		Order: &bustaskv1.TaskOrderV2{
-			SchemaVersion: 2, ChainId: spec.chainID, UserAddress: userAddress,
+		Order: &bustaskv1.TaskOrderV3{
+			SchemaVersion: 3, ChainId: spec.chainID, UserAddress: userAddress,
 			SessionId: sessionHash[:], OrderSequence: orderSequence,
-			ModelId: spec.modelID, ProfileVersion: spec.profileVersion, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
+			ModelId: modelID, ProfileVersion: spec.profileVersion, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
 			InputHash: payloadDigest[:], InputSizeBytes: uint64(len(payload)),
 			InputBucket: 1, OutputBudgetBucket: 1,
 			GenerationParams: &bustaskv1.GenerationParamsV1{
@@ -411,6 +415,8 @@ func buildOrderFrame(spec orderSpec, envelopeSigner builderclient.BusEnvelopeSig
 			TimeoutBucketVersion: 1, SessionAnchorHeight: spec.snapshotHeight,
 			SessionAnchorBlockHash: spec.sessionAnchorBlockHash,
 			BuilderSetId:           spec.builderSetID, BuilderSetHash: spec.builderSetHash,
+			PayloadMode:        bustaskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment: make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 	}
@@ -427,7 +433,7 @@ func buildOrderFrame(spec orderSpec, envelopeSigner builderclient.BusEnvelopeSig
 	orderEnvelope := hex.EncodeToString(signedOrderBytes)
 	taskHash, _, err := nodewire.TaskOrderHashAndFactsEnvelope(orderEnvelope)
 	if err != nil {
-		return orderFrame{}, fmt.Errorf("hash TaskOrderV2: %w", err)
+		return orderFrame{}, fmt.Errorf("hash TaskOrderV3: %w", err)
 	}
 	now := spec.now
 

@@ -19,8 +19,8 @@ func goldenTaskOrderJSON(t *testing.T) []byte {
 	}
 	b64 := func(value byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{value}, 32)) }
 	order := map[string]any{
-		"schema_version": uint32(2), "chain_id": "trueopen-test-1", "user_address": address,
-		"session_id": b64(0x12), "order_sequence": "7", "model_id": "model-task-order", "profile_version": uint32(3),
+		"schema_version": uint32(3), "chain_id": "trueopen-test-1", "user_address": address,
+		"session_id": b64(0x12), "order_sequence": "7", "model_id": b64(0x16), "profile_version": uint32(3),
 		"task_type": "TASK_TYPE_TEXT_GENERATION", "input_hash": b64(0x13), "input_size_bytes": "99", "input_bucket": uint32(2), "output_budget_bucket": uint32(4),
 		"generation_params": map[string]any{
 			"generation_params_schema_version": uint32(1), "max_output_tokens": "128", "max_output_duration": "2000",
@@ -35,6 +35,7 @@ func goldenTaskOrderJSON(t *testing.T) []byte {
 		"earliest_submit_height": "20", "order_expire_height": "80", "deadline_policy": map[string]any{"latency_class": "DEADLINE_LATENCY_CLASS_STANDARD"},
 		"timeout_bucket_version": "6", "session_anchor_height": "10", "session_anchor_block_hash": b64(0x14),
 		"builder_set_id": "7", "builder_set_hash": b64(0x15),
+		"payload_mode": "PAYLOAD_MODE_V1_PLAINTEXT", "input_key_commitment": b64(0x00),
 	}
 	raw, err := json.Marshal(order)
 	if err != nil {
@@ -43,12 +44,12 @@ func goldenTaskOrderJSON(t *testing.T) []byte {
 	return raw
 }
 
-func TestTaskOrderHashJSONMatchesIndependentV2Fixture(t *testing.T) {
+func TestTaskOrderHashJSONRegression(t *testing.T) {
 	digest, err := TaskOrderHashJSON(string(goldenTaskOrderJSON(t)))
 	if err != nil {
 		t.Fatalf("TaskOrderHashJSON error = %v", err)
 	}
-	if got, want := hex.EncodeToString(digest[:]), "55031a8900512370d1ec72c6cf80818785471be0b7355980c8494299c18704f6"; got != want {
+	if got, want := hex.EncodeToString(digest[:]), "bda8affe5325905e747568ce644f2ce9be3a7a4b0d14c431c9610ecd2a59a2b4"; got != want {
 		t.Fatalf("TaskOrderHashJSON = %s, want %s", got, want)
 	}
 }

@@ -44,14 +44,18 @@ const TaskDataRequesterCortexService TaskDataRequesterKind = 2
 
 // Artifact names belong to manifest entries, never to transport object refs.
 const (
-	EvidenceTypeWorkerValueOpening = "EVIDENCE_KIND_WORKER_VALUE_OPENING"
-	EvidenceArtifactTrace          = "trace"
-	EvidenceArtifactCheckpoint     = "checkpoint"
-	EvidenceArtifactAggregateProof = "aggregate_proof"
+	EvidenceArtifactInputTokenIDs     = "input_token_ids"
+	EvidenceArtifactGeneratedTokenIDs = "generated_token_ids"
+	EvidenceArtifactWorkerValues      = "worker_values"
+	EvidenceArtifactGenerationParams  = "generation_params"
+	EvidenceArtifactAggregateProof    = "aggregate_proof"
 )
 
 // TaskDataKey is the complete TaskDataObjectRefV1. Empty ProducerOperator means
-// absent; non-evidence objects must carry an absent producer and zero round.
+// absent; non-evidence objects must carry an absent producer, zero round and
+// EVIDENCE_KIND_UNSPECIFIED. EvidenceKind names which bundle an evidence
+// object belongs to: a Worker round has two, the A-level token bundle and the
+// B-level value bundle.
 type TaskDataKey struct {
 	TaskHash             string
 	SessionID            string
@@ -61,12 +65,13 @@ type TaskDataKey struct {
 	EvidenceProducerKind EvidenceProducerKind
 	VerifyRound          uint32
 	ProducerOperator     string
+	EvidenceKind         nodewire.EvidenceKind
 }
 
 // EvidenceObjectKey addresses manifest or artifact bytes within a producer's
 // bundle. The content hash distinguishes artifacts; their IDs stay in manifests.
-func EvidenceObjectKey(taskHash, sessionID, taskID string, kind DataKind, contentHash string, producer EvidenceProducerKind, round uint32, operator string) TaskDataKey {
-	return TaskDataKey{TaskHash: taskHash, SessionID: sessionID, TaskID: taskID, Kind: kind, ContentHash: contentHash, EvidenceProducerKind: producer, VerifyRound: round, ProducerOperator: operator}
+func EvidenceObjectKey(taskHash, sessionID, taskID string, kind DataKind, contentHash string, producer EvidenceProducerKind, round uint32, operator string, evidenceKind nodewire.EvidenceKind) TaskDataKey {
+	return TaskDataKey{TaskHash: taskHash, SessionID: sessionID, TaskID: taskID, Kind: kind, ContentHash: contentHash, EvidenceProducerKind: producer, VerifyRound: round, ProducerOperator: operator, EvidenceKind: evidenceKind}
 }
 
 // TaskDataRequestAuth is the eleven-field CORTEX_SERVICE authentication wire.
@@ -91,7 +96,9 @@ type TaskDataRange struct {
 	Length uint64
 }
 
-// SignedInferReceipt carries the released task.v1.InferReceiptV2 facts.
+// SignedInferReceipt carries the task.v1.InferReceiptV3 facts. Its four
+// reserved encryption key slots are not carried: only PLAINTEXT is accepted, so
+// they are ZERO32 by rule, written on conversion and refused if a peer sends otherwise.
 // Cortex uses canonical lowercase hex for its hash and signature fields;
 // protobuf conversion decodes them into the released raw byte fields.
 //

@@ -8,10 +8,9 @@
 // rather than read from disk so a caller's working directory cannot change
 // which file is checked.
 //
-// The vectors are wire v0.2.0's files copied byte for byte, plus a small
-// pre-release set copied from a wire release candidate (see
-// PrereleaseWireVersion) for encoders written ahead of the final release. VerifyProvenance
-// checks the embedded bytes against wire's own release manifest, which is what
+// The vectors are wire's testdata/v1 at WireVersion copied byte for byte.
+// VerifyProvenance checks the embedded bytes against that release's own
+// fixture manifest, which is what
 // makes them evidence rather than transcription: without it a fixture could be
 // edited to agree with whatever this repository happens to compute, which is
 // precisely the failure a cross-implementation vector exists to catch.
@@ -28,23 +27,16 @@ import (
 	"fmt"
 )
 
-// WireVersion is the wire release the embedded files were copied from. Raising
-// the go.mod dependency without recopying these is a drift this constant makes
-// visible in a diff.
-const WireVersion = "v0.2.0"
+// WireVersion names the wire release the embedded files were copied from.
+// Raising the go.mod dependency without recopying these is a drift this
+// constant makes visible in a diff.
+const WireVersion = "v0.3.0-rc.2"
 
-//go:embed testdata/v020
+// WireCommit is the wire commit the embedded files were copied from.
+const WireCommit = "d59f0608738a36a52c6ef1dfd8c5e40bfa1b4a85"
+
+//go:embed testdata/v030
 var released embed.FS
-
-// PrereleaseWireVersion is the wire release candidate the v030rc files were
-// copied from. Its testdata manifest is the one published with the
-// v0.3.0-rc.1 release. These vectors let the v0.3.0 encoders be written and
-// checked before the dependency is raised; when v0.3.0 final is tagged, its
-// released files replace this set and this constant goes away.
-const PrereleaseWireVersion = "v0.3.0-rc.1"
-
-//go:embed testdata/v030rc
-var prerelease embed.FS
 
 // vectorSet is one embedded copy of wire's testdata and the checksum of the
 // manifest it was copied with.
@@ -55,27 +47,14 @@ type vectorSet struct {
 	manifestSum string
 }
 
-var (
-	releasedSet = vectorSet{
-		fs: released, dir: "testdata/v020", version: WireVersion,
-		manifestSum: "cc378b636c088ad4a2b165bc25b6549c9c7df20046eb8d5e4883c06199102a3f",
-	}
-	prereleaseSet = vectorSet{
-		fs: prerelease, dir: "testdata/v030rc", version: PrereleaseWireVersion,
-		manifestSum: "d272b9e95b7cfb4b2ca56a269201ab7b4fce0abce2a85e7be322fab69cb7cf66",
-	}
-)
+var releasedSet = vectorSet{
+	fs: released, dir: "testdata/v030", version: WireVersion,
+	manifestSum: "de06a4128849b73401d8234971d61a3c6350369f54fae0a3fde622f285c4e539",
+}
 
 // File returns exact released fixture bytes after checking their provenance.
 func File(path string) ([]byte, error) {
 	return releasedSet.file(path)
-}
-
-// PrereleaseFile returns exact fixture bytes from PrereleaseWireVersion after
-// checking them against that commit's own manifest. Only files this repository
-// already derives are copied, so an unregistered or uncopied path is an error.
-func PrereleaseFile(path string) ([]byte, error) {
-	return prereleaseSet.file(path)
 }
 
 func (set vectorSet) file(path string) ([]byte, error) {

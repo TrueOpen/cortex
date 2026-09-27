@@ -60,7 +60,7 @@ func TestEmptyEvidenceListIsADefinedDigest(t *testing.T) {
 // edit that drops, reorders or duplicates one cannot stay green.
 func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 	vectors := goldenVectorsByName(t)
-	base := inferReceiptFromVector(t, vectors, requireVector(t, vectors, vectorInferReceipt))
+	base := inferReceiptBase(t)
 
 	baseDigest, err := nodewire.InferReceiptSigningDigest(base)
 	if err != nil {
@@ -70,29 +70,25 @@ func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 	otherHash := bytes.Repeat([]byte{0x5a}, 32)
 	otherAddress := fieldBech32(t, requireVector(t, vectors, vectorVerifyCommit), 4, "verifier_operator_address")
 
-	mutations := map[string]func(*nodewire.InferReceiptV2){
-		"chain_id":                    func(r *nodewire.InferReceiptV2) { r.ChainID += "-x" },
-		"task_id":                     func(r *nodewire.InferReceiptV2) { r.TaskID = otherHash },
-		"task_hash":                   func(r *nodewire.InferReceiptV2) { r.TaskHash = otherHash },
-		"worker_operator_address":     func(r *nodewire.InferReceiptV2) { r.WorkerOperatorAddress = otherAddress },
-		"service_authorization_nonce": func(r *nodewire.InferReceiptV2) { r.ServiceAuthorizationNonce++ },
-		"generation_params_digest":    func(r *nodewire.InferReceiptV2) { r.GenerationParamsDigest = otherHash },
-		"output_hash":                 func(r *nodewire.InferReceiptV2) { r.OutputHash = otherHash },
-		"output_size_bytes":           func(r *nodewire.InferReceiptV2) { r.OutputSizeBytes++ },
-		"expiry_height":               func(r *nodewire.InferReceiptV2) { r.ExpiryHeight++ },
-		"generated_token_count":       func(r *nodewire.InferReceiptV2) { r.GeneratedTokenCount++ },
-		"output_leaf_count":           func(r *nodewire.InferReceiptV2) { r.OutputLeafCount++ },
-		"evidence/drop_last": func(r *nodewire.InferReceiptV2) {
-			r.RequiredEvidenceCommitments = r.RequiredEvidenceCommitments[:len(r.RequiredEvidenceCommitments)-1]
+	mutations := map[string]func(*nodewire.InferReceiptV3){
+		"chain_id":                    func(r *nodewire.InferReceiptV3) { r.ChainID += "-x" },
+		"task_id":                     func(r *nodewire.InferReceiptV3) { r.TaskID = otherHash },
+		"task_hash":                   func(r *nodewire.InferReceiptV3) { r.TaskHash = otherHash },
+		"worker_operator_address":     func(r *nodewire.InferReceiptV3) { r.WorkerOperatorAddress = otherAddress },
+		"service_authorization_nonce": func(r *nodewire.InferReceiptV3) { r.ServiceAuthorizationNonce++ },
+		"generation_params_digest":    func(r *nodewire.InferReceiptV3) { r.GenerationParamsDigest = otherHash },
+		"output_hash":                 func(r *nodewire.InferReceiptV3) { r.OutputHash = otherHash },
+		"output_size_bytes":           func(r *nodewire.InferReceiptV3) { r.OutputSizeBytes++ },
+		"expiry_height":               func(r *nodewire.InferReceiptV3) { r.ExpiryHeight++ },
+		"generated_token_count":       func(r *nodewire.InferReceiptV3) { r.GeneratedTokenCount++ },
+		"output_leaf_count":           func(r *nodewire.InferReceiptV3) { r.OutputLeafCount++ },
+		"evidence/token_hash": func(r *nodewire.InferReceiptV3) {
+			r.RequiredEvidenceCommitments[1].EvidenceHashOrRoot = otherHash
 		},
-		"evidence/kind": func(r *nodewire.InferReceiptV2) {
-			r.RequiredEvidenceCommitments[len(r.RequiredEvidenceCommitments)-1].EvidenceKind =
-				nodewire.EvidenceKindVerifierValueOpening
-		},
-		"evidence/hash": func(r *nodewire.InferReceiptV2) {
+		"evidence/hash": func(r *nodewire.InferReceiptV3) {
 			r.RequiredEvidenceCommitments[0].EvidenceHashOrRoot = otherHash
 		},
-		"evidence/encoded_size_bytes": func(r *nodewire.InferReceiptV2) {
+		"evidence/encoded_size_bytes": func(r *nodewire.InferReceiptV3) {
 			r.RequiredEvidenceCommitments[0].EncodedSizeBytes++
 		},
 	}
@@ -113,6 +109,24 @@ func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 		seen[digest] = label
 	}
 
+	// A list that is not exactly [value, token] is refused, not hashed.
+	for label, mutate := range map[string]func(*nodewire.InferReceiptV3){
+		"evidence/drop_last": func(r *nodewire.InferReceiptV3) {
+			r.RequiredEvidenceCommitments = r.RequiredEvidenceCommitments[:1]
+		},
+		"evidence/kind": func(r *nodewire.InferReceiptV3) {
+			r.RequiredEvidenceCommitments[1].EvidenceKind = nodewire.EvidenceKindVerifierValueOpening
+		},
+		"key_slot": func(r *nodewire.InferReceiptV3) { r.WorkerValueKeyCommitment = otherHash },
+	} {
+		mutated := base
+		mutated.RequiredEvidenceCommitments = append([]nodewire.EvidenceCommitmentV1(nil), base.RequiredEvidenceCommitments...)
+		mutate(&mutated)
+		if _, err := nodewire.InferReceiptSigningDigest(mutated); err == nil {
+			t.Fatalf("%s: a receipt outside the V3 shape was accepted", label)
+		}
+	}
+
 	// service_signature is wire field 12 and is explicitly not in the preimage.
 	withSignature := base
 	withSignature.ServiceSignature = bytes.Repeat([]byte{0x11}, 64)
@@ -131,9 +145,7 @@ func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 // same value: the receipt path signs the frozen digest, and this is the
 // cross-package check that it did not quietly keep a second derivation.
 func TestBuilderClientReceiptDigestIsTheFrozenDigest(t *testing.T) {
-	vectors := goldenVectorsByName(t)
-	vector := requireVector(t, vectors, vectorInferReceipt)
-	frozen := inferReceiptFromVector(t, vectors, vector)
+	frozen := inferReceiptBase(t)
 
 	frozenDigest, err := nodewire.InferReceiptSigningDigest(frozen)
 	if err != nil {
@@ -178,7 +190,7 @@ func TestBuilderClientReceiptDigestIsTheFrozenDigest(t *testing.T) {
 // and an unspecified or unknown enum is refused.
 func TestRejectsMalformedInput(t *testing.T) {
 	vectors := goldenVectorsByName(t)
-	receipt := inferReceiptFromVector(t, vectors, requireVector(t, vectors, vectorInferReceipt))
+	receipt := inferReceiptBase(t)
 	verifierAddress := fieldBech32(t, requireVector(t, vectors, vectorVerifyCommit), 4, "verifier_operator_address")
 
 	t.Run("short_hash32", func(t *testing.T) {
@@ -251,19 +263,19 @@ func TestRejectsMalformedInput(t *testing.T) {
 			EvidenceHashOrRoot: receipt.OutputHash,
 			EncodedSizeBytes:   1,
 		}}
-		requireErrorContains(t, digestErr(nodewire.InferReceiptSigningDigest(broken)),
+		requireErrorContains(t, digestErr(nodewire.EvidenceCommitmentsHash(broken.RequiredEvidenceCommitments)),
 			"evidence_kind must not be EVIDENCE_KIND_UNSPECIFIED")
 	})
 
 	t.Run("unknown_evidence_kind", func(t *testing.T) {
 		broken := receipt
 		broken.RequiredEvidenceCommitments = []nodewire.EvidenceCommitmentV1{{
-			EvidenceKind:       nodewire.EvidenceKind(4),
+			EvidenceKind:       nodewire.EvidenceKind(9),
 			EvidenceHashOrRoot: receipt.OutputHash,
 			EncodedSizeBytes:   1,
 		}}
-		requireErrorContains(t, digestErr(nodewire.InferReceiptSigningDigest(broken)),
-			"evidence_kind 4 is not a registered EvidenceKind value")
+		requireErrorContains(t, digestErr(nodewire.EvidenceCommitmentsHash(broken.RequiredEvidenceCommitments)),
+			"evidence_kind 9 is not a registered EvidenceKind value")
 	})
 
 	t.Run("short_evidence_hash", func(t *testing.T) {
@@ -273,8 +285,8 @@ func TestRejectsMalformedInput(t *testing.T) {
 			EvidenceHashOrRoot: receipt.OutputHash[:16],
 			EncodedSizeBytes:   1,
 		}}
-		requireErrorContains(t, digestErr(nodewire.InferReceiptSigningDigest(broken)),
-			"required_evidence_commitments[0]: evidence_hash_or_root must be exactly 32 raw bytes, got 16")
+		requireErrorContains(t, digestErr(nodewire.EvidenceCommitmentsHash(broken.RequiredEvidenceCommitments)),
+			"evidence_hash_or_root must be exactly 32 raw bytes, got 16")
 	})
 
 	t.Run("duplicate_evidence_kind", func(t *testing.T) {
@@ -320,11 +332,11 @@ func TestRejectsMalformedInput(t *testing.T) {
 			"duty 7 is not a registered Duty value")
 	})
 
-	t.Run("invalid_utf8_model_id", func(t *testing.T) {
+	t.Run("short_model_id", func(t *testing.T) {
 		handraise := validWorkerHandraise(t, vectors)
-		handraise.ModelID = string([]byte{0xc3, 0x28})
+		handraise.ModelID = handraise.ModelID[:31]
 		requireErrorContains(t, digestErr(nodewire.WorkerHandraiseSigningDigest(handraise)),
-			"model_id must be strict UTF-8")
+			"model_id must be exactly 32 raw bytes, got 31")
 	})
 
 	t.Run("member_short_snapshot_id", func(t *testing.T) {
@@ -355,16 +367,15 @@ func TestRejectsMalformedInput(t *testing.T) {
 // judges. Refusing any of these here would make Cortex unable to reproduce a
 // digest the chain accepts.
 func TestAcceptsWhatNodeAccepts(t *testing.T) {
-	vectors := goldenVectorsByName(t)
-	base := inferReceiptFromVector(t, vectors, requireVector(t, vectors, vectorInferReceipt))
 
-	cases := map[string]func(*nodewire.InferReceiptV2){
-		"empty chain_id":         func(r *nodewire.InferReceiptV2) { r.ChainID = "" },
-		"zero nonce":             func(r *nodewire.InferReceiptV2) { r.ServiceAuthorizationNonce = 0 },
-		"zero output_size_bytes": func(r *nodewire.InferReceiptV2) { r.OutputSizeBytes = 0 },
-		"zero expiry_height":     func(r *nodewire.InferReceiptV2) { r.ExpiryHeight = 0 },
-		"empty evidence list":    func(r *nodewire.InferReceiptV2) { r.RequiredEvidenceCommitments = nil },
-		"zero-hash output":       func(r *nodewire.InferReceiptV2) { r.OutputHash = make([]byte, 32) },
+	base := inferReceiptBase(t)
+
+	cases := map[string]func(*nodewire.InferReceiptV3){
+		"empty chain_id":         func(r *nodewire.InferReceiptV3) { r.ChainID = "" },
+		"zero nonce":             func(r *nodewire.InferReceiptV3) { r.ServiceAuthorizationNonce = 0 },
+		"zero output_size_bytes": func(r *nodewire.InferReceiptV3) { r.OutputSizeBytes = 0 },
+		"zero expiry_height":     func(r *nodewire.InferReceiptV3) { r.ExpiryHeight = 0 },
+		"zero-hash output":       func(r *nodewire.InferReceiptV3) { r.OutputHash = make([]byte, 32) },
 	}
 	for label, mutate := range cases {
 		mutated := base
@@ -376,9 +387,9 @@ func TestAcceptsWhatNodeAccepts(t *testing.T) {
 }
 
 func TestInferReceiptRejectsRetiredOrUnknownSchema(t *testing.T) {
-	vectors := goldenVectorsByName(t)
-	receipt := inferReceiptFromVector(t, vectors, requireVector(t, vectors, vectorInferReceipt))
-	for _, version := range []uint32{0, 1, 3, 99} {
+
+	receipt := inferReceiptBase(t)
+	for _, version := range []uint32{0, 1, 2, 4, 99} {
 		receipt.SchemaVersion = version
 		if _, err := nodewire.InferReceiptSigningDigest(receipt); err == nil {
 			t.Fatalf("receipt schema %d accepted", version)
@@ -392,7 +403,8 @@ func TestInferReceiptRejectsRetiredOrUnknownSchema(t *testing.T) {
 // chain_id field, not the prefix, separates two chains.
 func TestOperatorAddressRoundTripsAcrossPrefixes(t *testing.T) {
 	vectors := goldenVectorsByName(t)
-	worker := fieldBech32(t, requireVector(t, vectors, vectorInferReceipt), 4, "worker_operator_address")
+	_ = vectors
+	worker := inferReceiptBase(t).WorkerOperatorAddress
 
 	raw, err := nodewire.CanonicalOperatorAddressBytes("worker_operator_address", worker)
 	if err != nil {
@@ -440,13 +452,21 @@ func validWorkerHandraise(t *testing.T, vectors map[string]goldenVector) nodewir
 		ChainID:                   fieldString(t, vector, 1, "chain_id"),
 		TaskID:                    fieldBytes(t, vector, 2, "task_id"),
 		TaskHash:                  fieldBytes(t, vector, 3, "task_hash"),
-		ModelID:                   fieldString(t, vector, 4, "model_id"),
+		ModelID:                   fieldBytes(t, vector, 4, "model_id"),
 		ProfileVersion:            uint32(fieldUint(t, vector, 5, "profile_version")),
 		Member:                    memberRef(t, vector, 6),
 		Duty:                      nodewire.Duty(fieldUint(t, vector, 7, "duty")),
 		ServiceAuthorizationNonce: fieldUint(t, vector, 8, "service_authorization_nonce"),
 		ExpiryHeight:              fieldUint(t, vector, 9, "expiry_height"),
+		RecipientPubkey:           fieldBytes(t, vector, 10, "recipient_pubkey"),
 	}
+}
+
+// inferReceiptBase is the published V3 receipt vector as a typed receipt.
+func inferReceiptBase(t *testing.T) nodewire.InferReceiptV3 {
+	t.Helper()
+	receipt, _ := inferReceiptV3Fixture(t)
+	return receipt
 }
 
 func digestErr(_ codec.Hash, err error) error {

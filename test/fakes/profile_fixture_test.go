@@ -7,6 +7,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -27,11 +28,11 @@ func (r fakeLockedProfileReader) CurrentModelProfile(_ context.Context, _, _ str
 // tokenizer_hash enters every metric leaf preimage, so a 32-zero stand-in would
 // be a profile no chain ever registered.
 func fakeLockedProfile() chainclient.CurrentModelProfileSnapshot {
-	schemaHash := codec.HashWithDomain("FAKE_PROFILE_SCHEMA_HASH_V1", []byte("fake-llm-text"))
-	tokenizerHash := codec.HashWithDomain("FAKE_PROFILE_TOKENIZER_HASH_V1", []byte("fake-llm-text"))
+	schemaHash := codec.HashWithDomain("FAKE_PROFILE_SCHEMA_HASH_V1", []byte(modelservice.FakeModelID))
+	tokenizerHash := codec.HashWithDomain("FAKE_PROFILE_TOKENIZER_HASH_V1", []byte(modelservice.FakeModelID))
 	profile := chainclient.CurrentModelProfileSnapshot{
 		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID:        "fake-llm-text",
+			ModelID:        modelservice.FakeModelID,
 			ProfileVersion: chainclient.NewProfileVersion(1),
 			SchemaHash:     chainclient.ProtoBytes32(schemaHash[:]),
 			TokenizerHash:  chainclient.ProtoBytes32(tokenizerHash[:]),
@@ -53,7 +54,11 @@ func fakeLockedProfile() chainclient.CurrentModelProfileSnapshot {
 					SchemaVersion: 1,
 					RequiredInferEvidence: []chainclient.CurrentInferEvidenceRequirementSnapshot{{
 						EvidenceKind:            int32(nodewire.EvidenceKindWorkerValueOpening),
-						CommitmentSchemaVersion: 2,
+						CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV3,
+						MaxEncodedSizeBytes:     chainclient.NewUint64String(1 << 20),
+					}, {
+						EvidenceKind:            int32(nodewire.EvidenceKindWorkerTokenOpening),
+						CommitmentSchemaVersion: nodewire.WorkerTokenCommitmentSchemaVersionV1,
 						MaxEncodedSizeBytes:     chainclient.NewUint64String(1 << 20),
 					}},
 				},

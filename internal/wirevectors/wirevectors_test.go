@@ -14,7 +14,6 @@ func TestEmbeddedHubVectorsAreWireVerbatim(t *testing.T) {
 func TestEveryDerivedHubDomainHasAPublishedVector(t *testing.T) {
 	for _, domain := range []string{
 		"TRUEOPEN_EVIDENCE_SCHEMA_V1",
-		"TRUEOPEN_SUPPORT_PROFILES_V1",
 		"TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1",
 		"TRUEOPEN_PROFILE_VERIFICATION_SNAPSHOT_V1",
 	} {
@@ -34,9 +33,9 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// The pre-release set must be the release candidate's bytes, checked the same
-// way as the released set.
-func TestPrereleaseVectorsMatchTheirManifest(t *testing.T) {
+// Every v0.3.0 file this repository derives must be registered in the
+// release manifest.
+func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{
 		"task/worker_token_commitment_v1.json",
 		"task/worker_value_commitment_v3.json",
@@ -54,11 +53,11 @@ func TestPrereleaseVectorsMatchTheirManifest(t *testing.T) {
 		"task/task_domains_v1.json",
 		"hub/model_id_v1.json",
 	} {
-		if _, err := PrereleaseFile(path); err != nil {
-			t.Fatalf("PrereleaseFile(%s): %v", path, err)
+		if _, err := File(path); err != nil {
+			t.Fatalf("File(%s): %v", path, err)
 		}
 	}
-	if _, err := PrereleaseFile("task/round_settlement_v1.json"); err == nil {
-		t.Fatal("PrereleaseFile() error = nil for a file that was not copied")
+	if _, err := File("task/infer_receipt_v2.json"); err == nil {
+		t.Fatal("File() error = nil for a file wire v0.3.0 no longer publishes")
 	}
 }

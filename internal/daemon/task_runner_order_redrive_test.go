@@ -60,7 +60,7 @@ func redriveTestRunner(t *testing.T, eligibility HandraiseEligibility, chain Cha
 		Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain",
 		FakeOutput: true, FakeBus: true,
 		ChainStatus:          chain,
-		ProfileCapabilities:  map[string]string{"model\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 		HandraiseEligibility: eligibility,
 		TaskDataAuth:         taskRunnerTaskDataAuth(t),
 		SignerAddress:        "service", SignerKeyRef: "key",

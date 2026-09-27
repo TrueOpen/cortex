@@ -54,8 +54,8 @@ func finishReasonV1FromString(reason string, ambiguousStop bool) (nodewire.Finis
 
 func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, stop json.RawMessage, count uint64) (nodewire.FinishReasonV1, error) {
 	// This is the FIRST place an over-budget generation is caught -- it runs
-	// inside buildInferResultFromCompletion, before the trace and checkpoint are
-	// even marshalled, so it is what a live Worker hits and what a live log
+	// inside buildInferResultFromCompletion, before the token-id and
+	// position-value material is encoded, so it is what a live Worker hits and what a live log
 	// reports. It carries the same code as the evidence-side check of the same
 	// inequality on purpose: one fact, one code, wherever it is noticed.
 	if count > g.Params.MaxOutputTokens {
@@ -80,9 +80,14 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 		if hasStop {
 			var sequence string
 			if err := json.Unmarshal(stop, &sequence); err != nil {
-				// The frozen receipt has no explicit stop-token outcome. Do not
-				// turn numeric stop_reason into EOS or a string-stop assertion.
-				return 0, fmt.Errorf("unsupported stop_reason: explicit token stop has no frozen finish reason")
+				// A numeric stop_reason is the stop token that ended the
+				// generation. It is STOP_TOKEN only when the order lists it.
+				var token uint32
+				if json.Unmarshal(stop, &token) != nil || strings.EqualFold(strings.TrimSpace(reason), "eos_token") ||
+					!slices.Contains(g.Params.DecodingParams.StopTokenIDs, token) {
+					return 0, fmt.Errorf("stop_reason does not match a configured stop token")
+				}
+				return nodewire.FinishReasonV1StopToken, nil
 			}
 			if strings.EqualFold(strings.TrimSpace(reason), "eos_token") || !slices.Contains(g.Params.DecodingParams.StopSequences, sequence) {
 				return 0, fmt.Errorf("stop_reason does not match a configured stop sequence")
@@ -125,12 +130,9 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 			// verifiable one.
 			return 0, fmt.Errorf("max_output_duration finish reached max_output_tokens")
 		}
-		if count == 0 {
-			// No token survived the budget. There is nothing to commit, and an
-			// empty output attributed to a timeout is indistinguishable from a
-			// model service that produced nothing at all.
-			return 0, fmt.Errorf("max_output_duration finish generated no tokens")
-		}
+		// A budget that expires before the first token is a legal empty
+		// generation (MAX_OUTPUT_DURATION is exempt from the one-token
+		// minimum), and the Worker's own finish check agrees.
 		return nodewire.FinishReasonV1MaxOutputDuration, nil
 	default:
 		return 0, fmt.Errorf("unsupported local finish reason %q", reason)

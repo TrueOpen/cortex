@@ -49,11 +49,13 @@ func outputConfirmationMaterial(
 		OutputHash:             pkg.OutputHash, OutputSizeBytes: outputConfirmationSizeBytes, OutputLeafCount: 1,
 		RequiredEvidenceCommitments: []builderclient.EvidenceCommitment{{
 			EvidenceKind: nodewire.EvidenceKindWorkerValueOpening, EvidenceHashOrRoot: traceRoot, EncodedSizeBytes: 21,
+		}, {
+			EvidenceKind: nodewire.EvidenceKindWorkerTokenOpening, EvidenceHashOrRoot: codec.HashWithDomain("TOKENS", []byte(pkg.TaskID)), EncodedSizeBytes: 12,
 		}},
 		// The locked Profile's requirement set, which BuildInferReceipt requires.
 		// Only max_encoded_size_bytes needs a real Profile read, so the fixture uses
-		// the derived V1 shape at the contract ceiling.
-		ProfileEvidenceRequirements: builderclient.WorkerValueEvidenceRequirementsV2(),
+		// the derived V3 shape at the contract ceiling.
+		ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(),
 		ExpiryHeight:                1200,
 	})
 	if err != nil {
@@ -124,7 +126,7 @@ func canonicalOutputPackage(t *testing.T, sessionID, taskID, outputRef string) b
 	}
 	return builderclient.OutputPackage{
 		SessionID: sessionID, TaskID: taskID, OutputRef: outputRef,
-		TraceRef: traceRef, CheckpointRef: checkpointRef,
+		TokenIDsRef: traceRef, PositionValuesRef: checkpointRef,
 		OutputHash: outputHash, PackageHash: packageHash,
 		Output: body, OutputChunkLengths: []uint64{outputConfirmationSizeBytes},
 		ReceiptHash: receiptHash, ReceiptPayload: payload,
@@ -536,7 +538,7 @@ func TestNexusOutputConfirmerReadsTheOutputWhenNoPackageStoreIsConfigured(t *tes
 	}
 	// The refs are absent by construction: no wire carries them, so asserting
 	// values for them would be asserting something unchecked.
-	if pkg.OutputRef != "" || pkg.TraceRef != "" || pkg.CheckpointRef != "" {
+	if pkg.OutputRef != "" || pkg.TokenIDsRef != "" || pkg.PositionValuesRef != "" {
 		t.Fatalf("confirmed package carries locator refs %#v, want none", pkg)
 	}
 	if len(client.ranges) != 1 {

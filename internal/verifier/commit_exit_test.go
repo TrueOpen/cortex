@@ -1,9 +1,12 @@
 package verifier
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/policy"
 	"log/slog"
 	"strings"
 	"testing"
@@ -253,9 +256,9 @@ func TestCommitSelfSubmissionRequiresTheCommitDeadline(t *testing.T) {
 // commit_key. §10.6 rule 5 makes that a duplicate noop on chain, which costs gas
 // and reports nothing useful, so it must converge locally as a success instead.
 //
-// The retry re-derives a DIFFERENT commit_hash on purpose (a changed beacon id
-// moves the sample seed). commit_key does not include commit_hash, so the chain
-// would still noop it: keying the memo by hash would have missed exactly this.
+// The retry is handed a changed beacon id, which would move the sample seed,
+// yet it re-delivers the persisted commit: same salt, same commit_hash, no
+// second prefill, and the durable delivery record makes it a duplicate noop.
 func TestRepeatedVerifyConvergesOnOneCommitPerCommitKey(t *testing.T) {
 	h := newHarness(t)
 	state := h.validTask()
@@ -269,8 +272,11 @@ func TestRepeatedVerifyConvergesOnOneCommitPerCommitKey(t *testing.T) {
 	changed := state
 	changed.FutureBeaconID = "proposer-vrf-epoch-13"
 	second := verifyLocally(t, h, changed)
-	if second.CommitHash == first.CommitHash {
-		t.Fatal("the retry re-derived the same commit hash; this test no longer covers the commit_key scope")
+	if second.CommitHash != first.CommitHash || second.Salt != first.Salt {
+		t.Fatal("the retry re-derived its commit instead of re-delivering the persisted one")
+	}
+	if h.model.VerifyCalls != 1 {
+		t.Fatalf("model verify calls = %d, want the persisted commit reused without a second prefill", h.model.VerifyCalls)
 	}
 	if !second.CommitDelivery.Duplicate {
 		t.Fatalf("second delivery = %#v, want a duplicate noop", second.CommitDelivery)
@@ -440,5 +446,139 @@ func TestCommitExitTraceSeparatesBroadcastFromChainAcceptance(t *testing.T) {
 		if strings.Contains(line, forbidden) {
 			t.Fatalf("trace line %q describes something weaker than Keeper confirmation as acceptance", line)
 		}
+	}
+}
+
+// A signed commit whose delivery failed is re-delivered byte for byte after a
+// restart: the persisted salt and verifier_value_root are reused, nothing is
+// re-signed and the model is not asked for a second prefill.
+func TestFailedCommitDeliveryIsResentUnchangedAfterRestart(t *testing.T) {
+	h := newHarness(t)
+	h.tx.RejectNext(txclient.MsgSubmitVerifyCommit, "transient keeper refusal")
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+
+	first, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
+	if err == nil {
+		t.Fatal("the rejected delivery was reported as landed")
+	}
+	restarted := New(h.verifier.cfg)
+	second, err := restarted.HandleOpenVerifyAccepted(context.Background(), state)
+	if err != nil {
+		t.Fatalf("retry after restart: %v", err)
+	}
+	if h.model.VerifyCalls != 1 {
+		t.Fatalf("model verify calls = %d, want the persisted commit reused", h.model.VerifyCalls)
+	}
+	if second.Salt != first.Salt || second.CommitHash != first.CommitHash ||
+		second.MetricMaterial.VerifierValueRoot != first.MetricMaterial.VerifierValueRoot {
+		t.Fatal("the retry changed the salt, the commit hash or the verifier value root")
+	}
+	requests := h.tx.Requests()
+	if len(requests) != 2 || !bytes.Equal(requests[0].Payload, requests[1].Payload) {
+		t.Fatalf("tx requests = %d, want the identical signed commit sent twice", len(requests))
+	}
+	// Once confirmed, a further restart only reports the durable duplicate.
+	third, err := New(h.verifier.cfg).HandleOpenVerifyAccepted(context.Background(), state)
+	if err != nil || !third.CommitDelivery.Duplicate || len(h.tx.Requests()) != 2 {
+		t.Fatalf("third run = %#v, %v, want a duplicate noop without a new tx", third.CommitDelivery, err)
+	}
+}
+
+// The commit salt is drawn from the CSPRNG, not derived from task data.
+func TestCommitSaltIsRandomAndNonZero(t *testing.T) {
+	a, err := randomSalt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := randomSalt()
+	if err != nil || a.IsZero() || a == b {
+		t.Fatalf("salts %s and %s, %v", a, b, err)
+	}
+}
+
+func submittedCommit(t *testing.T, payload []byte) txclient.SubmitVerifyCommitMessage {
+	t.Helper()
+	var message txclient.SubmitVerifyCommitMessage
+	if err := json.Unmarshal(payload, &message); err != nil {
+		t.Fatal(err)
+	}
+	return message
+}
+
+// A key rotation between persisting the commit and retrying it re-signs the
+// same commit_hash under the current service_authorization_nonce; an
+// unchanged binding reuses the persisted signature.
+func TestPersistedCommitIsResignedAfterANonceChange(t *testing.T) {
+	h := newHarness(t)
+	h.tx.RejectNext(txclient.MsgSubmitVerifyCommit, "transient keeper refusal")
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	first, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
+	if err == nil {
+		t.Fatal("the rejected delivery was reported as landed")
+	}
+	rotated := h.verifier.cfg
+	rotated.ServiceAuthorizationNonce++
+	second, err := New(rotated).HandleOpenVerifyAccepted(context.Background(), state)
+	if err != nil {
+		t.Fatalf("retry after the nonce change: %v", err)
+	}
+	requests := h.tx.Requests()
+	before, after := submittedCommit(t, requests[0].Payload), submittedCommit(t, requests[1].Payload)
+	if before.Commit.CommitHash != after.Commit.CommitHash || second.CommitHash != first.CommitHash || second.Salt != first.Salt {
+		t.Fatal("the re-signed commit does not carry the persisted commit_hash and salt")
+	}
+	if uint64(after.Commit.ServiceAuthorizationNonce) != rotated.ServiceAuthorizationNonce || before.Commit.ServiceSignature == after.Commit.ServiceSignature {
+		t.Fatalf("retry commit = %+v, want the current nonce and a new signature", after.Commit)
+	}
+	if h.model.VerifyCalls != 1 {
+		t.Fatalf("model verify calls = %d, want no second prefill", h.model.VerifyCalls)
+	}
+}
+
+// A persisted commit is re-delivered before anything about the task's
+// evidence is looked at, so it reaches the chain while Builders are down; a
+// failure to record the confirmed delivery does not fail the landed commit.
+func TestPersistedCommitIsRedeliveredWithoutEvidence(t *testing.T) {
+	h := newHarness(t)
+	h.tx.RejectNext(txclient.MsgSubmitVerifyCommit, "transient keeper refusal")
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	if _, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state); err == nil {
+		t.Fatal("the rejected delivery was reported as landed")
+	}
+	bare := state
+	bare.OutputPackage, bare.ConfirmedOutput, bare.ConfirmedOutputChunkLengths = policy.OutputPackageSummary{}, nil, nil
+	h.persistence.failKind = verifierCommitDeliveryEvidenceKind
+	result, err := New(h.verifier.cfg).HandleOpenVerifyAccepted(context.Background(), bare)
+	if err != nil || !result.CommitDelivery.ChainAccepted {
+		t.Fatalf("re-delivery without evidence = %+v, %v", result.CommitDelivery, err)
+	}
+	if h.model.VerifyCalls != 1 {
+		t.Fatal("the re-delivery asked the model again")
+	}
+}
+
+// A record written before the signed commit was persisted is named as such.
+func TestPersistedRecordWithoutCommitWireAsksToClearIt(t *testing.T) {
+	h := newHarness(t)
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	verifyLocally(t, h, state)
+	for i := range h.persistence.evidence {
+		if h.persistence.evidence[i].Kind != verifierFullResultRevealEvidenceKind {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal(h.persistence.evidence[i].Data, &record); err != nil {
+			t.Fatal(err)
+		}
+		delete(record, "commit_wire")
+		h.persistence.evidence[i].Data, _ = json.Marshal(record)
+	}
+	_, err := New(h.verifier.cfg).HandleOpenVerifyAccepted(context.Background(), state)
+	if err == nil || !strings.Contains(err.Error(), "clear this task's local verifier record") {
+		t.Fatalf("err = %v, want the explicit clear-the-record refusal", err)
 	}
 }

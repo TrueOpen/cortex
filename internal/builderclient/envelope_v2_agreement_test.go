@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/TrueOpen/cortex/internal/wirevectors"
 	"math"
 	"strconv"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 
 	"github.com/TrueOpen/wire/bus"
 	"google.golang.org/protobuf/proto"

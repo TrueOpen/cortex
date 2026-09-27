@@ -23,7 +23,7 @@ func TestPersistedGenerationParamsSurviveRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := strings.Repeat("12", 32)
-	signed, _ := testSignedOrderProto(t, "chain", "model", session, 0, 200)
+	signed, _ := testSignedOrderProto(t, "chain", testModelID, session, 0, 200)
 	signed.Order.GenerationParams.MaxOutputTokens = 1024
 	signed.Order.GenerationParams.DecodingParams.TemperatureMilli = 700
 	signed.Order.GenerationParams.DecodingParams.SamplingEnabled = true
@@ -71,7 +71,7 @@ func TestPersistedGenerationParamsRejectWrongTaskAndCorruptOrder(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	session := strings.Repeat("34", 32)
-	signed, hash := testSignedOrderProto(t, "chain", "model", session, 0, 200)
+	signed, hash := testSignedOrderProto(t, "chain", testModelID, session, 0, 200)
 	raw, err := proto.Marshal(signed)
 	if err != nil {
 		t.Fatal(err)

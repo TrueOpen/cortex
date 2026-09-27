@@ -59,9 +59,9 @@ func TaskOrderHashAndFactsSignedOrderHex(value string) (codec.Hash, TaskOrderFac
 	return digest, facts, nil
 }
 
-func decodeSignedOrderV2(raw []byte) (taskOrderV2, string, []byte, error) {
+func decodeSignedOrderV2(raw []byte) (taskOrderV3, string, []byte, error) {
 	var (
-		order     taskOrderV2
+		order     taskOrderV3
 		scheme    string
 		signature []byte
 		seenOrder bool
@@ -73,7 +73,7 @@ func decodeSignedOrderV2(raw []byte) (taskOrderV2, string, []byte, error) {
 			if err != nil {
 				return err
 			}
-			decoded, err := decodeTaskOrderV2(nested)
+			decoded, err := decodeTaskOrderV3(nested)
 			if err != nil {
 				return err
 			}
@@ -97,36 +97,36 @@ func decodeSignedOrderV2(raw []byte) (taskOrderV2, string, []byte, error) {
 		return fmt.Errorf("SignedOrderV2 carries unknown field %d", field.number)
 	})
 	if err != nil {
-		return taskOrderV2{}, "", nil, err
+		return taskOrderV3{}, "", nil, err
 	}
 	if !seenOrder {
-		return taskOrderV2{}, "", nil, fmt.Errorf("SignedOrderV2 carries no order")
+		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 carries no order")
 	}
 	// EIP-712 signatures are recoverable R||S||V with canonical low-S.
 	if scheme != signedOrderSignatureScheme {
-		return taskOrderV2{}, "", nil, fmt.Errorf("SignedOrderV2 signature_scheme must be %q", signedOrderSignatureScheme)
+		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 signature_scheme must be %q", signedOrderSignatureScheme)
 	}
 	if len(signature) != signedOrderSignatureLen {
-		return taskOrderV2{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature must be %d bytes", signedOrderSignatureLen)
+		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature must be %d bytes", signedOrderSignatureLen)
 	}
 	if signature[64] != 27 && signature[64] != 28 {
-		return taskOrderV2{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature recovery id must be 27 or 28")
+		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature recovery id must be 27 or 28")
 	}
 	orderN, _ := new(big.Int).SetString("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
 	r, s := new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:64])
 	if r.Sign() == 0 || r.Cmp(orderN) >= 0 || s.Sign() == 0 || s.Cmp(new(big.Int).Rsh(orderN, 1)) > 0 {
-		return taskOrderV2{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature must contain valid r and low-S")
+		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature must contain valid r and low-S")
 	}
 	return order, scheme, signature, nil
 }
 
-// decodeTaskOrderV2 reads the released 25 fields of §5.13 in the wire types the
-// table gives them. Absent fields keep their proto3 zero value; taskOrderHash
+// decodeTaskOrderV3 reads the 28 fields of TaskOrderV3 in their proto wire
+// types. Absent fields keep their proto3 zero value; taskOrderHash
 // rejects every zero the frozen scope forbids, so an order that omits a required
 // field fails there rather than needing a presence bit here.
-func decodeTaskOrderV2(raw []byte) (taskOrderV2, error) {
-	var order taskOrderV2
-	err := walkProtoMessage("TaskOrderV2", raw, func(field protoField) error {
+func decodeTaskOrderV3(raw []byte) (taskOrderV3, error) {
+	var order taskOrderV3
+	err := walkProtoMessage("TaskOrderV3", raw, func(field protoField) error {
 		switch field.number {
 		case 1:
 			return field.uint32(&order.SchemaVersion)
@@ -139,7 +139,7 @@ func decodeTaskOrderV2(raw []byte) (taskOrderV2, error) {
 		case 5:
 			return field.uint64((*uint64)(&order.OrderSequence))
 		case 6:
-			return field.assignString(&order.ModelID)
+			return field.assignBytes((*[]byte)(&order.ModelID))
 		case 7:
 			return field.uint32(&order.ProfileVersion)
 		case 8:
@@ -195,11 +195,17 @@ func decodeTaskOrderV2(raw []byte) (taskOrderV2, error) {
 			return field.assignString(&order.BuilderSetID)
 		case 25:
 			return field.assignBytes((*[]byte)(&order.BuilderSetHash))
+		case 26:
+			return field.uint32((*uint32)(&order.PayloadMode))
+		case 27:
+			return field.assignBytes((*[]byte)(&order.InputKeyCommitment))
+		case 28:
+			return field.assignBytes((*[]byte)(&order.UserRecipientPubkey))
 		}
-		return fmt.Errorf("TaskOrderV2 carries unknown field %d", field.number)
+		return fmt.Errorf("TaskOrderV3 carries unknown field %d", field.number)
 	})
 	if err != nil {
-		return taskOrderV2{}, err
+		return taskOrderV3{}, err
 	}
 	return order, nil
 }

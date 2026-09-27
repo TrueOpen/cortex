@@ -121,7 +121,7 @@ func TestSelfTestCurrentManifestReportsProjectionValidationOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := SelfTestCurrentManifest(manifest)
-	if err != nil || !result.Passed || !result.ProjectionValidated || result.ModelID != manifest.Profile.ModelID || result.ProfileVersion != 1 {
+	if err != nil || !result.Passed || !result.ProjectionValidated || result.ModelID != manifest.Profile.ModelID.Hex() || result.ProfileVersion != 1 {
 		t.Fatalf("SelfTestCurrentManifest = %#v, %v", result, err)
 	}
 	manifest.Profile.RequiredTopK++
@@ -134,13 +134,13 @@ func validCurrentManifestInput() CurrentManifestInput {
 	hash := txclient.ProtoBytes32(strings.Repeat("ab", 32))
 	return CurrentManifestInput{
 		Version: "2026-08-03", Tokenizer: "qwen-tokenizer-v1", ModelServiceID: "modelsvc-local",
-		Profile: txclient.ModelProfileProjectionMessage{ModelID: "hf-qwen3-8b", ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
+		Profile: txclient.ModelProfileProjectionMessage{Source: txclient.SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "org/model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1", Revision: strings.Repeat("0a", 20), SourceURI: "hf://org/model@" + strings.Repeat("0a", 20)}, ModelID: txclient.ProtoBytes32(strings.Repeat("b0", 32)), ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
 			RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1", RequiredTopK: 20, TaskTypes: []string{"TASK_TYPE_CHAT"}, GenerationType: "GENERATION_TYPE_SAMPLED",
 			ResourceTier: 2, MinStake: txclient.CoinMessage{Denom: "utrueopen", Amount: 1_000_000}, ChallengeOpenWindowBlocks: 1_800,
 			VerificationProfile: txclient.VerificationProfileMessage{VerificationProfileID: 1, JudgmentFunctionVersion: "PREFILL_GENERATED_TOKEN_METRICS_V1", VerificationMode: "VERIFICATION_MODE_SINGLE_SAMPLE", TokenScope: "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
 				IncludeGeneratedSpecialTokens: true, RequireOutputTokenIDs: true, RequireFinishReason: true,
 				Metrics:                  txclient.MetricSpecMessage{CompareLogprobDiff: true, CompareRankDelta: true, CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"},
-				CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerValueEvidenceSchemaV2(1 << 30)},
+				CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 			VerificationThresholds:  txclient.VerificationThresholdsMessage{PassMinFiniteCount: 16, PassMeanAbsLogprobDiffMax: 50_000, RejectMeanAbsLogprobDiffMin: 300_000},
 			BatchVerification:       txclient.BatchVerificationMessage{},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},

@@ -40,8 +40,11 @@ func canonicalResultPayload(cfg Config, state TaskState, facts taskfacts.Facts, 
 	if len(facts.ProfileExecutionSnapshotHash) != 32 || isZeroHash32(facts.ProfileExecutionSnapshotHash) {
 		return nil, fmt.Errorf("profile_execution_snapshot_hash must be a served nonzero Hash32")
 	}
-	if state.VerifyRound == 0 || state.VerifyRound > math.MaxUint32 || material.LeafCount <= 0 || uint64(material.LeafCount) > math.MaxUint32 {
-		return nil, fmt.Errorf("result round and metric leaf count must fit positive uint32")
+	if material.VerifierValueRoot.IsZero() {
+		return nil, fmt.Errorf("verifier_value_root must be nonzero")
+	}
+	if state.VerifyRound == 0 || state.VerifyRound > math.MaxUint32 || material.LeafCount < 0 || uint64(material.LeafCount) > math.MaxUint32 {
+		return nil, fmt.Errorf("result round must be positive and metric leaf count must fit uint32")
 	}
 	index, err := selectedVerifierIndex(state, cfg.VerifierAddress)
 	if err != nil {
@@ -55,12 +58,13 @@ func canonicalResultPayload(cfg Config, state TaskState, facts taskfacts.Facts, 
 	if err != nil {
 		return nil, err
 	}
-	return revealcontract.CanonicalVerifierResultPayload(revealcontract.VerifierResultPayloadV1{
+	return revealcontract.CanonicalVerifierResultPayload(revealcontract.VerifierResultPayloadV2{
 		ChainID: cfg.ChainID, TaskID: taskID, TaskHash: codec.Hash(facts.AcceptedTaskHash),
 		VerifyRound: uint32(state.VerifyRound), SelectedVerifierIndex: index,
 		VerifierOperatorAddress: cfg.VerifierAddress, InferReceiptHash: state.InferReceiptHash,
 		ProfileExecutionSnapshotHash: codec.Hash(facts.ProfileExecutionSnapshotHash),
 		GenerationParamsDigest:       codec.Hash(facts.GenerationParamsDigest),
+		VerifierValueRoot:            material.VerifierValueRoot,
 		MetricRoot:                   material.Root, MetricLeafCount: uint32(material.LeafCount), MetricSummaryHash: summaryHash,
 		AggregateProofHash: material.AggregateProof.Hash, VerifierEvidenceBundleHash: evidencebundle.Hash(manifest),
 		VerifierEvidenceManifestSizeBytes: uint64(len(manifest)),
@@ -90,7 +94,7 @@ func (v *Verifier) validateRevealSource(ctx context.Context, state TaskState, fa
 	}
 	if manifest.ChainID != v.cfg.ChainID || manifest.TaskID != state.TaskID ||
 		manifest.TaskHash != hex.EncodeToString(facts.AcceptedTaskHash) || manifest.VerifyRound != uint32(state.VerifyRound) ||
-		manifest.ProducerKind != "VERIFIER" || manifest.ProducerOperator != v.cfg.VerifierAddress ||
+		manifest.EvidenceKind != evidencebundle.KindVerifierValueOpening || manifest.ProducerKind != "VERIFIER" || manifest.ProducerOperator != v.cfg.VerifierAddress ||
 		manifest.EvidenceSchemaHash != binding.EvidenceSchemaHash.String() {
 		return fail(fmt.Errorf("manifest scope does not match the locked task"))
 	}
@@ -113,17 +117,18 @@ func (v *Verifier) validateRevealSource(ctx context.Context, state TaskState, fa
 		return fail(fmt.Errorf("salt and commit_hash must be nonzero"))
 	}
 	taskID, _ := hex.DecodeString(state.TaskID)
-	payloadHash := nodewire.ResultPayloadHash(payload)
-	commit, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV2{
+	// The V3 commit binds verifier_value_root and the salt; the payload is
+	// checked above against the locked task, not through the commit.
+	commit, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{
 		ChainID: v.cfg.ChainID, TaskID: taskID, TaskHash: facts.AcceptedTaskHash,
 		VerifyRound: uint32(state.VerifyRound), VerifierOperatorAddress: v.cfg.VerifierAddress,
-		ResultPayloadHash: payloadHash[:], Salt: source.Salt[:],
+		VerifierValueRoot: source.MetricMaterial.VerifierValueRoot[:], Salt: source.Salt[:],
 	})
 	if err != nil {
 		return fail(err)
 	}
 	if commit != source.CommitHash {
-		return fail(fmt.Errorf("result payload and salt do not match commit_hash"))
+		return fail(fmt.Errorf("verifier_value_root and salt do not match commit_hash"))
 	}
 	return nil
 }

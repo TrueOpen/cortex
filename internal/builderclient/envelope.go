@@ -206,7 +206,7 @@ var busSubjectSpecs = []busSubjectSpec{
 		payloadType: busv1.BusPayloadType_BUS_PAYLOAD_TYPE_VERIFY_RESULT_V1,
 		tier:        TierJetStream,
 		senders:     []BusParticipantType{ParticipantCortex},
-		newPayload:  func() proto.Message { return &bustaskv1.ResultReceiptV2{} },
+		newPayload:  func() proto.Message { return &bustaskv1.ResultReceiptV3{} },
 	},
 }
 

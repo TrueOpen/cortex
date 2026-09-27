@@ -436,3 +436,26 @@ func decodeTopK(raw []byte) ([]TopKEntryV1, error) {
 	}
 	return topK, nil
 }
+
+// WorkerValuesTopK reports the top-k length of the first normal leaf in a
+// worker_values artifact, or 1 when every leaf is missing or non-finite (their
+// top-k is empty under any K). It exists for a consumer that must strictly
+// decode the artifact without a Profile read to take required_top_k from; a
+// Profile-reading consumer uses the Profile's value instead.
+func WorkerValuesTopK(raw []byte) (uint32, error) {
+	if len(raw) < 4 {
+		return 0, fmt.Errorf("worker_values artifact lacks its uint32 leaf count")
+	}
+	count := binary.BigEndian.Uint32(raw)
+	reader := frameReader{buf: raw, off: 4}
+	for i := uint32(0); i < count; i++ {
+		value, err := reader.workerValueLeaf()
+		if err != nil {
+			return 0, fmt.Errorf("worker value leaf %d: %w", i, err)
+		}
+		if value.Finite {
+			return uint32(len(value.TopK)), nil
+		}
+	}
+	return 1, nil
+}

@@ -46,7 +46,7 @@ type KeeperTaskReader interface {
 type KeeperModelRegistryReader interface {
 	CurrentModel(context.Context, string) (chainclient.CurrentModelSnapshot, error)
 	CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error)
-	ModelSupport(context.Context, string, string, string) (chainclient.ModelSupportSnapshot, error)
+	ModelSupport(context.Context, string, string) (chainclient.ModelSupportSnapshot, error)
 }
 
 type Reconciler struct {
@@ -620,15 +620,15 @@ func (r *Reconciler) authoritativeModelRegistryEvent(ctx context.Context, event 
 		}
 		event.Phase = profile.Profile.Status
 	case chainclient.KeeperEventModelSupportUpdated:
-		support, err := r.models.ModelSupport(ctx, event.Worker, event.ModelID, event.ProfileVersion)
+		support, err := r.models.ModelSupport(ctx, event.Worker, event.ModelID)
 		if err != nil {
 			return chainclient.KeeperEvent{}, err
 		}
 		if err := support.Validate(); err != nil {
 			return chainclient.KeeperEvent{}, err
 		}
-		if support.OperatorAddress != event.Worker || support.ModelID != event.ModelID || support.ProfileVersion.String() != event.ProfileVersion {
-			return chainclient.KeeperEvent{}, fmt.Errorf("current Keeper model support does not match event worker/model/profile")
+		if support.OperatorAddress != event.Worker || support.ModelID != event.ModelID {
+			return chainclient.KeeperEvent{}, fmt.Errorf("current Keeper model support does not match event worker/model")
 		}
 		event.DeclaredSupport = support.DeclaredSupport
 		event.SupportActive = support.SupportActive

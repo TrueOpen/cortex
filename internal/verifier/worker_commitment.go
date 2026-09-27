@@ -7,17 +7,17 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/codec"
-	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// Recheck the accepted receipt and all four artifacts before model scoring;
-// the caller's confirmation is not a substitute for this commitment boundary.
-func (v *Verifier) validateAcceptedWorkerEvidence(ctx context.Context, state TaskState, profile chainclient.CurrentModelProfileSnapshot, limit uint64, output, trace, checkpoint []byte) error {
+// validateAcceptedWorkerEvidence rechecks the accepted receipt and both Worker
+// bundles before model scoring; the caller's confirmation is not a substitute
+// for this commitment boundary. It returns the Worker's value leaves, decoded
+// strictly under this task's binding.
+func (v *Verifier) validateAcceptedWorkerEvidence(ctx context.Context, state TaskState, profile chainclient.CurrentModelProfileSnapshot, limits map[nodewire.EvidenceKind]uint64, output []byte, evidence workerEvidenceArtifacts) error {
 	receipt := state.ConfirmedInferReceipt
 	if receipt == nil {
-		return fmt.Errorf("confirmed Worker InferReceiptV2 is required")
+		return fmt.Errorf("confirmed Worker InferReceiptV3 is required")
 	}
 	digest, err := builderclient.InferReceiptSigningDigest(*receipt)
 	if err != nil {
@@ -36,53 +36,56 @@ func (v *Verifier) validateAcceptedWorkerEvidence(ctx context.Context, state Tas
 	if receipt.OutputHash != state.OutputPackage.OutputHash.String() || receipt.OutputSizeBytes != uint64(len(output)) || receipt.OutputLeafCount != uint64(len(state.ConfirmedOutputChunkLengths)) {
 		return fmt.Errorf("confirmed Worker receipt differs from output MMR size or leaf count")
 	}
-	if len(receipt.RequiredEvidenceCommitments) != 1 {
-		return fmt.Errorf("Worker receipt requires one typed evidence commitment")
+	if err := nodewire.RequireWorkerEvidenceCommitmentsV3(receiptCommitments(receipt.RequiredEvidenceCommitments)); err != nil {
+		return err
 	}
-	committed := receipt.RequiredEvidenceCommitments[0]
-	if committed.EncodedSizeBytes > limit {
-		return fmt.Errorf("Worker evidence exceeds locked profile bound")
+	for _, committed := range receipt.RequiredEvidenceCommitments {
+		if committed.EncodedSizeBytes > limits[committed.EvidenceKind] {
+			return fmt.Errorf("Worker evidence of kind %d exceeds locked profile bound", committed.EvidenceKind)
+		}
 	}
-	if err := modelservice.ValidateTokenIDArtifacts(trace, checkpoint, state.ConfirmedInputTokenIDs, state.ConfirmedGeneratedTokenIDs); err != nil {
-		return fmt.Errorf("Worker token artifacts: %w", err)
-	}
-	input, err := nodewire.DecodeTokenIDs(state.ConfirmedInputTokenIDs)
+	input, err := nodewire.DecodeTokenIDs(evidence.inputTokenIDs)
 	if err != nil {
 		return err
 	}
-	generated, err := nodewire.DecodeTokenIDs(state.ConfirmedGeneratedTokenIDs)
+	generated, err := nodewire.DecodeTokenIDs(evidence.generatedTokenIDs)
 	if err != nil {
 		return err
 	}
-	inputHash, err := nodewire.InputTokenIDsHash(input)
-	if err != nil {
-		return err
-	}
-	generatedHash, err := nodewire.GeneratedTokenIDsHash(generated)
-	if err != nil {
-		return err
-	}
-	schemaHash, err := keeperEvidenceSchemaHash(profile)
-	if err != nil {
-		return err
-	}
-	reason, err := builderclient.ConfirmWorkerValueEvidence(builderclient.WorkerValueEvidenceFacts{
+	receiptFacts := builderclient.WorkerEvidenceFacts{
 		ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash,
 		WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest,
-		EvidenceSchemaHash: schemaHash, OutputHash: state.OutputPackage.OutputHash,
-		OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount, GeneratedTokenCount: receipt.GeneratedTokenCount,
-		TraceRoot: codec.HashBytes(trace), TraceEncodedSizeBytes: uint64(len(trace)),
-		CheckpointRoot: codec.HashBytes(checkpoint), CheckpointEncodedSizeBytes: uint64(len(checkpoint)),
-		InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash,
-		InputTokenIDsSizeBytes: uint64(len(state.ConfirmedInputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(state.ConfirmedGeneratedTokenIDs)),
-	}, committed)
+		OutputHash: state.OutputPackage.OutputHash, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount,
+		GeneratedTokenCount:    receipt.GeneratedTokenCount,
+		InputTokenIDsSizeBytes: uint64(len(evidence.inputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(evidence.generatedTokenIDs)),
+		WorkerValueRoot: evidence.workerValueRoot, WorkerValuesEncodedSizeBytes: uint64(len(evidence.workerValues)),
+	}
+	if receiptFacts.EvidenceSchemaHash, err = keeperEvidenceSchemaHash(profile); err != nil {
+		return err
+	}
+	if receiptFacts.InputTokenIDsHash, err = nodewire.InputTokenIDsHash(input); err != nil {
+		return err
+	}
+	if receiptFacts.GeneratedTokenIDsHash, err = nodewire.GeneratedTokenIDsHash(generated); err != nil {
+		return err
+	}
+	reason, err := builderclient.ConfirmWorkerEvidence(receiptFacts, receipt.RequiredEvidenceCommitments)
 	if err != nil {
 		return err
 	}
-	if reason != state.ConfirmedFinishReason {
+	if state.ConfirmedFinishReason != nodewire.FinishReasonV1Unspecified && reason != state.ConfirmedFinishReason {
 		return fmt.Errorf("Worker evidence finish reason differs from typed commitment")
 	}
 	return nil
+}
+
+func receiptCommitments(items []builderclient.EvidenceCommitment) []nodewire.EvidenceCommitmentV1 {
+	out := make([]nodewire.EvidenceCommitmentV1, len(items))
+	for i, item := range items {
+		root := item.EvidenceHashOrRoot
+		out[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: root[:], EncodedSizeBytes: item.EncodedSizeBytes}
+	}
+	return out
 }
 
 func keeperEvidenceSchemaHash(profile chainclient.CurrentModelProfileSnapshot) (string, error) {

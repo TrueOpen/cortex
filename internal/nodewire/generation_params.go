@@ -13,6 +13,14 @@ import (
 
 const DomainGenerationParamsV1 = "TRUEOPEN_TASK_GENERATION_PARAMS_V1"
 
+// MaxGenerationParamsBytes bounds the canonical generation-params JSON, and so
+// the A-level generation_params artifact, which the evidence commitment does
+// not size. It follows from the frozen limits (generation_params_v1.json): at
+// most 16 stop sequences of 1024 bytes in total, which escaping can at most
+// grow sixfold (a control byte as \u00xx), 64 stop token ids of at most 10
+// digits, and under 1 KiB of fixed fields. 16 KiB leaves ample headroom.
+const MaxGenerationParamsBytes = 16 << 10
+
 const (
 	maxGenerationPayloadBytes = 32 << 20
 	maxGenerationListElements = 65534
@@ -38,6 +46,9 @@ type GenerationParamsV1 struct {
 	DecodingParams    DecodingParamsV1 `json:"decoding_params"`
 }
 
+// GenerationContext is the chain-bound generation identity. ModelID is the
+// canonical lowercase hex of the Hash32 model id; the digest projection writes
+// it as "0x"-prefixed hex, the canonical-JSON form of a Hash32.
 type GenerationContext struct {
 	ModelID            string             `json:"model_id"`
 	ProfileVersion     uint32             `json:"profile_version"`
@@ -60,6 +71,70 @@ func (g GenerationContext) Digest() (codec.Hash, error) {
 		return codec.Hash{}, err
 	}
 	return codec.HashV1(DomainGenerationParamsV1, payload), nil
+}
+
+// CanonicalJSON returns canonical_generation_params_json, the exact bytes the
+// digest covers and the Worker's A-level generation_params artifact carries.
+func (g GenerationContext) CanonicalJSON() ([]byte, error) {
+	return g.canonicalJSON()
+}
+
+// GenerationParamsDigest is generation_params_digest over raw canonical bytes.
+// Consumers of the generation_params artifact hash the bytes they received and
+// never a re-serialization.
+func GenerationParamsDigest(raw []byte) codec.Hash {
+	return codec.HashV1(DomainGenerationParamsV1, raw)
+}
+
+// ParseCanonicalGenerationParams reads a generation_params artifact. It decodes
+// strictly and requires raw to be the canonical encoding of what it decoded,
+// so the parameters a Verifier prefills under are exactly the ones the digest
+// of raw commits to.
+func ParseCanonicalGenerationParams(raw []byte) (GenerationContext, error) {
+	if len(raw) == 0 || len(raw) > MaxGenerationParamsBytes {
+		return GenerationContext{}, fmt.Errorf("generation_params must hold 1..%d bytes", MaxGenerationParamsBytes)
+	}
+	var p generationProjection
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return GenerationContext{}, fmt.Errorf("decode generation_params: %w", err)
+	}
+	if dec.More() {
+		return GenerationContext{}, fmt.Errorf("generation_params carries trailing data")
+	}
+	if len(p.ModelID) != 66 || p.ModelID[:2] != "0x" {
+		return GenerationContext{}, fmt.Errorf("generation_params model_id must be 0x-prefixed Hash32 hex")
+	}
+	g := GenerationContext{
+		ModelID: p.ModelID[2:], ProfileVersion: p.ProfileVersion, OutputBudgetBucket: p.OutputBudgetBucket,
+		Params: GenerationParamsV1{
+			SchemaVersion: p.SchemaVersion, MaxOutputTokens: p.MaxOutputTokens, MaxOutputDuration: p.MaxOutputDuration,
+			DecodingParams: DecodingParamsV1{
+				SamplingEnabled: p.DecodingParams.SamplingEnabled, TemperatureMilli: p.DecodingParams.TemperatureMilli,
+				TopPPPM: p.DecodingParams.TopPPPM, TopK: p.DecodingParams.TopK, Seed: p.DecodingParams.Seed,
+				PresencePenaltyMilli: p.DecodingParams.PresencePenaltyMilli, FrequencyPenaltyMilli: p.DecodingParams.FrequencyPenaltyMilli,
+				RepetitionPenaltyPPM: p.DecodingParams.RepetitionPenaltyPPM,
+				StopSequences:        p.DecodingParams.StopSequences, StopTokenIDs: p.DecodingParams.StopTokenIDs,
+			},
+		},
+	}
+	switch p.TaskType {
+	case "TEXT_GENERATION":
+		g.TaskType = 1
+	case "CHAT":
+		g.TaskType = 2
+	default:
+		return GenerationContext{}, fmt.Errorf("generation_params task_type %q is not TEXT_GENERATION or CHAT", p.TaskType)
+	}
+	canonical, err := g.canonicalJSON()
+	if err != nil {
+		return GenerationContext{}, err
+	}
+	if !bytes.Equal(canonical, raw) {
+		return GenerationContext{}, fmt.Errorf("generation_params is not canonical JSON")
+	}
+	return g, nil
 }
 
 // Struct declaration order is canonical UTF-8 key order, including the nested
@@ -88,7 +163,7 @@ type generationProjection struct {
 
 func (g GenerationContext) canonicalJSON() ([]byte, error) {
 	d := g.Params.DecodingParams
-	if g.ModelID == "" || len(g.ModelID) > maxGenerationPayloadBytes || !utf8.ValidString(g.ModelID) || g.ProfileVersion == 0 || g.OutputBudgetBucket == 0 {
+	if !canonicalModelIDHex(g.ModelID) || g.ProfileVersion == 0 || g.OutputBudgetBucket == 0 {
 		return nil, fmt.Errorf("generation context model, profile, or output budget is invalid")
 	}
 	if g.TaskType != 1 && g.TaskType != 2 {
@@ -130,7 +205,7 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	size := uint64(len(base)) + generationJSONStringContentSize(g.ModelID)
+	size := uint64(len(base)) + 2 + uint64(len(g.ModelID))
 	for i, value := range d.StopSequences {
 		if len(value) > maxGenerationPayloadBytes || !utf8.ValidString(value) || i > 0 && value <= d.StopSequences[i-1] {
 			return nil, fmt.Errorf("generation stop sequences must be bounded UTF-8, sorted, and unique")
@@ -155,7 +230,7 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 	if size > maxGenerationPayloadBytes {
 		return nil, fmt.Errorf("generation canonical payload exceeds 32 MiB")
 	}
-	p.ModelID = g.ModelID
+	p.ModelID = "0x" + g.ModelID
 	if d.StopSequences != nil {
 		p.DecodingParams.StopSequences = d.StopSequences
 	}
@@ -168,6 +243,10 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 func encodeGenerationProjection(p generationProjection) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
+	// CANONICAL_ENCODING_V1 strings: only '"', '\\' and U+0000..U+001F are
+	// escaped (\b \t \n \f \r short, others lowercase \u00xx), plus U+2028 and
+	// U+2029; '<', '>', '&' and '/' are written as themselves. That is exactly
+	// encoding/json with HTML escaping off (Go 1.22+ writes \b and \f short).
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(p); err != nil {
 		return nil, fmt.Errorf("encode generation params: %w", err)
@@ -190,4 +269,18 @@ func generationJSONStringContentSize(s string) uint64 {
 		}
 	}
 	return size
+}
+
+// canonicalModelIDHex reports whether text is the 64-lowercase-hex form of a
+// Hash32 model id.
+func canonicalModelIDHex(text string) bool {
+	if len(text) != 64 {
+		return false
+	}
+	for i := 0; i < len(text); i++ {
+		if c := text[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

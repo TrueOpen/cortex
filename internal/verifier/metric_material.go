@@ -18,7 +18,6 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/metric"
-	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -36,6 +35,7 @@ type persistedMetricMaterial struct {
 	MetricSummary      persistedMetricSummary `json:"metric_summary"`
 	AggregateProof     string                 `json:"aggregate_proof"`
 	AggregateProofHash string                 `json:"aggregate_proof_hash"`
+	VerifierValueRoot  string                 `json:"verifier_value_root"`
 }
 
 type persistedMetricSummary struct {
@@ -56,8 +56,9 @@ type persistedOptionalUint32 struct {
 	Value   uint32 `json:"value"`
 }
 
-// buildMetricMaterial derives the run's metric material from the model
-// service's answer.
+// buildMetricMaterial derives the run's metric material from the two value
+// trees: the Worker's committed worker_values leaves and this Verifier's own
+// leaves, framed from the model service's values by metric.ValueLeaves.
 //
 // When the profile is not bound - the fake/dev configuration with no profile
 // reader - it returns nothing and no error: there is no locked MetricSpec to
@@ -65,21 +66,15 @@ type persistedOptionalUint32 struct {
 // summary the Keeper judges against thresholds it was never measured for. The
 // result credential then refuses on its own gate, which is the correct outcome
 // for a node that cannot read its own profile.
-//
-// When the profile IS bound, a model service that returned no samples is an
-// error and not a silent skip: it is a real verifier that cannot serve its own
-// reveal, and it must say so at the point the material was owed.
-func buildMetricMaterial(binding metric.Binding, bound bool, resp modelservice.VerifyResponse) (metric.Material, error) {
+func buildMetricMaterial(binding metric.Binding, bound bool, verifierValueRoot codec.Hash, worker, verifier []nodewire.PositionValueV1) (metric.Material, error) {
 	if !bound {
 		return metric.Material{}, nil
 	}
-	if len(resp.MetricSamples) == 0 {
-		return metric.Material{}, fmt.Errorf(
-			"%w: model service %q returned no per-token metric samples, so metric_root and MetricSummaryV1 "+
-				"cannot be derived for this run",
-			ErrResultReceiptInputUnavailable, resp.ModelServiceID)
+	samples, err := metric.CompareLeavesV3(binding.Spec, binding.RequiredTopK, worker, verifier)
+	if err != nil {
+		return metric.Material{}, fmt.Errorf("compare value trees: %w", err)
 	}
-	material, err := metric.Build(binding, resp.MetricSamples)
+	material, err := metric.BuildV3(binding, verifierValueRoot, samples)
 	if err != nil {
 		return metric.Material{}, fmt.Errorf("derive metric material: %w", err)
 	}
@@ -118,6 +113,7 @@ func projectMetricMaterial(material metric.Material) persistedMetricMaterial {
 		},
 		AggregateProof:     hex.EncodeToString(material.AggregateProof.Bytes),
 		AggregateProofHash: material.AggregateProof.Hash.String(),
+		VerifierValueRoot:  material.VerifierValueRoot.String(),
 	}
 }
 
@@ -134,6 +130,10 @@ func (p persistedMetricMaterial) restore() (metric.Material, error) {
 	if err != nil {
 		return metric.Material{}, err
 	}
+	verifierValueRoot, err := hash32FromHex("verifier_value_root", p.VerifierValueRoot)
+	if err != nil {
+		return metric.Material{}, err
+	}
 	proof, err := hex.DecodeString(p.AggregateProof)
 	if err != nil {
 		return metric.Material{}, fmt.Errorf("persisted aggregate_proof is not hex: %w", err)
@@ -141,7 +141,7 @@ func (p persistedMetricMaterial) restore() (metric.Material, error) {
 	if len(proof) == 0 {
 		return metric.Material{}, fmt.Errorf("persisted aggregate_proof is empty")
 	}
-	if p.MetricLeafCount <= 0 {
+	if p.MetricLeafCount < 0 {
 		return metric.Material{}, fmt.Errorf("persisted metric_leaf_count is %d", p.MetricLeafCount)
 	}
 	derived := codec.HashBytes(proof)
@@ -169,7 +169,8 @@ func (p persistedMetricMaterial) restore() (metric.Material, error) {
 			ComparedTopkCount: p.MetricSummary.ComparedTopkCount,
 			ComparedRankCount: p.MetricSummary.ComparedRankCount,
 		},
-		AggregateProof: metric.AggregateProof{Bytes: proof, Hash: derived},
+		AggregateProof:    metric.AggregateProof{Bytes: proof, Hash: derived},
+		VerifierValueRoot: verifierValueRoot,
 	}, nil
 }
 

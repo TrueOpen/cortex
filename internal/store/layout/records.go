@@ -38,14 +38,14 @@ const (
 type ArtifactKind string
 
 const (
-	ArtifactTaskInput              ArtifactKind = "task-input"
-	ArtifactWorkerOutput           ArtifactKind = "worker-output"
-	ArtifactWorkerTrace            ArtifactKind = "worker-trace"
-	ArtifactWorkerCheckpoint       ArtifactKind = "worker-checkpoint"
-	ArtifactWorkerBatchLog         ArtifactKind = "worker-batch-log"
-	ArtifactInferReceipt           ArtifactKind = "signed-infer-receipt"
-	ArtifactWorkerOutputDescriptor ArtifactKind = "worker-output-descriptor"
-	ArtifactWorkerResult           ArtifactKind = "worker-result"
+	ArtifactTaskInput                    ArtifactKind = "task-input"
+	ArtifactWorkerOutput                 ArtifactKind = "worker-output"
+	ArtifactWorkerTokenIDsMaterial       ArtifactKind = "worker-token-ids-material"
+	ArtifactWorkerPositionValuesMaterial ArtifactKind = "worker-position-values-material"
+	ArtifactWorkerBatchLog               ArtifactKind = "worker-batch-log"
+	ArtifactInferReceipt                 ArtifactKind = "signed-infer-receipt"
+	ArtifactWorkerOutputDescriptor       ArtifactKind = "worker-output-descriptor"
+	ArtifactWorkerResult                 ArtifactKind = "worker-result"
 )
 
 // CandidateAdmission records a Worker's pre-assignment handraise. It is written
@@ -160,6 +160,8 @@ const (
 	FinishReasonStopSequence      FinishReasonV1 = "stop-sequence"
 	FinishReasonMaxOutputTokens   FinishReasonV1 = "max-output-tokens"
 	FinishReasonMaxOutputDuration FinishReasonV1 = "max-output-duration"
+	FinishReasonUserStop          FinishReasonV1 = "user-stop"
+	FinishReasonStopToken         FinishReasonV1 = "stop-token"
 	FinishReasonUnknown           FinishReasonV1 = "unknown"
 )
 

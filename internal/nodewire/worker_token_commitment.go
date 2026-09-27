@@ -1,9 +1,8 @@
 package nodewire
 
 // The A-level WORKER_TOKEN_OPENING commitment of wire v0.3.0 (TrueOpen/wire#14,
-// task/worker_token_commitment_v1.json). It is added beside the V2 commitment
-// so the encoding can be checked against the published vector before the
-// dependency is raised; nothing produces it yet.
+// task/worker_token_commitment_v1.json). The Worker signs it into the infer
+// receipt and the Verifier re-derives it from the fetched token-id bundle.
 
 import (
 	"fmt"

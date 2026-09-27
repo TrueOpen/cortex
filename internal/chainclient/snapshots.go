@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/identity"
 )
 
 type ParamsSnapshot struct {
@@ -223,6 +224,8 @@ type ModelProfileSnapshot struct {
 
 // CurrentModelSnapshot is the current Node model aggregate state. It is kept
 // separate from the legacy snapshot until every registry consumer migrates.
+// CurrentModelSnapshot is ModelState. ModelID is the canonical lowercase hex of
+// the Hash32; support aggregates are per model, not per profile.
 type CurrentModelSnapshot struct {
 	ModelID              string         `json:"model_id"`
 	ProposerAddress      string         `json:"proposer_address"`
@@ -233,11 +236,19 @@ type CurrentModelSnapshot struct {
 	RegistrationFeePaid  Uint64String   `json:"registration_fee_paid"`
 	CreatedHeight        Uint64String   `json:"created_height"`
 	UpdatedHeight        Uint64String   `json:"updated_height"`
+	ActiveSupportStake   Uint64String   `json:"active_support_stake"`
+	ActiveSupporterCount uint32         `json:"active_supporter_count"`
+	SupportMinStake      Uint64String   `json:"support_min_stake"`
+	Provider             string         `json:"provider"`
+	RepoID               string         `json:"repo_id"`
 }
 
 func (s CurrentModelSnapshot) Validate() error {
-	if s.ModelID == "" || s.ProposerAddress == "" || s.Status == "" || s.StatusSource == "" || s.LatestProfileVersion.Uint32() == 0 || s.CreatedHeight.Uint64() == 0 || s.UpdatedHeight.Uint64() < s.CreatedHeight.Uint64() {
+	if !identity.ValidModelIDHex(s.ModelID) || s.ProposerAddress == "" || s.Status == "" || s.StatusSource == "" || s.LatestProfileVersion.Uint32() == 0 || s.CreatedHeight.Uint64() == 0 || s.UpdatedHeight.Uint64() < s.CreatedHeight.Uint64() {
 		return fmt.Errorf("current Keeper model identity, status, proposer, and heights are required")
+	}
+	if s.Provider == "" || s.RepoID == "" {
+		return fmt.Errorf("current Keeper model source coordinates are required")
 	}
 	return nil
 }
@@ -351,9 +362,6 @@ type CurrentProfileSnapshot struct {
 	TimeoutBootstrapProfile   CurrentTimeoutBootstrapProfileSnapshot `json:"timeout_bootstrap_profile"`
 	SchemaHash                ProtoBytes32                           `json:"schema_hash"`
 	Status                    string                                 `json:"status"`
-	ActiveSupportStake        Uint64String                           `json:"active_support_stake"`
-	EligibleSupportStake      Uint64String                           `json:"eligible_support_stake"`
-	ActiveSupporterCount      uint32                                 `json:"active_supporter_count"`
 	StatusSource              string                                 `json:"status_source"`
 	RegistrationFeePaid       Uint64String                           `json:"registration_fee_paid"`
 	PreviousProfileVersion    ProfileVersion                         `json:"previous_profile_version"`
@@ -361,6 +369,24 @@ type CurrentProfileSnapshot struct {
 	RegistrationDigest        ProtoBytes32                           `json:"registration_digest"`
 	CreatedHeight             Uint64String                           `json:"created_height"`
 	UpdatedHeight             Uint64String                           `json:"updated_height"`
+	Source                    CurrentProfileSourceSnapshot           `json:"source"`
+	ToolCallParser            CurrentParserSnapshot                  `json:"tool_call_parser"`
+	ReasoningParser           CurrentParserSnapshot                  `json:"reasoning_parser"`
+}
+
+// CurrentProfileSourceSnapshot is ProfileSourceRefV1: the per-profile part of
+// the source reference. provider and repo_id are on the model.
+type CurrentProfileSourceSnapshot struct {
+	SourceURI       string `json:"source_uri"`
+	Revision        string `json:"revision"`
+	ResolverVersion string `json:"resolver_version"`
+	RepoType        string `json:"repo_type"`
+}
+
+// CurrentParserSnapshot is ParserRefV1; the zero value means no parser.
+type CurrentParserSnapshot struct {
+	Name    string `json:"name"`
+	Version uint32 `json:"version"`
 }
 
 func (s CurrentProfileSnapshot) Validate() error {
@@ -412,17 +438,18 @@ func (s ModelProfileSnapshot) Validate() error {
 	return nil
 }
 
+// ModelCapabilitySnapshot is ModelCapabilityState: one row per (operator,
+// model), independent of profile version.
 type ModelCapabilitySnapshot struct {
-	OperatorAddress        string         `json:"operator_address"`
-	ModelID                string         `json:"model_id"`
-	ProfileVersion         ProfileVersion `json:"profile_version"`
-	InferenceCapability    bool           `json:"inference_capability"`
-	VerificationCapability bool           `json:"verification_capability"`
-	CapabilityVersion      Uint64String   `json:"capability_version"`
+	OperatorAddress        string       `json:"operator_address"`
+	ModelID                string       `json:"model_id"`
+	InferenceCapability    bool         `json:"inference_capability"`
+	VerificationCapability bool         `json:"verification_capability"`
+	CapabilityVersion      Uint64String `json:"capability_version"`
 }
 
 func (s ModelCapabilitySnapshot) Validate() error {
-	if s.OperatorAddress == "" || s.ModelID == "" || s.ProfileVersion.Uint32() == 0 {
+	if s.OperatorAddress == "" || !identity.ValidModelIDHex(s.ModelID) {
 		return fmt.Errorf("Keeper model capability identity is required")
 	}
 	if !s.InferenceCapability && !s.VerificationCapability {
@@ -434,28 +461,31 @@ func (s ModelCapabilitySnapshot) Validate() error {
 	return nil
 }
 
+// ModelSupportSnapshot is ModelSupportState: support is declared per model,
+// and FirstSupportProfileVersion only records which profile the first
+// activating task ran under.
 type ModelSupportSnapshot struct {
-	OperatorAddress              string         `json:"operator_address"`
-	ModelID                      string         `json:"model_id"`
-	ProfileVersion               ProfileVersion `json:"profile_version"`
-	DeclaredSupport              bool           `json:"declared_support"`
-	SupportActive                bool           `json:"support_active"`
-	ActivationKind               int32          `json:"activation_kind"`
-	FirstActivationDuty          int32          `json:"first_activation_duty"`
-	FirstSupportTaskID           ProtoBytes32   `json:"first_support_task_id"`
-	FirstSupportOrderValue       Uint64String   `json:"first_support_order_value"`
-	P30CutoffEpoch               *Uint64String  `json:"p30_cutoff_epoch,omitempty"`
-	P30Bootstrap                 *bool          `json:"p30_bootstrap,omitempty"`
-	SupportFreshUntilEpoch       Uint64String   `json:"support_fresh_until_epoch"`
-	LastRefreshTaskID            ProtoBytes32   `json:"last_refresh_task_id"`
-	LastRefreshHeight            Uint64String   `json:"last_refresh_height"`
-	ActiveSupportStakeSnapshot   Uint64String   `json:"active_support_stake_snapshot"`
-	EligibleSupportStakeSnapshot Uint64String   `json:"eligible_support_stake_snapshot"`
-	SupportVersion               Uint64String   `json:"support_version"`
+	OperatorAddress            string         `json:"operator_address"`
+	ModelID                    string         `json:"model_id"`
+	DeclaredSupport            bool           `json:"declared_support"`
+	SupportActive              bool           `json:"support_active"`
+	ActivationKind             int32          `json:"activation_kind"`
+	FirstActivationDuty        int32          `json:"first_activation_duty"`
+	FirstSupportTaskID         ProtoBytes32   `json:"first_support_task_id"`
+	FirstSupportOrderValue     Uint64String   `json:"first_support_order_value"`
+	P30CutoffEpoch             *Uint64String  `json:"p30_cutoff_epoch,omitempty"`
+	P30Bootstrap               *bool          `json:"p30_bootstrap,omitempty"`
+	SupportFreshUntilEpoch     Uint64String   `json:"support_fresh_until_epoch"`
+	LastRefreshTaskID          ProtoBytes32   `json:"last_refresh_task_id"`
+	LastRefreshHeight          Uint64String   `json:"last_refresh_height"`
+	ActiveSupportStakeSnapshot Uint64String   `json:"active_support_stake_snapshot"`
+	SupportVersion             Uint64String   `json:"support_version"`
+	FirstSupportProfileVersion ProfileVersion `json:"first_support_profile_version"`
+	SuspendReason              int32          `json:"suspend_reason"`
 }
 
 func (s ModelSupportSnapshot) Validate() error {
-	if s.OperatorAddress == "" || s.ModelID == "" || s.ProfileVersion.Uint32() == 0 {
+	if s.OperatorAddress == "" || !identity.ValidModelIDHex(s.ModelID) {
 		return fmt.Errorf("Keeper model support identity is required")
 	}
 	if s.SupportVersion.Uint64() == 0 {

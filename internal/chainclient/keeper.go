@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/TrueOpen/cortex/internal/identity"
 	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
 	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
@@ -339,13 +340,69 @@ func (c *KeeperABCIClient) currentModelAt(ctx context.Context, modelID string, h
 	var snapshot struct {
 		Model CurrentModelSnapshot `json:"model"`
 	}
-	request := &hubv1.QueryModelRequest{ModelId: strings.TrimSpace(modelID)}
+	key, err := identity.ModelIDBytes(strings.TrimSpace(modelID))
+	if err != nil {
+		return CurrentModelSnapshot{}, err
+	}
+	request := &hubv1.QueryModelRequest{ModelId: key}
 	if err := c.querySnapshot(ctx, hubQuery+"Model", height, request, &response, &snapshot); err != nil {
 		return CurrentModelSnapshot{}, err
 	}
 	normalizeCurrentModelStatus(&snapshot.Model)
 	return snapshot.Model, snapshot.Model.Validate()
 }
+
+// ModelsBySource walks every ModelState at the committed height and returns
+// the models registered for provider and repoID. An empty provider matches any
+// provider. Several models may share a source: a model id also binds the chain
+// and the proposer.
+func (c *KeeperABCIClient) ModelsBySource(ctx context.Context, provider, repoID string) ([]CurrentModelSnapshot, error) {
+	if strings.TrimSpace(repoID) == "" {
+		return nil, fmt.Errorf("repo_id is required")
+	}
+	height, err := c.CommittedHeight(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var matches []CurrentModelSnapshot
+	var token []byte
+	seen := map[string]bool{}
+	for page := 0; ; page++ {
+		if page >= maxModelsPages {
+			return nil, fmt.Errorf("hub Models paging did not end within %d pages", maxModelsPages)
+		}
+		var response hubv1.QueryModelsResponse
+		var snapshot struct {
+			Models []CurrentModelSnapshot `json:"models"`
+		}
+		request := &hubv1.QueryModelsRequest{Page: &sharedv1.QueryPageRequestV1{PageToken: token}}
+		if err := c.querySnapshot(ctx, hubQuery+"Models", height, request, &response, &snapshot); err != nil {
+			return nil, err
+		}
+		for _, model := range snapshot.Models {
+			normalizeCurrentModelStatus(&model)
+			if model.RepoID == repoID && (provider == "" || model.Provider == provider) {
+				if err := model.Validate(); err != nil {
+					return nil, err
+				}
+				matches = append(matches, model)
+			}
+		}
+		if response.Page == nil || len(response.Page.NextPageToken) == 0 {
+			return matches, nil
+		}
+		// A token the chain already handed out would page forever.
+		if seen[string(response.Page.NextPageToken)] {
+			return nil, fmt.Errorf("hub Models paging repeated a page token")
+		}
+		seen[string(response.Page.NextPageToken)] = true
+		token = append(token[:0], response.Page.NextPageToken...)
+	}
+}
+
+// maxModelsPages bounds a hub Models scan: far more pages than any registry
+// holds, and a hard stop for a node that never ends the paging.
+const maxModelsPages = 10000
 
 func (c *KeeperABCIClient) CurrentModelProfile(ctx context.Context, modelID, profileVersion string) (CurrentModelProfileSnapshot, error) {
 	version, err := canonicalProfileVersionUint32(profileVersion)
@@ -364,8 +421,12 @@ func (c *KeeperABCIClient) currentModelProfileAt(ctx context.Context, modelID st
 	if err != nil {
 		return CurrentModelProfileSnapshot{}, err
 	}
+	key, err := identity.ModelIDBytes(modelID)
+	if err != nil {
+		return CurrentModelProfileSnapshot{}, err
+	}
 	var response hubv1.QueryProfileResponse
-	request := &hubv1.QueryProfileRequest{ModelId: modelID, ProfileVersion: version}
+	request := &hubv1.QueryProfileRequest{ModelId: key, ProfileVersion: version}
 	if err := c.query(ctx, hubQuery+"Profile", height, request, &response); err != nil {
 		return CurrentModelProfileSnapshot{}, err
 	}
@@ -382,40 +443,49 @@ func normalizeCurrentModelStatus(snapshot *CurrentModelSnapshot) {
 	snapshot.StatusSource = strings.TrimPrefix(snapshot.StatusSource, "MODEL_STATUS_SOURCE_")
 }
 
-func (c *KeeperABCIClient) ModelCapability(ctx context.Context, operatorAddress, modelID, profileVersion string) (ModelCapabilitySnapshot, error) {
-	version, err := canonicalProfileVersionUint32(profileVersion)
+// ModelCapability reads the operator's capability row for one model. Since
+// wire v0.3.0 it is per model, not per profile version.
+func (c *KeeperABCIClient) ModelCapability(ctx context.Context, operatorAddress, modelID string) (ModelCapabilitySnapshot, error) {
+	return c.modelCapabilityAt(ctx, strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID), 0)
+}
+
+func (c *KeeperABCIClient) modelCapabilityAt(ctx context.Context, operatorAddress, modelID string, height uint64) (ModelCapabilitySnapshot, error) {
+	key, err := identity.ModelIDBytes(modelID)
 	if err != nil {
 		return ModelCapabilitySnapshot{}, err
 	}
-	return c.modelCapabilityAt(ctx, strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID), version, 0)
-}
-
-func (c *KeeperABCIClient) modelCapabilityAt(ctx context.Context, operatorAddress, modelID string, version uint32, height uint64) (ModelCapabilitySnapshot, error) {
-	var response hubv1.QueryProfileCapabilityResponse
-	request := &hubv1.QueryProfileCapabilityRequest{OperatorAddress: operatorAddress, ModelId: modelID, ProfileVersion: version}
-	if err := c.query(ctx, hubQuery+"ProfileCapability", height, request, &response); err != nil {
+	var response hubv1.QueryModelCapabilityResponse
+	request := &hubv1.QueryModelCapabilityRequest{OperatorAddress: operatorAddress, ModelId: key}
+	if err := c.query(ctx, hubQuery+"ModelCapability", height, request, &response); err != nil {
 		return ModelCapabilitySnapshot{}, err
 	}
+	state := response.Capability
+	if state == nil {
+		return ModelCapabilitySnapshot{}, fmt.Errorf("Keeper model capability response is missing its capability")
+	}
+	if state.OperatorAddress != operatorAddress || !bytes.Equal(state.ModelId, key) {
+		return ModelCapabilitySnapshot{}, fmt.Errorf("Keeper model capability response does not match query identity")
+	}
 	capability := ModelCapabilitySnapshot{
-		OperatorAddress: response.Capability.OperatorAddress, ModelID: response.Capability.ModelId,
-		ProfileVersion:      NewProfileVersion(response.Capability.ProfileVersion),
-		InferenceCapability: response.Capability.InferenceCapability, VerificationCapability: response.Capability.VerificationCapability,
-		CapabilityVersion: NewUint64String(response.Capability.CapabilityVersion),
+		OperatorAddress: state.OperatorAddress, ModelID: modelID,
+		InferenceCapability: state.InferenceCapability, VerificationCapability: state.VerificationCapability,
+		CapabilityVersion: NewUint64String(state.CapabilityVersion),
 	}
 	return capability, capability.Validate()
 }
 
-func (c *KeeperABCIClient) ModelSupport(ctx context.Context, operatorAddress, modelID, profileVersion string) (ModelSupportSnapshot, error) {
-	version, err := canonicalProfileVersionUint32(profileVersion)
+// ModelSupport reads the operator's support row for one model.
+func (c *KeeperABCIClient) ModelSupport(ctx context.Context, operatorAddress, modelID string) (ModelSupportSnapshot, error) {
+	return c.modelSupportAt(ctx, strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID), 0)
+}
+
+func (c *KeeperABCIClient) modelSupportAt(ctx context.Context, operatorAddress, modelID string, height uint64) (ModelSupportSnapshot, error) {
+	key, err := identity.ModelIDBytes(modelID)
 	if err != nil {
 		return ModelSupportSnapshot{}, err
 	}
-	return c.modelSupportAt(ctx, strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID), version, 0)
-}
-
-func (c *KeeperABCIClient) modelSupportAt(ctx context.Context, operatorAddress, modelID string, version uint32, height uint64) (ModelSupportSnapshot, error) {
 	var response hubv1.QueryModelSupportResponse
-	request := &hubv1.QueryModelSupportRequest{OperatorAddress: operatorAddress, ModelId: modelID, ProfileVersion: version}
+	request := &hubv1.QueryModelSupportRequest{OperatorAddress: operatorAddress, ModelId: key}
 	if err := c.query(ctx, hubQuery+"ModelSupport", height, request, &response); err != nil {
 		return ModelSupportSnapshot{}, err
 	}
@@ -423,17 +493,18 @@ func (c *KeeperABCIClient) modelSupportAt(ctx context.Context, operatorAddress, 
 	if state == nil {
 		return ModelSupportSnapshot{}, fmt.Errorf("Keeper model support response is missing its support")
 	}
-	if state.OperatorAddress != operatorAddress || state.ModelId != modelID || state.ProfileVersion != version {
+	if state.OperatorAddress != operatorAddress || !bytes.Equal(state.ModelId, key) {
 		return ModelSupportSnapshot{}, fmt.Errorf("Keeper model support response does not match query identity")
 	}
 	support := ModelSupportSnapshot{
-		OperatorAddress: state.OperatorAddress, ModelID: state.ModelId, ProfileVersion: NewProfileVersion(state.ProfileVersion),
+		OperatorAddress: state.OperatorAddress, ModelID: modelID,
 		DeclaredSupport: state.DeclaredSupport, SupportActive: state.SupportActive, ActivationKind: int32(state.ActivationKind),
 		FirstActivationDuty: int32(state.FirstActivationDuty), FirstSupportTaskID: ProtoBytes32(state.FirstSupportTaskId),
 		FirstSupportOrderValue: NewUint64String(state.FirstSupportOrderValue),
 		SupportFreshUntilEpoch: NewUint64String(state.SupportFreshUntilEpoch), LastRefreshTaskID: ProtoBytes32(state.LastRefreshTaskId),
 		LastRefreshHeight: NewUint64String(state.LastRefreshHeight), ActiveSupportStakeSnapshot: NewUint64String(state.ActiveSupportStakeSnapshot),
-		EligibleSupportStakeSnapshot: NewUint64String(state.EligibleSupportStakeSnapshot), SupportVersion: NewUint64String(state.SupportVersion),
+		SupportVersion: NewUint64String(state.SupportVersion), FirstSupportProfileVersion: NewProfileVersion(state.FirstSupportProfileVersion),
+		SuspendReason: int32(state.SuspendReason),
 	}
 	switch source := state.P30Source.(type) {
 	case *hubv1.ModelSupportState_P30CutoffEpoch:
@@ -469,11 +540,11 @@ func (c *KeeperABCIClient) CommittedModelSupportScope(ctx context.Context, opera
 	if err != nil {
 		return CommittedModelSupportScope{}, err
 	}
-	capability, err := c.modelCapabilityAt(ctx, operatorAddress, modelID, version, height)
+	capability, err := c.modelCapabilityAt(ctx, operatorAddress, modelID, height)
 	if err != nil {
 		return CommittedModelSupportScope{}, err
 	}
-	support, err := c.modelSupportAt(ctx, operatorAddress, modelID, version, height)
+	support, err := c.modelSupportAt(ctx, operatorAddress, modelID, height)
 	if err != nil {
 		return CommittedModelSupportScope{}, err
 	}

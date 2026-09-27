@@ -1,6 +1,7 @@
 package txclient
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -37,7 +38,7 @@ func TestKeeperMessageKindsUseCanonicalTypeURLs(t *testing.T) {
 
 func TestModelSupportUsesCurrentOperatorOnlyNodeProtoJSON(t *testing.T) {
 	message := DeclareModelSupportMessage{
-		OperatorAddress: "trueopen1operator", ModelID: "model-a", ProfileVersion: 7,
+		OperatorAddress: "trueopen1operator", ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
 		InferenceCapability: true, VerificationCapability: true,
 	}
 	payload, err := MarshalMessage(MsgDeclareModelSupport, message)
@@ -48,7 +49,7 @@ func TestModelSupportUsesCurrentOperatorOnlyNodeProtoJSON(t *testing.T) {
 	if err := json.Unmarshal(payload, &object); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	wantFields := []string{"operator_address", "model_id", "profile_version", "inference_capability", "verification_capability"}
+	wantFields := []string{"operator_address", "model_id", "inference_capability", "verification_capability"}
 	if len(object) != len(wantFields) {
 		t.Fatalf("fields = %v, want exactly %v", object, wantFields)
 	}
@@ -56,9 +57,6 @@ func TestModelSupportUsesCurrentOperatorOnlyNodeProtoJSON(t *testing.T) {
 		if _, ok := object[field]; !ok {
 			t.Fatalf("missing field %q in %s", field, payload)
 		}
-	}
-	if string(object["profile_version"]) != `7` {
-		t.Fatalf("profile_version = %s, want numeric uint32", object["profile_version"])
 	}
 	var decoded DeclareModelSupportMessage
 	if err := json.Unmarshal(payload, &decoded); err != nil {
@@ -168,9 +166,9 @@ func TestMarshalKeeperMessageUsesProtoJSONFieldNames(t *testing.T) {
 	}{
 		{name: "register current model profile", kind: MsgRegisterModelProfile, value: validRegisterModelProfileMessage(), required: []string{"proposer_address", "profile"}},
 		{name: "model support", kind: MsgDeclareModelSupport, value: DeclareModelSupportMessage{
-			OperatorAddress: "trueopen1operator", ModelID: "llama-main", ProfileVersion: 1,
+			OperatorAddress: "trueopen1operator", ModelID: "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
 			InferenceCapability: true, VerificationCapability: true,
-		}, required: []string{"operator_address", "model_id", "profile_version", "inference_capability", "verification_capability"}},
+		}, required: []string{"operator_address", "model_id", "inference_capability", "verification_capability"}},
 		{
 			name: "submit infer receipt", kind: MsgSubmitInferReceipt, value: validSubmitInferReceiptMessage(),
 			required: []string{"receipt", "submitter_address"}, nested: "receipt",
@@ -178,6 +176,7 @@ func TestMarshalKeeperMessageUsesProtoJSONFieldNames(t *testing.T) {
 				"schema_version", "chain_id", "task_id", "task_hash", "worker_operator_address",
 				"service_authorization_nonce", "generation_params_digest", "output_hash",
 				"output_size_bytes", "required_evidence_commitments", "expiry_height", "service_signature", "generated_token_count", "output_leaf_count",
+				"output_key_commitment", "worker_token_key_commitment", "worker_value_key_commitment", "ciphertext_output_root",
 			},
 		},
 		{
@@ -195,6 +194,7 @@ func TestMarshalKeeperMessageUsesProtoJSONFieldNames(t *testing.T) {
 				"schema_version", "chain_id", "task_id", "verify_round", "verifier_operator_address",
 				"service_authorization_nonce", "generation_params_digest", "metric_root", "metric_summary",
 				"aggregate_proof_hash", "verifier_evidence_bundle_hash", "verifier_evidence_manifest_size_bytes", "salt", "expiry_height", "service_signature",
+				"verifier_value_root", "metric_leaf_count", "verifier_evidence_key_commitment",
 			},
 		},
 		{
@@ -261,7 +261,7 @@ func TestMarshalKeeperMessageUsesProtoJSONFieldNames(t *testing.T) {
 }
 
 func TestRegisterMessagesRejectObsoleteAndNonCanonicalFields(t *testing.T) {
-	legacyCombined := `{"model_id":"llama-main","profile_version":"v1","manifest_hash":"` + strings.Repeat("ab", 32) + `"}`
+	legacyCombined := `{"model_id":"1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a","profile_version":"v1","manifest_hash":"` + strings.Repeat("ab", 32) + `"}`
 	if err := ValidateMessagePayload(MsgRegisterModelProfile, []byte(legacyCombined)); err == nil {
 		t.Fatal("legacy flat combined registration payload was accepted")
 	}
@@ -352,27 +352,28 @@ func TestValidateRequestRejectsUnknownAndLegacyPayloadFields(t *testing.T) {
 
 func TestModelSupportMessagesRejectLegacyRoleAndDetachedSignatureFields(t *testing.T) {
 	for name, legacyDeclare := range map[string][]byte{
-		"role":               []byte(`{"operator_address":"trueopen1operator","provider_address":"node-1","role":"WORKER","model_id":"model-1","profile_version":1,"inference_capability":true,"verification_capability":false}`),
-		"detached signature": []byte(`{"operator_address":"trueopen1operator","model_id":"model-1","profile_version":1,"inference_capability":true,"verification_capability":false,"support_signature":"` + strings.Repeat("ab", 64) + `"}`),
+		"role":               []byte(`{"operator_address":"trueopen1operator","provider_address":"node-1","role":"WORKER","model_id":"0101010101010101010101010101010101010101010101010101010101010101","profile_version":1,"inference_capability":true,"verification_capability":false}`),
+		"detached signature": []byte(`{"operator_address":"trueopen1operator","model_id":"0101010101010101010101010101010101010101010101010101010101010101","profile_version":1,"inference_capability":true,"verification_capability":false,"support_signature":"` + strings.Repeat("ab", 64) + `"}`),
 	} {
 		if err := ValidateMessagePayload(MsgDeclareModelSupport, legacyDeclare); err == nil {
 			t.Fatalf("%s declaration was accepted", name)
 		}
 	}
-	legacyBatch := []byte(`{"submitter_address":"trueopen1operator","epoch_index":"7","confirmations":[{"worker_address":"node-1","support_mode":"WORKER","supported_profiles":[{"model_id":"model-1","profile_version":"v1"}],"worker_signature":"` + strings.Repeat("ab", 64) + `"}]}`)
+	legacyBatch := []byte(`{"submitter_address":"trueopen1operator","epoch_index":"7","confirmations":[{"worker_address":"node-1","support_mode":"WORKER","supported_profiles":[{"model_id":"0101010101010101010101010101010101010101010101010101010101010101","profile_version":"v1"}],"worker_signature":"` + strings.Repeat("ab", 64) + `"}]}`)
 	if err := ValidateMessagePayload(MsgBatchConfirmModelSupport, legacyBatch); err == nil {
 		t.Fatal("legacy role-bearing support confirmation was accepted")
 	}
-	quotedProfile := []byte(`{"operator_address":"trueopen1operator","model_id":"model-1","profile_version":"1","inference_capability":true,"verification_capability":false}`)
-	if err := ValidateMessagePayload(MsgDeclareModelSupport, quotedProfile); err == nil {
-		t.Fatal("quoted uint32 profile_version was accepted")
+	// Support is model-scoped: a declaration naming a profile is refused.
+	withProfile := []byte(`{"operator_address":"trueopen1operator","model_id":"` + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)) + `","profile_version":1,"inference_capability":true,"verification_capability":false}`)
+	if err := ValidateMessagePayload(MsgDeclareModelSupport, withProfile); err == nil {
+		t.Fatal("a profile-scoped support declaration was accepted")
 	}
 }
 
 func TestBatchModelSupportRejectsNonCanonicalOrdering(t *testing.T) {
 	signature := strings.Repeat("ab", 64)
-	confirmation := func(nodeID string, profiles ...SupportedProfileRef) ModelSupportConfirmation {
-		return ModelSupportConfirmation{OperatorAddress: nodeID, SupportedProfiles: profiles, ServiceAuthorizationNonce: 3, ExpiryHeight: 101, ServiceSignature: ProtoBytes(signature)}
+	confirmation := func(nodeID string, models ...ProtoBytes32) ModelSupportConfirmation {
+		return ModelSupportConfirmation{OperatorAddress: nodeID, SupportedModels: models, ServiceAuthorizationNonce: 3, ExpiryHeight: 101, ServiceSignature: ProtoBytes(signature)}
 	}
 	tests := []struct {
 		name          string
@@ -381,32 +382,32 @@ func TestBatchModelSupportRejectsNonCanonicalOrdering(t *testing.T) {
 		{
 			name: "unsorted confirmations",
 			confirmations: []ModelSupportConfirmation{
-				confirmation("worker-b", SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1}),
-				confirmation("worker-a", SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1}),
+				confirmation("worker-b", ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a")),
+				confirmation("worker-a", ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a")),
 			},
 		},
 		{
 			name: "duplicate confirmations",
 			confirmations: []ModelSupportConfirmation{
-				confirmation("worker-a", SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1}),
-				confirmation("worker-a", SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1}),
+				confirmation("worker-a", ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a")),
+				confirmation("worker-a", ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a")),
 			},
 		},
 		{
-			name: "unsorted profiles",
+			name: "unsorted models",
 			confirmations: []ModelSupportConfirmation{
 				confirmation("worker-a",
-					SupportedProfileRef{ModelID: "model-b", ProfileVersion: 1},
-					SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1},
+					ProtoBytes32("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"),
+					ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"),
 				),
 			},
 		},
 		{
-			name: "duplicate profiles",
+			name: "duplicate models",
 			confirmations: []ModelSupportConfirmation{
 				confirmation("worker-a",
-					SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1},
-					SupportedProfileRef{ModelID: "model-a", ProfileVersion: 1},
+					ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"),
+					ProtoBytes32("0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"),
 				),
 			},
 		},

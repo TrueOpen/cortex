@@ -10,7 +10,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 )
 
-// taskFacts reads the two immutable Task facts the frozen InferReceiptV1 signs
+// taskFacts reads the two immutable Task facts the InferReceiptV3 signs
 // and Cortex cannot derive, for the assignment this Worker is acting on.
 //
 // The read is the single chainclient.KeeperABCIClient.TaskReceiptFacts call the
@@ -47,62 +47,30 @@ func (w *Worker) taskFacts(ctx context.Context, taskID string) (taskfacts.Facts,
 }
 
 // preparedReceiptInputs is everything one prepared output contributes to the
-// frozen receipt: the two consensus facts the Keeper served, the local values
-// this pass produced, and the two TRUEOPEN_WORKER_VALUE_COMMITMENT_V1 inputs Cortex
-// still has no source for.
+// receipt: the two consensus facts the Keeper served, the local values this
+// pass produced, and the derived evidence of both Worker bundles.
 type preparedReceiptInputs struct {
-	event                      chainclient.AssignmentFinalized
-	facts                      taskfacts.Facts
-	local                      workerValueEvidenceInputs
-	serviceAuthorizationNonce  uint64
-	outputHash                 codec.Hash
-	outputSizeBytes            uint64
-	traceRoot                  codec.Hash
-	traceSizeBytes             uint64
-	checkpointRoot             codec.Hash
-	checkpointSizeBytes        uint64
-	generatedTokenCount        uint64
-	outputLeafCount            uint64
-	inputTokenIDsHash          codec.Hash
-	generatedTokenIDsHash      codec.Hash
-	inputTokenIDsSizeBytes     uint64
-	generatedTokenIDsSizeBytes uint64
+	event                     chainclient.AssignmentFinalized
+	facts                     taskfacts.Facts
+	local                     workerValueEvidenceInputs
+	serviceAuthorizationNonce uint64
+	outputHash                codec.Hash
+	outputSizeBytes           uint64
+	outputLeafCount           uint64
+	evidence                  workerEvidence
 }
 
-// workerValueEvidenceFacts and inferReceiptFacts are the only two places a
-// served consensus fact becomes a signed field, which is why they are functions
-// rather than inline literals: the Worker's own test seed builds its prepared
-// output through them too, so a substitution here - hex(event.OrderDigest) under
-// task_hash is the tempting one, and the frozen contract forbids it - cannot
-// slip past by only existing on the path the seed skips.
-func (w *Worker) workerValueEvidenceFacts(in preparedReceiptInputs) builderclient.WorkerValueEvidenceFacts {
-	return builderclient.WorkerValueEvidenceFacts{
-		ChainID:                    w.cfg.ChainID,
-		TaskID:                     in.event.TaskID,
-		AcceptedTaskHash:           in.facts.AcceptedTaskHash.Hex(),
-		WorkerOperatorAddress:      w.cfg.WorkerAddress,
-		GenerationParamsDigest:     in.facts.GenerationParamsDigest.Hex(),
-		EvidenceSchemaHash:         in.local.EvidenceSchemaHash,
-		OutputHash:                 in.outputHash,
-		OutputSizeBytes:            in.outputSizeBytes,
-		FinishReason:               in.local.FinishReason,
-		TraceRoot:                  in.traceRoot,
-		TraceEncodedSizeBytes:      in.traceSizeBytes,
-		CheckpointRoot:             in.checkpointRoot,
-		CheckpointEncodedSizeBytes: in.checkpointSizeBytes,
-		GeneratedTokenCount:        in.generatedTokenCount, OutputLeafCount: in.outputLeafCount,
-		InputTokenIDsHash: in.inputTokenIDsHash, GeneratedTokenIDsHash: in.generatedTokenIDsHash,
-		InputTokenIDsSizeBytes: in.inputTokenIDsSizeBytes, GeneratedTokenIDsSizeBytes: in.generatedTokenIDsSizeBytes,
-	}
-}
-
-// inferReceiptFacts maps the same inputs onto the frozen InferReceiptV1's signed
-// fields. profileRequirements is a parameter rather than part of the input set
-// because it is the one value production genuinely cannot supply: it stays nil
-// on the Worker path and the seed passes the locked Profile's shape.
+// inferReceiptFacts maps the same inputs onto the receipt's signed fields. It
+// and workerEvidenceFacts are the only two places a served consensus fact
+// becomes a signed field, which is why they are functions rather than inline
+// literals: the Worker's own test seed builds its prepared output through them
+// too, so a substitution here - hex(event.OrderDigest) under task_hash is the
+// tempting one, and the contract forbids it - cannot slip past by only existing
+// on the path the seed skips. profileRequirements is a parameter because it is
+// the locked Profile's per-task data.
 func (w *Worker) inferReceiptFacts(
 	in preparedReceiptInputs,
-	evidence builderclient.EvidenceCommitment,
+	evidence []builderclient.EvidenceCommitment,
 	profileRequirements []builderclient.InferEvidenceRequirement,
 ) builderclient.InferReceiptFacts {
 	return builderclient.InferReceiptFacts{
@@ -112,7 +80,7 @@ func (w *Worker) inferReceiptFacts(
 		WorkerOperatorAddress:     w.cfg.WorkerAddress,
 		ServiceAuthorizationNonce: in.serviceAuthorizationNonce,
 		GenerationParamsDigest:    in.facts.GenerationParamsDigest.Hex(),
-		GeneratedTokenCount:       in.generatedTokenCount,
+		GeneratedTokenCount:       in.evidence.generatedCount,
 		OutputLeafCount:           in.outputLeafCount,
 		OutputHash:                in.outputHash,
 		OutputSizeBytes:           in.outputSizeBytes,
@@ -120,7 +88,7 @@ func (w *Worker) inferReceiptFacts(
 		// height <= assignment.infer_deadline_height, so anchoring the credential
 		// to the infer deadline is exactly as permissive as admission allows.
 		ExpiryHeight:                in.event.InferDeadlineHeight,
-		RequiredEvidenceCommitments: []builderclient.EvidenceCommitment{evidence},
+		RequiredEvidenceCommitments: append([]builderclient.EvidenceCommitment(nil), evidence...),
 		ProfileEvidenceRequirements: profileRequirements,
 	}
 }

@@ -48,7 +48,7 @@ func (f *FakeClient) ValidateOutputPackage(_ context.Context, pkg OutputPackage)
 	if pkg.TaskID == "" || pkg.OutputRef == "" {
 		return fmt.Errorf("output package missing required fields")
 	}
-	expected := codecPackageHash(pkg.TaskID, pkg.OutputRef, pkg.TraceRef, pkg.CheckpointRef, pkg.OutputHash)
+	expected := codecPackageHash(pkg.TaskID, pkg.OutputRef, pkg.TokenIDsRef, pkg.PositionValuesRef, pkg.OutputHash)
 	if pkg.SessionID != "" {
 		var err error
 		expected, err = CanonicalOutputPackageHash(pkg)
@@ -115,7 +115,7 @@ func (f *FakeClient) GetTaskDataMetadata(_ context.Context, _ string, req GetTas
 		if err != nil {
 			return TaskDataMetadata{}, err
 		}
-		metadata.EvidenceBundle = &EvidenceBundleSummary{EvidenceBundleHash: evidencebundle.Hash(f.TaskData[req.Key]).String(), EvidenceSchemaHash: manifest.EvidenceSchemaHash, ArtifactCount: uint32(len(manifest.Artifacts)), ArtifactTotalSizeBytes: manifest.TotalSize(), ManifestSizeBytes: uint64(len(f.TaskData[req.Key]))}
+		metadata.EvidenceBundle = &EvidenceBundleSummary{EvidenceManifestHash: evidencebundle.Hash(f.TaskData[req.Key]).String(), EvidenceSchemaHash: manifest.EvidenceSchemaHash, ArtifactCount: uint32(len(manifest.Artifacts)), ArtifactTotalSizeBytes: manifest.TotalSize(), ManifestSizeBytes: uint64(len(f.TaskData[req.Key]))}
 	}
 	return metadata, nil
 }
@@ -208,7 +208,7 @@ func (f *FakeClient) fakeBundle(key TaskDataKey, chainID string) (evidencebundle
 	if manifest.ProducerKind == "VERIFIER" {
 		producer = EvidenceProducerVerifier
 	}
-	if manifest.ChainID != chainID || manifest.TaskID != key.TaskID || manifest.TaskHash != key.TaskHash || manifest.ProducerOperator != key.ProducerOperator || manifest.VerifyRound != key.VerifyRound || producer != key.EvidenceProducerKind || (producer != EvidenceProducerWorker && evidencebundle.Hash(f.TaskData[key]).String() != key.ContentHash) {
+	if manifest.ChainID != chainID || manifest.TaskID != key.TaskID || manifest.TaskHash != key.TaskHash || manifest.ProducerOperator != key.ProducerOperator || manifest.VerifyRound != key.VerifyRound || producer != key.EvidenceProducerKind || manifest.EvidenceKind != evidencebundle.KindToken(key.EvidenceKind) || (producer != EvidenceProducerWorker && evidencebundle.Hash(f.TaskData[key]).String() != key.ContentHash) {
 		return evidencebundle.Manifest{}, nil, fmt.Errorf("manifest scope does not match object")
 	}
 	keys := []TaskDataKey{key}
@@ -248,7 +248,7 @@ func (f *FakeClient) FinalizeTaskResult(_ context.Context, _ string, req Finaliz
 	if req.Auth.Requester != req.Receipt.WorkerOperatorAddress || req.Auth.ChainID != req.Receipt.ChainID {
 		return FinalizeTaskResultResponse{}, fmt.Errorf("finalize requester does not match worker receipt")
 	}
-	scope := req.Auth.BuilderAddress + "|" + req.Receipt.ChainID + "|worker|" + req.TaskHash
+	scope := fmt.Sprintf("%s|%s|worker|%s|%d", req.Auth.BuilderAddress, req.Receipt.ChainID, req.TaskHash, req.EvidenceKind)
 	if previous, ok := f.finalizedDigests[scope]; ok {
 		if previous != digest {
 			return FinalizeTaskResultResponse{}, fmt.Errorf("finalize material conflict")
@@ -267,25 +267,34 @@ func (f *FakeClient) FinalizeTaskResult(_ context.Context, _ string, req Finaliz
 	}
 	result := FinalizeTaskResultResponse{OutputConfirmation: output, Idempotent: f.TaskDataMetadata[key].Readiness == TaskDataReady}
 	keys := []TaskDataKey{key}
-	for _, commitment := range req.Receipt.RequiredEvidenceCommitments {
-		key := EvidenceObjectKey(req.TaskHash, req.SessionID, req.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, req.Receipt.WorkerOperatorAddress)
-		confirmation, err := f.fakeConfirmation(key, req.Auth)
-		if err != nil {
-			return FinalizeTaskResultResponse{}, err
+	var commitment *EvidenceCommitment
+	for i := range req.Receipt.RequiredEvidenceCommitments {
+		if req.Receipt.RequiredEvidenceCommitments[i].EvidenceKind == req.EvidenceKind {
+			commitment = &req.Receipt.RequiredEvidenceCommitments[i]
 		}
-		if confirmation.ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
-			return FinalizeTaskResultResponse{}, fmt.Errorf("artifact total does not match receipt")
-		}
-		manifest, bundleKeys, err := f.fakeBundle(key, req.Receipt.ChainID)
-		if err != nil {
-			return FinalizeTaskResultResponse{}, err
-		}
-		if err := f.fakeConfirmWorkerCommitment(req.Receipt, manifest, bundleKeys, commitment); err != nil {
-			return FinalizeTaskResultResponse{}, err
-		}
-		result.EvidenceBundleConfirmations = append(result.EvidenceBundleConfirmations, confirmation)
-		keys = append(keys, bundleKeys...)
 	}
+	if commitment == nil {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("receipt commits no evidence of kind %d", req.EvidenceKind)
+	}
+	bundleKey := EvidenceObjectKey(req.TaskHash, req.SessionID, req.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, req.Receipt.WorkerOperatorAddress, commitment.EvidenceKind)
+	confirmation, err := f.fakeConfirmation(bundleKey, req.Auth)
+	if err != nil {
+		return FinalizeTaskResultResponse{}, err
+	}
+	manifest, bundleKeys, err := f.fakeBundle(bundleKey, req.Receipt.ChainID)
+	if err != nil {
+		return FinalizeTaskResultResponse{}, err
+	}
+	// The committed size excludes the A-level generation_params artifact; the
+	// confirmation's artifact total counts every artifact.
+	if manifest.CommittedSize() != commitment.EncodedSizeBytes || confirmation.ArtifactTotalSizeBytes != manifest.TotalSize() {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("artifact total does not match receipt")
+	}
+	if err := f.fakeConfirmWorkerCommitment(req.Receipt, manifest, bundleKeys, *commitment); err != nil {
+		return FinalizeTaskResultResponse{}, err
+	}
+	result.EvidenceBundleConfirmations = append(result.EvidenceBundleConfirmations, confirmation)
+	keys = append(keys, bundleKeys...)
 	f.fakeMarkReady(keys)
 	metadata := f.TaskDataMetadata[key]
 	receipt := req.Receipt
@@ -304,47 +313,80 @@ func (f *FakeClient) FinalizeTaskResult(_ context.Context, _ string, req Finaliz
 	return result, nil
 }
 
+// fakeConfirmWorkerCommitment re-derives the one commitment this bundle's kind
+// carries from its stored artifacts, as Nexus does before confirming it.
 func (f *FakeClient) fakeConfirmWorkerCommitment(receipt SignedInferReceipt, manifest evidencebundle.Manifest, keys []TaskDataKey, commitment EvidenceCommitment) error {
 	artifacts := map[string][]byte{}
 	for i, artifact := range manifest.Artifacts {
 		artifacts[artifact.ID] = f.TaskData[keys[i+1]]
 	}
-	input, err := nodewire.DecodeTokenIDs(artifacts["input_token_ids"])
-	if err != nil {
-		return fmt.Errorf("Worker input token IDs: %w", err)
-	}
-	generated, err := nodewire.DecodeTokenIDs(artifacts["generated_token_ids"])
-	if err != nil {
-		return fmt.Errorf("Worker generated token IDs: %w", err)
-	}
-	if uint64(len(generated)) != receipt.GeneratedTokenCount {
-		return fmt.Errorf("Worker generated token IDs count differs from receipt")
-	}
-	inputHash, err := nodewire.InputTokenIDsHash(input)
-	if err != nil {
-		return err
-	}
-	generatedHash, err := nodewire.GeneratedTokenIDsHash(generated)
-	if err != nil {
-		return err
-	}
 	output, err := taskDataHash("output_hash", receipt.OutputHash)
 	if err != nil {
 		return err
 	}
-	var outputHash codec.Hash
-	copy(outputHash[:], output)
-	_, err = ConfirmWorkerValueEvidence(WorkerValueEvidenceFacts{
+	facts := WorkerEvidenceFacts{
 		ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash,
 		WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest,
-		EvidenceSchemaHash: manifest.EvidenceSchemaHash, OutputHash: outputHash, OutputSizeBytes: receipt.OutputSizeBytes,
+		EvidenceSchemaHash: manifest.EvidenceSchemaHash, OutputSizeBytes: receipt.OutputSizeBytes,
 		OutputLeafCount: receipt.OutputLeafCount, GeneratedTokenCount: receipt.GeneratedTokenCount,
-		TraceRoot: codec.HashBytes(artifacts["trace"]), TraceEncodedSizeBytes: uint64(len(artifacts["trace"])),
-		CheckpointRoot: codec.HashBytes(artifacts["checkpoint"]), CheckpointEncodedSizeBytes: uint64(len(artifacts["checkpoint"])),
-		InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash,
-		InputTokenIDsSizeBytes: uint64(len(artifacts["input_token_ids"])), GeneratedTokenIDsSizeBytes: uint64(len(artifacts["generated_token_ids"])),
-	}, commitment)
-	return err
+	}
+	copy(facts.OutputHash[:], output)
+	switch commitment.EvidenceKind {
+	case nodewire.EvidenceKindWorkerTokenOpening:
+		input, err := nodewire.DecodeTokenIDs(artifacts[EvidenceArtifactInputTokenIDs])
+		if err != nil {
+			return fmt.Errorf("Worker input token IDs: %w", err)
+		}
+		generated, err := nodewire.DecodeTokenIDs(artifacts[EvidenceArtifactGeneratedTokenIDs])
+		if err != nil {
+			return fmt.Errorf("Worker generated token IDs: %w", err)
+		}
+		if uint64(len(generated)) != receipt.GeneratedTokenCount {
+			return fmt.Errorf("Worker generated token IDs count differs from receipt")
+		}
+		if digest := nodewire.GenerationParamsDigest(artifacts[EvidenceArtifactGenerationParams]); digest.String() != receipt.GenerationParamsDigest {
+			return fmt.Errorf("Worker generation_params does not hash to the receipt's generation_params_digest")
+		}
+		if facts.InputTokenIDsHash, err = nodewire.InputTokenIDsHash(input); err != nil {
+			return err
+		}
+		if facts.GeneratedTokenIDsHash, err = nodewire.GeneratedTokenIDsHash(generated); err != nil {
+			return err
+		}
+		facts.InputTokenIDsSizeBytes = uint64(len(artifacts[EvidenceArtifactInputTokenIDs]))
+		facts.GeneratedTokenIDsSizeBytes = uint64(len(artifacts[EvidenceArtifactGeneratedTokenIDs]))
+		_, err = ConfirmWorkerTokenEvidence(facts, commitment)
+		return err
+	case nodewire.EvidenceKindWorkerValueOpening:
+		raw := artifacts[EvidenceArtifactWorkerValues]
+		requiredTopK, err := nodewire.WorkerValuesTopK(raw)
+		if err != nil {
+			return err
+		}
+		binding := nodewire.WorkerValueBindingV1{
+			ChainID: receipt.ChainID, WorkerOperatorAddress: receipt.WorkerOperatorAddress, RequiredTopK: requiredTopK,
+		}
+		if binding.TaskID, err = taskDataHash("task_id", receipt.TaskID); err != nil {
+			return err
+		}
+		if binding.AcceptedTaskHash, err = taskDataHash("task_hash", receipt.TaskHash); err != nil {
+			return err
+		}
+		values, err := nodewire.DecodeWorkerValues(binding, raw)
+		if err != nil {
+			return fmt.Errorf("Worker values: %w", err)
+		}
+		if uint64(len(values)) != receipt.GeneratedTokenCount {
+			return fmt.Errorf("Worker values count differs from receipt")
+		}
+		if facts.WorkerValueRoot, err = nodewire.WorkerValueRoot(binding, values); err != nil {
+			return err
+		}
+		facts.WorkerValuesEncodedSizeBytes = uint64(len(raw))
+		return ConfirmWorkerValueEvidence(facts, commitment)
+	default:
+		return fmt.Errorf("evidence kind %d is not a Worker bundle", commitment.EvidenceKind)
+	}
 }
 
 func (f *FakeClient) FinalizeVerifierEvidence(_ context.Context, _ string, req FinalizeVerifierEvidenceRequest) (FinalizeVerifierEvidenceResponse, error) {
@@ -368,7 +410,7 @@ func (f *FakeClient) FinalizeVerifierEvidence(_ context.Context, _ string, req F
 		result.Idempotent = true
 		return result, nil
 	}
-	key := EvidenceObjectKey(req.TaskHash, req.SessionID, req.TaskID, DataKindEvidenceManifest, hex.EncodeToString(req.Receipt.VerifierEvidenceBundleHash), EvidenceProducerVerifier, req.VerifyRound, req.VerifierOperator)
+	key := EvidenceObjectKey(req.TaskHash, req.SessionID, req.TaskID, DataKindEvidenceManifest, hex.EncodeToString(req.Receipt.VerifierEvidenceBundleHash), EvidenceProducerVerifier, req.VerifyRound, req.VerifierOperator, nodewire.EvidenceKindVerifierValueOpening)
 	confirmation, err := f.fakeConfirmation(key, req.Auth)
 	if err != nil {
 		return FinalizeVerifierEvidenceResponse{}, err
@@ -460,13 +502,13 @@ func (f *FakeClient) record(event string) {
 	}
 }
 
-func codecPackageHash(taskID, outputRef, traceRef, checkpointRef string, outputHash [32]byte) [32]byte {
+func codecPackageHash(taskID, outputRef, tokenIDsRef, positionValuesRef string, outputHash [32]byte) [32]byte {
 	return codec.HashWithDomain(
 		"TRUEOPEN_OUTPUT_PACKAGE_V1",
 		[]byte(taskID),
 		[]byte(outputRef),
-		[]byte(traceRef),
-		[]byte(checkpointRef),
+		[]byte(tokenIDsRef),
+		[]byte(positionValuesRef),
 		outputHash[:],
 	)
 }

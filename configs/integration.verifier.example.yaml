@@ -21,7 +21,7 @@ nexus:
   # pair subscribe to the open-task subjects for the models they support.
   # Duty selection is retired; the two files differ only in local endpoints,
   # store paths and operator identity.
-  subscribe_models: [llama-dev]
+  subscribe_models: [c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1]
   ingress_url: http://127.0.0.1:8080
   nats_url: nats://127.0.0.1:4222
   # Seed file of this node's NATS user key (ed25519 nkey, generated on first
@@ -55,7 +55,9 @@ signer:
 local_identity:
   operator_address: trueopen1verifieroperator
   service_key_ref: verifier-service
-  supported_model_profiles: [llama-dev@1=llm_text_v1]
+  # model_id is the chain Hash32 model id as 64 lowercase hex; list the models
+  # registered for a repository with `cortexctl model find --rpc URL --repo ID`.
+  supported_model_profiles: [c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1=llm_text_v1]
   model_service_id: fake-model-service
 self_rescue:
   enabled: false

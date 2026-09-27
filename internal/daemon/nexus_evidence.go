@@ -9,7 +9,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
-	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
@@ -22,17 +21,24 @@ type EvidenceCommitments struct {
 	EvidenceSchemaHash                        string
 	Output                                    []byte
 	OutputChunkLengths                        []uint64
-	MaxEncodedSizeBytes                       uint64
+	// MaxEncodedSizeBytes is the locked Profile's bound per Worker evidence kind.
+	MaxEncodedSizeBytes map[nodewire.EvidenceKind]uint64
+	// RequiredTopK is the locked Profile's; worker_values are framed under it.
+	RequiredTopK uint32
 }
 
-type WorkerValueEvidence struct {
-	Trace, Checkpoint                []byte
+// WorkerEvidence is the confirmed content of the Worker's two bundles.
+type WorkerEvidence struct {
 	InputTokenIDs, GeneratedTokenIDs []byte
-	FinishReason                     nodewire.FinishReasonV1
+	WorkerValues                     []byte
+	// GenerationParams is the A-level generation_params artifact, already
+	// checked against the signed generation_params_digest.
+	GenerationParams []byte
+	FinishReason     nodewire.FinishReasonV1
 }
 
 type EvidenceConfirmer interface {
-	ConfirmWorkerValueEvidence(context.Context, EvidenceCommitments) (WorkerValueEvidence, error)
+	ConfirmWorkerEvidence(context.Context, EvidenceCommitments) (WorkerEvidence, error)
 }
 
 type NexusEvidenceConfirmerConfig struct {
@@ -52,141 +58,210 @@ func NewNexusEvidenceConfirmer(cfg NexusEvidenceConfirmerConfig) (*NexusEvidence
 	return &NexusEvidenceConfirmer{cfg: cfg}, nil
 }
 
-func (c *NexusEvidenceConfirmer) ConfirmWorkerValueEvidence(ctx context.Context, commitments EvidenceCommitments) (WorkerValueEvidence, error) {
-	if _, err := builderclient.InferReceiptSigningDigest(commitments.Receipt); err != nil {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker receipt: %w", err)
+// ConfirmWorkerEvidence downloads the Worker's token and value bundles and
+// proves that they reproduce both typed commitments of the signed receipt.
+func (c *NexusEvidenceConfirmer) ConfirmWorkerEvidence(ctx context.Context, commitments EvidenceCommitments) (WorkerEvidence, error) {
+	receipt := commitments.Receipt
+	if _, err := builderclient.InferReceiptSigningDigest(receipt); err != nil {
+		return WorkerEvidence{}, fmt.Errorf("Worker receipt: %w", err)
 	}
-	committed, err := workerValueCommitment(commitments)
-	if err != nil {
-		return WorkerValueEvidence{}, err
+	if receipt.ChainID != c.cfg.ChainID || receipt.TaskID != commitments.TaskID {
+		return WorkerEvidence{}, fmt.Errorf("Worker receipt task or chain mismatch")
 	}
-	if commitments.Receipt.ChainID != c.cfg.ChainID || commitments.Receipt.TaskID != commitments.TaskID {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker receipt task or chain mismatch")
+	if len(receipt.RequiredEvidenceCommitments) != 2 || receipt.RequiredEvidenceCommitments[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening ||
+		receipt.RequiredEvidenceCommitments[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
+		return WorkerEvidence{}, fmt.Errorf("signed infer receipt must commit the Worker value and token bundles, in that order")
 	}
-	if committed.EncodedSizeBytes == 0 || committed.EncodedSizeBytes > 256<<20 || commitments.MaxEncodedSizeBytes == 0 || committed.EncodedSizeBytes > commitments.MaxEncodedSizeBytes {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker evidence exceeds the locked profile or local size bound")
+	for _, committed := range receipt.RequiredEvidenceCommitments {
+		limit := commitments.MaxEncodedSizeBytes[committed.EvidenceKind]
+		if committed.EncodedSizeBytes == 0 || committed.EncodedSizeBytes > 256<<20 || limit == 0 || committed.EncodedSizeBytes > limit {
+			return WorkerEvidence{}, fmt.Errorf("Worker evidence of kind %d exceeds the locked profile or local size bound", committed.EvidenceKind)
+		}
 	}
-	var result WorkerValueEvidence
-	err = dialBuilder(ctx, c.cfg.Endpoints, commitments.BuilderOperatorAddress, func(ctx context.Context, endpoint BuilderEndpoint) error {
+	if commitments.RequiredTopK == 0 {
+		return WorkerEvidence{}, fmt.Errorf("locked profile required_top_k is required to confirm worker_values")
+	}
+	var result WorkerEvidence
+	err := dialBuilder(ctx, c.cfg.Endpoints, commitments.BuilderOperatorAddress, func(ctx context.Context, endpoint BuilderEndpoint) error {
 		var err error
-		result, err = c.confirmFrom(ctx, commitments, committed, endpoint)
+		result, err = c.confirmFrom(ctx, commitments, endpoint)
 		return err
 	})
 	return result, err
 }
 
-func (c *NexusEvidenceConfirmer) confirmFrom(ctx context.Context, facts EvidenceCommitments, committed builderclient.EvidenceCommitment, endpoint BuilderEndpoint) (WorkerValueEvidence, error) {
+func (c *NexusEvidenceConfirmer) confirmFrom(ctx context.Context, facts EvidenceCommitments, endpoint BuilderEndpoint) (WorkerEvidence, error) {
 	receipt := facts.Receipt
-	key := builderclient.EvidenceObjectKey(receipt.TaskHash, facts.SessionID, facts.TaskID, builderclient.DataKindEvidenceManifest, committed.EvidenceHashOrRoot.String(), builderclient.EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress)
-	metadata, err := c.evidenceMetadata(ctx, facts, endpoint.Endpoint, key)
-	if err != nil {
-		return WorkerValueEvidence{}, err
-	}
-	summary := metadata.EvidenceBundle
-	if summary == nil || summary.ManifestSizeBytes == 0 || summary.ManifestSizeBytes > evidencebundle.MaxManifestBytes ||
-		metadata.SizeBytes != summary.ManifestSizeBytes || summary.EvidenceSchemaHash != facts.EvidenceSchemaHash ||
-		summary.ArtifactCount != 4 || summary.ArtifactTotalSizeBytes != committed.EncodedSizeBytes {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker evidence bundle summary differs from receipt, profile or manifest bounds")
-	}
-	if _, err := decodeCanonicalHash(summary.EvidenceBundleHash, "evidence_bundle_hash"); err != nil {
-		return WorkerValueEvidence{}, err
-	}
-	manifestBytes, err := c.fetchEvidenceBytes(ctx, facts, endpoint.Endpoint, key, metadata.SizeBytes, summary.EvidenceBundleHash)
-	if err != nil {
-		return WorkerValueEvidence{}, err
-	}
-	manifest, err := evidencebundle.Decode(manifestBytes)
-	if err != nil {
-		return WorkerValueEvidence{}, err
-	}
-	if manifest.ChainID != receipt.ChainID || manifest.TaskID != receipt.TaskID || manifest.TaskHash != receipt.TaskHash || manifest.ProducerKind != "WORKER" || manifest.ProducerOperator != receipt.WorkerOperatorAddress || manifest.VerifyRound != 1 || manifest.EvidenceSchemaHash != facts.EvidenceSchemaHash {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker manifest scope differs from the receipt or locked profile")
-	}
-	if len(manifest.Artifacts) != 4 || manifest.TotalSize() != committed.EncodedSizeBytes {
-		return WorkerValueEvidence{}, fmt.Errorf("unsupported Worker opening artifact set or size")
-	}
-	var result WorkerValueEvidence
-	for _, artifact := range manifest.Artifacts {
-		size, err := artifact.SizeBytes()
+	artifacts := map[string][]byte{}
+	for _, committed := range receipt.RequiredEvidenceCommitments {
+		bundle, err := c.fetchBundle(ctx, facts, endpoint.Endpoint, committed)
 		if err != nil {
-			return WorkerValueEvidence{}, err
+			return WorkerEvidence{}, err
 		}
-		artifactKey := builderclient.EvidenceObjectKey(receipt.TaskHash, facts.SessionID, facts.TaskID, builderclient.DataKindEvidenceArtifact, artifact.ContentHash, builderclient.EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress)
-		data, err := c.fetchEvidence(ctx, facts, endpoint.Endpoint, artifactKey, size)
-		if err != nil {
-			return WorkerValueEvidence{}, err
-		}
-		switch artifact.ID {
-		case "trace":
-			result.Trace = data
-		case "checkpoint":
-			result.Checkpoint = data
-		case "input_token_ids":
-			result.InputTokenIDs = data
-		case "generated_token_ids":
-			result.GeneratedTokenIDs = data
+		for id, data := range bundle {
+			artifacts[id] = data
 		}
 	}
-	if len(result.Trace) == 0 || len(result.Checkpoint) == 0 {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker manifest must contain trace and checkpoint")
+	result := WorkerEvidence{
+		InputTokenIDs:     artifacts[builderclient.EvidenceArtifactInputTokenIDs],
+		GeneratedTokenIDs: artifacts[builderclient.EvidenceArtifactGeneratedTokenIDs],
+		WorkerValues:      artifacts[builderclient.EvidenceArtifactWorkerValues],
+		GenerationParams:  artifacts[builderclient.EvidenceArtifactGenerationParams],
 	}
-	generation, err := modelservice.GenerationContextFromTrace(result.Trace)
-	if err != nil {
-		return WorkerValueEvidence{}, err
-	}
-	digest, err := decodeCanonicalHash(receipt.GenerationParamsDigest, "generation_params_digest")
-	if err != nil {
-		return WorkerValueEvidence{}, err
+	// generation_params is bound by hashing the received bytes, never a
+	// re-serialization; the digest is then bound to the token commitment by
+	// ConfirmWorkerEvidence below.
+	if got := nodewire.GenerationParamsDigest(result.GenerationParams); got.String() != receipt.GenerationParamsDigest {
+		return WorkerEvidence{}, fmt.Errorf("Worker generation_params does not hash to the signed generation_params_digest")
 	}
 	outputRoot, err := codec.OutputMMRRootFromLengths(facts.Output, facts.OutputChunkLengths)
 	if err != nil || outputRoot.String() != receipt.OutputHash || uint64(len(facts.Output)) != receipt.OutputSizeBytes || uint64(len(facts.OutputChunkLengths)) != receipt.OutputLeafCount {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker output differs from signed receipt")
-	}
-	count, reason, err := modelservice.ValidateGenerationEvidence(generation, digest[:], facts.Output, result.Trace, result.Checkpoint)
-	if err != nil {
-		return WorkerValueEvidence{}, err
-	}
-	if count != receipt.GeneratedTokenCount {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker evidence generated_token_count differs from signed receipt")
-	}
-	if err := modelservice.ValidateTokenIDArtifacts(result.Trace, result.Checkpoint, result.InputTokenIDs, result.GeneratedTokenIDs); err != nil {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker token artifacts: %w", err)
+		return WorkerEvidence{}, fmt.Errorf("Worker output differs from signed receipt")
 	}
 	inputIDs, err := nodewire.DecodeTokenIDs(result.InputTokenIDs)
 	if err != nil {
-		return WorkerValueEvidence{}, err
+		return WorkerEvidence{}, err
 	}
 	generatedIDs, err := nodewire.DecodeTokenIDs(result.GeneratedTokenIDs)
 	if err != nil {
-		return WorkerValueEvidence{}, err
+		return WorkerEvidence{}, err
+	}
+	if uint64(len(generatedIDs)) != receipt.GeneratedTokenCount {
+		return WorkerEvidence{}, fmt.Errorf("Worker generated_token_ids length differs from signed generated_token_count")
 	}
 	inputHash, err := nodewire.InputTokenIDsHash(inputIDs)
 	if err != nil {
-		return WorkerValueEvidence{}, err
+		return WorkerEvidence{}, err
 	}
 	generatedHash, err := nodewire.GeneratedTokenIDsHash(generatedIDs)
 	if err != nil {
-		return WorkerValueEvidence{}, err
+		return WorkerEvidence{}, err
 	}
-	confirmedReason, err := builderclient.ConfirmWorkerValueEvidence(builderclient.WorkerValueEvidenceFacts{
+	taskID, err := decodeCanonicalHash(receipt.TaskID, "task_id")
+	if err != nil {
+		return WorkerEvidence{}, err
+	}
+	taskHash, err := decodeCanonicalHash(receipt.TaskHash, "task_hash")
+	if err != nil {
+		return WorkerEvidence{}, err
+	}
+	binding := nodewire.WorkerValueBindingV1{
+		ChainID: receipt.ChainID, TaskID: taskID[:], AcceptedTaskHash: taskHash[:],
+		WorkerOperatorAddress: receipt.WorkerOperatorAddress, RequiredTopK: facts.RequiredTopK,
+	}
+	leaves, err := nodewire.DecodeWorkerValues(binding, result.WorkerValues)
+	if err != nil {
+		return WorkerEvidence{}, fmt.Errorf("Worker values: %w", err)
+	}
+	if uint64(len(leaves)) != receipt.GeneratedTokenCount {
+		return WorkerEvidence{}, fmt.Errorf("Worker values cover %d positions, not the signed generated_token_count", len(leaves))
+	}
+	for i, leaf := range leaves {
+		if leaf.TokenID != generatedIDs[i] {
+			return WorkerEvidence{}, fmt.Errorf("Worker value at position %d names token %d, not the generated token %d", i, leaf.TokenID, generatedIDs[i])
+		}
+	}
+	valueRoot, err := nodewire.WorkerValueRoot(binding, leaves)
+	if err != nil {
+		return WorkerEvidence{}, err
+	}
+	result.FinishReason, err = builderclient.ConfirmWorkerEvidence(builderclient.WorkerEvidenceFacts{
 		ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash,
 		WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest,
 		EvidenceSchemaHash: facts.EvidenceSchemaHash, OutputHash: outputRoot, OutputSizeBytes: receipt.OutputSizeBytes,
 		OutputLeafCount: receipt.OutputLeafCount, GeneratedTokenCount: receipt.GeneratedTokenCount,
-		TraceRoot: codec.HashBytes(result.Trace), TraceEncodedSizeBytes: uint64(len(result.Trace)),
-		CheckpointRoot: codec.HashBytes(result.Checkpoint), CheckpointEncodedSizeBytes: uint64(len(result.Checkpoint)),
 		InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash,
 		InputTokenIDsSizeBytes: uint64(len(result.InputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(result.GeneratedTokenIDs)),
-	}, committed)
+		WorkerValueRoot: valueRoot, WorkerValuesEncodedSizeBytes: uint64(len(result.WorkerValues)),
+	}, receipt.RequiredEvidenceCommitments)
 	if err != nil {
-		return WorkerValueEvidence{}, err
+		return WorkerEvidence{}, err
 	}
-	if confirmedReason != reason {
-		return WorkerValueEvidence{}, fmt.Errorf("Worker finish reason differs from typed commitment")
-	}
-	result.FinishReason = confirmedReason
-	c.cfg.Trace.Event("evidence_confirmed", tasktrace.Str("task", facts.TaskID), tasktrace.Hash("worker_value_commitment", committed.EvidenceHashOrRoot), tasktrace.Uint("generated_token_count", count))
+	c.cfg.Trace.Event("evidence_confirmed", tasktrace.Str("task", facts.TaskID),
+		tasktrace.Hash("worker_value_commitment", receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot),
+		tasktrace.Hash("worker_token_commitment", receipt.RequiredEvidenceCommitments[1].EvidenceHashOrRoot),
+		tasktrace.Hash("worker_value_root", valueRoot), tasktrace.Uint("generated_token_count", receipt.GeneratedTokenCount))
 	return result, nil
+}
+
+// fetchBundle downloads one Worker bundle: its manifest, addressed by the
+// kind's typed commitment, then each artifact the manifest names. It binds the
+// bytes to the manifest only; the caller binds them to the commitment.
+func (c *NexusEvidenceConfirmer) fetchBundle(ctx context.Context, facts EvidenceCommitments, endpoint string, committed builderclient.EvidenceCommitment) (map[string][]byte, error) {
+	receipt := facts.Receipt
+	kind := committed.EvidenceKind
+	key := builderclient.EvidenceObjectKey(receipt.TaskHash, facts.SessionID, facts.TaskID, builderclient.DataKindEvidenceManifest, committed.EvidenceHashOrRoot.String(), builderclient.EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress, kind)
+	metadata, err := c.evidenceMetadata(ctx, facts, endpoint, key)
+	if err != nil {
+		return nil, err
+	}
+	// The A-level bundle also carries generation_params, which the committed
+	// encoded_size_bytes does not count; the exact total is checked against
+	// the manifest once it is read.
+	wantArtifacts := uint32(1)
+	if kind == nodewire.EvidenceKindWorkerTokenOpening {
+		wantArtifacts = 3
+	}
+	// The only uncommitted bytes a Builder can declare are generation_params,
+	// so the declared total may exceed the committed size by at most its bound.
+	uncommitted := uint64(0)
+	if kind == nodewire.EvidenceKindWorkerTokenOpening {
+		uncommitted = nodewire.MaxGenerationParamsBytes
+	}
+	summary := metadata.EvidenceBundle
+	if summary == nil || summary.ManifestSizeBytes == 0 || summary.ManifestSizeBytes > evidencebundle.MaxManifestBytes ||
+		metadata.SizeBytes != summary.ManifestSizeBytes || summary.EvidenceSchemaHash != facts.EvidenceSchemaHash ||
+		summary.ArtifactCount != wantArtifacts || summary.ArtifactTotalSizeBytes < committed.EncodedSizeBytes ||
+		summary.ArtifactTotalSizeBytes-committed.EncodedSizeBytes > uncommitted {
+		return nil, fmt.Errorf("Worker %s bundle summary differs from receipt, profile or manifest bounds", evidencebundle.KindToken(kind))
+	}
+	// evidence_manifest_hash is Builder metadata, not a commitment: it only
+	// guards the transfer. The artifacts are bound to the receipt below.
+	if _, err := decodeCanonicalHash(summary.EvidenceManifestHash, "evidence_manifest_hash"); err != nil {
+		return nil, err
+	}
+	manifestBytes, err := c.fetchEvidenceBytes(ctx, facts, endpoint, key, metadata.SizeBytes, summary.EvidenceManifestHash)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := evidencebundle.Decode(manifestBytes)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.ChainID != receipt.ChainID || manifest.TaskID != receipt.TaskID || manifest.TaskHash != receipt.TaskHash ||
+		manifest.ProducerKind != "WORKER" || manifest.ProducerOperator != receipt.WorkerOperatorAddress || manifest.VerifyRound != 1 ||
+		manifest.EvidenceSchemaHash != facts.EvidenceSchemaHash || manifest.EvidenceKind != evidencebundle.KindToken(kind) {
+		return nil, fmt.Errorf("Worker %s manifest scope differs from the receipt or locked profile", manifest.EvidenceKind)
+	}
+	if manifest.CommittedSize() != committed.EncodedSizeBytes || manifest.TotalSize() != summary.ArtifactTotalSizeBytes {
+		return nil, fmt.Errorf("Worker %s manifest size differs from the committed encoded_size_bytes or the Builder's artifact total", manifest.EvidenceKind)
+	}
+	// Every size is checked before anything is downloaded: the committed
+	// artifacts sum to encoded_size_bytes above, and generation_params has its
+	// own hard bound.
+	for _, artifact := range manifest.Artifacts {
+		size, err := artifact.SizeBytes()
+		if err != nil {
+			return nil, err
+		}
+		if artifact.ID == evidencebundle.ArtifactGenerationParams && (size == 0 || size > nodewire.MaxGenerationParamsBytes) {
+			return nil, fmt.Errorf("Worker generation_params declares %d bytes, outside 1..%d", size, nodewire.MaxGenerationParamsBytes)
+		}
+	}
+	out := make(map[string][]byte, len(manifest.Artifacts))
+	for _, artifact := range manifest.Artifacts {
+		size, err := artifact.SizeBytes()
+		if err != nil {
+			return nil, err
+		}
+		artifactKey := builderclient.EvidenceObjectKey(receipt.TaskHash, facts.SessionID, facts.TaskID, builderclient.DataKindEvidenceArtifact, artifact.ContentHash, builderclient.EvidenceProducerWorker, 1, receipt.WorkerOperatorAddress, kind)
+		data, err := c.fetchEvidence(ctx, facts, endpoint, artifactKey, size)
+		if err != nil {
+			return nil, err
+		}
+		out[artifact.ID] = data
+	}
+	return out, nil
 }
 
 func (c *NexusEvidenceConfirmer) fetchEvidence(ctx context.Context, facts EvidenceCommitments, endpoint string, key builderclient.TaskDataKey, size uint64) ([]byte, error) {
@@ -224,7 +299,9 @@ func (c *NexusEvidenceConfirmer) fetchEvidenceBytes(ctx context.Context, facts E
 	if err != nil {
 		return nil, err
 	}
-	data := make([]byte, 0, size)
+	// The buffer grows with the bytes that actually arrive; a declared size
+	// only reserves up to maxEvidencePrealloc.
+	data := make([]byte, 0, min(size, maxEvidencePrealloc))
 	ended := false
 	err = c.cfg.TaskData.FetchTaskData(ctx, endpoint, builderclient.FetchTaskDataRequest{Key: key, Auth: auth}, func(chunk builderclient.TaskDataChunk) error {
 		if ended || chunk.Offset != uint64(len(data)) || uint64(len(chunk.Data)) > size-uint64(len(data)) {
@@ -250,12 +327,8 @@ func (c *NexusEvidenceConfirmer) fetchEvidenceBytes(ctx context.Context, facts E
 	return data, nil
 }
 
-func workerValueCommitment(facts EvidenceCommitments) (builderclient.EvidenceCommitment, error) {
-	if len(facts.Receipt.RequiredEvidenceCommitments) != 1 || facts.Receipt.RequiredEvidenceCommitments[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening {
-		return builderclient.EvidenceCommitment{}, fmt.Errorf("signed infer receipt requires exactly one Worker opening bundle")
-	}
-	return facts.Receipt.RequiredEvidenceCommitments[0], nil
-}
+// maxEvidencePrealloc caps the buffer reserved from a peer-declared size.
+const maxEvidencePrealloc = 1 << 20
 
 func decodeCanonicalHash(value, field string) (codec.Hash, error) {
 	raw, err := hex.DecodeString(value)

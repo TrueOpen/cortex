@@ -65,7 +65,11 @@ func newVLLMStubWithModels(t *testing.T, gen completionResponse, verify completi
 			_ = json.NewEncoder(w).Encode(verify)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(gen)
+		k := defaultTopK
+		if req.Logprobs != nil {
+			k = *req.Logprobs
+		}
+		_ = json.NewEncoder(w).Encode(withTopK(gen, k))
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &seen
@@ -208,7 +212,7 @@ func TestLocalServiceInferTokenCountAndWorkUnit(t *testing.T) {
 	generated.Choices[0].Logprobs.TokenLogprobs = []float64{-0.1}
 
 	srv, _ := newVLLMStub(t, generated, verifyResponse())
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	resp, err := svc.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{
 		RequestID:  "infer-metering",
 		ModelID:    testQwenModelID(),
@@ -232,7 +236,7 @@ func TestLocalServiceInferTokenCountAndWorkUnit(t *testing.T) {
 
 func TestFakeServiceInferTokenCountAndWorkUnit(t *testing.T) {
 	resp, err := NewFakeService().Infer(context.Background(), InferRequest{
-		ModelID:    fakeModelID,
+		ModelID:    FakeModelID,
 		Capability: CapabilityLLMTextV1,
 		Input:      []byte("prompt"),
 	})
@@ -260,13 +264,13 @@ func verifyResponse() completionResponse {
 }
 
 func TestLocalServiceImplementsClient(t *testing.T) {
-	var _ Client = NewLocalService("", "svc", 4, 0, 0)
+	var _ Client = newBoundLocalService("", "svc", 4, 0, 0)
 }
 
 func TestLocalServiceHealthCallsVLLMHealthEndpoint(t *testing.T) {
 	seen := false
 	srv := newHealthStub(t, http.StatusOK, "", &seen)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	resp, err := svc.Health(context.Background(), HealthRequest{RequestID: "health-1"})
 	if err != nil {
@@ -282,7 +286,7 @@ func TestLocalServiceHealthCallsVLLMHealthEndpoint(t *testing.T) {
 
 func TestLocalServiceHealthReportsVLLMUnhealthy(t *testing.T) {
 	srv := newHealthStub(t, http.StatusServiceUnavailable, "engine dead", nil)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	resp, err := svc.Health(context.Background(), HealthRequest{RequestID: "health-1"})
 	if err != nil {
@@ -302,7 +306,7 @@ func TestLocalServiceHealthHonorsProbeTimeout(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 50*time.Millisecond)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 50*time.Millisecond)
 	start := time.Now()
 	_, err := svc.Health(context.Background(), HealthRequest{RequestID: "health-timeout"})
 	elapsed := time.Since(start)
@@ -327,7 +331,7 @@ func TestLocalServiceInferHonorsInferTimeout(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	svc := NewLocalService(srv.URL, "local-svc", 4, 50*time.Millisecond, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 50*time.Millisecond, 0)
 	start := time.Now()
 	_, err := svc.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{
 		RequestID:  "infer-timeout",
@@ -344,36 +348,9 @@ func TestLocalServiceInferHonorsInferTimeout(t *testing.T) {
 	}
 }
 
-func TestLocalServiceListCapabilitiesCallsVLLMModelsEndpoint(t *testing.T) {
-	seen := false
-	srv := newModelsStub(t, http.StatusOK, []string{"Qwen/Qwen3-8B", "second-model", "Qwen/Qwen3-8B", ""}, "", &seen)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-
-	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
-	if err != nil {
-		t.Fatalf("ListCapabilities() error = %v", err)
-	}
-	if !seen {
-		t.Fatalf("ListCapabilities() did not call vLLM /v1/models")
-	}
-	if resp.RequestID != "caps-1" || resp.ModelServiceID != "local-svc" {
-		t.Fatalf("ListCapabilities() identity = %+v, want request/service ids", resp)
-	}
-	if resp.ResourceSnapshot.LoadedModels != 2 || len(resp.Capabilities) != 2 {
-		t.Fatalf("ListCapabilities() = %+v, want two loaded model capabilities", resp)
-	}
-	wantModels := []string{localHuggingFaceModelID("Qwen/Qwen3-8B"), localHuggingFaceModelID("second-model")}
-	for i, want := range wantModels {
-		got := resp.Capabilities[i]
-		if got.ModelID != want || got.Capability != CapabilityLLMTextV1 || !got.SupportsTrace || !got.SupportsCheckpoint || !got.SupportsBatchLog {
-			t.Fatalf("Capabilities[%d] = %+v, want llm_text_v1 capability for %q", i, got, want)
-		}
-	}
-}
-
 func TestLocalServiceListCapabilitiesUnavailableIsRetryable(t *testing.T) {
 	srv := newModelsStub(t, http.StatusServiceUnavailable, nil, "warming up", nil)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	_, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
 	if err == nil || !IsRetryable(err) {
@@ -383,7 +360,7 @@ func TestLocalServiceListCapabilitiesUnavailableIsRetryable(t *testing.T) {
 
 func TestLocalServiceListCapabilitiesUsesGeneratedSystemModelIDAfterLoadModel(t *testing.T) {
 	srv := newMetadataStub(t, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	modelID := testQwenModelID()
 
 	load, err := svc.LoadModel(context.Background(), LoadModelRequest{RequestID: "load-1", ModelID: modelID, Capability: CapabilityLLMTextV1})
@@ -405,516 +382,18 @@ func TestLocalServiceListCapabilitiesUsesGeneratedSystemModelIDAfterLoadModel(t 
 
 func TestLocalServiceLoadModelRequiresMappedModelID(t *testing.T) {
 	srv := newMetadataStub(t, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	_, err := svc.LoadModel(context.Background(), LoadModelRequest{RequestID: "load-1", ModelID: "model-random", Capability: CapabilityLLMTextV1})
-	if err == nil || !strings.Contains(err.Error(), "not mapped to a vLLM served model") {
+	if err == nil || !strings.Contains(err.Error(), "is not bound to a repository") {
 		t.Fatalf("LoadModel() error = %v, want explicit mapping failure", err)
 	}
 }
 
-func TestLocalHuggingFaceModelIDUsesRegistryFormula(t *testing.T) {
-	got := localHuggingFaceModelID("Qwen/Qwen3-8B")
-	want := "hf-ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
-	if got != want {
-		t.Fatalf("localHuggingFaceModelID() = %q, want %q", got, want)
-	}
-	if got := localHuggingFaceModelID(want); got != want {
-		t.Fatalf("localHuggingFaceModelID(%q) = %q, want canonical %q", want, got, want)
-	}
-}
-
+// testQwenModelID is the Hash32 model id, as canonical hex, the local tests
+// bind to the served repository Qwen/Qwen3-8B.
 func testQwenModelID() string {
-	return localHuggingFaceModelID("Qwen/Qwen3-8B")
-}
-
-func TestLocalServiceMapsVLLMModelNameToSystemModelID(t *testing.T) {
-	servedModel := "Qwen/Qwen3-8B"
-	systemModelID := localHuggingFaceModelID(servedModel)
-	srv, seen := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{servedModel, "other-served-model"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	ctx := context.Background()
-
-	caps, err := svc.ListCapabilities(ctx, ListCapabilitiesRequest{RequestID: "caps-1"})
-	if err != nil {
-		t.Fatalf("ListCapabilities() error = %v", err)
-	}
-	if len(caps.Capabilities) != 2 || caps.Capabilities[0].ModelID != systemModelID {
-		t.Fatalf("ListCapabilities() = %+v, want first capability for generated system model id %q", caps, systemModelID)
-	}
-
-	infer, err := svc.Infer(ctx, boundLocalInferFixture(t, InferRequest{
-		RequestID:  "infer-1",
-		ModelID:    systemModelID,
-		Capability: CapabilityLLMTextV1,
-		Input:      []byte("say hi"),
-	}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	traceArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	var trace traceEnvelope
-	if err := json.Unmarshal(traceArtifact.Data, &trace); err != nil {
-		t.Fatalf("unmarshal trace: %v", err)
-	}
-	if trace.ModelID != systemModelID {
-		t.Fatalf("trace model id = %q, want generated system model id", trace.ModelID)
-	}
-	checkpointArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.CheckpointRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(checkpoint) error = %v", err)
-	}
-	if _, err := svc.Verify(ctx, boundLocalVerifyFixture(t, VerifyRequest{
-		RequestID:  "verify-1",
-		ModelID:    systemModelID,
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("seed"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: traceArtifact.Data, Checkpoint: checkpointArtifact.Data},
-		},
-	})); err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-
-	var genReq, verifyReq *completionRequest
-	for i := range *seen {
-		if (*seen)[i].PromptLogprobs == nil {
-			genReq = &(*seen)[i]
-		} else {
-			verifyReq = &(*seen)[i]
-		}
-	}
-	if genReq == nil || genReq.Model != servedModel {
-		t.Fatalf("infer vLLM request = %+v, want served model %q", genReq, servedModel)
-	}
-	if verifyReq == nil || verifyReq.Model != servedModel {
-		t.Fatalf("verify vLLM request = %+v, want served model %q", verifyReq, servedModel)
-	}
-}
-
-func TestLocalServiceMapsSlashModelIDToVLLMModelName(t *testing.T) {
-	servedModel := "Qwen/Qwen3-8B"
-	modelID := localHuggingFaceModelID(servedModel)
-	srv, seen := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{servedModel})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-
-	_, err := svc.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{
-		RequestID:  "infer-1",
-		ModelID:    modelID,
-		Capability: CapabilityLLMTextV1,
-		Input:      []byte("say hi"),
-	}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	if len(*seen) != 1 || (*seen)[0].Model != servedModel {
-		t.Fatalf("infer vLLM requests = %+v, want served model %q", *seen, servedModel)
-	}
-}
-
-func TestLocalServiceInferStoresAndServesArtifacts(t *testing.T) {
-	srv, seen := newVLLMStub(t, genResponse(), verifyResponse())
-	svc := NewLocalService(strings.TrimPrefix(srv.URL, "http://"), "local-svc", 4, 0, 0)
-	ctx := context.Background()
-	modelID := testQwenModelID()
-
-	resp, err := svc.Infer(ctx, boundLocalInferFixture(t, InferRequest{
-		RequestID:  "infer-1",
-		ModelID:    modelID,
-		Capability: CapabilityLLMTextV1,
-		Input:      []byte("say hi"),
-	}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	if resp.OutputRef == "" || resp.TraceRef == "" || resp.CheckpointRef == "" {
-		t.Fatalf("Infer() refs incomplete: %+v", resp)
-	}
-	if resp.ModelServiceID != "local-svc" {
-		t.Fatalf("Infer() ModelServiceID = %q, want local-svc", resp.ModelServiceID)
-	}
-	if resp.ModelID != modelID {
-		t.Fatalf("Infer() ModelID = %q, want protocol model id", resp.ModelID)
-	}
-
-	output, err := svc.FetchArtifact(ctx, FetchArtifactRequest{
-		RequestID:      "fetch-1",
-		ModelServiceID: "local-svc",
-		Ref:            resp.OutputRef,
-	})
-	if err != nil {
-		t.Fatalf("FetchArtifact(output) error = %v", err)
-	}
-	if string(output.Data) != "hello world" {
-		t.Fatalf("output = %q, want %q", output.Data, "hello world")
-	}
-
-	traceArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{
-		RequestID:      "fetch-trace-1",
-		ModelServiceID: "local-svc",
-		Ref:            resp.TraceRef,
-	})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	var trace traceEnvelope
-	if err := json.Unmarshal(traceArtifact.Data, &trace); err != nil {
-		t.Fatalf("unmarshal trace: %v", err)
-	}
-	wantOut := []tokenLogprob{{TokenID: 10, Logprob: -0.1}, {TokenID: 11, Logprob: -0.2}}
-	if len(trace.OutTokens) != len(wantOut) {
-		t.Fatalf("trace.OutTokens = %+v, want %+v", trace.OutTokens, wantOut)
-	}
-	for i, got := range trace.OutTokens {
-		if got.TokenID != wantOut[i].TokenID || got.Logprob != wantOut[i].Logprob {
-			t.Fatalf("trace.OutTokens[%d] = %+v, want %+v", i, got, wantOut[i])
-		}
-	}
-	if len(trace.InputTokenIDs) != 3 {
-		t.Fatalf("trace.InputTokenIDs = %v, want len 3", trace.InputTokenIDs)
-	}
-	if trace.ModelID != modelID {
-		t.Fatalf("trace model binding = %+v, want protocol model id", trace)
-	}
-	if trace.FinishReason != "stop" || trace.GeneratedTokenCount != 2 {
-		t.Fatalf("trace finish/count = %q/%d, want stop/2", trace.FinishReason, trace.GeneratedTokenCount)
-	}
-	if trace.InputTokenIDsHash != hashTokenIDs([]int{1, 2, 3}) || trace.GeneratedTokenIDsHash != hashTokenIDs([]int{10, 11}) {
-		t.Fatalf("trace token hashes = %q/%q, want input/generated token id hashes", trace.InputTokenIDsHash, trace.GeneratedTokenIDsHash)
-	}
-	if len(*seen) != 1 {
-		t.Fatalf("seen requests = %d, want 1", len(*seen))
-	}
-	genReq := (*seen)[0]
-	if genReq.Model != "Qwen/Qwen3-8B" {
-		t.Fatalf("infer vLLM model = %q, want served model name", genReq.Model)
-	}
-	if genReq.MaxTokens != 128 || genReq.Logprobs == nil || *genReq.Logprobs != defaultTopK {
-		t.Fatalf("infer generation params = %+v, want fixture max_tokens=128 logprobs=%d", genReq, defaultTopK)
-	}
-	if genReq.TopP != defaultTopP || genReq.TopK != defaultTopKSample || genReq.Seed == nil || *genReq.Seed != defaultSeed {
-		t.Fatalf("infer sampling params = %+v, want top_p=%v top_k=%d seed=%d", genReq, defaultTopP, defaultTopKSample, defaultSeed)
-	}
-}
-
-func TestLocalServiceVerifyUsesTokenIDPrompt(t *testing.T) {
-	srv, seen := newVLLMStub(t, genResponse(), verifyResponse())
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	ctx := context.Background()
-	modelID := testQwenModelID()
-
-	infer, err := svc.Infer(ctx, boundLocalInferFixture(t, InferRequest{RequestID: "infer-1", ModelID: modelID, Capability: CapabilityLLMTextV1, Input: []byte("hi")}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	traceArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	checkpointArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.CheckpointRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(checkpoint) error = %v", err)
-	}
-
-	resp, err := svc.Verify(ctx, boundLocalVerifyFixture(t, VerifyRequest{
-		RequestID:  "verify-1",
-		ModelID:    modelID,
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("seed"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: traceArtifact.Data, Checkpoint: checkpointArtifact.Data},
-		},
-	}))
-	if err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-	if resp.SampleValueSequenceRef == "" {
-		t.Fatalf("Verify() SampleValueSequenceRef empty")
-	}
-	if resp.MainMismatchCount != 0 {
-		t.Fatalf("Verify() MainMismatchCount = %d, want non-reject pass", resp.MainMismatchCount)
-	}
-	if len(resp.MaterialDigest) == 0 || len(resp.SampleDigest) == 0 {
-		t.Fatalf("Verify() digests empty: %+v", resp)
-	}
-	sequence, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: resp.SampleValueSequenceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(sample sequence) error = %v", err)
-	}
-	var envelope verificationEnvelope
-	if err := json.Unmarshal(sequence.Data, &envelope); err != nil {
-		t.Fatalf("unmarshal sequence envelope: %v", err)
-	}
-	if envelope.Verdict != verdictPass || envelope.RawVerdict != verdictInconclusive || envelope.Metrics.FiniteCount != 2 {
-		t.Fatalf("verification envelope = %+v, want inconclusive raw treated as pass", envelope)
-	}
-	if envelope.VerifierID != localVerifierID || envelope.Policy.PassMinFiniteCount != passMinFiniteCount {
-		t.Fatalf("verification envelope = %+v, want verifier id and policy snapshot", envelope)
-	}
-
-	// The verify call must send the prompt as input+output token ids and max_tokens=1.
-	var verifyReq *completionRequest
-	for i := range *seen {
-		if (*seen)[i].PromptLogprobs != nil {
-			verifyReq = &(*seen)[i]
-			break
-		}
-	}
-	if verifyReq == nil {
-		t.Fatalf("no prompt_logprobs request captured: %+v", *seen)
-	}
-	if verifyReq.MaxTokens != 1 {
-		t.Fatalf("verify max_tokens = %d, want 1", verifyReq.MaxTokens)
-	}
-	if verifyReq.Model != "Qwen/Qwen3-8B" {
-		t.Fatalf("verify vLLM model = %q, want served model name", verifyReq.Model)
-	}
-	if verifyReq.PromptLogprobs == nil || *verifyReq.PromptLogprobs != defaultTopK {
-		t.Fatalf("verify prompt_logprobs = %v, want %d", verifyReq.PromptLogprobs, defaultTopK)
-	}
-	if verifyReq.TopP != defaultTopP || verifyReq.TopK != defaultTopKSample || verifyReq.Seed == nil || *verifyReq.Seed != defaultSeed {
-		t.Fatalf("verify sampling params = %+v, want top_p=%v top_k=%d seed=%d", verifyReq, defaultTopP, defaultTopKSample, defaultSeed)
-	}
-	// JSON numbers decode into []interface{} of float64.
-	promptIDs, ok := verifyReq.Prompt.([]any)
-	if !ok {
-		t.Fatalf("verify prompt type = %T, want []any", verifyReq.Prompt)
-	}
-	want := []int{1, 2, 3, 10, 11}
-	if len(promptIDs) != len(want) {
-		t.Fatalf("verify prompt = %v, want %v", promptIDs, want)
-	}
-	for i, v := range promptIDs {
-		if int(v.(float64)) != want[i] {
-			t.Fatalf("verify prompt[%d] = %v, want %d", i, v, want[i])
-		}
-	}
-}
-
-func TestLocalServiceUsesResolvedProfileForInferAndVerify(t *testing.T) {
-	srv, seen := newVLLMStub(t, genResponse(), verifyResponse())
-	modelID := testQwenModelID()
-	resolver := staticLocalProfileResolver{profile: resolvedCurrentProfile(modelID, 3, 7)}
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	svc.SetProfileResolver(resolver)
-	ctx := context.Background()
-
-	infer, err := svc.Infer(ctx, boundLocalInferFixture(t, InferRequest{
-		RequestID:      "infer-1",
-		ModelID:        modelID,
-		ProfileVersion: "3",
-		Capability:     CapabilityLLMTextV1,
-		Input:          []byte("hi"),
-	}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	traceArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	checkpointArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.CheckpointRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(checkpoint) error = %v", err)
-	}
-
-	verify, err := svc.Verify(ctx, boundLocalVerifyFixture(t, VerifyRequest{
-		RequestID:      "verify-1",
-		ModelID:        modelID,
-		ProfileVersion: "3",
-		Capability:     CapabilityLLMTextV1,
-		Sample:         []byte("seed"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: traceArtifact.Data, Checkpoint: checkpointArtifact.Data},
-		},
-	}))
-	if err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-	sequence, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: verify.SampleValueSequenceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(sequence) error = %v", err)
-	}
-	var envelope verificationEnvelope
-	if err := json.Unmarshal(sequence.Data, &envelope); err != nil {
-		t.Fatalf("unmarshal sequence envelope: %v", err)
-	}
-	if envelope.Policy.PassMinFiniteCount != 9 || envelope.Policy.RejectMeanAbsLogprobDiffMin != 0.5 {
-		t.Fatalf("verification policy = %+v, want resolver thresholds", envelope.Policy)
-	}
-
-	var genReq, verifyReq *completionRequest
-	for i := range *seen {
-		if (*seen)[i].PromptLogprobs == nil {
-			genReq = &(*seen)[i]
-		} else {
-			verifyReq = &(*seen)[i]
-		}
-	}
-	if genReq == nil || genReq.Logprobs == nil || *genReq.Logprobs != 7 {
-		t.Fatalf("infer request = %+v, want resolver logprobs=7", genReq)
-	}
-	if verifyReq == nil || verifyReq.PromptLogprobs == nil || *verifyReq.PromptLogprobs != 7 {
-		t.Fatalf("verify request = %+v, want resolver prompt_logprobs=7", verifyReq)
-	}
-}
-
-func TestLocalProfileSnapshotOverridesDefaults(t *testing.T) {
-	profile, err := applyCurrentProfileSnapshot(defaultQwenSingleSampleProfile("m", "3", "served"), resolvedCurrentProfile("m", 3, 7))
-	if err != nil {
-		t.Fatalf("applyCurrentProfileSnapshot() error = %v", err)
-	}
-	if profile.RequiredTopK != 7 || profile.Sampling.Logprobs != 7 || profile.Sampling.PromptLogprobs != 7 || profile.Verification.ComparedTopK != 7 {
-		t.Fatalf("resolved top-k = %+v, want all top-k fields from profile snapshot", profile)
-	}
-	if profile.Thresholds.PassMinFiniteCount != 9 || profile.Thresholds.RejectMeanAbsLogprobDiffMin != 0.5 {
-		t.Fatalf("resolved thresholds = %+v, want FP_1E6 thresholds from profile snapshot", profile.Thresholds)
-	}
-	if !profile.Verification.RequireOutputTokenIDs || !profile.Verification.RequireFinishReason || profile.Verification.NumericScale != "FP_1E6" {
-		t.Fatalf("resolved verification profile = %+v, want profile snapshot values", profile.Verification)
-	}
-}
-
-func TestLocalServiceVerifyReportsMismatchesAndRecomputedSequence(t *testing.T) {
-	mismatched := verifyResponse()
-	mismatched.Choices[0].PromptLogprobs[4]["11"] = logprobEntry{Logprob: -0.9, Rank: 1, DecodedToken: "world"}
-	srv, _ := newVLLMStub(t, genResponse(), mismatched)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	ctx := context.Background()
-	modelID := testQwenModelID()
-
-	infer, err := svc.Infer(ctx, boundLocalInferFixture(t, InferRequest{RequestID: "infer-1", ModelID: modelID, Capability: CapabilityLLMTextV1, Input: []byte("hi")}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	traceArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	checkpointArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.CheckpointRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(checkpoint) error = %v", err)
-	}
-
-	resp, err := svc.Verify(ctx, boundLocalVerifyFixture(t, VerifyRequest{
-		RequestID:  "verify-1",
-		ModelID:    modelID,
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("seed"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: traceArtifact.Data, Checkpoint: checkpointArtifact.Data},
-		},
-	}))
-	if err != nil {
-		t.Fatalf("Verify() error = %v", err)
-	}
-	if resp.MainMismatchCount == 0 {
-		t.Fatalf("MainMismatchCount = %d, want reject reasons", resp.MainMismatchCount)
-	}
-	wantPositions := []int{0, 1}
-	if len(resp.SelectedPositionsOrCheckpoints) != len(wantPositions) {
-		t.Fatalf("SelectedPositionsOrCheckpoints = %v, want %v", resp.SelectedPositionsOrCheckpoints, wantPositions)
-	}
-	for i, want := range wantPositions {
-		if resp.SelectedPositionsOrCheckpoints[i] != want {
-			t.Fatalf("SelectedPositionsOrCheckpoints[%d] = %d, want %d", i, resp.SelectedPositionsOrCheckpoints[i], want)
-		}
-	}
-
-	sequence, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: resp.SampleValueSequenceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(sequence) error = %v", err)
-	}
-	var values []verificationValue
-	var envelope verificationEnvelope
-	if err := json.Unmarshal(sequence.Data, &envelope); err != nil {
-		t.Fatalf("unmarshal sequence envelope: %v", err)
-	}
-	values = envelope.Values
-	if envelope.Verdict != verdictReject || envelope.RawVerdict != verdictReject || len(envelope.RejectReasons) == 0 {
-		t.Fatalf("verification envelope = %+v, want reject", envelope)
-	}
-	if envelope.Metrics.MeanAbsLogprobDiff <= rejectMeanAbsLogprobDiffMin {
-		t.Fatalf("MeanAbsLogprobDiff = %v, want reject threshold breach", envelope.Metrics.MeanAbsLogprobDiff)
-	}
-	if len(values) != 2 || !values[0].Present || !values[1].Present || values[1].Logprob == nil || *values[1].Logprob != -0.9 {
-		t.Fatalf("verification values = %+v, want recomputed mismatch on second token", values)
-	}
-}
-
-func TestLocalServiceVerifyRejectsMismatchedCheckpoint(t *testing.T) {
-	srv, _ := newVLLMStub(t, genResponse(), verifyResponse())
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	ctx := context.Background()
-	modelID := testQwenModelID()
-
-	infer, err := svc.Infer(ctx, boundLocalInferFixture(t, InferRequest{RequestID: "infer-1", ModelID: modelID, Capability: CapabilityLLMTextV1, Input: []byte("hi")}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	traceArtifact, err := svc.FetchArtifact(ctx, FetchArtifactRequest{ModelServiceID: "local-svc", Ref: infer.TraceRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(trace) error = %v", err)
-	}
-	checkpointBytes, err := json.Marshal(traceEnvelope{
-		Output:        "other output",
-		InputTokenIDs: []int{1, 2, 3},
-	})
-	if err != nil {
-		t.Fatalf("marshal checkpoint: %v", err)
-	}
-
-	_, err = svc.Verify(ctx, boundLocalVerifyFixture(t, VerifyRequest{
-		RequestID:  "verify-1",
-		ModelID:    modelID,
-		Capability: CapabilityLLMTextV1,
-		Sample:     []byte("seed"),
-		Evidence: map[string]VerifyEvidence{
-			EvidenceKindWorkerValueOpening: {Trace: traceArtifact.Data, Checkpoint: checkpointBytes},
-		},
-	}))
-	if err == nil || !strings.Contains(err.Error(), "checkpoint does not match trace") {
-		t.Fatalf("Verify() error = %v, want checkpoint mismatch", err)
-	}
-}
-
-func TestLocalServiceSingleSampleClassifierRejectsOnlyRejectThresholds(t *testing.T) {
-	rejectMetrics := singleSampleMetrics{
-		FiniteCount:          128,
-		MeanAbsLogprobDiff:   rejectMeanAbsLogprobDiffMin + 0.001,
-		AbsLogprobDiffP95:    0.05,
-		AbsLogprobDiffP99:    0.10,
-		RankDeltaNonzeroRate: 0.01,
-		TopKJaccardMean:      floatPtr(0.94),
-		UnionJSP99:           floatPtr(0.01),
-		ComparedTopKCount:    128,
-		ComparedRankCount:    128,
-		MissingSelectedCount: 0,
-	}
-	verdict, reasons := classifySingleSampleWithThresholds(rejectMetrics, localSingleSampleThresholds())
-	if verdict != verdictReject || len(reasons) != 1 || reasons[0] != "mean_abs_logprob_diff" {
-		t.Fatalf("reject classify = %s reasons=%v, want mean_abs reject", verdict, reasons)
-	}
-
-	inconclusiveMetrics := singleSampleMetrics{
-		FiniteCount:          128,
-		MeanAbsLogprobDiff:   passMeanAbsLogprobDiffMax + 0.001,
-		AbsLogprobDiffP95:    passAbsLogprobDiffP95Max + 0.001,
-		AbsLogprobDiffP99:    passAbsLogprobDiffP99Max + 0.001,
-		RankDeltaNonzeroRate: passRankMismatchRateMax + 0.001,
-		TopKJaccardMean:      floatPtr(passTopKJaccardMeanMin - 0.001),
-		UnionJSP99:           floatPtr(passUnionJSP99Max + 0.001),
-		ComparedTopKCount:    128,
-		ComparedRankCount:    128,
-		MissingSelectedCount: 0,
-	}
-	verdict, reasons = classifySingleSampleWithThresholds(inconclusiveMetrics, localSingleSampleThresholds())
-	if verdict != verdictInconclusive || len(reasons) != 0 {
-		t.Fatalf("gray classify = %s reasons=%v, want inconclusive without reject", verdict, reasons)
-	}
+	return "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
 }
 
 func TestLocalServiceHTTPUnavailableIsRetryable(t *testing.T) {
@@ -923,15 +402,11 @@ func TestLocalServiceHTTPUnavailableIsRetryable(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
-	_, err := svc.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{ModelID: "m", Capability: CapabilityLLMTextV1, Input: []byte("hi")}))
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+	_, err := svc.Infer(context.Background(), boundLocalInferFixture(t, InferRequest{ModelID: testQwenModelID(), Capability: CapabilityLLMTextV1, Input: []byte("hi")}))
 	if err == nil || !IsRetryable(err) {
 		t.Fatalf("Infer() error = %v, want retryable error", err)
 	}
-}
-
-func floatPtr(v float64) *float64 {
-	return &v
 }
 
 type staticLocalProfileResolver struct {
@@ -942,51 +417,9 @@ func (r staticLocalProfileResolver) ResolveLocalProfile(context.Context, string,
 	return r.profile, nil
 }
 
-func resolvedCurrentProfile(modelID string, profileVersion uint32, topK uint32) chainclient.CurrentProfileSnapshot {
-	return chainclient.CurrentProfileSnapshot{
-		ModelID:        modelID,
-		ProfileVersion: chainclient.NewProfileVersion(profileVersion),
-		RuntimeClass:   defaultLocalRuntimeClass,
-		RequiredTopK:   topK,
-		VerificationProfile: chainclient.CurrentVerificationProfileSnapshot{
-			VerificationProfileID:         2,
-			JudgmentFunctionVersion:       defaultLocalJudgmentFunctionVersion,
-			TokenScope:                    "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
-			IncludeGeneratedSpecialTokens: true,
-			RequireOutputTokenIDs:         true,
-			RequireFinishReason:           true,
-			Metrics: chainclient.CurrentMetricSpecSnapshot{
-				CompareLogprobDiff: true,
-				CompareRankDelta:   true,
-				CompareTopKJaccard: true,
-				CompareUnionJS:     true,
-				ComparedTopK:       topK,
-				NumericScale:       "NUMERIC_SCALE_FP_1E6",
-			},
-			CanonicalEncodingVersion:    defaultLocalCanonicalEncoding,
-			MetricAggregateProofVersion: defaultLocalMetricProofVersion,
-		},
-		VerificationThresholds: chainclient.CurrentVerificationThresholdsSnapshot{
-			PassMinFiniteCount:            9,
-			PassMeanAbsLogprobDiffMax:     18000,
-			PassAbsLogprobDiffP95Max:      100000,
-			PassAbsLogprobDiffP99Max:      200000,
-			PassRankDeltaNonzeroRateMax:   25000,
-			PassTopKJaccardMeanMin:        935000,
-			PassUnionJSP99Max:             12000,
-			RejectMeanAbsLogprobDiffMin:   500000,
-			RejectAbsLogprobDiffP95Min:    600000,
-			RejectAbsLogprobDiffP99Min:    700000,
-			RejectRankDeltaNonzeroRateMin: 800000,
-			RejectTopKJaccardMeanMax:      100000,
-			RejectUnionJSP99Min:           900000,
-		},
-	}
-}
-
 func TestLocalServiceMetadataEndpoints(t *testing.T) {
 	srv := newMetadataStub(t, []string{"Qwen/Qwen3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 	ctx := context.Background()
 	modelID := testQwenModelID()
 
@@ -1040,7 +473,7 @@ func newCapacityStub(t *testing.T, running, waiting float64, omitGauges bool) *h
 // capacity is invalid for handraise".
 func TestLocalServiceReportsCapacityHandraiseCanUse(t *testing.T) {
 	srv := newCapacityStub(t, 1, 2, false)
-	svc := NewLocalService(srv.URL, "local-svc", 8, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 8, 0, 0)
 
 	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
 	if err != nil {
@@ -1066,7 +499,7 @@ func TestLocalServiceReportsCapacityHandraiseCanUse(t *testing.T) {
 // must read as saturated rather than underflow into a huge free capacity.
 func TestLocalServiceReportsSaturationWhenBacklogExceedsConcurrency(t *testing.T) {
 	srv := newCapacityStub(t, 4, 30, false)
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
 
 	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
 	if err != nil {
@@ -1092,7 +525,7 @@ func TestLocalServiceFailsWhenCapacityIsUnreadable(t *testing.T) {
 		{name: "metrics unavailable", srv: newModelsStubWithoutMetrics(t)},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			svc := NewLocalService(testCase.srv.URL, "local-svc", 4, 0, 0)
+			svc := newBoundLocalService(testCase.srv.URL, "local-svc", 4, 0, 0)
 			if _, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"}); err == nil {
 				t.Fatalf("ListCapabilities() error = nil, want a failure rather than an idle capacity")
 			}
@@ -1145,67 +578,36 @@ func newModelsStubWithoutMetrics(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// Handraise eligibility matches the chain model id against what the model
-// service advertises, but vLLM serves its own name (Qwen/Qwen3-8B). Local maps
-// the served name to the registry id and only advertises it when it matches the
-// configured support list.
-func TestLocalServiceAdvertisesConfiguredModelIDWhenServedModelMatches(t *testing.T) {
-	const chainModelID = "hf-ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
-	srv := newCapacityStub(t, 0, 0, false) // serves exactly one model: Qwen/Qwen3-8B
-	svc := NewLocalService(srv.URL, "local-svc", 8, 0, 0, chainModelID)
-
-	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
-	if err != nil {
-		t.Fatalf("ListCapabilities() error = %v", err)
-	}
-	if len(resp.Capabilities) != 1 || resp.Capabilities[0].ModelID != chainModelID {
-		t.Fatalf("Capabilities = %+v, want the chain model id advertised before any load", resp.Capabilities)
-	}
-
-	// Inference must still reach the served model behind that id.
-	served, err := svc.resolveServedModel(context.Background(), chainModelID)
-	if err != nil {
-		t.Fatalf("resolveServedModel() error = %v", err)
-	}
-	if served != "Qwen/Qwen3-8B" {
-		t.Fatalf("resolveServedModel() = %q, want the served vLLM model", served)
-	}
-}
-
 // With several served models the mapping is a guess, and binding a chain id to
 // the wrong weights is worse than not being selected.
+// With several models served, only the chain-bound model id is advertised;
+// nothing is derived for the other served model, and an unbound service
+// advertises none at all.
 func TestLocalServiceDoesNotGuessModelIDWhenSeveralAreServed(t *testing.T) {
 	srv := newMultiModelStub(t, []string{"Qwen/Qwen3-8B", "meta-llama/Llama-3-8B"})
-	svc := NewLocalService(srv.URL, "local-svc", 8, 0, 0, "hf-somechainid")
+	svc := newBoundLocalService(srv.URL, "local-svc", 8, 0, 0)
 
 	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
 	if err != nil {
 		t.Fatalf("ListCapabilities() error = %v", err)
 	}
-	for _, capability := range resp.Capabilities {
-		if capability.ModelID == "hf-somechainid" {
-			t.Fatalf("Capabilities = %+v, want no guessed binding while several models are served", resp.Capabilities)
-		}
+	if len(resp.Capabilities) != 1 || resp.Capabilities[0].ModelID != testQwenModelID() {
+		t.Fatalf("Capabilities = %+v, want only the bound model id", resp.Capabilities)
 	}
-}
-
-func TestLocalServiceDoesNotGuessAmongSeveralConfiguredModelIDs(t *testing.T) {
-	srv := newCapacityStub(t, 0, 0, false) // exactly one served model
-	svc := NewLocalService(srv.URL, "local-svc", 8, 0, 0, "hf-model-a", "hf-model-b")
-
-	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
+	unbound := NewLocalService(srv.URL, "local-svc", 8, 0, 0)
+	resp, err = unbound.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-2"})
 	if err != nil {
 		t.Fatalf("ListCapabilities() error = %v", err)
 	}
 	if len(resp.Capabilities) != 0 {
-		t.Fatalf("Capabilities = %+v, want no advertised models when configured ids do not match served models", resp.Capabilities)
+		t.Fatalf("unbound Capabilities = %+v, want none guessed from the served names", resp.Capabilities)
 	}
 }
 
 func TestLocalServiceDeduplicatesConfiguredModelIDs(t *testing.T) {
 	srv := newCapacityStub(t, 0, 0, false)
 	modelID := testQwenModelID()
-	svc := NewLocalService(srv.URL, "local-svc", 8, 0, 0, " "+modelID+" ", modelID)
+	svc := newBoundLocalService(srv.URL, "local-svc", 8, 0, 0)
 
 	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
 	if err != nil {
@@ -1213,23 +615,6 @@ func TestLocalServiceDeduplicatesConfiguredModelIDs(t *testing.T) {
 	}
 	if len(resp.Capabilities) != 1 || resp.Capabilities[0].ModelID != modelID {
 		t.Fatalf("Capabilities = %+v, want the single deduplicated configured model", resp.Capabilities)
-	}
-}
-
-func TestLocalServiceRejectsConfiguredModelIDThatDoesNotMatchServedModel(t *testing.T) {
-	srv := newCapacityStub(t, 0, 0, false)
-	svc := NewLocalService(srv.URL, "local-svc", 8, 0, 0, "hf-configured")
-
-	resp, err := svc.ListCapabilities(context.Background(), ListCapabilitiesRequest{RequestID: "caps-1"})
-	if err != nil {
-		t.Fatalf("ListCapabilities() error = %v", err)
-	}
-	if len(resp.Capabilities) != 0 {
-		t.Fatalf("Capabilities = %+v, want no configured alias for a mismatched served model", resp.Capabilities)
-	}
-	if _, err := svc.resolveServedModel(context.Background(), "hf-configured"); err == nil ||
-		!strings.Contains(err.Error(), "not mapped to a vLLM served model") {
-		t.Fatalf("resolveServedModel() error = %v, want mismatched configured id rejected", err)
 	}
 }
 
@@ -1313,60 +698,13 @@ func liveLikeProfileSnapshot(modelID, profileVersion string) chainclient.Current
 	return snapshot
 }
 
-// Keeper has no message that edits a registered profile in place -- changing a
-// parameter registers a new version -- so a resolved profile never needs
-// re-fetching. Querying per Infer/Verify put an avoidable failure point on the
-// task hot path: a Keeper blip mid-task lost the task.
-func TestLocalServiceCachesResolvedProfilePerVersion(t *testing.T) {
-	const servedModel = "Qwen/Qwen3-8B"
-	modelID := localHuggingFaceModelID(servedModel)
-	srv, _ := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{servedModel})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0, modelID)
-	resolver := &countingProfileResolver{snapshot: liveLikeProfileSnapshot}
-	svc.SetProfileResolver(resolver)
-	ctx := context.Background()
-
-	for i := 0; i < 3; i++ {
-		if _, err := svc.resolveLocalProfile(ctx, modelID, "1"); err != nil {
-			t.Fatalf("resolveLocalProfile() error = %v", err)
-		}
-	}
-	if got := resolver.Calls(modelID + "@1"); got != 1 {
-		t.Fatalf("chain queries for one version = %d, want 1", got)
-	}
-
-	// A different version is a different profile and must be fetched.
-	if _, err := svc.resolveLocalProfile(ctx, modelID, "2"); err != nil {
-		t.Fatalf("resolveLocalProfile() error = %v", err)
-	}
-	if got := resolver.Calls(modelID + "@2"); got != 1 {
-		t.Fatalf("chain queries for the new version = %d, want 1", got)
-	}
-	if got := resolver.Calls(modelID + "@1"); got != 1 {
-		t.Fatalf("first version was re-fetched: %d queries", got)
-	}
-}
-
-// A resolution that fails must not be cached, or one transient Keeper failure
-// would permanently disable the model on this node.
-func TestLocalServiceDoesNotCacheFailedProfileResolution(t *testing.T) {
-	const servedModel = "Qwen/Qwen3-8B"
-	modelID := localHuggingFaceModelID(servedModel)
-	srv, _ := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{servedModel})
-	svc := NewLocalService(srv.URL, "local-svc", 4, 0, 0, modelID)
-	failing := &flakyProfileResolver{}
-	svc.SetProfileResolver(failing)
-	ctx := context.Background()
-
-	if _, err := svc.resolveLocalProfile(ctx, modelID, "1"); err == nil {
-		t.Fatal("resolveLocalProfile() error = nil, want the transient failure")
-	}
-	profile, err := svc.resolveLocalProfile(ctx, modelID, "1")
-	if err != nil {
-		t.Fatalf("resolveLocalProfile() error = %v after the resolver recovered", err)
-	}
-	if profile.RequiredTopK != 20 {
-		t.Fatalf("required_top_k = %d, want the chain value once resolvable", profile.RequiredTopK)
+// liveLikeProfileSnapshotWithTopK is liveLikeProfileSnapshot with another
+// required_top_k.
+func liveLikeProfileSnapshotWithTopK(k uint32) func(string, string) chainclient.CurrentProfileSnapshot {
+	return func(modelID, profileVersion string) chainclient.CurrentProfileSnapshot {
+		snapshot := liveLikeProfileSnapshot(modelID, profileVersion)
+		snapshot.RequiredTopK, snapshot.VerificationProfile.Metrics.ComparedTopK = k, k
+		return snapshot
 	}
 }
 
@@ -1462,83 +800,6 @@ func TestLocalServiceRejectsProfileWithoutVerificationThresholds(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "verification_thresholds") {
 		t.Fatalf("error = %v, want it to name verification_thresholds", err)
-	}
-}
-
-// judgmentBoundaryThresholds gives every threshold a distinct value so a test
-// can sit a metric exactly on one boundary at a time.
-func judgmentBoundaryThresholds() singleSampleThresholds {
-	return singleSampleThresholds{
-		PassMinFiniteCount:          16,
-		PassMeanAbsLogprobDiffMax:   0.018,
-		PassAbsLogprobDiffP95Max:    0.100,
-		PassAbsLogprobDiffP99Max:    0.200,
-		PassRankMismatchRateMax:     0.025,
-		PassTopKJaccardMeanMin:      0.935,
-		PassUnionJSP99Max:           0.012,
-		RejectMeanAbsLogprobDiffMin: 0.023,
-		RejectAbsLogprobDiffP95Min:  0.130,
-		RejectAbsLogprobDiffP99Min:  0.280,
-		RejectRankMismatchRateMin:   0.040,
-		RejectTopKJaccardMeanMax:    0.910,
-		RejectUnionJSP99Min:         0.025,
-	}
-}
-
-// passingMetricsAt returns metrics that pass, with finiteCount positions.
-func passingMetricsAt(finiteCount int) singleSampleMetrics {
-	jaccard, unionJS := 1.0, 0.0
-	return singleSampleMetrics{
-		FiniteCount:       finiteCount,
-		ComparedRankCount: finiteCount,
-		ComparedTopKCount: finiteCount,
-		TopKJaccardMean:   &jaccard,
-		UnionJSP99:        &unionJS,
-	}
-}
-
-// JudgeMetricSample in x/task/types/metric_judgment.go evaluates reject
-// thresholds inclusively. Cortex must match that, because the chain recomputes
-// the verdict from the submitted MetricSummary and settlement takes a majority
-// over those chain-computed verdicts.
-func TestJudgmentBoundariesAreDefined(t *testing.T) {
-	thresholds := judgmentBoundaryThresholds()
-
-	// Pass thresholds are inclusive: exactly the minimum finite count passes.
-	if verdict, _ := classifySingleSampleWithThresholds(passingMetricsAt(16), thresholds); verdict != verdictPassStrict {
-		t.Fatalf("finite_count exactly at pass_min_finite_count = %s, want %s (the minimum that still passes)", verdict, verdictPassStrict)
-	}
-	if verdict, _ := classifySingleSampleWithThresholds(passingMetricsAt(15), thresholds); verdict == verdictPassStrict {
-		t.Fatalf("finite_count below pass_min_finite_count = %s, want it not to pass", verdict)
-	}
-
-	// A metric exactly on a pass ceiling still passes.
-	onCeiling := passingMetricsAt(16)
-	onCeiling.MeanAbsLogprobDiff = thresholds.PassMeanAbsLogprobDiffMax
-	if verdict, _ := classifySingleSampleWithThresholds(onCeiling, thresholds); verdict != verdictPassStrict {
-		t.Fatalf("mean_abs_logprob_diff exactly at its pass ceiling = %s, want %s", verdict, verdictPassStrict)
-	}
-
-	// A metric exactly on a pass floor still passes.
-	onFloor := passingMetricsAt(16)
-	floor := thresholds.PassTopKJaccardMeanMin
-	onFloor.TopKJaccardMean = &floor
-	if verdict, _ := classifySingleSampleWithThresholds(onFloor, thresholds); verdict != verdictPassStrict {
-		t.Fatalf("topk_jaccard_mean exactly at its pass floor = %s, want %s", verdict, verdictPassStrict)
-	}
-
-	// Reject thresholds are inclusive, matching the chain. A metric exactly on
-	// the reject boundary rejects; one infinitesimally inside the pass band
-	// does not.
-	onRejectBoundary := passingMetricsAt(16)
-	onRejectBoundary.MeanAbsLogprobDiff = thresholds.RejectMeanAbsLogprobDiffMin
-	if verdict, _ := classifySingleSampleWithThresholds(onRejectBoundary, thresholds); verdict != verdictReject {
-		t.Fatalf("mean_abs_logprob_diff exactly at its reject boundary = %s, want %s", verdict, verdictReject)
-	}
-	insidePassBand := passingMetricsAt(16)
-	insidePassBand.MeanAbsLogprobDiff = thresholds.RejectMeanAbsLogprobDiffMin * 0.99
-	if verdict, _ := classifySingleSampleWithThresholds(insidePassBand, thresholds); verdict != verdictInconclusive {
-		t.Fatalf("mean_abs_logprob_diff slightly below its reject boundary = %s, want %s", verdict, verdictInconclusive)
 	}
 }
 

@@ -162,13 +162,16 @@ type EvidenceSchemaMessage struct {
 	RequiredInferEvidence []InferEvidenceRequirementMessage `json:"required_infer_evidence"`
 }
 
-func WorkerValueEvidenceSchemaV2(maxEncodedSizeBytes uint64) EvidenceSchemaMessage {
+// WorkerEvidenceSchemaV3 is the two-level Worker evidence schema of wire
+// v0.3.0: the B-level value opening (kind 1, commitment V3) and the A-level
+// token opening (kind 4, commitment V1), in ascending kind order.
+func WorkerEvidenceSchemaV3(maxValueBytes, maxTokenBytes uint64) EvidenceSchemaMessage {
 	return EvidenceSchemaMessage{
 		SchemaVersion: 1,
-		RequiredInferEvidence: []InferEvidenceRequirementMessage{{
-			EvidenceKind: "EVIDENCE_KIND_WORKER_VALUE_OPENING", CommitmentSchemaVersion: 2,
-			MaxEncodedSizeBytes: ProtoUint64(maxEncodedSizeBytes),
-		}},
+		RequiredInferEvidence: []InferEvidenceRequirementMessage{
+			{EvidenceKind: "EVIDENCE_KIND_WORKER_VALUE_OPENING", CommitmentSchemaVersion: 3, MaxEncodedSizeBytes: ProtoUint64(maxValueBytes)},
+			{EvidenceKind: "EVIDENCE_KIND_WORKER_TOKEN_OPENING", CommitmentSchemaVersion: 1, MaxEncodedSizeBytes: ProtoUint64(maxTokenBytes)},
+		},
 	}
 }
 
@@ -227,8 +230,26 @@ type TimeoutBootstrapProfileMessage struct {
 	BootstrapValidUntilEpoch     ProtoUint64 `json:"bootstrap_valid_until_epoch"`
 }
 
+// SourceRefMessage is shared.v1.SourceRefV1: the immutable upstream the
+// profile's weights come from. provider and repo_id are also inputs of the
+// model id.
+type SourceRefMessage struct {
+	Provider        string `json:"provider"`
+	SourceURI       string `json:"source_uri"`
+	Revision        string `json:"revision"`
+	ResolverVersion string `json:"resolver_version"`
+	RepoID          string `json:"repo_id"`
+	RepoType        string `json:"repo_type"`
+}
+
+// ParserRefMessage is shared.v1.ParserRefV1. The zero value means "no parser".
+type ParserRefMessage struct {
+	Name    string      `json:"name,omitempty"`
+	Version ProtoUint32 `json:"version,omitempty"`
+}
+
 type ModelProfileProjectionMessage struct {
-	ModelID                   string                         `json:"model_id"`
+	ModelID                   ProtoBytes32                   `json:"model_id"`
 	ProfileVersion            ProtoUint32                    `json:"profile_version"`
 	ManifestHash              ProtoBytes32                   `json:"manifest_hash"`
 	TokenizerHash             ProtoBytes32                   `json:"tokenizer_hash"`
@@ -247,6 +268,9 @@ type ModelProfileProjectionMessage struct {
 	SchemaHash                ProtoBytes32                   `json:"schema_hash"`
 	PreviousProfileVersion    ProtoUint32                    `json:"previous_profile_version"`
 	RegistrationFee           CoinMessage                    `json:"registration_fee"`
+	Source                    SourceRefMessage               `json:"source"`
+	ToolCallParser            ParserRefMessage               `json:"tool_call_parser"`
+	ReasoningParser           ParserRefMessage               `json:"reasoning_parser"`
 }
 
 type RegisterModelProfileMessage struct {
@@ -254,25 +278,21 @@ type RegisterModelProfileMessage struct {
 	Profile         ModelProfileProjectionMessage `json:"profile"`
 }
 
+// DeclareModelSupportMessage declares support for a model. Since wire v0.3.0
+// support is per model; no profile version is carried.
 type DeclareModelSupportMessage struct {
-	OperatorAddress        string      `json:"operator_address"`
-	ModelID                string      `json:"model_id"`
-	ProfileVersion         ProtoUint32 `json:"profile_version"`
-	InferenceCapability    bool        `json:"inference_capability"`
-	VerificationCapability bool        `json:"verification_capability"`
-}
-
-type SupportedProfileRef struct {
-	ModelID        string      `json:"model_id"`
-	ProfileVersion ProtoUint32 `json:"profile_version"`
+	OperatorAddress        string       `json:"operator_address"`
+	ModelID                ProtoBytes32 `json:"model_id"`
+	InferenceCapability    bool         `json:"inference_capability"`
+	VerificationCapability bool         `json:"verification_capability"`
 }
 
 type ModelSupportConfirmation struct {
-	OperatorAddress           string                `json:"operator_address"`
-	SupportedProfiles         []SupportedProfileRef `json:"supported_profiles"`
-	ServiceAuthorizationNonce ProtoUint64           `json:"service_authorization_nonce"`
-	ExpiryHeight              ProtoUint64           `json:"expiry_height"`
-	ServiceSignature          ProtoBytes            `json:"service_signature"`
+	OperatorAddress           string         `json:"operator_address"`
+	SupportedModels           []ProtoBytes32 `json:"supported_models"`
+	ServiceAuthorizationNonce ProtoUint64    `json:"service_authorization_nonce"`
+	ExpiryHeight              ProtoUint64    `json:"expiry_height"`
+	ServiceSignature          ProtoBytes     `json:"service_signature"`
 }
 
 type BatchConfirmModelSupportMessage struct {
@@ -293,8 +313,11 @@ type BatchConfirmModelSupportMessage struct {
 // ---------------------------------------------------------------------------
 
 const (
-	// InferReceiptSchemaVersionV2 binds the receipt's output MMR leaf count.
-	InferReceiptSchemaVersionV2 ProtoUint32 = 2
+	// InferReceiptSchemaVersionV3 is the two-commitment receipt with the
+	// plaintext key slots.
+	InferReceiptSchemaVersionV3 ProtoUint32 = 3
+	// ResultReceiptSchemaVersionV3 binds verifier_value_root.
+	ResultReceiptSchemaVersionV3 ProtoUint32 = 3
 	// TaskWireSchemaVersionV1 is the first-round VerifyCommit schema version.
 	TaskWireSchemaVersionV1 ProtoUint32 = 1
 	// VerifyRoundV1 is the only verification round V1 accepts. The field exists
@@ -308,6 +331,7 @@ const (
 	EvidenceKindWorkerValueOpening    = "EVIDENCE_KIND_WORKER_VALUE_OPENING"
 	EvidenceKindVerifierValueOpening  = "EVIDENCE_KIND_VERIFIER_VALUE_OPENING"
 	EvidenceKindSettlementRootOpening = "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING"
+	EvidenceKindWorkerTokenOpening    = "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
 )
 
 // Frozen task.v1.DeadlineKindV1 value names a MsgSweepDeadline
@@ -333,7 +357,7 @@ type EvidenceCommitmentMessage struct {
 	EncodedSizeBytes   ProtoUint64  `json:"encoded_size_bytes"`
 }
 
-// InferReceiptMessage mirrors task.v1.InferReceiptV2. Field 12
+// InferReceiptMessage mirrors task.v1.InferReceiptV3. Field 12
 // service_signature is outside the signing preimage; evidence_commitments_hash
 // is Keeper-derived from field 10 and is not a wire field.
 type InferReceiptMessage struct {
@@ -351,6 +375,11 @@ type InferReceiptMessage struct {
 	ServiceSignature            ProtoBytes                  `json:"service_signature"`
 	GeneratedTokenCount         ProtoUint64                 `json:"generated_token_count"`
 	OutputLeafCount             ProtoUint64                 `json:"output_leaf_count"`
+	// The key slots are ZERO32 in plaintext.
+	OutputKeyCommitment      ProtoBytes32 `json:"output_key_commitment"`
+	WorkerTokenKeyCommitment ProtoBytes32 `json:"worker_token_key_commitment"`
+	WorkerValueKeyCommitment ProtoBytes32 `json:"worker_value_key_commitment"`
+	CiphertextOutputRoot     ProtoBytes32 `json:"ciphertext_output_root"`
 }
 
 // SubmitInferReceiptMessage mirrors task.v1.MsgSubmitInferReceipt.
@@ -395,7 +424,7 @@ type MetricSummaryMessage struct {
 	ComparedRankCount         ProtoUint32  `json:"compared_rank_count"`
 }
 
-// ResultReceiptMessage mirrors task.v1.ResultReceiptV2. commit_key and
+// ResultReceiptMessage mirrors task.v1.ResultReceiptV3. commit_key and
 // metric_summary_hash are Keeper-recomputed and are not caller fields.
 type ResultReceiptMessage struct {
 	SchemaVersion                     ProtoUint32          `json:"schema_version"`
@@ -413,6 +442,9 @@ type ResultReceiptMessage struct {
 	Salt                              ProtoBytes32         `json:"salt"`
 	ExpiryHeight                      ProtoUint64          `json:"expiry_height"`
 	ServiceSignature                  ProtoBytes           `json:"service_signature"`
+	VerifierValueRoot                 ProtoBytes32         `json:"verifier_value_root"`
+	MetricLeafCount                   ProtoUint32          `json:"metric_leaf_count"`
+	VerifierEvidenceKeyCommitment     ProtoBytes32         `json:"verifier_evidence_key_commitment"`
 }
 
 // SubmitVerifyResultMessage mirrors task.v1.MsgSubmitVerifyResult.
@@ -531,11 +563,11 @@ func validateMessageType(kind Kind, value any) error {
 		if !ok {
 			return messageTypeMismatch(kind)
 		}
-		if err := requireStrings(m.OperatorAddress, m.ModelID); err != nil {
+		if err := requireStrings(m.OperatorAddress, string(m.ModelID)); err != nil {
 			return err
 		}
-		if m.ProfileVersion == 0 || (!m.InferenceCapability && !m.VerificationCapability) {
-			return fmt.Errorf("positive profile version and at least one capability are required")
+		if !m.InferenceCapability && !m.VerificationCapability {
+			return fmt.Errorf("at least one capability is required")
 		}
 		return nil
 	case MsgBatchConfirmModelSupport:
@@ -551,23 +583,21 @@ func validateMessageType(kind Kind, value any) error {
 		}
 		var previousNode string
 		for index, item := range m.Confirmations {
-			if err := requireStrings(item.OperatorAddress); err != nil || len(item.SupportedProfiles) == 0 {
+			if err := requireStrings(item.OperatorAddress); err != nil || len(item.SupportedModels) == 0 {
 				return fmt.Errorf("model support confirmation fields are required")
 			}
 			if index > 0 && item.OperatorAddress <= previousNode {
 				return fmt.Errorf("model support confirmations must be sorted and unique by operator_address")
 			}
 			previousNode = item.OperatorAddress
-			var previousModel string
-			var previousProfile ProtoUint32
-			for profileIndex, profile := range item.SupportedProfiles {
-				if err := requireStrings(profile.ModelID); err != nil || profile.ProfileVersion == 0 {
-					return fmt.Errorf("model support profile fields are required")
+			for modelIndex, model := range item.SupportedModels {
+				if err := requireStrings(string(model)); err != nil {
+					return fmt.Errorf("model support model ids are required")
 				}
-				if profileIndex > 0 && (profile.ModelID < previousModel || profile.ModelID == previousModel && profile.ProfileVersion <= previousProfile) {
-					return fmt.Errorf("supported profiles must be sorted and unique")
+				// Fixed-width lowercase hex orders exactly like the raw bytes.
+				if modelIndex > 0 && model <= item.SupportedModels[modelIndex-1] {
+					return fmt.Errorf("supported models must be sorted and unique")
 				}
-				previousModel, previousProfile = profile.ModelID, profile.ProfileVersion
 			}
 			if item.ServiceAuthorizationNonce == 0 || item.ExpiryHeight == 0 {
 				return fmt.Errorf("model support confirmation nonce and expiry height are required")
@@ -670,12 +700,15 @@ func unavailableHash32(value ProtoBytes32) bool {
 }
 
 // ErrRequiredEvidenceKindsUnavailable is the fail-closed reason for an empty
-// InferReceiptV2.required_evidence_commitments. The list must exactly equal the
+// InferReceiptV3.required_evidence_commitments. The list must exactly equal the
 // locked Profile's evidence_schema.required_infer_evidence, which
 // hub.v1.Query/Profile serves and Cortex has no reader for; no Profile
 // requires the empty set, so an empty list can never be that set. The frozen
 // handler rejects it at the same boundary, on the requirement count
 // (x/task/keeper/msg_server_receipt.go:296-298).
+// zeroHash32Hex is ZERO32, the plaintext value of every key slot.
+var zeroHash32Hex = strings.Repeat("00", 32)
+
 var ErrRequiredEvidenceKindsUnavailable = errors.New(
 	"required_evidence_commitments must exactly equal the locked Profile's " +
 		"evidence_schema.required_infer_evidence and the list is empty: no Profile requires the empty set, " +
@@ -686,8 +719,23 @@ func validateSubmitInferReceipt(m SubmitInferReceiptMessage) error {
 		return err
 	}
 	r := m.Receipt
-	if r.SchemaVersion != InferReceiptSchemaVersionV2 {
-		return fmt.Errorf("infer receipt schema_version must be %d", InferReceiptSchemaVersionV2)
+	if r.SchemaVersion != InferReceiptSchemaVersionV3 {
+		return fmt.Errorf("infer receipt schema_version must be %d", InferReceiptSchemaVersionV3)
+	}
+	for _, slot := range []struct {
+		name  string
+		value ProtoBytes32
+	}{
+		{"output_key_commitment", r.OutputKeyCommitment}, {"worker_token_key_commitment", r.WorkerTokenKeyCommitment},
+		{"worker_value_key_commitment", r.WorkerValueKeyCommitment}, {"ciphertext_output_root", r.CiphertextOutputRoot},
+	} {
+		if slot.value.Hex() != zeroHash32Hex {
+			return fmt.Errorf("infer receipt %s must be ZERO32 in plaintext", slot.name)
+		}
+	}
+	if len(r.RequiredEvidenceCommitments) != 2 || r.RequiredEvidenceCommitments[0].EvidenceKind != EvidenceKindWorkerValueOpening ||
+		r.RequiredEvidenceCommitments[1].EvidenceKind != EvidenceKindWorkerTokenOpening {
+		return fmt.Errorf("infer receipt must commit exactly the Worker value and token openings, in that order")
 	}
 	if err := requireStrings(r.ChainID, r.WorkerOperatorAddress); err != nil {
 		return err
@@ -755,6 +803,8 @@ func evidenceKindRank(name string) (int, bool) {
 		return 2, true
 	case EvidenceKindSettlementRootOpening:
 		return 3, true
+	case EvidenceKindWorkerTokenOpening:
+		return 4, true
 	default:
 		return 0, false
 	}
@@ -791,9 +841,13 @@ func validateSubmitVerifyResult(m SubmitVerifyResultMessage) error {
 		return err
 	}
 	r := m.Receipt
-	if r.SchemaVersion != 2 {
-		return fmt.Errorf("verify result schema_version must be 2")
+	if r.SchemaVersion != ResultReceiptSchemaVersionV3 {
+		return fmt.Errorf("verify result schema_version must be %d", ResultReceiptSchemaVersionV3)
 	}
+	if r.VerifierEvidenceKeyCommitment.Hex() != zeroHash32Hex {
+		return fmt.Errorf("verify result verifier_evidence_key_commitment must be ZERO32 in plaintext")
+	}
+	// metric_leaf_count 0 is a legal zero-token output (no leaves at all).
 	if r.VerifyRound < 1 || r.VerifyRound > 2 {
 		return fmt.Errorf("verify result verify_round must be %d", VerifyRoundV1)
 	}
@@ -810,6 +864,7 @@ func validateSubmitVerifyResult(m SubmitVerifyResultMessage) error {
 		{"aggregate_proof_hash", r.AggregateProofHash.Hex()},
 		{"verifier_evidence_bundle_hash", r.VerifierEvidenceBundleHash.Hex()},
 		{"salt", r.Salt.Hex()},
+		{"verifier_value_root", r.VerifierValueRoot.Hex()},
 	} {
 		if err := validateHashHex(field.hex); err != nil {
 			return fmt.Errorf("verify result %s: %w", field.name, err)
@@ -885,11 +940,23 @@ func validateRegisterModelProfile(message RegisterModelProfileMessage) error {
 // ValidateModelProfileProjection validates every consensus field that Cortex
 // must preserve before calculating Node's registration digest.
 func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error {
-	if err := requireStrings(profile.ModelID, profile.RuntimeClass); err != nil {
+	if err := requireStrings(string(profile.ModelID), profile.RuntimeClass); err != nil {
 		return err
 	}
-	if !validModelID(profile.ModelID) {
-		return fmt.Errorf("model_id must match [a-z0-9][a-z0-9_-]{0,127}")
+	if err := validateHashHex(string(profile.ModelID)); err != nil {
+		return fmt.Errorf("model_id must be a Hash32: %w", err)
+	}
+	source := profile.Source
+	if source.Provider != "HUGGINGFACE" {
+		return fmt.Errorf("model profile source provider must be HUGGINGFACE")
+	}
+	if err := requireStrings(source.SourceURI, source.Revision, source.ResolverVersion, source.RepoID, source.RepoType); err != nil {
+		return fmt.Errorf("model profile source reference is incomplete: %w", err)
+	}
+	for name, parser := range map[string]ParserRefMessage{"tool_call_parser": profile.ToolCallParser, "reasoning_parser": profile.ReasoningParser} {
+		if (parser.Name == "") != (parser.Version == 0) {
+			return fmt.Errorf("model profile %s must set both name and version, or neither", name)
+		}
 	}
 	if profile.ProfileVersion == 0 || profile.ResourceTier == 0 || profile.RequiredTopK == 0 || profile.VerificationProfile.Metrics.ComparedTopK != profile.RequiredTopK {
 		return fmt.Errorf("model profile numeric identity, resource tier, and matching top-k are required")
@@ -938,6 +1005,7 @@ func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error
 		"EVIDENCE_KIND_WORKER_VALUE_OPENING":    1,
 		"EVIDENCE_KIND_VERIFIER_VALUE_OPENING":  2,
 		"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3,
+		"EVIDENCE_KIND_WORKER_TOKEN_OPENING":    4,
 	}
 	previousEvidenceKind := uint32(0)
 	for index, requirement := range verification.EvidenceSchema.RequiredInferEvidence {
@@ -946,8 +1014,11 @@ func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error
 			requirement.CommitmentSchemaVersion == 0 || requirement.MaxEncodedSizeBytes == 0 || requirement.MaxEncodedSizeBytes > 1<<40 {
 			return fmt.Errorf("model profile evidence requirements must be known, sorted, unique, and bounded")
 		}
-		if number == 1 && requirement.CommitmentSchemaVersion != 2 {
-			return fmt.Errorf("model profile Worker value commitment schema version must be 2")
+		if number == 1 && requirement.CommitmentSchemaVersion != 3 {
+			return fmt.Errorf("model profile Worker value commitment schema version must be 3")
+		}
+		if number == 4 && requirement.CommitmentSchemaVersion != 1 {
+			return fmt.Errorf("model profile Worker token commitment schema version must be 1")
 		}
 		previousEvidenceKind = number
 	}
@@ -966,23 +1037,6 @@ func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error
 		return fmt.Errorf("model profile challenge window is required")
 	}
 	return nil
-}
-
-func validModelID(value string) bool {
-	if len(value) == 0 || len(value) > 128 {
-		return false
-	}
-	first := value[0]
-	if (first < 'a' || first > 'z') && (first < '0' || first > '9') {
-		return false
-	}
-	for index := 1; index < len(value); index++ {
-		char := value[index]
-		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '_' && char != '-' {
-			return false
-		}
-	}
-	return true
 }
 
 func messageTypeMismatch(kind Kind) error {

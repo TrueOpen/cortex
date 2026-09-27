@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 func TestKeeperConfirmerUsesCodeZeroInclusionForUnqueryableRecords(t *testing.T) {
@@ -42,7 +41,7 @@ func TestKeeperConfirmerMatchesCurrentAtomicModelProfileProjection(t *testing.T)
 	if err != nil || !confirmed {
 		t.Fatalf("Confirm(current registration) = %v, %v", confirmed, err)
 	}
-	if reader.currentModelID != message.Profile.ModelID || reader.currentProfileVersion != "1" {
+	if reader.currentModelID != message.Profile.ModelID.Hex() || reader.currentProfileVersion != "1" {
 		t.Fatalf("current profile query = %q/%q", reader.currentModelID, reader.currentProfileVersion)
 	}
 
@@ -64,8 +63,8 @@ func TestKeeperConfirmerConfirmsDeclareAgainstCurrentCapabilityState(t *testing.
 	if err != nil || !confirmed {
 		t.Fatalf("Confirm(MsgDeclareModelSupport) = %v, %v", confirmed, err)
 	}
-	if reader.capabilityProvider != "trueopen1operator" || reader.capabilityModel != "model-1" || reader.capabilityProfile != "1" {
-		t.Fatalf("capability query = %q/%q/%q, want operator-level key", reader.capabilityProvider, reader.capabilityModel, reader.capabilityProfile)
+	if reader.capabilityProvider != "trueopen1operator" || reader.capabilityModel != "0101010101010101010101010101010101010101010101010101010101010101" {
+		t.Fatalf("capability query = %q/%q, want operator-level key", reader.capabilityProvider, reader.capabilityModel)
 	}
 	pending, err := NewKeeperConfirmer(&confirmationReader{capabilityErr: chainclient.ErrNotFound}).Confirm(context.Background(), Request{TaskID: "support", Kind: MsgDeclareModelSupport, Payload: payload}, InclusionResult{Code: CodeOK, Height: 42})
 	if err != nil || pending {
@@ -93,15 +92,15 @@ func TestKeeperConfirmerConfirmsDeclareAgainstCurrentCapabilityState(t *testing.
 
 func TestKeeperConfirmerUsesNodeLevelModelSupportKeyForBatchRefresh(t *testing.T) {
 	reader := &confirmationReader{support: chainclient.ModelSupportSnapshot{
-		OperatorAddress: "node-1", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1), DeclaredSupport: true,
+		OperatorAddress: "node-1", ModelID: "0101010101010101010101010101010101010101010101010101010101010101", DeclaredSupport: true,
 		SupportVersion: 1, LastRefreshHeight: 42,
 	}}
 	confirmed, err := NewKeeperConfirmer(reader).Confirm(context.Background(), Request{TaskID: "support", Kind: MsgBatchConfirmModelSupport, Payload: validPayload(t, MsgBatchConfirmModelSupport)}, InclusionResult{Code: CodeOK, Height: 42})
 	if err != nil || !confirmed {
 		t.Fatalf("Confirm(MsgBatchConfirmModelSupport) = %v, %v", confirmed, err)
 	}
-	if reader.supportProvider != "node-1" || reader.supportModel != "model-1" || reader.supportProfile != "1" {
-		t.Fatalf("support query = %q/%q/%q, want node-level key", reader.supportProvider, reader.supportModel, reader.supportProfile)
+	if reader.supportProvider != "node-1" || reader.supportModel != "0101010101010101010101010101010101010101010101010101010101010101" {
+		t.Fatalf("support query = %q/%q, want node-level key", reader.supportProvider, reader.supportModel)
 	}
 }
 
@@ -270,12 +269,12 @@ func (r *confirmationReader) Profile(_ context.Context, modelID, profileVersion 
 	r.profileID, r.profileVersion = modelID, profileVersion
 	return r.profile, nil
 }
-func (r *confirmationReader) ModelSupport(_ context.Context, provider, model, profile string) (chainclient.ModelSupportSnapshot, error) {
-	r.supportProvider, r.supportModel, r.supportProfile = provider, model, profile
+func (r *confirmationReader) ModelSupport(_ context.Context, provider, model string) (chainclient.ModelSupportSnapshot, error) {
+	r.supportProvider, r.supportModel = provider, model
 	return r.support, nil
 }
-func (r *confirmationReader) ModelCapability(_ context.Context, provider, model, profile string) (chainclient.ModelCapabilitySnapshot, error) {
-	r.capabilityProvider, r.capabilityModel, r.capabilityProfile = provider, model, profile
+func (r *confirmationReader) ModelCapability(_ context.Context, provider, model string) (chainclient.ModelCapabilitySnapshot, error) {
+	r.capabilityProvider, r.capabilityModel = provider, model
 	return r.capability, r.capabilityErr
 }
 func (r *confirmationReader) Settlement(context.Context, string, string) (chainclient.TaskSettlementSnapshot, error) {
@@ -295,9 +294,10 @@ func currentStateForMessage(message RegisterModelProfileMessage, height uint64) 
 		return chainclient.ProtoBytes32(decoded)
 	}
 	return chainclient.CurrentModelProfileSnapshot{
-		Model: chainclient.CurrentModelSnapshot{ModelID: p.ModelID, ProposerAddress: message.ProposerAddress},
+		Model: chainclient.CurrentModelSnapshot{ModelID: p.ModelID.Hex(), ProposerAddress: message.ProposerAddress, Provider: p.Source.Provider, RepoID: p.Source.RepoID},
 		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID: p.ModelID, ProfileVersion: chainclient.NewProfileVersion(uint32(p.ProfileVersion)), ManifestHash: decode(p.ManifestHash), TokenizerHash: decode(p.TokenizerHash),
+			Source:  chainclient.CurrentProfileSourceSnapshot{SourceURI: p.Source.SourceURI, Revision: p.Source.Revision, ResolverVersion: p.Source.ResolverVersion, RepoType: p.Source.RepoType},
+			ModelID: p.ModelID.Hex(), ProfileVersion: chainclient.NewProfileVersion(uint32(p.ProfileVersion)), ManifestHash: decode(p.ManifestHash), TokenizerHash: decode(p.TokenizerHash),
 			RuntimeClass: p.RuntimeClass, RequiredTopK: uint32(p.RequiredTopK), TaskTypes: append([]string(nil), p.TaskTypes...), GenerationType: p.GenerationType,
 			ResourceTier: uint32(p.ResourceTier), MinStake: chainclient.NewUint64String(uint64(p.MinStake.Amount)), ChallengeOpenWindowBlocks: chainclient.NewUint64String(uint64(p.ChallengeOpenWindowBlocks)),
 			VerificationProfile: chainclient.CurrentVerificationProfileSnapshot{
@@ -345,6 +345,8 @@ func currentStateEvidenceSchema(schema EvidenceSchemaMessage) chainclient.Curren
 			kind = 2
 		case "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING":
 			kind = 3
+		case "EVIDENCE_KIND_WORKER_TOKEN_OPENING":
+			kind = 4
 		}
 		requirements[index] = chainclient.CurrentInferEvidenceRequirementSnapshot{
 			EvidenceKind: kind, CommitmentSchemaVersion: uint32(requirement.CommitmentSchemaVersion),
@@ -376,20 +378,16 @@ func keeperHash(t *testing.T, value string) chainclient.HexHash {
 	return hash
 }
 
-func codecHashString(hash codec.Hash) string {
-	return fmt.Sprintf("%x", hash[:])
-}
-
 func capabilityStateForMessage(message DeclareModelSupportMessage) chainclient.ModelCapabilitySnapshot {
 	return chainclient.ModelCapabilitySnapshot{
-		OperatorAddress: message.OperatorAddress, ModelID: message.ModelID, ProfileVersion: chainclient.NewProfileVersion(uint32(message.ProfileVersion)),
+		OperatorAddress: message.OperatorAddress, ModelID: message.ModelID.Hex(),
 		InferenceCapability: message.InferenceCapability, VerificationCapability: message.VerificationCapability, CapabilityVersion: 1,
 	}
 }
 
 func supportStateForMessage(message DeclareModelSupportMessage) chainclient.ModelSupportSnapshot {
 	return chainclient.ModelSupportSnapshot{
-		OperatorAddress: message.OperatorAddress, ModelID: message.ModelID, ProfileVersion: chainclient.NewProfileVersion(uint32(message.ProfileVersion)),
+		OperatorAddress: message.OperatorAddress, ModelID: message.ModelID.Hex(),
 		DeclaredSupport: true, SupportVersion: 1,
 	}
 }

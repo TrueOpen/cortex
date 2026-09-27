@@ -1,14 +1,19 @@
 {
-  "model_id": "hf-qwen3-8b",
+  "model_id": "xlJB0Zslf5Nd3qmepZoZF1tLKXUeJZhT1AP+WfBPTk8=",
   "profile_version": 1,
   "manifest_hash": "q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=",
   "tokenizer_hash": "q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=",
   "runtime_class": "CAUSAL_LM_PREFILL_LOGPROBS_V1",
   "required_top_k": 20,
-  "task_types": ["TASK_TYPE_CHAT"],
+  "task_types": [
+    "TASK_TYPE_CHAT"
+  ],
   "generation_type": "GENERATION_TYPE_SAMPLED",
   "resource_tier": 2,
-  "min_stake": {"denom": "utrueopen", "amount": "1000000"},
+  "min_stake": {
+    "denom": "utrueopen",
+    "amount": "1000000"
+  },
   "challenge_open_window_blocks": "1800",
   "verification_profile": {
     "verification_profile_id": 1,
@@ -29,15 +34,22 @@
       "numeric_scale": "NUMERIC_SCALE_FP_1E6"
     },
     "canonical_encoding_version": "CANONICAL_OUTPUT_TEXT_V1",
-    "evidence_schema_hash": "93l4+PJIM1oxun+ocCEnEnXTRsVYn2qkp0LRce86d3U=",
+    "evidence_schema_hash": "UV/poH65rFoSm3/DEW9UcuaJxLqrc3PzmoqFiGZ1SL0=",
     "metric_aggregate_proof_version": "PREFILL_METRIC_AGGREGATE_PROOF_V1",
     "evidence_schema": {
       "schema_version": 1,
-      "required_infer_evidence": [{
-        "evidence_kind": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
-        "commitment_schema_version": 2,
-        "max_encoded_size_bytes": "1073741824"
-      }]
+      "required_infer_evidence": [
+        {
+          "evidence_kind": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
+          "commitment_schema_version": 3,
+          "max_encoded_size_bytes": "1073741824"
+        },
+        {
+          "evidence_kind": "EVIDENCE_KIND_WORKER_TOKEN_OPENING",
+          "commitment_schema_version": 1,
+          "max_encoded_size_bytes": "67108864"
+        }
+      ]
     }
   },
   "verification_thresholds": {
@@ -76,5 +88,18 @@
   },
   "schema_hash": "q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=",
   "previous_profile_version": 0,
-  "registration_fee": {"denom": "utrueopen", "amount": "10000000"}
+  "registration_fee": {
+    "denom": "utrueopen",
+    "amount": "10000000"
+  },
+  "source": {
+    "provider": "HUGGINGFACE",
+    "source_uri": "hf://Qwen/Qwen3-8B@0123456789abcdef0123456789abcdef01234567",
+    "revision": "0123456789abcdef0123456789abcdef01234567",
+    "resolver_version": "HF_RESOLVER_V1",
+    "repo_id": "Qwen/Qwen3-8B",
+    "repo_type": "model"
+  },
+  "tool_call_parser": {},
+  "reasoning_parser": {}
 }

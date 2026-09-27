@@ -25,7 +25,7 @@ type nexusVerifierEvidencePublisher struct {
 	builderOperator string
 }
 
-func (p nexusVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Context, state verifier.TaskState, receipt nodewire.ResultReceiptV2, manifestBytes, proof []byte) error {
+func (p nexusVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Context, state verifier.TaskState, receipt nodewire.ResultReceiptV3, manifestBytes, proof []byte) error {
 	if p.cfg.TaskData == nil || p.cfg.TaskDataAuth == nil || p.cfg.ReceivingBuilder == nil || p.cfg.TaskFacts == nil || p.cfg.Evidence == nil {
 		return fmt.Errorf("Verifier evidence publication requires task-data, authentication, Builder resolution, task facts and durable evidence")
 	}
@@ -34,7 +34,7 @@ func (p nexusVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Cont
 		return err
 	}
 	bundleHash := evidencebundle.Hash(manifestBytes)
-	if !bytes.Equal(receipt.VerifierEvidenceBundleHash, bundleHash[:]) || receipt.VerifierEvidenceManifestSizeBytes != uint64(len(manifestBytes)) || len(manifest.Artifacts) != 1 || manifest.Artifacts[0].ID != "aggregate_proof" {
+	if !bytes.Equal(receipt.VerifierEvidenceBundleHash, bundleHash[:]) || receipt.VerifierEvidenceManifestSizeBytes != uint64(len(manifestBytes)) || manifest.EvidenceKind != evidencebundle.KindVerifierValueOpening || len(manifest.Artifacts) != 1 || manifest.Artifacts[0].ID != "aggregate_proof" {
 		return fmt.Errorf("Verifier manifest differs from signed receipt")
 	}
 	facts, err := p.cfg.TaskFacts.TaskFacts(ctx, state.TaskID)
@@ -52,7 +52,7 @@ func (p nexusVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Cont
 	if err != nil || size != uint64(len(proof)) || manifest.Artifacts[0].ContentHash != proofHash.String() || !bytes.Equal(receipt.AggregateProofHash, proofHash[:]) {
 		return fmt.Errorf("Verifier aggregate proof differs from manifest or receipt")
 	}
-	bundleKey := builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, builderclient.DataKindEvidenceManifest, bundleHash.String(), builderclient.EvidenceProducerVerifier, manifest.VerifyRound, manifest.ProducerOperator)
+	bundleKey := builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, builderclient.DataKindEvidenceManifest, bundleHash.String(), builderclient.EvidenceProducerVerifier, manifest.VerifyRound, manifest.ProducerOperator, nodewire.EvidenceKindVerifierValueOpening)
 	taskHash := codec.Hash(facts.AcceptedTaskHash)
 	recordKind := fmt.Sprintf("verifier-evidence-confirmation-%d", state.VerifyRound)
 	retained, err := p.retainedVerifierConfirmation(ctx, taskHash, recordKind)
@@ -75,7 +75,7 @@ func (p nexusVerifierEvidencePublisher) PublishVerifierEvidence(ctx context.Cont
 		return fmt.Errorf("Verifier receiving Builder identity is incomplete")
 	}
 	ctx = builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash)
-	artifactKey := builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, builderclient.DataKindEvidenceArtifact, proofHash.String(), builderclient.EvidenceProducerVerifier, manifest.VerifyRound, manifest.ProducerOperator)
+	artifactKey := builderclient.EvidenceObjectKey(manifest.TaskHash, state.SessionID, state.TaskID, builderclient.DataKindEvidenceArtifact, proofHash.String(), builderclient.EvidenceProducerVerifier, manifest.VerifyRound, manifest.ProducerOperator, nodewire.EvidenceKindVerifierValueOpening)
 	for _, object := range []struct {
 		key  builderclient.TaskDataKey
 		data []byte

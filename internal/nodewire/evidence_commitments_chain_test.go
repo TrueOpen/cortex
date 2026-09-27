@@ -20,7 +20,6 @@ import (
 func TestEvidenceCommitmentsHashMatchesChain(t *testing.T) {
 	const (
 		wantCommitments = "fcfc775b30d732bdb69387af47eb6a1893386054fa12799a126f1bc8a7830e09"
-		wantDigest      = "c0692fa5683eb14c66912c21ecdaf0f8a5e7317a6a8548f39ba881cb489e6f92"
 		wantEmpty       = "f029302b7f33dd77ad8e5217897a4e8386bf321dde9a510c1c6a287e408b9873"
 	)
 	mustHash := func(s string) []byte {
@@ -50,27 +49,5 @@ func TestEvidenceCommitmentsHashMatchesChain(t *testing.T) {
 	}
 	if hex.EncodeToString(empty[:]) != wantEmpty {
 		t.Fatalf("empty list = %x, the chain derives %s", empty[:], wantEmpty)
-	}
-
-	receipt := InferReceiptV2{
-		SchemaVersion:               InferReceiptSchemaVersionV2,
-		ChainID:                     "trueopen-localnet-1",
-		TaskID:                      mustHash("0696367c45d8ab4de9e18b289fa5df76d86e8a20539e3ddac33551d78f72fed6"),
-		TaskHash:                    mustHash("dd149868c68a888924870c031af1d83784580d72c7541c29f68c78c2717cddb0"),
-		WorkerOperatorAddress:       "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k",
-		ServiceAuthorizationNonce:   1,
-		GenerationParamsDigest:      mustHash("2f4fac4607c697feb81161ed776ed2cbabd2a93f42a5cd0b3f984b0db19d423d"),
-		OutputHash:                  mustHash("3f473a5930a3b347f63a6579f443cd456cdf05f2b4ef607be850179af9a35753"),
-		OutputSizeBytes:             88,
-		ExpiryHeight:                131708,
-		RequiredEvidenceCommitments: commitments,
-		OutputLeafCount:             1,
-	}
-	digest, err := InferReceiptSigningDigest(receipt)
-	if err != nil {
-		t.Fatalf("receipt digest: %v", err)
-	}
-	if hex.EncodeToString(digest[:]) == wantDigest {
-		t.Fatal("retired receipt digest must differ from the v0.4.1 schema")
 	}
 }

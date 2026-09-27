@@ -14,7 +14,7 @@ func TestHandraiseProtoRoundTrip(t *testing.T) {
 	handraise := nodewire.WorkerHandraiseV1{
 		SchemaVersion: 1, ChainID: "chain-1",
 		TaskID: bytes.Repeat([]byte{0xab}, 32), TaskHash: bytes.Repeat([]byte{0xcd}, 32),
-		ModelID: "model-a", ProfileVersion: 2,
+		ModelID: bytes.Repeat([]byte{0xa1}, 32), ProfileVersion: 2,
 		Member: nodewire.CandidateMemberRefV1{
 			CandidatePoolSnapshotID: bytes.Repeat([]byte{0x11}, 32),
 			Slot:                    3, SlotVersion: 4, OperatorAddress: "trueopen1j7r6u8nwvw93l2tc0wd75v07vu89lxyfqf8fut",
@@ -47,8 +47,8 @@ func TestHandraiseProtoRoundTrip(t *testing.T) {
 }
 
 func TestResultReceiptProtoOptionalPresence(t *testing.T) {
-	receipt := nodewire.ResultReceiptV2{
-		SchemaVersion: 2, ChainID: "chain-1", TaskID: bytes.Repeat([]byte{0xab}, 32),
+	receipt := nodewire.ResultReceiptV3{
+		SchemaVersion: nodewire.ResultReceiptSchemaVersionV3, ChainID: "chain-1", TaskID: bytes.Repeat([]byte{0xab}, 32),
 		VerifyRound: 1, VerifierOperatorAddress: "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
 		ServiceAuthorizationNonce:         2,
 		GenerationParamsDigest:            bytes.Repeat([]byte{0x01}, 32),
@@ -59,6 +59,9 @@ func TestResultReceiptProtoOptionalPresence(t *testing.T) {
 		VerifierEvidenceManifestSizeBytes: 123,
 		Salt:                              bytes.Repeat([]byte{0x06}, 32),
 		ExpiryHeight:                      9,
+		VerifierValueRoot:                 bytes.Repeat([]byte{0x07}, 32),
+		MetricLeafCount:                   7,
+		VerifierEvidenceKeyCommitment:     make([]byte, 32),
 		ServiceSignature:                  bytes.Repeat([]byte{0x05}, 64),
 	}
 	message, err := ResultReceiptProto(receipt)

@@ -17,13 +17,9 @@ import (
 // be confirmed against it.
 type KeeperConfirmationReader interface {
 	Task(context.Context, string, string) (chainclient.TaskSnapshot, error)
-	ModelCapability(context.Context, string, string, string) (chainclient.ModelCapabilitySnapshot, error)
-	ModelSupport(context.Context, string, string, string) (chainclient.ModelSupportSnapshot, error)
+	ModelCapability(context.Context, string, string) (chainclient.ModelCapabilitySnapshot, error)
+	ModelSupport(context.Context, string, string) (chainclient.ModelSupportSnapshot, error)
 	Settlement(context.Context, string, string) (chainclient.TaskSettlementSnapshot, error)
-}
-
-type committedModelSupportScopeReader interface {
-	CommittedModelSupportScope(context.Context, string, string, string) (chainclient.CommittedModelSupportScope, error)
 }
 
 type keeperConfirmer struct {
@@ -59,7 +55,7 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 		if !ok {
 			return false, fmt.Errorf("current Keeper model profile confirmation reader is required")
 		}
-		state, err := reader.CurrentModelProfile(ctx, msg.Profile.ModelID, strconv.FormatUint(uint64(msg.Profile.ProfileVersion), 10))
+		state, err := reader.CurrentModelProfile(ctx, string(msg.Profile.ModelID), strconv.FormatUint(uint64(msg.Profile.ProfileVersion), 10))
 		if pendingKeeperState(err) {
 			return false, nil
 		}
@@ -70,10 +66,10 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 		// establishes the coin denomination accepted by the chain.
 		expected := msg.Profile
 		expected.MinStake.Denom, expected.RegistrationFee.Denom = "", ""
-		matches := state.Model.ModelID == msg.Profile.ModelID && state.Profile.ModelID == msg.Profile.ModelID &&
+		matches := state.Model.ModelID == string(msg.Profile.ModelID) && state.Profile.ModelID == string(msg.Profile.ModelID) &&
 			state.Model.ProposerAddress == msg.ProposerAddress && state.Profile.ProposerAddress == msg.ProposerAddress &&
 			state.Profile.CreatedHeight.Uint64() > 0 && state.Profile.CreatedHeight.Uint64() <= included.Height &&
-			reflect.DeepEqual(currentProjectionFromState(state.Profile), expected)
+			reflect.DeepEqual(currentProjectionFromState(state.Model, state.Profile), expected)
 		return matches, nil
 
 	case MsgDeclareModelSupport:
@@ -81,17 +77,7 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 		if err := json.Unmarshal(req.Payload, &msg); err != nil {
 			return false, err
 		}
-		if reader, ok := c.reader.(committedModelSupportScopeReader); ok {
-			scope, err := reader.CommittedModelSupportScope(ctx, msg.OperatorAddress, msg.ModelID, strconv.FormatUint(uint64(msg.ProfileVersion), 10))
-			if pendingKeeperState(err) {
-				return false, nil
-			}
-			if err != nil {
-				return false, err
-			}
-			return capabilityAndSupportMatchDeclaration(scope.Capability, scope.Support, msg), nil
-		}
-		state, err := c.reader.ModelCapability(ctx, msg.OperatorAddress, msg.ModelID, strconv.FormatUint(uint64(msg.ProfileVersion), 10))
+		state, err := c.reader.ModelCapability(ctx, msg.OperatorAddress, string(msg.ModelID))
 		if pendingKeeperState(err) {
 			return false, nil
 		}
@@ -101,7 +87,7 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 		if !capabilityMatchesDeclaration(state, msg) {
 			return false, nil
 		}
-		support, err := c.reader.ModelSupport(ctx, msg.OperatorAddress, msg.ModelID, strconv.FormatUint(uint64(msg.ProfileVersion), 10))
+		support, err := c.reader.ModelSupport(ctx, msg.OperatorAddress, string(msg.ModelID))
 		if pendingKeeperState(err) {
 			return false, nil
 		}
@@ -116,23 +102,15 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 			return false, err
 		}
 		for _, item := range msg.Confirmations {
-			for _, profile := range item.SupportedProfiles {
-				var state chainclient.ModelSupportSnapshot
-				var err error
-				if reader, ok := c.reader.(committedModelSupportScopeReader); ok {
-					var scope chainclient.CommittedModelSupportScope
-					scope, err = reader.CommittedModelSupportScope(ctx, item.OperatorAddress, profile.ModelID, strconv.FormatUint(uint64(profile.ProfileVersion), 10))
-					state = scope.Support
-				} else {
-					state, err = c.reader.ModelSupport(ctx, item.OperatorAddress, profile.ModelID, strconv.FormatUint(uint64(profile.ProfileVersion), 10))
-				}
+			for _, model := range item.SupportedModels {
+				state, err := c.reader.ModelSupport(ctx, item.OperatorAddress, string(model))
 				if pendingKeeperState(err) {
 					return false, nil
 				}
 				if err != nil {
 					return false, err
 				}
-				if !state.DeclaredSupport || state.LastRefreshHeight.Uint64() < included.Height || state.OperatorAddress != item.OperatorAddress || state.ModelID != profile.ModelID || state.ProfileVersion.Uint32() != uint32(profile.ProfileVersion) {
+				if !state.DeclaredSupport || state.LastRefreshHeight.Uint64() < included.Height || state.OperatorAddress != item.OperatorAddress || state.ModelID != string(model) {
 					return false, nil
 				}
 			}
@@ -214,9 +192,18 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 	}
 }
 
-func currentProjectionFromState(state chainclient.CurrentProfileSnapshot) ModelProfileProjectionMessage {
+// currentProjectionFromState rebuilds the registered projection. The source
+// reference is split on chain: provider and repo_id live on ModelState, the
+// rest on ProfileState.
+func currentProjectionFromState(model chainclient.CurrentModelSnapshot, state chainclient.CurrentProfileSnapshot) ModelProfileProjectionMessage {
 	return ModelProfileProjectionMessage{
-		ModelID: state.ModelID, ProfileVersion: ProtoUint32(state.ProfileVersion.Uint32()), ManifestHash: ProtoBytes32(state.ManifestHash.Hex()),
+		Source: SourceRefMessage{
+			Provider: model.Provider, RepoID: model.RepoID, SourceURI: state.Source.SourceURI,
+			Revision: state.Source.Revision, ResolverVersion: state.Source.ResolverVersion, RepoType: state.Source.RepoType,
+		},
+		ToolCallParser:  ParserRefMessage{Name: state.ToolCallParser.Name, Version: ProtoUint32(state.ToolCallParser.Version)},
+		ReasoningParser: ParserRefMessage{Name: state.ReasoningParser.Name, Version: ProtoUint32(state.ReasoningParser.Version)},
+		ModelID:         ProtoBytes32(state.ModelID), ProfileVersion: ProtoUint32(state.ProfileVersion.Uint32()), ManifestHash: ProtoBytes32(state.ManifestHash.Hex()),
 		TokenizerHash: ProtoBytes32(state.TokenizerHash.Hex()), RuntimeClass: state.RuntimeClass, RequiredTopK: ProtoUint32(state.RequiredTopK),
 		TaskTypes: append([]string(nil), state.TaskTypes...), GenerationType: state.GenerationType, ResourceTier: ProtoUint32(state.ResourceTier),
 		MinStake: CoinMessage{Amount: ProtoUint64(state.MinStake.Uint64())}, ChallengeOpenWindowBlocks: ProtoUint64(state.ChallengeOpenWindowBlocks.Uint64()),
@@ -272,6 +259,8 @@ func evidenceKindName(value int32) string {
 		return "EVIDENCE_KIND_VERIFIER_VALUE_OPENING"
 	case 3:
 		return "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING"
+	case 4:
+		return "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
 	default:
 		return ""
 	}
@@ -289,22 +278,16 @@ func currentVerificationThresholdsFromState(state chainclient.CurrentVerificatio
 	}
 }
 
-func capabilityAndSupportMatchDeclaration(capability chainclient.ModelCapabilitySnapshot, support chainclient.ModelSupportSnapshot, msg DeclareModelSupportMessage) bool {
-	return capabilityMatchesDeclaration(capability, msg) && supportMatchesDeclaration(support, msg)
-}
-
 func capabilityMatchesDeclaration(state chainclient.ModelCapabilitySnapshot, msg DeclareModelSupportMessage) bool {
 	return state.OperatorAddress == msg.OperatorAddress &&
-		state.ModelID == msg.ModelID &&
-		state.ProfileVersion.Uint32() == uint32(msg.ProfileVersion) &&
+		state.ModelID == string(msg.ModelID) &&
 		state.InferenceCapability == msg.InferenceCapability &&
 		state.VerificationCapability == msg.VerificationCapability
 }
 
 func supportMatchesDeclaration(state chainclient.ModelSupportSnapshot, msg DeclareModelSupportMessage) bool {
 	return state.OperatorAddress == msg.OperatorAddress &&
-		state.ModelID == msg.ModelID &&
-		state.ProfileVersion.Uint32() == uint32(msg.ProfileVersion) &&
+		state.ModelID == string(msg.ModelID) &&
 		state.DeclaredSupport
 }
 

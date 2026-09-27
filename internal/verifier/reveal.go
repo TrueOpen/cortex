@@ -74,14 +74,14 @@ type RevealResult struct {
 }
 
 // HandleRevealPhaseStarted assembles, signs and publishes the frozen
-// task.v1.ResultReceiptV2 for a task whose reveal phase the chain has
+// task.v1.ResultReceiptV3 for a task whose reveal phase the chain has
 // opened.
 //
 // It runs the same ordering rule the commit path runs: the body is completed
-// first, its TRUEOPEN_RESULT_V2 digest is derived from that exact value, the
-// signature is written back into the same struct, and resultPayload marshals
-// only from there -- so an incomplete body stops the path before the signer is
-// ever asked for anything.
+// first, its TRUEOPEN_RESULT_V3 digest is derived from that exact value, and
+// the signature is written back into the same struct that is published -- so
+// an incomplete body stops the path before the signer is ever asked for
+// anything.
 //
 // It deliberately does NOT re-run the verifier precheck. That precheck decides
 // whether to start verifying, and judges the commit window while doing so; by

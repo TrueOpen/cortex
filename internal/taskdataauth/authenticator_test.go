@@ -396,12 +396,3 @@ func TestAuthenticatorRejectsHeightOverflowAndBadLocalSignature(t *testing.T) {
 		t.Fatalf("SignRange signature error = %v, want local verification failure", err)
 	}
 }
-
-func mustDecodeHex(t *testing.T, value string) []byte {
-	t.Helper()
-	decoded, err := hex.DecodeString(value)
-	if err != nil {
-		t.Fatalf("decode hex: %v", err)
-	}
-	return decoded
-}

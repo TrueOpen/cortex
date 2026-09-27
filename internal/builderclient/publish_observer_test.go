@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/TrueOpen/wire/bus"
 	"testing"
+
+	"github.com/TrueOpen/wire/bus"
 
 	"google.golang.org/protobuf/proto"
 )

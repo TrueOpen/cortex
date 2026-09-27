@@ -239,12 +239,13 @@ func validResultMessage() txclient.SubmitVerifyResultMessage {
 	hash := txclient.ProtoBytes32(strings.Repeat("ab", 32))
 	return txclient.SubmitVerifyResultMessage{
 		Receipt: txclient.ResultReceiptMessage{
-			SchemaVersion: 2, ChainID: "trueopen-devnet-1",
+			SchemaVersion: txclient.ResultReceiptSchemaVersionV3, ChainID: "trueopen-devnet-1",
 			TaskID: txclient.ProtoBytes32(testTaskID), VerifyRound: txclient.VerifyRoundV1,
 			VerifierOperatorAddress: "verifier-1", ServiceAuthorizationNonce: 4,
 			GenerationParamsDigest: hash, MetricRoot: hash, AggregateProofHash: hash, VerifierEvidenceBundleHash: hash,
 			VerifierEvidenceManifestSizeBytes: 123, Salt: hash,
 			ExpiryHeight: 300, ServiceSignature: txclient.ProtoBytes(strings.Repeat("cd", 64)),
+			VerifierValueRoot: hash, MetricLeafCount: 1, VerifierEvidenceKeyCommitment: txclient.ProtoBytes32(strings.Repeat("00", 32)),
 		},
 		SubmitterAddress: "trueopen1service",
 	}

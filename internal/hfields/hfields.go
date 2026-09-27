@@ -1,5 +1,5 @@
 // Package hfields implements the frozen H_FIELDS_V1 hashing framing that every
-// Node V1 signing preimage is expressed in.
+// wire signing preimage is expressed in.
 //
 // Framing (frozen upstream; exact source paths and commit are stamped in
 // testdata/hfields_v1.json):
@@ -23,12 +23,9 @@
 // internal/nodewire/address.go CanonicalOperatorAddressBytes.
 //
 // Concrete message preimages live in the packages that own their field order,
-// not here. internal/identity/task.go:62 derives TRUEOPEN_TASK_ID_V1 with Digest,
-// internal/keepercontract/signing.go:36 and :57 derive the support-profile and
-// daily-support-confirmation digests, and internal/nodewire expresses every
-// frozen Node V1 Task domain in this framing (digests.go:37 and :129,
-// result_receipt.go:136, task_order.go:195, worker_value_commitment.go:99).
-// This package supplies only the primitive.
+// not here: internal/identity derives the task id, internal/keepercontract the
+// Hub support digests, and internal/nodewire every Task-domain preimage. This
+// package supplies only the primitive.
 package hfields
 
 import (

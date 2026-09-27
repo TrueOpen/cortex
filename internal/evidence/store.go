@@ -1,7 +1,7 @@
 // Package evidence implements the task-scoped local artifact store. The name
 // "evidence" reflects its origin as the keeper of protocol evidence openings,
-// but the store now holds all task artifacts: evidence openings (worker-trace,
-// worker-checkpoint, worker-reveal-opening, verifier-v-values,
+// but the store now holds all task artifacts: model material (worker-token-ids-material,
+// worker-position-values-material, worker-reveal-opening, verifier-v-values,
 // verifier-full-result-reveal-state, settlement-*), OUTPUT payload
 // (worker-output), local-only signed material (worker-handshake,
 // worker-infer-receipt, verifier-handshake, verifier-result-commit), and

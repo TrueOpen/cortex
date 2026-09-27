@@ -46,7 +46,7 @@ func TestAdminAPIDelegatesModelCommandsTreasuryAndCapability(t *testing.T) {
 		FeeGrant: modelregistry.StaticFeeGrant{Granter: "operator", Amount: 500, GasLimit: 50},
 	})
 	registry.PutStatus(modelregistry.ModelStatus{
-		ModelID:           "llama-text-8b",
+		ModelID:           "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
 		ManifestHash:      "hash-1",
 		ChainState:        "registered",
 		DisplayVisibility: "public",
@@ -60,7 +60,7 @@ func TestAdminAPIDelegatesModelCommandsTreasuryAndCapability(t *testing.T) {
 	})
 
 	manifest, err := api.ModelManifestGenerate(context.Background(), modelregistry.ManifestInput{
-		ModelID:        "llama-text-8b",
+		ModelID:        "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
 		Version:        "2026-07-08",
 		Digest:         "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 		Tokenizer:      "tiktoken-cl100k",
@@ -100,19 +100,19 @@ func TestAdminAPIDelegatesModelCommandsTreasuryAndCapability(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ModelRegister dry-run returned error: %v", err)
 	}
-	if _, err := api.ModelStatus(context.Background(), modelregistry.StatusRequest{ModelID: "llama-text-8b"}); err != nil {
+	if _, err := api.ModelStatus(context.Background(), modelregistry.StatusRequest{ModelID: "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"}); err != nil {
 		t.Fatalf("ModelStatus returned error: %v", err)
 	}
 	if _, err := api.ModelList(context.Background(), modelregistry.ListRequest{}); err != nil {
 		t.Fatalf("ModelList returned error: %v", err)
 	}
-	if _, err := api.ModelShow(context.Background(), modelregistry.ShowRequest{ModelID: "llama-text-8b"}); err != nil {
+	if _, err := api.ModelShow(context.Background(), modelregistry.ShowRequest{ModelID: "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"}); err != nil {
 		t.Fatalf("ModelShow returned error: %v", err)
 	}
-	if _, err := api.ModelSupport(context.Background(), modelregistry.SupportRequest{ModelID: "llama-text-8b", ProfileVersion: "1", Supported: true}); err != nil {
+	if _, err := api.ModelSupport(context.Background(), modelregistry.SupportRequest{ModelID: "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b", ProfileVersion: "1", Supported: true}); err != nil {
 		t.Fatalf("ModelSupport returned error: %v", err)
 	}
-	if _, err := api.ModelDailySupport(context.Background(), modelregistry.DailySupportRequest{ModelID: "llama-text-8b", Enabled: true}); err != nil {
+	if _, err := api.ModelDailySupport(context.Background(), modelregistry.DailySupportRequest{ModelID: "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b", Enabled: true}); err != nil {
 		t.Fatalf("ModelDailySupport returned error: %v", err)
 	}
 	if got := api.TreasuryStatus(context.Background()); got.Destination != "trueopen1treasury" || got.Denom != "utrueopen" {
@@ -124,7 +124,7 @@ func TestAdminAPIDelegatesModelCommandsTreasuryAndCapability(t *testing.T) {
 }
 
 func TestModelRegisterClientUsesStableRequestAndResponseContract(t *testing.T) {
-	manifest := modelregistry.Manifest{ModelID: "llama-text-8b", Hash: "manifest-hash"}
+	manifest := modelregistry.Manifest{ModelID: "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b", Hash: "manifest-hash"}
 	var requestBody []byte
 	client := &Client{
 		socketPath: "contract-test",
@@ -256,11 +256,11 @@ func currentAdminManifest(t testing.TB) modelregistry.CurrentManifest {
 	hash := txclient.ProtoBytes32(strings.Repeat("ab", 32))
 	manifest, err := modelregistry.GenerateCurrentManifest(modelregistry.CurrentManifestInput{
 		Version: "2026-08-03", Tokenizer: "qwen-tokenizer", ModelServiceID: "modelsvc-local",
-		Profile: txclient.ModelProfileProjectionMessage{ModelID: "daemon-model", ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
+		Profile: txclient.ModelProfileProjectionMessage{Source: txclient.SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "org/model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1", Revision: strings.Repeat("0a", 20), SourceURI: "hf://org/model@" + strings.Repeat("0a", 20)}, ModelID: txclient.ProtoBytes32(strings.Repeat("b2", 32)), ProfileVersion: 1, ManifestHash: hash, TokenizerHash: hash,
 			RuntimeClass: "CAUSAL_LM_PREFILL_LOGPROBS_V1", RequiredTopK: 20, TaskTypes: []string{"TASK_TYPE_CHAT"}, GenerationType: "GENERATION_TYPE_SAMPLED",
 			ResourceTier: 2, MinStake: txclient.CoinMessage{Denom: "utrueopen", Amount: 1_000_000}, ChallengeOpenWindowBlocks: 1_800,
 			VerificationProfile: txclient.VerificationProfileMessage{VerificationProfileID: 1, JudgmentFunctionVersion: "PREFILL_GENERATED_TOKEN_METRICS_V1", VerificationMode: "VERIFICATION_MODE_SINGLE_SAMPLE", TokenScope: "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
-				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerValueEvidenceSchemaV2(1 << 30)},
+				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
 			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
@@ -326,7 +326,7 @@ func TestUnixSocketClientRoutesModelStatusTreasuryAndCapability(t *testing.T) {
 	socketPath := filepath.Join(shortTempDir(t), "cortex.sock")
 	registry := modelregistry.NewRegistry(modelregistry.RegistryConfig{})
 	registry.PutStatus(modelregistry.ModelStatus{
-		ModelID:           "daemon-model",
+		ModelID:           "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c",
 		ChainState:        "registered",
 		DisplayVisibility: "public",
 		VerificationLabel: "official",
@@ -347,7 +347,7 @@ func TestUnixSocketClientRoutesModelStatusTreasuryAndCapability(t *testing.T) {
 	})
 
 	client := NewClient(socketPath)
-	status, err := client.ModelStatus(context.Background(), modelregistry.StatusRequest{ModelID: "daemon-model", Height: 77})
+	status, err := client.ModelStatus(context.Background(), modelregistry.StatusRequest{ModelID: "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c", Height: 77})
 	if err != nil {
 		t.Fatalf("ModelStatus returned error: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestUnixSocketClientRoutesProjectedModelStatus(t *testing.T) {
 		ChainState:          modelregistry.ChainStateRegistered,
 		DisplayVisibility:   modelregistry.DisplayVisible,
 		VerificationLabel:   modelregistry.VerificationOfficial,
-		RewardState:         modelregistry.RewardEligibleIfMarked,
+		RewardState:         modelregistry.RewardFeeOnlyNoBlockReward,
 		Supported:           true,
 		DailySupportEnabled: true,
 	})
@@ -588,7 +588,7 @@ func shortTempDir(t *testing.T) string {
 
 func TestFormatResponseSupportsJSONAndTable(t *testing.T) {
 	status := modelregistry.ModelStatus{
-		ModelID:           "llama-text-8b",
+		ModelID:           "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
 		ChainState:        "registered",
 		DisplayVisibility: "public",
 		VerificationLabel: "trace verified",
@@ -619,7 +619,7 @@ func TestFormatResponseSupportsJSONAndTable(t *testing.T) {
 
 func TestFormatResponseStatusProjectionTableIncludesOperatorFields(t *testing.T) {
 	projection := modelregistry.ProjectStatus(modelregistry.StatusObservation{
-		ModelID:                 "llama-text-8b",
+		ModelID:                 "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b",
 		ProfileVersion:          "profile-v1",
 		ChainState:              modelregistry.ChainStateActive,
 		DisplayVisibility:       modelregistry.DisplayVisible,

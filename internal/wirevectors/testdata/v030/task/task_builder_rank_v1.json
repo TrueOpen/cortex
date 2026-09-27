@@ -1,0 +1,101 @@
+{
+  "domain": "TRUEOPEN_TASK_BUILDER_RANK_V1",
+  "notes": [
+    "H_FIELDS_V1(\"TRUEOPEN_TASK_BUILDER_RANK_V1\", task_builder_seed, builder_operator_address). Two fields, in that order; the registry row names both.",
+    "builder_operator_address frames the address codec bytes, never the Bech32 text. The bech32 column is a self-check so a non-Go implementation can validate its own decoder here instead of discovering a broken one as a digest mismatch.",
+    "The vectors share one seed and differ only in the Builder, which is what the rank is for: one task_builder_seed maps every candidate Builder onto its own rank, and selection is the ascending order of those ranks.",
+    "This file used to publish (seed, address) -\u003e rank pairs with no per-vector preimage, so the rank VALUES were pinned but the field ORDER was not: swapping the two fields inside the producer would have moved every rank and agreed with a regenerated file. The preimage below is what the root differential compares against the registry row."
+  ],
+  "schema_version": "trueopen-task-builder-rank-v1",
+  "sort": "rank_bytes_asc_then_address_codec_bytes_asc",
+  "vectors": [
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_builder_rank_v1.json",
+      "digest_hex": "2215fbe71a020f4624a48f6c8649516b7b6937017c023ff4744a7486ca61e1a1",
+      "domain": "TRUEOPEN_TASK_BUILDER_RANK_V1",
+      "fields": [
+        {
+          "hex": "3132330000000000000000000000000000000000000000000000000000000000",
+          "name": "task_builder_seed",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1g9q5zs2pg9q5zs2pg9q5zs2pg9q5zs2p3cu7ca",
+          "hex": "4141414141414141414141414141414141414141",
+          "name": "builder_operator_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "task_builder_rank_v1_builder_a",
+      "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f4255494c4445525f52414e4b5f56310000000000000020313233000000000000000000000000000000000000000000000000000000000000000000000000144141414141414141414141414141414141414141",
+      "producer": "TaskBuilderRank"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_builder_rank_v1.json",
+      "digest_hex": "9165f52562d4bd223a762b5f492c3a25b71e14506b9f91560b3f233abcbb9114",
+      "domain": "TRUEOPEN_TASK_BUILDER_RANK_V1",
+      "fields": [
+        {
+          "hex": "3132330000000000000000000000000000000000000000000000000000000000",
+          "name": "task_builder_seed",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "builder_operator_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "task_builder_rank_v1_builder_b",
+      "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f4255494c4445525f52414e4b5f5631000000000000002031323300000000000000000000000000000000000000000000000000000000000000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+      "producer": "TaskBuilderRank"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_builder_rank_v1.json",
+      "digest_hex": "aa9c78096af16eb02192e040093f5646ea293eeef0e084eda7cc6906a9bb68d0",
+      "domain": "TRUEOPEN_TASK_BUILDER_RANK_V1",
+      "fields": [
+        {
+          "hex": "3132330000000000000000000000000000000000000000000000000000000000",
+          "name": "task_builder_seed",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1urs79clyuhnw068fat47em0walc0ruhn3u9y6t",
+          "hex": "e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3",
+          "name": "builder_operator_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "task_builder_rank_v1_builder_c",
+      "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f4255494c4445525f52414e4b5f5631000000000000002031323300000000000000000000000000000000000000000000000000000000000000000000000014e0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3",
+      "producer": "TaskBuilderRank"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_builder_rank_v1.json",
+      "digest_hex": "8e3252aff82748ed63f9d1caaa9977a5e04fe31ddc623c750ec946e2bb316f2d",
+      "domain": "TRUEOPEN_TASK_BUILDER_RANK_V1",
+      "fields": [
+        {
+          "hex": "3132340000000000000000000000000000000000000000000000000000000000",
+          "name": "task_builder_seed",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1g9q5zs2pg9q5zs2pg9q5zs2pg9q5zs2p3cu7ca",
+          "hex": "4141414141414141414141414141414141414141",
+          "name": "builder_operator_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "task_builder_rank_v1_other_seed",
+      "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f4255494c4445525f52414e4b5f56310000000000000020313234000000000000000000000000000000000000000000000000000000000000000000000000144141414141414141414141414141414141414141",
+      "producer": "TaskBuilderRank"
+    }
+  ]
+}

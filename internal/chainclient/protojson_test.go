@@ -29,10 +29,10 @@ func TestProtoBytes32UsesProtoJSONBase64(t *testing.T) {
 
 func TestProtoBytes32RejectsNonCanonicalWireValues(t *testing.T) {
 	for name, raw := range map[string]string{
-		"hex":          `"` + strings.Repeat("ab", 32) + `"`,
-		"short base64": `"` + base64.StdEncoding.EncodeToString(make([]byte, 31)) + `"`,
-		"number":       `7`,
-		"null":         `null`,
+		"uppercase hex": `"` + strings.Repeat("AB", 32) + `"`,
+		"short base64":  `"` + base64.StdEncoding.EncodeToString(make([]byte, 31)) + `"`,
+		"number":        `7`,
+		"null":          `null`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			var value ProtoBytes32

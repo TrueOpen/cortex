@@ -11,7 +11,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
-const CurrentManifestSchemaVersion = uint64(3)
+const CurrentManifestSchemaVersion = uint64(4)
 
 // CurrentManifestInput contains operator-facing metadata plus the exact
 // immutable projection signed and registered by the current Node contract.
@@ -50,7 +50,7 @@ func SelfTestCurrentManifest(manifest CurrentManifest) (CurrentSelfTestResult, e
 		return CurrentSelfTestResult{}, err
 	}
 	return CurrentSelfTestResult{
-		Passed: true, ManifestHash: manifest.Hash, ModelID: manifest.Profile.ModelID,
+		Passed: true, ManifestHash: manifest.Hash, ModelID: string(manifest.Profile.ModelID),
 		ProfileVersion: uint32(manifest.Profile.ProfileVersion), ProjectionValidated: true,
 	}, nil
 }

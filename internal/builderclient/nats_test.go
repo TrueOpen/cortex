@@ -8,10 +8,11 @@ import (
 	"reflect"
 	"runtime"
 
-	nats "github.com/nats-io/nats.go"
 	"strings"
 	"testing"
 	"time"
+
+	nats "github.com/nats-io/nats.go"
 )
 
 type fakeNATSTransport struct {

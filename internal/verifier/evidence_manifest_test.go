@@ -14,10 +14,10 @@ import (
 )
 
 type evidencePublisherStub struct {
-	publish func(TaskState, nodewire.ResultReceiptV2, []byte, []byte) error
+	publish func(TaskState, nodewire.ResultReceiptV3, []byte, []byte) error
 }
 
-func (s evidencePublisherStub) PublishVerifierEvidence(_ context.Context, state TaskState, receipt nodewire.ResultReceiptV2, manifest, proof []byte) error {
+func (s evidencePublisherStub) PublishVerifierEvidence(_ context.Context, state TaskState, receipt nodewire.ResultReceiptV3, manifest, proof []byte) error {
 	if s.publish != nil {
 		return s.publish(state, receipt, manifest, proof)
 	}
@@ -30,7 +30,7 @@ func TestVerifierFinalizesExactCommittedEvidenceBeforePublishing(t *testing.T) {
 	state.OpenVerifyAccepted = true
 	before := verifyLocally(t, h, state)
 	called := false
-	h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(got TaskState, receipt nodewire.ResultReceiptV2, manifest, proof []byte) error {
+	h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(got TaskState, receipt nodewire.ResultReceiptV3, manifest, proof []byte) error {
 		called = true
 		if len(h.builder.Published) != 0 || got.TaskID != state.TaskID {
 			t.Fatal("result was published before evidence finalization")
@@ -38,7 +38,7 @@ func TestVerifierFinalizesExactCommittedEvidenceBeforePublishing(t *testing.T) {
 		bundleHash := evidencebundle.Hash(manifest)
 		if !bytes.Equal(manifest, before.EvidenceManifest) || !bytes.Equal(proof, before.MetricMaterial.AggregateProof.Bytes) ||
 			!bytes.Equal(receipt.VerifierEvidenceBundleHash, bundleHash[:]) || receipt.VerifierEvidenceManifestSizeBytes != uint64(len(manifest)) ||
-			!bytes.Equal(receipt.Salt, before.Salt[:]) || receipt.SchemaVersion != 2 {
+			!bytes.Equal(receipt.Salt, before.Salt[:]) || receipt.SchemaVersion != nodewire.ResultReceiptSchemaVersionV3 {
 			t.Fatal("published evidence differs from the committed bundle")
 		}
 		return nil
@@ -60,7 +60,7 @@ func TestVerifierEvidencePublisherFailurePreventsResultPublication(t *testing.T)
 			h.verifier.cfg.EvidencePublisher = nil
 			failure := errors.New("finalize rejected")
 			if !absent {
-				h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(TaskState, nodewire.ResultReceiptV2, []byte, []byte) error { return failure }}
+				h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(TaskState, nodewire.ResultReceiptV3, []byte, []byte) error { return failure }}
 			}
 			result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
 			if err == nil || result.Published || len(h.builder.Published) != 0 {

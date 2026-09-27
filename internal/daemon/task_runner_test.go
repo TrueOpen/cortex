@@ -3,7 +3,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -59,7 +58,7 @@ func TestTaskRunnerResolvesServiceIdentityAfterConstruction(t *testing.T) {
 	runner := NewTaskRunner(TaskRunnerConfig{
 		Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain",
 		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{"model\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
 		TaskDataAuth:         taskRunnerTaskDataAuth(t),
 		ServiceIdentity: func() (string, string) {
@@ -98,7 +97,7 @@ func TestTaskRunnerReportsPermanentAdmissionFailure(t *testing.T) {
 	runner := NewTaskRunner(TaskRunnerConfig{
 		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker", ChainID: "chain",
 		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{"model\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
 		TaskDataAuth:         taskRunnerTaskDataAuth(t),
 		ServiceIdentity:      func() (string, string) { return "wrong-service", "" },
@@ -126,7 +125,7 @@ func TestHandleNexusMessageAdmitsUnsignedOrderUnderTrustedNATSDev(t *testing.T) 
 	}
 	defer db.Close()
 
-	modelID := "hf-ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
+	modelID := "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
 	const deadlineHeight = uint64(151206)
 	runner := NewTaskRunner(TaskRunnerConfig{
 		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker",
@@ -252,10 +251,10 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 	acceptedTaskHash := codec.HashBytes([]byte("accepted-task-hash"))
 	orderDigest := codec.HashWithDomain("TEST_ORDER_ENVELOPE", []byte("order"))
 	outputHash := codec.HashBytes([]byte("output"))
-	pkg := builderclient.OutputPackage{TaskID: taskID, OutputRef: "cid://output", TraceRef: "cid://trace", CheckpointRef: "cid://checkpoint", OutputHash: outputHash}
-	pkg.PackageHash = codec.HashWithDomain("TRUEOPEN_OUTPUT_PACKAGE_V1", []byte(taskID), []byte(pkg.OutputRef), []byte(pkg.TraceRef), []byte(pkg.CheckpointRef), outputHash[:])
+	pkg := builderclient.OutputPackage{TaskID: taskID, OutputRef: "cid://output", TokenIDsRef: "cid://trace", PositionValuesRef: "cid://checkpoint", OutputHash: outputHash}
+	pkg.PackageHash = codec.HashWithDomain("TRUEOPEN_OUTPUT_PACKAGE_V1", []byte(taskID), []byte(pkg.OutputRef), []byte(pkg.TokenIDsRef), []byte(pkg.PositionValuesRef), outputHash[:])
 	nonzero := func(label string) chainclient.HexHash { return chainclient.HexHash(codec.HashBytes([]byte(label))) }
-	seedInferTask(ctx, t, db, acceptedTaskHash, store.InferTask{TaskID: taskID, SessionID: sessionID, OrderSequence: orderSequence, OrderDigest: orderDigest, ModelID: "model-1", ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, Stage: "queued"})
+	seedInferTask(ctx, t, db, acceptedTaskHash, store.InferTask{TaskID: taskID, SessionID: sessionID, OrderSequence: orderSequence, OrderDigest: orderDigest, ModelID: testModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, Stage: "queued"})
 	if err := layout.MergeVerify(ctx, db, layout.StoredHash(acceptedTaskHash), layout.VerifyRecord{TaskID: taskID, Stage: layout.StageQueued, VerifyRound: 1}); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +263,7 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 		Assignment: chainclient.AssignmentSnapshot{
 			SessionID: sessionID, TaskID: taskID, OrderSequence: chainclient.NewUint64String(orderSequence),
 			SelectedWorker: "worker-1", InferDeadlineHeight: chainclient.NewUint64String(100), WinnerConfirmHeight: chainclient.NewUint64String(12),
-			ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1), AcceptedOrderPayloadHash: nonzero("payload"),
+			ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1), AcceptedOrderPayloadHash: nonzero("payload"),
 			TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{AcceptedTaskHash: chainclient.ProtoBytes32(acceptedTaskHash[:])},
 		},
 		InferReceipt: chainclient.InferReceiptSnapshot{
@@ -290,7 +289,7 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 		// the verifier handraise's service_authorization_nonce (interface-and-topic-list.md
 		// §5.2 field 7).
 		TaskDataAuth:        taskRunnerTaskDataAuth(t),
-		ProfileCapabilities: map[string]string{"model-1\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities: map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 		ChainStatus:         fixedChainStatus{height: 10, chainID: "chain"},
 		SignerAddress:       "verifier-service", SignerKeyRef: "key", Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return bytes.Repeat([]byte{1}, 64), nil }),
 	})
@@ -531,7 +530,7 @@ func TestVerifyPathCompletesFromOpenVerifyWithNoOutputAvailableHint(t *testing.T
 		Assignment: chainclient.AssignmentSnapshot{
 			SessionID: sessionID, TaskID: taskID, OrderSequence: chainclient.NewUint64String(1), OrderDigest: nonzero("order"),
 			SelectedWorker: outputTestWorker, InferDeadlineHeight: chainclient.NewUint64String(100),
-			ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1), AcceptedOrderPayloadHash: nonzero("payload"),
+			ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1), AcceptedOrderPayloadHash: nonzero("payload"),
 			BuilderOperatorAddress: inputTestBuilder,
 		},
 		InferReceipt: receipt,
@@ -552,7 +551,7 @@ func TestVerifyPathCompletesFromOpenVerifyWithNoOutputAvailableHint(t *testing.T
 	taskHash := codec.HashBytes([]byte("open-verify-only"))
 	runner := NewTaskRunner(TaskRunnerConfig{
 		Store: db, LocalVerifierAddress: "verifier-1",
-		ProfileCapabilities: map[string]string{"model-1\x001": modelservice.CapabilityLLMTextV1},
+		ProfileCapabilities: map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
 	})
 	if err := runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
 		Type: ReconcilerEffectVerifyReady, TaskHash: taskHash, TaskID: taskID, Snapshot: snapshot,
@@ -570,7 +569,7 @@ func TestVerifyPathCompletesFromOpenVerifyWithNoOutputAvailableHint(t *testing.T
 	// helper is migrated to the new layout.
 	task := store.VerifyTask{
 		TaskID: taskID, SessionID: sessionID, OrderSequence: 1,
-		ModelID: "model-1", ProfileVersion: 1, Stage: "queued",
+		ModelID: testModelID, ProfileVersion: 1, Stage: "queued",
 		VerifyRound:            1,
 		BuilderOperatorAddress: snapshot.Assignment.BuilderOperatorAddress,
 		WorkerAddress:          snapshot.Assignment.SelectedWorker,
@@ -644,11 +643,11 @@ func newVerifierControlFixture(t *testing.T) verifierControlFixture {
 	nonzero := func(label string) chainclient.HexHash { return chainclient.HexHash(codec.HashBytes([]byte(label))) }
 	snapshot := chainclient.TaskSnapshot{
 		Status:             "VERIFY_READY",
-		Assignment:         chainclient.AssignmentSnapshot{SessionID: "session-1", TaskID: "abababababababababababababababababababababababababababababababab", OrderSequence: chainclient.NewUint64String(1), OrderDigest: chainclient.HexHash(orderDigest), SelectedWorker: "worker-1", InferDeadlineHeight: chainclient.NewUint64String(20), ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1), AcceptedOrderPayloadHash: nonzero("payload")},
+		Assignment:         chainclient.AssignmentSnapshot{SessionID: "session-1", TaskID: "abababababababababababababababababababababababababababababababab", OrderSequence: chainclient.NewUint64String(1), OrderDigest: chainclient.HexHash(orderDigest), SelectedWorker: "worker-1", InferDeadlineHeight: chainclient.NewUint64String(20), ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1), AcceptedOrderPayloadHash: nonzero("payload")},
 		InferReceipt:       chainclient.InferReceiptSnapshot{SessionID: "session-1", TaskID: "abababababababababababababababababababababababababababababababab", WinnerWorker: "worker-1", InferReceiptCommitHash: nonzero("commit"), InferReceiptHash: nonzero("receipt"), OutputHash: chainclient.HexHash(outputHash), TraceCommitRoot: nonzero("trace"), CheckpointCommitRoot: nonzero("checkpoint"), BatchLogRoot: nonzero("batch"), TokenCount: chainclient.NewUint64String(1), WorkUnit: chainclient.NewUint64String(1), WorkerSignature: "signature", CanonicalOutputPackageHash: chainclient.HexHash(packageHash), OutputDeliveryCommitment: nonzero("delivery"), ReceiptMode: "DIRECT", ReceiptHeight: chainclient.NewUint64String(21)},
 		VerifierAssignment: chainclient.VerifierAssignmentSnapshot{VerifyRound: chainclient.NewUint64String(1), SessionID: "session-1", TaskID: "abababababababababababababababababababababababababababababababab", OpenVerifyHeight: chainclient.NewUint64String(22), FormalVerifierSet: chainclient.CSVStrings{"verifier-1"}, SampleSeedReadyHeight: chainclient.NewUint64String(25), VerificationSampleSeed: chainclient.HexHash(seed), CommitDeadlineHeight: chainclient.NewUint64String(30), WorkerRevealDeadlineHeight: chainclient.NewUint64String(40), RevealDeadlineHeight: chainclient.NewUint64String(50), VerifyDeadlineHeight: chainclient.NewUint64String(60), SampleSeedStatus: "READY", VerifierCandidateWindowHash: nonzero("candidate-window"), ParamVersion: "v1", SampleRandomnessAggregationBlocks: chainclient.NewUint64String(1), WorkerRevealWindowBlocks: chainclient.NewUint64String(1), RevealWindowBlocks: chainclient.NewUint64String(1), Stage3BuilderGraceBlocks: chainclient.NewUint64String(1)},
 	}
-	task := store.VerifyTask{TaskID: "abababababababababababababababababababababababababababababababab", SessionID: "session-1", OrderSequence: 1, ModelID: "model-1", ProfileVersion: 1, WorkerAddress: "worker-1", OrderDigest: orderDigest, OutputDigest: outputHash, PackageDigest: packageHash, VerifyRound: 1, OpenVerifyHeight: 22, CurrentHeight: 25, CommitDeadlineHeight: 30, WorkerRevealDeadlineHeight: 40, RevealDeadlineHeight: 50, DeadlineHeight: 60, AssignedVerifiers: []string{"verifier-1"}, VerificationSampleSeed: seed}
+	task := store.VerifyTask{TaskID: "abababababababababababababababababababababababababababababababab", SessionID: "session-1", OrderSequence: 1, ModelID: testModelID, ProfileVersion: 1, WorkerAddress: "worker-1", OrderDigest: orderDigest, OutputDigest: outputHash, PackageDigest: packageHash, VerifyRound: 1, OpenVerifyHeight: 22, CurrentHeight: 25, CommitDeadlineHeight: 30, WorkerRevealDeadlineHeight: 40, RevealDeadlineHeight: 50, DeadlineHeight: 60, AssignedVerifiers: []string{"verifier-1"}, VerificationSampleSeed: seed}
 	seedVerifyTask(ctx, t, db, taskHash, task)
 	return verifierControlFixture{
 		// The fixture node is one of the verifiers the snapshot's formal set names:
@@ -985,7 +984,7 @@ func TestTaskRunnerOwnsReconcilerEffectDocuments(t *testing.T) {
 	taskHash := codec.HashBytes([]byte("assigned-task"))
 	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 		TaskID: "task-1", SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-		SelectedWorker: "worker-1", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+		SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 		InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 	}}
 	r := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
@@ -1026,7 +1025,7 @@ func TestConflictingReconcilerEffectIsQuarantinedSoLaterEffectsStillApply(t *tes
 	assignment := func(taskID string) chainclient.TaskSnapshot {
 		return chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 			TaskID: taskID, SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-			SelectedWorker: "worker-1", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+			SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 			InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 		}}
 	}
@@ -1217,7 +1216,7 @@ func (e staticEligibility) Verifier(context.Context, VerifierHandraiseCandidate)
 }
 
 func acceptingEligibility() policy.WorkerPrecheckInput {
-	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 10, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 10, SupportFreshnessWindow: 10, Profile: modelservice.CapabilityLLMTextV1, SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 1, CapacitySnapshotRef: "capacity", RewardEligible: true}
+	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 10, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 10, SupportFreshnessWindow: 10, Profile: modelservice.CapabilityLLMTextV1, SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 1, CapacitySnapshotRef: "capacity"}
 }
 
 // testBusEnvelope builds a complete 20-field TRUEOPEN_BUS_ENVELOPE_V1 for the
@@ -1237,10 +1236,10 @@ func testSignedOrderProto(t *testing.T, chainID, modelID, sessionID string, sequ
 	hash := bytes.Repeat([]byte{0x5a}, 32)
 	amount := func(value string) *bussharedv1.Amount { return &bussharedv1.Amount{AtomicUnits: value} }
 	signed := &bustaskv1.SignedOrderV2{
-		Order: &bustaskv1.TaskOrderV2{
-			SchemaVersion: 2, ChainId: chainID, UserAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+		Order: &bustaskv1.TaskOrderV3{
+			SchemaVersion: 3, ChainId: chainID, UserAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 			SessionId: session, OrderSequence: sequence,
-			ModelId: modelID, ProfileVersion: 1, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
+			ModelId: mustModelIDBytes(t, modelID), ProfileVersion: 1, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
 			InputHash: bytes.Repeat([]byte{0xaa}, 32), InputSizeBytes: 32,
 			InputBucket: 1, OutputBudgetBucket: 1,
 			GenerationParams: &bustaskv1.GenerationParamsV1{
@@ -1256,6 +1255,8 @@ func testSignedOrderProto(t *testing.T, chainID, modelID, sessionID string, sequ
 			DeadlinePolicy:       &bustaskv1.DeadlinePolicyV1{LatencyClass: bustaskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_STANDARD},
 			TimeoutBucketVersion: 1, SessionAnchorHeight: 100,
 			SessionAnchorBlockHash: hash, BuilderSetId: "7", BuilderSetHash: hash,
+			PayloadMode:        bustaskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
+			InputKeyCommitment: make([]byte, 32),
 		},
 		SignatureScheme: "eip712",
 		UserSignature:   append(bytes.Repeat([]byte{0x01}, 64), 27),
@@ -1308,7 +1309,7 @@ func taskRunnerTaskDataAuth(t *testing.T) *taskdataauth.Authenticator {
 
 func admissionRunner(t *testing.T, db *store.Store, builder builderclient.Client, input policy.WorkerPrecheckInput) *TaskRunner {
 	t.Helper()
-	return NewTaskRunner(TaskRunnerConfig{Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain", FakeOutput: true, FakeBus: true, ProfileCapabilities: map[string]string{"model\x001": modelservice.CapabilityLLMTextV1}, HandraiseEligibility: staticEligibility{input: input, expiry: 100}, TaskDataAuth: taskRunnerTaskDataAuth(t), SignerAddress: "service", SignerKeyRef: "key", Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return bytes.Repeat([]byte{1}, 64), nil })})
+	return NewTaskRunner(TaskRunnerConfig{Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain", FakeOutput: true, FakeBus: true, ProfileCapabilities: map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1}, HandraiseEligibility: staticEligibility{input: input, expiry: 100}, TaskDataAuth: taskRunnerTaskDataAuth(t), SignerAddress: "service", SignerKeyRef: "key", Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return bytes.Repeat([]byte{1}, 64), nil })})
 }
 
 func orderMessage(t *testing.T) (builderclient.NATSMessage, codec.Hash) {
@@ -1336,57 +1337,16 @@ func orderMessageWithSequence(t *testing.T, sequence uint64) (builderclient.NATS
 func orderMessageFor(t *testing.T, sequence, expireHeight uint64) (builderclient.NATSMessage, codec.Hash) {
 	t.Helper()
 	session := "3f3af1ecebbd1410ab417ec0d27bbfcb5d340e177ae159b59fc8626c2dfd9175"
-	signedOrder, taskHash := testSignedOrderProto(t, "chain", "model", session, sequence, expireHeight)
+	signedOrder, taskHash := testSignedOrderProto(t, "chain", testModelID, session, sequence, expireHeight)
 	payload, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOrderBroadcast, ChainID: "chain", Subject: builderclient.NATSTaskOpenSubject("model"),
+		Kind: builderclient.KindOrderBroadcast, ChainID: "chain", Subject: builderclient.NATSTaskOpenSubject(testModelID),
 		SenderOperatorAddress: "builder", SenderParticipantType: builderclient.ParticipantBuilder,
 		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
 	}, &busv1.OrderBroadcastV1{SignedOrder: signedOrder}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject("model"), Data: payload, JetStream: true}, taskHash
-}
-
-func testTaskOrderJSON(t *testing.T, chainID, modelID, sessionID string, sequence uint64, user string, deadline uint64, inputHash, builderSetHash codec.Hash) (string, codec.Hash) {
-	t.Helper()
-	rawSession, err := hex.DecodeString(sessionID)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	amount := func(value string) map[string]any { return map[string]any{"atomic_units": value} }
-	order := map[string]any{
-		"schema_version": uint32(1), "chain_id": chainID, "user_address": user,
-		"session_id": base64.StdEncoding.EncodeToString(rawSession), "order_sequence": fmt.Sprintf("%d", sequence),
-		"model_id": modelID, "profile_version": uint32(1), "task_type": "TASK_TYPE_CHAT",
-		"input_hash": base64.StdEncoding.EncodeToString(inputHash[:]), "input_size_bytes": "32", "input_bucket": uint32(1), "output_budget_bucket": uint32(1),
-		"generation_params": map[string]any{
-			"generation_params_schema_version": uint32(1), "max_output_tokens": "128", "max_output_duration": "2000",
-			"decoding_params": map[string]any{
-				"sampling_enabled": false, "temperature_milli": uint32(0), "top_p_ppm": uint32(1000000), "top_k": uint32(0), "seed": "1",
-				"presence_penalty_milli": int32(0), "frequency_penalty_milli": int32(0), "repetition_penalty_ppm": uint32(1000000),
-				"stop_sequences": []string{}, "stop_token_ids": []uint32{},
-			},
-		},
-		"infer_input_unit_price_bid": amount("1"), "infer_output_unit_price_bid": amount("1"), "verify_unit_price_bid": amount("1"),
-		"infer_fee_cap": amount("1000"), "verify_fee_cap": amount("1000"), "max_fee": amount("3000"),
-		"assignment_priority_fee": amount("0"), "tx_fee_reserve": amount("1000"),
-		"earliest_submit_height": "151006", "order_expire_height": fmt.Sprintf("%d", deadline),
-		"deadline_policy":          map[string]any{"latency_class": "DEADLINE_LATENCY_CLASS_STANDARD"},
-		"reference_bucket_version": "1", "timeout_bucket_version": "1", "session_anchor_height": "151006",
-		"session_anchor_block_hash": base64.StdEncoding.EncodeToString(builderSetHash[:]),
-		"builder_set_id":            "smoke-builder-set-1", "builder_set_hash": base64.StdEncoding.EncodeToString(builderSetHash[:]),
-	}
-	payload, err := json.Marshal(order)
-	if err != nil {
-		t.Fatal(err)
-	}
-	taskHash, err := nodewire.TaskOrderHashJSON(string(payload))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(payload), taskHash
+	return builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject(testModelID), Data: payload, JetStream: true}, taskHash
 }
 
 type staticCandidateMemberReader struct{}
@@ -1396,14 +1356,6 @@ func (staticCandidateMemberReader) CurrentCandidateMember(context.Context, strin
 		CandidatePoolSnapshotID: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x31}, 32)),
 		Slot:                    1, SlotVersion: 1, OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 	}, nil
-}
-
-func hashBytes(value byte) codec.Hash {
-	var hash codec.Hash
-	for index := range hash {
-		hash[index] = value
-	}
-	return hash
 }
 
 type admissionBuilder struct {
@@ -1475,7 +1427,7 @@ func TestInferTaskCopiesInputSizeBytesFromCandidate(t *testing.T) {
 			SelectedWorker:           "worker-1",
 			WinnerConfirmHeight:      chainclient.NewUint64String(10),
 			InferDeadlineHeight:      chainclient.NewUint64String(100),
-			ModelID:                  "model-1",
+			ModelID:                  testModelID,
 			ProfileVersion:           chainclient.NewProfileVersion(1),
 			BuilderOperatorAddress:   "trueopen1builder",
 		},
@@ -1553,7 +1505,7 @@ func TestNexusFreshnessIsEnforcedUnderTrustedNATSDevAndIsPermanent(t *testing.T)
 	}
 }
 
-const freshnessTestModelID = "hf-ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
+const freshnessTestModelID = "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
 
 // trustedOrderFrame builds the same unsigned ORDER_BROADCAST frame
 // TestHandleNexusMessageAdmitsUnsignedOrderUnderTrustedNATSDev drives, with the
@@ -1662,7 +1614,7 @@ func TestLosingAnAssignmentReleasesTheCandidateAdmission(t *testing.T) {
 	}
 	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 		TaskID: "task-1", SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-		SelectedWorker: "worker-2", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+		SelectedWorker: "worker-2", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 		InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 	}}
 	r := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
@@ -1699,7 +1651,7 @@ func TestWinningAnAssignmentKeepsTheCandidateAdmission(t *testing.T) {
 	}
 	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 		TaskID: "task-1", SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-		SelectedWorker: "worker-1", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+		SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 		InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 	}}
 	r := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
@@ -1802,4 +1754,16 @@ func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *t
 		`kind="OutputAvailable"`, `task="`+fixture.taskID+`"`,
 		`worker="worker-1"`, `reason="self_winner"`)
 	requireTraceLevel(t, fixture.trace, "verifier_trigger_skipped", slog.LevelInfo)
+}
+
+// testModelID is the Hash32 model id, as canonical hex, the daemon tests run.
+const testModelID = "0101010101010101010101010101010101010101010101010101010101010101"
+
+func mustModelIDBytes(t testing.TB, modelID string) []byte {
+	t.Helper()
+	raw, err := identity.ModelIDBytes(modelID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

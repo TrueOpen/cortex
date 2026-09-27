@@ -3,7 +3,7 @@ package nodewire
 // The B-level WORKER_VALUE_OPENING commitment of wire v0.3.0 (TrueOpen/wire#14,
 // task/worker_value_commitment_v3.json). Trace and checkpoint are gone: the
 // commitment binds only the Merkle root of the Worker's per-position values and
-// the exact size of the worker_values artifact. Nothing produces it yet.
+// the exact size of the worker_values artifact.
 
 import (
 	"fmt"

@@ -96,7 +96,7 @@ func devnetRendererEnv(generatedDir, tokenPath, chainID string) []string {
 		"CORTEX_GENERATED_DIR="+generatedDir,
 		"CORTEX_CHAIN_ID="+chainID,
 		"CORTEX_OPERATOR_ADDRESS=trueopen1operator",
-		"CORTEX_MODEL_ID=llama-main", "CORTEX_MODEL_PROFILES=llama-main@1=llm_text_v1",
+		"CORTEX_MODEL_ID=6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2", "CORTEX_MODEL_PROFILES=6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1=llm_text_v1",
 		"CORTEX_MODEL_SERVICE_ID=model-service-dev", "CORTEX_MODEL_ENDPOINT=model-service:9090",
 		"CORTEX_MODEL_TLS_PUBKEY_HASH="+strings.Repeat("ab", 32), "CORTEX_NEXUS_NATS_CA_FILE=/etc/cortex/nats-ca.pem",
 		"CORTEX_NEXUS_NATS_USER_KEY_FILE=/etc/cortex/nats-user.nk",
@@ -225,9 +225,9 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"5e209c13c814192d32ac8ca899c4af7eb5fb741a",
-		"229030a60d2606b4244c45ab93304b682a47c0224531e31384adfd2aa9fe8ca9",
-		"proto/testdata/wire-v0.2.1.binpb",
+		"d59f0608738a36a52c6ef1dfd8c5e40bfa1b4a85",
+		"e584422a7c2e4215576aaf6b7733591338d95f866f2c3350a6c89cc28402c569",
+		"proto/testdata/wire-v0.3.0-rc.2.binpb",
 		"protoc-gen-go",
 		"make proto-gen-chain",
 		"make proto-drift-chain",

@@ -381,21 +381,10 @@ func (r *Registry) PrepareOperatorSupportIntent(_ context.Context, req SupportRe
 	if modelID == "" {
 		return OperatorSupportIntent{}, fmt.Errorf("model_id is required")
 	}
-	profileVersion := strings.TrimSpace(req.ProfileVersion)
-	if profileVersion == "" {
-		r.mu.RLock()
-		status := r.statuses[modelID]
-		r.mu.RUnlock()
-		profileVersion = status.ProfileVersion
-	}
-	version, err := canonicalSupportProfileVersion(profileVersion)
-	if err != nil {
-		return OperatorSupportIntent{}, err
-	}
+	// Support is declared per model; no profile version is carried.
 	message := txclient.DeclareModelSupportMessage{
 		OperatorAddress:        r.supporterAddress,
-		ModelID:                modelID,
-		ProfileVersion:         txclient.ProtoUint32(version),
+		ModelID:                txclient.ProtoBytes32(modelID),
 		InferenceCapability:    r.inferenceCapability,
 		VerificationCapability: r.verificationCapability,
 	}

@@ -44,7 +44,7 @@ const (
 	// service key, and the two are separate rows on chain.
 	testBuilderAddr = "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
 	testChainID     = "trueopen-devnet-1"
-	testModelID     = "llama-3-8b"
+	testModelID     = "099066ebc1498400466fabe744606f360622d8eb24447a109b7a22f89cf4403f"
 	// testEnvelopeTTL is both the envelope lifetime and the TTL the test
 	// authenticator admits. The authenticator's bound is strict, so the two are
 	// one constant rather than two that could drift apart.

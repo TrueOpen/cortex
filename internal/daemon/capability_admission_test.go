@@ -32,10 +32,10 @@ func TestCapabilityConfigChangeDoesNotLoseTheResponsibility(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	taskHash := codec.HashBytes([]byte("capability-conflict"))
-	key := "model-1\x001"
+	key := testModelID + "\x001"
 	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 		TaskID: "task-1", SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-		SelectedWorker: "worker-1", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+		SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 		InferDeadlineHeight:      chainclient.NewUint64String(100),
 		AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 	}}

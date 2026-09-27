@@ -1,7 +1,6 @@
 package builderclient
 
 import (
-	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -10,248 +9,194 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-func completeWorkerValueEvidenceFacts() WorkerValueEvidenceFacts {
-	return WorkerValueEvidenceFacts{
-		ChainID:                    "trueopen-task-1",
-		TaskID:                     strings.Repeat("11", 32),
-		AcceptedTaskHash:           strings.Repeat("22", 32),
-		WorkerOperatorAddress:      "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-		GenerationParamsDigest:     strings.Repeat("33", 32),
-		EvidenceSchemaHash:         strings.Repeat("44", 32),
-		OutputHash:                 codec.HashBytes([]byte("output")),
-		OutputSizeBytes:            1536,
-		OutputLeafCount:            1,
-		GeneratedTokenCount:        3,
-		InputTokenIDsHash:          codec.HashBytes([]byte("input tokens")),
-		GeneratedTokenIDsHash:      codec.HashBytes([]byte("generated tokens")),
-		InputTokenIDsSizeBytes:     8,
-		GeneratedTokenIDsSizeBytes: 16,
-		FinishReason:               nodewire.FinishReasonV1EosToken,
-		TraceRoot:                  codec.HashBytes([]byte("trace")),
-		TraceEncodedSizeBytes:      3072,
-		CheckpointRoot:             codec.HashBytes([]byte("checkpoint")),
-		CheckpointEncodedSizeBytes: 1024,
+func completeWorkerEvidenceFacts() WorkerEvidenceFacts {
+	return WorkerEvidenceFacts{
+		ChainID:                      "trueopen-task-1",
+		TaskID:                       strings.Repeat("11", 32),
+		AcceptedTaskHash:             strings.Repeat("22", 32),
+		WorkerOperatorAddress:        "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+		GenerationParamsDigest:       strings.Repeat("33", 32),
+		EvidenceSchemaHash:           strings.Repeat("44", 32),
+		OutputHash:                   codec.HashBytes([]byte("output")),
+		OutputSizeBytes:              1536,
+		OutputLeafCount:              1,
+		GeneratedTokenCount:          3,
+		InputTokenIDsHash:            codec.HashBytes([]byte("input tokens")),
+		GeneratedTokenIDsHash:        codec.HashBytes([]byte("generated tokens")),
+		InputTokenIDsSizeBytes:       8,
+		GeneratedTokenIDsSizeBytes:   16,
+		FinishReason:                 nodewire.FinishReasonV1EosToken,
+		WorkerValueRoot:              codec.HashBytes([]byte("worker values")),
+		WorkerValuesEncodedSizeBytes: 4096,
 	}
 }
 
-// The commitment Cortex emits must satisfy every precondition the frozen handler
-// applies, and its size must be the derivation's own sum rather than anything the
-// caller computed. Deriving it and then validating it against the requirement set
-// is the whole contract, so it is asserted as one flow.
-func TestWorkerValueEvidenceCommitmentSatisfiesTheHandler(t *testing.T) {
-	facts := completeWorkerValueEvidenceFacts()
-	commitment, err := WorkerValueEvidenceCommitment(facts)
+// Both commitments come back in receipt order and satisfy the V3 requirement
+// shape, with each size the derivation's own.
+func TestWorkerEvidenceCommitmentsSatisfyTheV3Shape(t *testing.T) {
+	facts := completeWorkerEvidenceFacts()
+	commitments, err := WorkerEvidenceCommitments(facts)
 	if err != nil {
-		t.Fatalf("WorkerValueEvidenceCommitment: %v", err)
+		t.Fatal(err)
 	}
-	if commitment.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening {
-		t.Fatalf("evidence_kind = %d, want EVIDENCE_KIND_WORKER_VALUE_OPENING", commitment.EvidenceKind)
+	if len(commitments) != 2 || commitments[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening ||
+		commitments[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
+		t.Fatalf("commitments = %+v, want [value, token]", commitments)
 	}
-	if commitment.EncodedSizeBytes != facts.TraceEncodedSizeBytes+facts.CheckpointEncodedSizeBytes+facts.InputTokenIDsSizeBytes+facts.GeneratedTokenIDsSizeBytes {
-		t.Fatalf("encoded_size_bytes = %d, want the trace plus checkpoint sum %d",
-			commitment.EncodedSizeBytes, facts.TraceEncodedSizeBytes+facts.CheckpointEncodedSizeBytes)
+	if commitments[0].EncodedSizeBytes != facts.WorkerValuesEncodedSizeBytes {
+		t.Fatalf("value encoded_size_bytes = %d, want %d", commitments[0].EncodedSizeBytes, facts.WorkerValuesEncodedSizeBytes)
 	}
-	// The root is the TRUEOPEN_WORKER_VALUE_COMMITMENT_V1 digest, not any artifact
-	// hash that went into it.
-	for name, hash := range map[string]codec.Hash{
-		"output_hash": facts.OutputHash, "trace_root": facts.TraceRoot, "checkpoint_root": facts.CheckpointRoot,
-	} {
-		if commitment.EvidenceHashOrRoot == hash {
-			t.Fatalf("evidence_hash_or_root is the bare %s, not the commitment digest", name)
-		}
+	if commitments[1].EncodedSizeBytes != facts.InputTokenIDsSizeBytes+facts.GeneratedTokenIDsSizeBytes {
+		t.Fatalf("token encoded_size_bytes = %d, want the token-id sum", commitments[1].EncodedSizeBytes)
 	}
-	if err := ValidateProfileEvidenceCommitments(
-		WorkerValueEvidenceRequirementsV2(), []EvidenceCommitment{commitment},
-	); err != nil {
-		t.Fatalf("the derived commitment fails a handler precondition: %v", err)
+	if commitments[0].EvidenceHashOrRoot == facts.WorkerValueRoot {
+		t.Fatal("the value commitment is the bare worker_value_root, not its typed digest")
 	}
-	// The digest must be exactly what internal/nodewire publishes for the same
-	// inputs, so the two can never drift.
-	want, wantSize, err := nodewire.WorkerValueCommitment(nodewire.WorkerValueCommitmentV2{
-		SchemaVersion:              nodewire.WorkerValueCommitmentSchemaVersionV2,
-		ChainID:                    facts.ChainID,
-		TaskID:                     mustHex32(t, facts.TaskID),
-		AcceptedTaskHash:           mustHex32(t, facts.AcceptedTaskHash),
-		WorkerOperatorAddress:      facts.WorkerOperatorAddress,
-		GenerationParamsDigest:     mustHex32(t, facts.GenerationParamsDigest),
-		EvidenceSchemaHash:         mustHex32(t, facts.EvidenceSchemaHash),
-		OutputHash:                 facts.OutputHash[:],
-		OutputSizeBytes:            facts.OutputSizeBytes,
-		OutputLeafCount:            facts.OutputLeafCount,
-		GeneratedTokenCount:        facts.GeneratedTokenCount,
-		InputTokenIDsHash:          facts.InputTokenIDsHash[:],
-		GeneratedTokenIDsHash:      facts.GeneratedTokenIDsHash[:],
-		InputTokenIDsSizeBytes:     facts.InputTokenIDsSizeBytes,
-		GeneratedTokenIDsSizeBytes: facts.GeneratedTokenIDsSizeBytes,
-		FinishReason:               facts.FinishReason,
-		TraceRoot:                  facts.TraceRoot[:],
-		TraceEncodedSizeBytes:      facts.TraceEncodedSizeBytes,
-		CheckpointRoot:             facts.CheckpointRoot[:],
-		CheckpointEncodedSizeBytes: facts.CheckpointEncodedSizeBytes,
-	})
-	if err != nil {
-		t.Fatalf("nodewire.WorkerValueCommitment: %v", err)
-	}
-	if commitment.EvidenceHashOrRoot != want || commitment.EncodedSizeBytes != wantSize {
-		t.Fatalf("commitment = %x/%d, want the nodewire derivation %x/%d",
-			commitment.EvidenceHashOrRoot, commitment.EncodedSizeBytes, want, wantSize)
+	if err := ValidateProfileEvidenceCommitments(WorkerEvidenceRequirementsV3(), commitments); err != nil {
+		t.Fatalf("ValidateProfileEvidenceCommitments: %v", err)
 	}
 }
 
-// Every Hash32 input is bound into the digest, so a wrong value anywhere produces
-// a different commitment. The handler never recomputes this digest, so nothing on
-// chain would catch a field that quietly stopped reaching it.
-func TestWorkerValueEvidenceCommitmentBindsEveryInput(t *testing.T) {
-	base, err := WorkerValueEvidenceCommitment(completeWorkerValueEvidenceFacts())
+// Every input moves exactly the commitment it belongs to: value inputs move the
+// value commitment only, token inputs the token commitment only, and the shared
+// scope moves both.
+func TestWorkerEvidenceCommitmentsBindEveryInput(t *testing.T) {
+	base, err := WorkerEvidenceCommitments(completeWorkerEvidenceFacts())
 	if err != nil {
-		t.Fatalf("WorkerValueEvidenceCommitment: %v", err)
+		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		field  string
-		mutate func(*WorkerValueEvidenceFacts)
+	other := strings.Repeat("55", 32)
+	for name, tc := range map[string]struct {
+		mutate       func(*WorkerEvidenceFacts)
+		value, token bool
 	}{
-		{"chain_id", func(f *WorkerValueEvidenceFacts) { f.ChainID += "-other" }},
-		{"task_id", func(f *WorkerValueEvidenceFacts) { f.TaskID = strings.Repeat("1a", 32) }},
-		{"accepted_task_hash", func(f *WorkerValueEvidenceFacts) { f.AcceptedTaskHash = strings.Repeat("2a", 32) }},
-		{"generation_params_digest", func(f *WorkerValueEvidenceFacts) {
-			f.GenerationParamsDigest = strings.Repeat("3a", 32)
-		}},
-		{"evidence_schema_hash", func(f *WorkerValueEvidenceFacts) { f.EvidenceSchemaHash = strings.Repeat("4a", 32) }},
-		{"output_hash", func(f *WorkerValueEvidenceFacts) { f.OutputHash = codec.HashBytes([]byte("other output")) }},
-		{"output_size_bytes", func(f *WorkerValueEvidenceFacts) { f.OutputSizeBytes++ }},
-		{"output_leaf_count", func(f *WorkerValueEvidenceFacts) { f.OutputLeafCount++ }},
-		{"input_token_ids_hash", func(f *WorkerValueEvidenceFacts) { f.InputTokenIDsHash[0] ^= 1 }},
-		{"generated_token_ids_hash", func(f *WorkerValueEvidenceFacts) { f.GeneratedTokenIDsHash[0] ^= 1 }},
-		{"input_token_ids_size", func(f *WorkerValueEvidenceFacts) { f.InputTokenIDsSizeBytes += 4 }},
-		{"generated_token_count", func(f *WorkerValueEvidenceFacts) { f.GeneratedTokenCount++; f.GeneratedTokenIDsSizeBytes += 4 }},
-		{"finish_reason", func(f *WorkerValueEvidenceFacts) { f.FinishReason = nodewire.FinishReasonV1MaxOutputTokens }},
-		{"trace_root", func(f *WorkerValueEvidenceFacts) { f.TraceRoot = codec.HashBytes([]byte("other trace")) }},
-		{"checkpoint_root", func(f *WorkerValueEvidenceFacts) {
-			f.CheckpointRoot = codec.HashBytes([]byte("other checkpoint"))
-		}},
+		"chain_id":             {func(f *WorkerEvidenceFacts) { f.ChainID += "-x" }, true, true},
+		"task_id":              {func(f *WorkerEvidenceFacts) { f.TaskID = other }, true, true},
+		"accepted_task_hash":   {func(f *WorkerEvidenceFacts) { f.AcceptedTaskHash = other }, true, true},
+		"evidence_schema_hash": {func(f *WorkerEvidenceFacts) { f.EvidenceSchemaHash = other }, true, true},
+		"worker_operator_address": {func(f *WorkerEvidenceFacts) {
+			f.WorkerOperatorAddress = "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k"
+		}, true, true},
+		"worker_value_root":          {func(f *WorkerEvidenceFacts) { f.WorkerValueRoot = codec.HashBytes([]byte("other")) }, true, false},
+		"worker_values_size":         {func(f *WorkerEvidenceFacts) { f.WorkerValuesEncodedSizeBytes++ }, true, false},
+		"generation_params_digest":   {func(f *WorkerEvidenceFacts) { f.GenerationParamsDigest = other }, false, true},
+		"output_hash":                {func(f *WorkerEvidenceFacts) { f.OutputHash = codec.HashBytes([]byte("other")) }, false, true},
+		"output_size_bytes":          {func(f *WorkerEvidenceFacts) { f.OutputSizeBytes++ }, false, true},
+		"output_leaf_count":          {func(f *WorkerEvidenceFacts) { f.OutputLeafCount++ }, false, true},
+		"finish_reason":              {func(f *WorkerEvidenceFacts) { f.FinishReason = nodewire.FinishReasonV1StopToken }, false, true},
+		"generated tokens":           {func(f *WorkerEvidenceFacts) { f.GeneratedTokenCount++; f.GeneratedTokenIDsSizeBytes += 4 }, false, true},
+		"input_token_ids_hash":       {func(f *WorkerEvidenceFacts) { f.InputTokenIDsHash = codec.HashBytes([]byte("other")) }, false, true},
+		"generated_token_ids_hash":   {func(f *WorkerEvidenceFacts) { f.GeneratedTokenIDsHash = codec.HashBytes([]byte("other")) }, false, true},
+		"input_token_ids_size_bytes": {func(f *WorkerEvidenceFacts) { f.InputTokenIDsSizeBytes += 4 }, false, true},
 	} {
-		facts := completeWorkerValueEvidenceFacts()
-		tc.mutate(&facts)
-		changed, err := WorkerValueEvidenceCommitment(facts)
-		if err != nil {
-			t.Fatalf("%s: WorkerValueEvidenceCommitment: %v", tc.field, err)
-		}
-		if changed.EvidenceHashOrRoot == base.EvidenceHashOrRoot {
-			t.Fatalf("%s does not reach the commitment digest", tc.field)
-		}
-	}
-	// Swapping the two artifact roots must move the digest too: they are the same
-	// width, so a frame that lost their order would produce identical bytes.
-	swapped := completeWorkerValueEvidenceFacts()
-	swapped.TraceRoot, swapped.CheckpointRoot = swapped.CheckpointRoot, swapped.TraceRoot
-	changed, err := WorkerValueEvidenceCommitment(swapped)
-	if err != nil {
-		t.Fatalf("WorkerValueEvidenceCommitment: %v", err)
-	}
-	if changed.EvidenceHashOrRoot == base.EvidenceHashOrRoot {
-		t.Fatal("swapping trace_root and checkpoint_root leaves the digest unchanged")
-	}
-}
-
-// A missing or all-zero input must be refused, not folded into a well-formed
-// digest. The consensus reads and finish_reason are protocol gaps and carry the
-// unavailable-input sentinel so a caller can tell them from a Cortex bug; an
-// all-zero artifact root is a local bug and does not.
-func TestWorkerValueEvidenceCommitmentRefusesUnusableInputs(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		mutate      func(*WorkerValueEvidenceFacts)
-		contains    string
-		unavailable bool
-	}{
-		{"unset accepted_task_hash", func(f *WorkerValueEvidenceFacts) { f.AcceptedTaskHash = "" },
-			"TaskCoreState.accepted_task_hash", true},
-		{"all-zero accepted_task_hash", func(f *WorkerValueEvidenceFacts) {
-			f.AcceptedTaskHash = strings.Repeat("00", 32)
-		}, "TaskCoreState.accepted_task_hash", true},
-		{"all-zero generation_params_digest", func(f *WorkerValueEvidenceFacts) {
-			f.GenerationParamsDigest = strings.Repeat("00", 32)
-		}, "TaskAssignmentState.generation_params_digest", true},
-		{"unset evidence_schema_hash", func(f *WorkerValueEvidenceFacts) { f.EvidenceSchemaHash = "" },
-			"hub.v1.Query/Profile", true},
-		{"all-zero evidence_schema_hash", func(f *WorkerValueEvidenceFacts) {
-			f.EvidenceSchemaHash = strings.Repeat("00", 32)
-		}, "hub.v1.Query/Profile", true},
-		{"all-zero task_id", func(f *WorkerValueEvidenceFacts) { f.TaskID = strings.Repeat("00", 32) },
-			"task_id", true},
-		{"unspecified finish_reason", func(f *WorkerValueEvidenceFacts) {
-			f.FinishReason = nodewire.FinishReasonV1Unspecified
-		}, "finish_reason", true},
-		{"uppercase hex", func(f *WorkerValueEvidenceFacts) { f.AcceptedTaskHash = strings.Repeat("2A", 32) },
-			"lowercase 32-byte hex", false},
-		{"short hex", func(f *WorkerValueEvidenceFacts) { f.EvidenceSchemaHash = strings.Repeat("44", 31) },
-			"lowercase 32-byte hex", false},
-		{"all-zero trace_root", func(f *WorkerValueEvidenceFacts) { f.TraceRoot = codec.Hash{} },
-			"trace_root must not be 32 zero bytes", false},
-		{"all-zero checkpoint_root", func(f *WorkerValueEvidenceFacts) { f.CheckpointRoot = codec.Hash{} },
-			"checkpoint_root must not be 32 zero bytes", false},
-		{"all-zero output_hash", func(f *WorkerValueEvidenceFacts) { f.OutputHash = codec.Hash{} },
-			"output_hash must not be 32 zero bytes", false},
-		{"zero trace size", func(f *WorkerValueEvidenceFacts) { f.TraceEncodedSizeBytes = 0 },
-			"encoded sizes must be positive", false},
-		{"zero checkpoint size", func(f *WorkerValueEvidenceFacts) { f.CheckpointEncodedSizeBytes = 0 },
-			"encoded sizes must be positive", false},
-		{"zero output leaves", func(f *WorkerValueEvidenceFacts) { f.OutputLeafCount = 0 },
-			"output_leaf_count must be positive", false},
-		{"empty chain_id", func(f *WorkerValueEvidenceFacts) { f.ChainID = "" },
-			"chain_id must be non-empty", false},
-		{"non-Bech32 worker", func(f *WorkerValueEvidenceFacts) { f.WorkerOperatorAddress = "worker-1" },
-			"worker_operator_address", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			facts := completeWorkerValueEvidenceFacts()
+		t.Run(name, func(t *testing.T) {
+			facts := completeWorkerEvidenceFacts()
 			tc.mutate(&facts)
-			commitment, err := WorkerValueEvidenceCommitment(facts)
-			if err == nil {
-				t.Fatalf("accepted %s and produced %#v", tc.name, commitment)
+			got, err := WorkerEvidenceCommitments(facts)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if !strings.Contains(err.Error(), tc.contains) {
-				t.Fatalf("error = %v, want it to name %q", err, tc.contains)
+			if moved := got[0] != base[0]; moved != tc.value {
+				t.Fatalf("value commitment moved = %v, want %v", moved, tc.value)
 			}
-			if errors.Is(err, ErrInferReceiptInputUnavailable) != tc.unavailable {
-				t.Fatalf("error = %v, ErrInferReceiptInputUnavailable = %t, want %t",
-					err, !tc.unavailable, tc.unavailable)
-			}
-			if commitment != (EvidenceCommitment{}) {
-				t.Fatalf("refused derivation still returned %#v", commitment)
+			if moved := got[1] != base[1]; moved != tc.token {
+				t.Fatalf("token commitment moved = %v, want %v", moved, tc.token)
 			}
 		})
 	}
 }
 
-// WorkerValueEvidenceRequirementsV2 is a derived constant, not a guess: V1
-// admits exactly one WORKER_VALUE_OPENING requirement at commitment schema
-// version 1, bounded by the contract ceiling.
-func TestWorkerValueEvidenceRequirementsV2IsTheOnlyV1RequirementSet(t *testing.T) {
-	requirements := WorkerValueEvidenceRequirementsV2()
-	if len(requirements) != 1 {
-		t.Fatalf("requirements = %#v, want exactly one element", requirements)
-	}
-	if requirements[0] != (InferEvidenceRequirement{
-		EvidenceKind:            nodewire.EvidenceKindWorkerValueOpening,
-		CommitmentSchemaVersion: nodewire.WorkerValueCommitmentSchemaVersionV2,
-		MaxEncodedSizeBytes:     nodewire.MaxEvidenceEncodedSizeBytesV1,
-	}) {
-		t.Fatalf("requirement = %#v", requirements[0])
-	}
-	// The returned slice must not be shared: a caller that edits it must not
-	// change what the next caller validates against.
-	requirements[0].MaxEncodedSizeBytes = 1
-	if WorkerValueEvidenceRequirementsV2()[0].MaxEncodedSizeBytes != nodewire.MaxEvidenceEncodedSizeBytesV1 {
-		t.Fatal("WorkerValueEvidenceRequirementsV2 returns shared mutable state")
+func TestWorkerEvidenceCommitmentsRefuseUnusableInputs(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate      func(*WorkerEvidenceFacts)
+		unavailable bool
+	}{
+		"missing accepted_task_hash":    {func(f *WorkerEvidenceFacts) { f.AcceptedTaskHash = "" }, true},
+		"zero evidence_schema_hash":     {func(f *WorkerEvidenceFacts) { f.EvidenceSchemaHash = strings.Repeat("00", 32) }, true},
+		"missing generation digest":     {func(f *WorkerEvidenceFacts) { f.GenerationParamsDigest = "" }, true},
+		"unspecified finish_reason":     {func(f *WorkerEvidenceFacts) { f.FinishReason = nodewire.FinishReasonV1Unspecified }, true},
+		"uppercase task_id":             {func(f *WorkerEvidenceFacts) { f.TaskID = strings.ToUpper(strings.Repeat("ab", 32)) }, false},
+		"zero worker_value_root":        {func(f *WorkerEvidenceFacts) { f.WorkerValueRoot = codec.Hash{} }, false},
+		"zero generated_token_ids_hash": {func(f *WorkerEvidenceFacts) { f.GeneratedTokenIDsHash = codec.Hash{} }, false},
+		"empty output with two leaves":  {func(f *WorkerEvidenceFacts) { f.OutputSizeBytes, f.OutputLeafCount = 0, 2 }, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			facts := completeWorkerEvidenceFacts()
+			tc.mutate(&facts)
+			_, err := WorkerEvidenceCommitments(facts)
+			if err == nil {
+				t.Fatal("WorkerEvidenceCommitments() error = nil")
+			}
+			if got := errors.Is(err, ErrInferReceiptInputUnavailable); got != tc.unavailable {
+				t.Fatalf("errors.Is(ErrInferReceiptInputUnavailable) = %v, want %v: %v", got, tc.unavailable, err)
+			}
+		})
 	}
 }
 
-func mustHex32(t *testing.T, value string) []byte {
-	t.Helper()
-	decoded, err := hex.DecodeString(value)
-	if err != nil || len(decoded) != len(codec.Hash{}) {
-		t.Fatalf("%q is not 32 hex-encoded bytes: %v", value, err)
+// A Verifier recovers finish_reason by search, and confirms both bundles against
+// the receipt; a tampered artifact or a swapped commitment is final.
+func TestConfirmWorkerEvidenceRecoversFinishReasonAndRefusesTampering(t *testing.T) {
+	for _, reason := range nodewire.SuccessfulFinishReasonsV1() {
+		facts := completeWorkerEvidenceFacts()
+		facts.FinishReason = reason
+		committed, err := WorkerEvidenceCommitments(facts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		facts.FinishReason = nodewire.FinishReasonV1Unspecified
+		got, err := ConfirmWorkerEvidence(facts, committed)
+		if err != nil || got != reason {
+			t.Fatalf("ConfirmWorkerEvidence = %d, %v; want %d", got, err, reason)
+		}
 	}
-	return decoded
+	facts := completeWorkerEvidenceFacts()
+	committed, err := WorkerEvidenceCommitments(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*WorkerEvidenceFacts, []EvidenceCommitment) []EvidenceCommitment{
+		"tampered worker_values": func(f *WorkerEvidenceFacts, c []EvidenceCommitment) []EvidenceCommitment {
+			f.WorkerValueRoot = codec.HashBytes([]byte("tampered"))
+			return c
+		},
+		"tampered generated token ids": func(f *WorkerEvidenceFacts, c []EvidenceCommitment) []EvidenceCommitment {
+			f.GeneratedTokenIDsHash = codec.HashBytes([]byte("tampered"))
+			return c
+		},
+		"swapped commitments": func(_ *WorkerEvidenceFacts, c []EvidenceCommitment) []EvidenceCommitment {
+			return []EvidenceCommitment{c[1], c[0]}
+		},
+		"committed size differs": func(_ *WorkerEvidenceFacts, c []EvidenceCommitment) []EvidenceCommitment {
+			out := append([]EvidenceCommitment(nil), c...)
+			out[0].EncodedSizeBytes++
+			return out
+		},
+		"one commitment": func(_ *WorkerEvidenceFacts, c []EvidenceCommitment) []EvidenceCommitment { return c[:1] },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := facts
+			if _, err := ConfirmWorkerEvidence(f, mutate(&f, committed)); err == nil {
+				t.Fatal("ConfirmWorkerEvidence() error = nil")
+			}
+		})
+	}
+}
+
+func TestWorkerEvidenceRequirementsV3IsTheOnlyRequirementSet(t *testing.T) {
+	requirements := WorkerEvidenceRequirementsV3()
+	if len(requirements) != 2 ||
+		requirements[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening || requirements[0].CommitmentSchemaVersion != nodewire.WorkerValueCommitmentSchemaVersionV3 ||
+		requirements[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening || requirements[1].CommitmentSchemaVersion != nodewire.WorkerTokenCommitmentSchemaVersionV1 {
+		t.Fatalf("requirements = %+v", requirements)
+	}
+	commitments, err := WorkerEvidenceCommitments(completeWorkerEvidenceFacts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := append([]InferEvidenceRequirement(nil), requirements...)
+	legacy[0].CommitmentSchemaVersion = 2
+	if err := ValidateProfileEvidenceCommitments(legacy, commitments); err == nil {
+		t.Fatal("a schema-2 value requirement was accepted")
+	}
 }

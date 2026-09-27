@@ -20,13 +20,13 @@ import (
 func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	const tokens = 512
 	const servedModel = "test/generation-model"
-	modelID := "hf-" + fmt.Sprint(codec.HashBytes([]byte("huggingface:"+servedModel)))
+	modelID := codec.HashBytes([]byte("huggingface:" + servedModel)).String()
 	output := strings.Repeat("\u5b8c\u6574\u8f93\u51fa ", tokens)
 	ids := make([]int, tokens)
 	logprobs := make([]float64, tokens)
-	top := make([]map[string]float64, tokens)
+	top := make([]modelservice.TopLogprobRow, tokens)
 	for i := range ids {
-		ids[i], logprobs[i], top[i] = 7, -0.25, map[string]float64{"token_id:7": -0.25}
+		ids[i], logprobs[i], top[i] = 7, -0.25, engineTopLogprobs(7, -0.25)
 	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +55,9 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	h, _, _ := generationBoundHarness(t, 1024, modelID)
 	enableEvidenceSchema(&h)
 	service := modelservice.NewLocalService(server.URL, "generation-test", 1, time.Minute, time.Second)
+	if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
+		t.Fatal(err)
+	}
 	service.SetStreamInference(false)
 	h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "generation-test"
 	event := finalizedTask()
@@ -123,7 +126,7 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil || !strings.Contains(err.Error(), field) {
+				if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil || !strings.Contains(strings.ReplaceAll(err.Error(), "_", " "), field) {
 					t.Fatalf("accepted tampered retained %s: %v", field, err)
 				}
 			})
@@ -134,23 +137,14 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	if err != nil || !bytes.Equal(stored, []byte(output)) {
 		t.Fatalf("retained output was truncated or replaced: %v", err)
 	}
-	// Pre-upgrade or damaged evidence must not be reused under today's bound
-	// parameters simply because an output/receipt checkpoint exists.
-	for i := range h.persistence.evidence {
-		if h.persistence.evidence[i].Kind != "worker-trace" {
-			continue
-		}
-		var trace map[string]json.RawMessage
-		if err := json.Unmarshal(h.persistence.evidence[i].Data, &trace); err != nil {
-			t.Fatal(err)
-		}
-		delete(trace, "generation_context")
-		h.persistence.evidence[i].Data, err = json.Marshal(trace)
-		if err != nil {
-			t.Fatal(err)
-		}
+}
+
+// engineTopLogprobs is a full vLLM top_logprobs row led by tokenID: the local
+// adapter refuses anything but exactly the profile's default top-k (16).
+func engineTopLogprobs(tokenID int, logprob float64) modelservice.TopLogprobRow {
+	row := modelservice.TopLogprobRow{{Token: fmt.Sprintf("token_id:%d", tokenID), Logprob: logprob}}
+	for id := 900000; len(row) < 16; id++ {
+		row = append(row, modelservice.TopLogprob{Token: fmt.Sprintf("token_id:%d", id), Logprob: logprob - float64(len(row))})
 	}
-	if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil || !strings.Contains(err.Error(), "generation") {
-		t.Fatalf("recovery accepted old evidence without generation binding: %v", err)
-	}
+	return row
 }
