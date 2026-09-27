@@ -671,9 +671,9 @@ func (p *evidenceWorkerPersistence) CheckpointInferOutput(ctx context.Context, t
 	}
 	// Write the artifact bytes to the evidence store first. Their digests are
 	// then included in the evidence manifest below.
-	// A zero-token generation (EOS first, or max_output_duration before the
-	// first token) has an empty output and an empty position-values artifact;
-	// both are legitimate and must be stored as such.
+	// A zero-token generation (max_output_duration before the first token; an
+	// EOS-first generation is one EOS token) has an empty output and an empty
+	// position-values artifact; both are legitimate and must be stored as such.
 	artifacts := []struct {
 		kind       string
 		data       []byte

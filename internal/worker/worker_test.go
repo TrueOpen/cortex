@@ -1526,6 +1526,9 @@ type recordingTaskData struct {
 	mutateConfirmationBeforeSign func(*builderclient.StorageConfirmation)
 	// finalizeErrors fails the next finalize of a bundle kind once each.
 	finalizeErrors map[nodewire.EvidenceKind][]error
+	// finalizeCalls counts every finalize request per bundle kind, including
+	// ones the Builder answers idempotently.
+	finalizeCalls map[nodewire.EvidenceKind]int
 }
 
 func (*recordingTaskData) GetTaskDataMetadata(context.Context, string, builderclient.GetTaskDataMetadataRequest) (builderclient.TaskDataMetadata, error) {
@@ -1579,6 +1582,10 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 	c.endpoints = append(c.endpoints, endpoint)
 	pin, _ := builderclient.TLSPubkeyHashFromContext(ctx)
 	c.pins = append(c.pins, pin)
+	if c.finalizeCalls == nil {
+		c.finalizeCalls = map[nodewire.EvidenceKind]int{}
+	}
+	c.finalizeCalls[request.EvidenceKind]++
 	if errs := c.finalizeErrors[request.EvidenceKind]; len(errs) > 0 {
 		c.finalizeErrors[request.EvidenceKind] = errs[1:]
 		return builderclient.FinalizeTaskResultResponse{}, errs[0]

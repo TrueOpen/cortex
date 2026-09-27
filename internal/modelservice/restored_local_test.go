@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -145,6 +147,10 @@ func TestLocalGenerationFinishReasonMatrix(t *testing.T) {
 		{"eos_token", "7", 2, 0, false},
 		{"stop_sequence", "", 2, 0, false},
 		{"stop", "null", 5, 0, false},
+		{"max_output_duration", "", 2, nodewire.FinishReasonV1MaxOutputDuration, true},
+		{"max_output_duration", "", 0, nodewire.FinishReasonV1MaxOutputDuration, true},
+		{"max_output_duration", "", 4, 0, false},
+		{"max_output_duration", `"END"`, 2, 0, false},
 	} {
 		got, err := localGenerationFinishReason(g, tc.reason, json.RawMessage(tc.stop), tc.count)
 		if (err == nil) != tc.ok || (tc.ok && got != tc.want) {
@@ -240,5 +246,45 @@ func TestLocalServiceDoesNotCacheFailedProfileResolution(t *testing.T) {
 	profile, err := svc.resolveLocalProfile(ctx, testQwenModelID(), "1")
 	if err != nil || profile.RequiredTopK != 20 {
 		t.Fatalf("resolveLocalProfile() = %d, %v after the resolver recovered", profile.RequiredTopK, err)
+	}
+}
+
+// A budget that expires before the engine emits a token ends as a successful
+// zero-token MAX_OUTPUT_DURATION generation, as 05 section 8.3 allows.
+func TestLocalGenerationZeroTokenDurationStop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "Qwen/Qwen3-8B"}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		for i := 0; i < 2; i++ {
+			frame := `{"choices":[{"text":"","prompt_token_ids":[1,2,3],"token_ids":[]}]}`
+			if i > 0 {
+				frame = `{"choices":[{"text":"","token_ids":[]}]}`
+			}
+			fmt.Fprintf(w, "data: %s\n\n", frame)
+			flusher.Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
+		}
+	}))
+	defer srv.Close()
+	svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
+	g := localTestGeneration(testQwenModelID(), 1)
+	g.Params.MaxOutputDuration = 50
+	resp, err := svc.Infer(context.Background(), localGenerationInfer(t, g))
+	if err != nil {
+		t.Fatalf("zero-token duration stop = %v, want success", err)
+	}
+	if resp.GeneratedTokenCount != 0 || resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration {
+		t.Fatalf("response = %+v, want zero tokens and MAX_OUTPUT_DURATION", resp)
+	}
+	if err := ValidateFinishReason(g, nil, resp.FinishReason); err != nil {
+		t.Fatalf("the Worker's finish check refuses what the local path produced: %v", err)
 	}
 }

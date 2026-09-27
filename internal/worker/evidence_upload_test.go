@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/signer"
 	"reflect"
 	"strings"
 	"testing"
@@ -290,6 +291,7 @@ func TestWorkerVerifiesTheRepeatedOutputConfirmation(t *testing.T) {
 	event := finalizedTask()
 	h.seedPreparedOutput(t, event)
 	outputs := 0
+	var tampered []byte
 	h.taskData.mutateConfirmation = func(c *builderclient.StorageConfirmation) {
 		if c.Key.Kind != builderclient.DataKindOutput {
 			return
@@ -297,17 +299,23 @@ func TestWorkerVerifiesTheRepeatedOutputConfirmation(t *testing.T) {
 		outputs++
 		if outputs == 2 {
 			c.Signature[0] ^= 1
+			tampered = append([]byte(nil), c.Signature...)
 		}
 	}
+	before := len(h.persistence.confirmations)
 	if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err == nil {
 		t.Fatal("a tampered OUTPUT confirmation from the second finalize was accepted")
 	}
-	if outputs != 2 {
+	if outputs != 2 || tampered == nil {
 		t.Fatalf("OUTPUT confirmations seen = %d, want one per finalize", outputs)
 	}
+	// Nothing from the refused pass is recorded, least of all the tampered copy.
+	if len(h.persistence.confirmations) != before {
+		t.Fatalf("confirmations = %d after the refusal, want %d", len(h.persistence.confirmations), before)
+	}
 	for _, record := range h.persistence.confirmations {
-		if record.DataKind == builderclient.DataKindOutput.String() && record.Confirmation != nil && record.Confirmation.Signature[0] != record.Signature[0] {
-			t.Fatal("the tampered confirmation was recorded")
+		if bytes.Equal(record.Signature, tampered) || record.Confirmation != nil && bytes.Equal(record.Confirmation.Signature, tampered) {
+			t.Fatal("the tampered OUTPUT confirmation was recorded")
 		}
 	}
 }
@@ -387,22 +395,42 @@ func TestWorkerRecoversAPartlyFinalizedTokenBundle(t *testing.T) {
 				}
 				h.persistence.confirmations = kept
 			}
+			tokenFinalizes := func() int { return h.taskData.finalizeCalls[nodewire.EvidenceKindWorkerTokenOpening] }
+			finalizedBefore := tokenFinalizes()
 			recovered, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event)
 			if err != nil {
 				t.Fatalf("recovery: %v", err)
 			}
-			if first.TaskDataReceipt.ServiceSignature != "" && !reflect.DeepEqual(recovered.TaskDataReceipt, first.TaskDataReceipt) {
-				t.Fatal("recovery signed a different receipt")
+			if tokenFinalizes() <= finalizedBefore {
+				t.Fatal("recovery did not finalize the token bundle again")
 			}
-			confirmed := map[nodewire.EvidenceKind]bool{}
+			// Every relayed receipt, and the recovered one, is the same signed receipt.
+			if len(h.taskData.relays) == 0 {
+				t.Fatal("no receipt was relayed")
+			}
+			for _, relay := range h.taskData.relays {
+				if !reflect.DeepEqual(relay.Receipt, recovered.TaskDataReceipt) {
+					t.Fatal("recovery signed or relayed a different receipt")
+				}
+			}
+			if first.TaskDataReceipt.ServiceSignature != "" && !reflect.DeepEqual(first.TaskDataReceipt, recovered.TaskDataReceipt) {
+				t.Fatal("recovery signed a different receipt than the first pass")
+			}
+			// The token bundle now has a confirmation the Builder validly signed.
+			builderPubkey := hex.EncodeToString(h.taskData.builderPrivate.PubKey().SerializeCompressed())
+			valid := false
 			for _, record := range h.persistence.confirmations {
-				if record.Confirmation == nil || record.DataKind != builderclient.DataKindEvidenceManifest.String() {
+				c := record.Confirmation
+				if c == nil || c.Key.Kind != builderclient.DataKindEvidenceManifest || c.Key.EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
 					continue
 				}
-				confirmed[record.Confirmation.Key.EvidenceKind] = true
+				digest, err := builderclient.StorageConfirmationSigningHash(*c)
+				if err == nil && signer.VerifyDigestSignature(builderPubkey, digest, c.Signature) == nil {
+					valid = true
+				}
 			}
-			if !confirmed[nodewire.EvidenceKindWorkerValueOpening] || !confirmed[nodewire.EvidenceKindWorkerTokenOpening] {
-				t.Fatalf("confirmed bundles after recovery = %v, want both", confirmed)
+			if !valid {
+				t.Fatal("no validly signed token-bundle confirmation after recovery")
 			}
 		})
 	}

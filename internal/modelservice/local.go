@@ -950,7 +950,8 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	if len(choice.PromptTokenIDs) == 0 && len(req.Input) > 0 {
 		return InferResponse{}, fmt.Errorf("modelservice local infer: missing prompt token ids")
 	}
-	if choice.Logprobs == nil || len(choice.Logprobs.TokenLogprobs) != len(choice.TokenIDs) {
+	// A generation stopped before its first token has no logprobs block.
+	if len(choice.TokenIDs) > 0 && (choice.Logprobs == nil || len(choice.Logprobs.TokenLogprobs) != len(choice.TokenIDs)) {
 		return InferResponse{}, fmt.Errorf("modelservice local infer: generated token logprobs are incomplete")
 	}
 	finishReason, err := resolveFinish(choice.FinishReason, choice.StopReason, uint64(len(choice.TokenIDs)))

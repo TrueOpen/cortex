@@ -145,8 +145,12 @@ func TestWorkerPrecheckPassesZeroStakeDeclaredBootstrap(t *testing.T) {
 	} {
 		refused := in
 		mutate(&refused)
-		if code := EvaluateWorkerPrecheck(refused).RejectCode; strings.HasPrefix(code, "L4") {
-			t.Fatalf("Worker precheck refused with %s; Phase 0 has no L4 gate", code)
+		decision := EvaluateWorkerPrecheck(refused)
+		if decision.Accepted || decision.ShouldSignWorkerHandraise || decision.RejectCode == "" {
+			t.Fatalf("mutated input was not refused: %+v", decision)
+		}
+		if strings.HasPrefix(decision.RejectCode, "L4") {
+			t.Fatalf("Worker precheck refused with %s; Phase 0 has no L4 gate", decision.RejectCode)
 		}
 	}
 }

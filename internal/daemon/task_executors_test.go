@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"os"
 	"path/filepath"
 	"testing"
@@ -513,8 +514,9 @@ func TestWorkerFinCheckpointStorageErrors(t *testing.T) {
 	}
 }
 
-// A zero-token generation (EOS first) has an empty output and an empty
-// position-values artifact. Both are checkpointed and read back as empty.
+// A zero-token generation (max_output_duration before the first token) has an
+// empty output and an empty position-values artifact. Both are checkpointed
+// and read back as empty.
 func TestCheckpointInferOutputStoresAZeroTokenGeneration(t *testing.T) {
 	ctx := context.Background()
 	p := newTestDocumentWorkerPersistence()
@@ -533,7 +535,7 @@ func TestCheckpointInferOutputStoresAZeroTokenGeneration(t *testing.T) {
 		t.Fatalf("an empty position-values artifact is %d bytes; this test expects it empty", len(positionValues))
 	}
 	cp := worker.InferOutputCheckpoint{JobID: "job-1", OutputRef: "output-ref", TokenIDsRef: "ids-ref",
-		PositionValuesRef: "values-ref", FinishReason: 1, DescriptorJSON: []byte(`{"finish_reason":1}`)}
+		PositionValuesRef: "values-ref", FinishReason: nodewire.FinishReasonV1MaxOutputDuration, DescriptorJSON: []byte(`{"finish_reason":4}`)}
 	if err := p.CheckpointInferOutput(ctx, "task-1", nil, tokenIDs, positionValues, cp); err != nil {
 		t.Fatalf("CheckpointInferOutput of a zero-token generation: %v", err)
 	}

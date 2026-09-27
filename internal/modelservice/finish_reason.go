@@ -130,12 +130,9 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 			// verifiable one.
 			return 0, fmt.Errorf("max_output_duration finish reached max_output_tokens")
 		}
-		if count == 0 {
-			// No token survived the budget. There is nothing to commit, and an
-			// empty output attributed to a timeout is indistinguishable from a
-			// model service that produced nothing at all.
-			return 0, fmt.Errorf("max_output_duration finish generated no tokens")
-		}
+		// A budget that expires before the first token is a legal empty
+		// generation (05 section 8.3 exempts MAX_OUTPUT_DURATION from the
+		// one-token minimum), and the Worker's own finish check agrees.
 		return nodewire.FinishReasonV1MaxOutputDuration, nil
 	default:
 		return 0, fmt.Errorf("unsupported local finish reason %q", reason)
