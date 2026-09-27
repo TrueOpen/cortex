@@ -189,7 +189,7 @@ deployment.
 | Red dependency | Meaning | Fixable on the machine? |
 |---|---|---|
 | `chain_sync` | replaying blocks toward the tip | no, wait |
-| `model_service` | vLLM is not answering | yes, see §5 |
+| `model_service` | vLLM is not answering, or a configured model id is not bound (see §5) | yes, see §5 |
 | `keeper_identity` | operator bond is not ACTIVE / is JAILED | **no**, chain-side |
 | `model_support` | model support not declared on chain | **no**, chain-side |
 | `nexus` | ingress or NATS unreachable / auth refused | usually peer-side |
@@ -222,7 +222,19 @@ input is a JSON object carrying a `messages` field.
 
 ```sh
 curl -s 127.0.0.1:8000/health
+curl -s 127.0.0.1:8000/v1/models          # the served model name must equal the chain repo_id
 ```
+
+`CORTEX_MODEL_ID` and the ids in `CORTEX_MODEL_PROFILES` are the chain's Hash32
+model ids as 64 lowercase hex, never a name. Find one with
+`cortexctl model find --rpc <keeper-rpc> --provider HUGGINGFACE --repo <owner/name>`.
+`model_service` also stays red, with the reason in `diag`, when that id is not
+registered on this chain, when its source provider is not `HUGGINGFACE`, or when
+vLLM's served model name differs from the chain `repo_id`.
+
+Upgrading a node that ran a pre-v0.3 release: `cortexd` refuses to start while
+its store holds trace/checkpoint evidence or an older infer receipt. Drain the
+in-flight tasks on the old release first, or start from an empty store.
 
 **VERIFY / known hazards on the current deployment:**
 
