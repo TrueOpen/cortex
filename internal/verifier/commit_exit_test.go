@@ -3,8 +3,10 @@ package verifier
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/policy"
 	"log/slog"
 	"strings"
 	"testing"
@@ -492,5 +494,91 @@ func TestCommitSaltIsRandomAndNonZero(t *testing.T) {
 	b, err := randomSalt()
 	if err != nil || a.IsZero() || a == b {
 		t.Fatalf("salts %s and %s, %v", a, b, err)
+	}
+}
+
+func submittedCommit(t *testing.T, payload []byte) txclient.SubmitVerifyCommitMessage {
+	t.Helper()
+	var message txclient.SubmitVerifyCommitMessage
+	if err := json.Unmarshal(payload, &message); err != nil {
+		t.Fatal(err)
+	}
+	return message
+}
+
+// A key rotation between persisting the commit and retrying it re-signs the
+// same commit_hash under the current service_authorization_nonce; an
+// unchanged binding reuses the persisted signature.
+func TestPersistedCommitIsResignedAfterANonceChange(t *testing.T) {
+	h := newHarness(t)
+	h.tx.RejectNext(txclient.MsgSubmitVerifyCommit, "transient keeper refusal")
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	first, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
+	if err == nil {
+		t.Fatal("the rejected delivery was reported as landed")
+	}
+	rotated := h.verifier.cfg
+	rotated.ServiceAuthorizationNonce++
+	second, err := New(rotated).HandleOpenVerifyAccepted(context.Background(), state)
+	if err != nil {
+		t.Fatalf("retry after the nonce change: %v", err)
+	}
+	requests := h.tx.Requests()
+	before, after := submittedCommit(t, requests[0].Payload), submittedCommit(t, requests[1].Payload)
+	if before.Commit.CommitHash != after.Commit.CommitHash || second.CommitHash != first.CommitHash || second.Salt != first.Salt {
+		t.Fatal("the re-signed commit does not carry the persisted commit_hash and salt")
+	}
+	if uint64(after.Commit.ServiceAuthorizationNonce) != rotated.ServiceAuthorizationNonce || before.Commit.ServiceSignature == after.Commit.ServiceSignature {
+		t.Fatalf("retry commit = %+v, want the current nonce and a new signature", after.Commit)
+	}
+	if h.model.VerifyCalls != 1 {
+		t.Fatalf("model verify calls = %d, want no second prefill", h.model.VerifyCalls)
+	}
+}
+
+// A persisted commit is re-delivered before anything about the task's
+// evidence is looked at, so it reaches the chain while Builders are down; a
+// failure to record the confirmed delivery does not fail the landed commit.
+func TestPersistedCommitIsRedeliveredWithoutEvidence(t *testing.T) {
+	h := newHarness(t)
+	h.tx.RejectNext(txclient.MsgSubmitVerifyCommit, "transient keeper refusal")
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	if _, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state); err == nil {
+		t.Fatal("the rejected delivery was reported as landed")
+	}
+	bare := state
+	bare.OutputPackage, bare.ConfirmedOutput, bare.ConfirmedOutputChunkLengths = policy.OutputPackageSummary{}, nil, nil
+	h.persistence.failKind = verifierCommitDeliveryEvidenceKind
+	result, err := New(h.verifier.cfg).HandleOpenVerifyAccepted(context.Background(), bare)
+	if err != nil || !result.CommitDelivery.ChainAccepted {
+		t.Fatalf("re-delivery without evidence = %+v, %v", result.CommitDelivery, err)
+	}
+	if h.model.VerifyCalls != 1 {
+		t.Fatal("the re-delivery asked the model again")
+	}
+}
+
+// A record written before the signed commit was persisted is named as such.
+func TestPersistedRecordWithoutCommitWireAsksToClearIt(t *testing.T) {
+	h := newHarness(t)
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	verifyLocally(t, h, state)
+	for i := range h.persistence.evidence {
+		if h.persistence.evidence[i].Kind != verifierFullResultRevealEvidenceKind {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal(h.persistence.evidence[i].Data, &record); err != nil {
+			t.Fatal(err)
+		}
+		delete(record, "commit_wire")
+		h.persistence.evidence[i].Data, _ = json.Marshal(record)
+	}
+	_, err := New(h.verifier.cfg).HandleOpenVerifyAccepted(context.Background(), state)
+	if err == nil || !strings.Contains(err.Error(), "clear this task's local verifier record") {
+		t.Fatalf("err = %v, want the explicit clear-the-record refusal", err)
 	}
 }

@@ -1472,6 +1472,8 @@ func (m *countingModel) FetchArtifact(ctx context.Context, req modelservice.Fetc
 }
 
 type recordingPersistence struct {
+	// failKind makes WriteEvidence refuse records of that kind.
+	failKind string
 	evidence []EvidenceRecord
 	settle   []SettleMaterial
 	jobs     []ModelJobCheckpoint
@@ -1479,6 +1481,9 @@ type recordingPersistence struct {
 }
 
 func (r *recordingPersistence) WriteEvidence(_ context.Context, record EvidenceRecord) error {
+	if r.failKind != "" && record.Kind == r.failKind {
+		return fmt.Errorf("evidence store refused %s", record.Kind)
+	}
 	r.evidence = append(r.evidence, record)
 	r.record("evidence:" + record.Kind)
 	return nil

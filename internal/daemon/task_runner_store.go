@@ -159,6 +159,9 @@ func mergeVerifyExecution(current, updated store.VerifyTask) store.VerifyTask {
 	}
 	current.Stage = updated.Stage
 	current.ReceiptCID, current.ReceiptDigest = updated.ReceiptCID, updated.ReceiptDigest
+	// A stop the executor decided itself (a failed Stage with its reason) must
+	// keep that reason; a later failure overwrites it through applyRunFailure.
+	current.LastError = updated.LastError
 	return current
 }
 

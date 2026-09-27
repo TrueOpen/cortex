@@ -468,6 +468,11 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if _, err := selectedVerifierIndex(state, v.cfg.VerifierAddress); err != nil {
 		return VerifyResult{}, err
 	}
+	// A commit already signed and persisted for this round is only
+	// re-delivered: no evidence fetch, no second prefill, no new salt.
+	if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil || ok {
+		return result, err
+	}
 	if err := validateCanonicalTaskState(state); err != nil {
 		if errors.Is(err, errPackageTaskMismatch) {
 			return VerifyResult{}, fmt.Errorf("verifier precheck rejected: L2_OUTPUT_PACKAGE_TASK_MISMATCH")
@@ -568,19 +573,6 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	}
 	resultKey := verifyResultKey(state, seed, v.cfg.VerifierAddress)
 	if result, ok := v.results[resultKey]; ok {
-		return result, nil
-	}
-	// A commit already signed and persisted for this round is only
-	// re-delivered: no second prefill, no new salt, no second signature.
-	if result, ok, err := v.persistedCommit(ctx, state); err != nil {
-		return VerifyResult{}, err
-	} else if ok {
-		delivery, err := v.deliverCommit(ctx, state, result)
-		result.CommitDelivery = delivery
-		if err != nil {
-			return result, err
-		}
-		v.results[resultKey] = result
 		return result, nil
 	}
 	jobID := "verifier-verify-" + state.TaskID

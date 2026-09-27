@@ -271,35 +271,53 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 		tasktrace.Uint("commit_deadline_height", task.CommitDeadlineHeight),
 		tasktrace.Uint("reveal_deadline_height", task.RevealDeadlineHeight),
 		tasktrace.Uint("verify_deadline_height", task.DeadlineHeight))
-	pkg, err := e.cfg.OutputConfirmer.ConfirmOutput(ctx, commitments)
-	if err != nil {
-		e.cfg.Trace.ErrorEvent("output_confirm_failed",
-			tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
-			tasktrace.Hash("committed_output_hash", commitments.OutputHash),
-			tasktrace.Hash("committed_package_hash", commitments.PackageHash),
-			tasktrace.Str("builder", commitments.BuilderOperatorAddress), tasktrace.Err("error", err))
-		return task, false, fmt.Errorf("confirm output before verify: %w", err)
-	}
-	e.cfg.Trace.Event("output_confirmed", traceConfirmedPackage("verify", pkg)...)
-	// The evidence the locked Profile requires. It is a second download and not a
-	// detail of the first: the OUTPUT object is the inference result, the
-	// WORKER_VALUE_OPENING artifacts are the opening material local
-	// re-verification runs against, and they are separate objects under separate
-	// signed selectors on the task-data plane.
-	//
-	// This is where the verify path used to die on a real chain. The artifact refs
-	// a confirmed package carries are Worker-local model-service addresses that no
-	// wire transports, so on every real-transport node they are empty and
-	// FetchArtifact refused with "empty ref" -- for 100k blocks, until the commit
-	// deadline passed.
-	workerEvidence, err := e.confirmWorkerEvidence(ctx, task, pkg)
-	if err != nil {
-		e.cfg.Trace.ErrorEvent("evidence_confirm_failed",
-			tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
-			tasktrace.Str("builder", commitments.BuilderOperatorAddress), tasktrace.Err("error", err))
-		return task, false, fmt.Errorf("confirm Worker evidence before verify: %w", err)
-	}
 	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, builder: e.cfg.Builder}
+	fetch := func() (builderclient.OutputPackage, WorkerEvidence, error) {
+		pkg, err := e.cfg.OutputConfirmer.ConfirmOutput(ctx, commitments)
+		if err != nil {
+			e.cfg.Trace.ErrorEvent("output_confirm_failed",
+				tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
+				tasktrace.Hash("committed_output_hash", commitments.OutputHash),
+				tasktrace.Hash("committed_package_hash", commitments.PackageHash),
+				tasktrace.Str("builder", commitments.BuilderOperatorAddress), tasktrace.Err("error", err))
+			return builderclient.OutputPackage{}, WorkerEvidence{}, fmt.Errorf("confirm output before verify: %w", err)
+		}
+		e.cfg.Trace.Event("output_confirmed", traceConfirmedPackage("verify", pkg)...)
+		// The evidence the locked Profile requires. It is a second download and not a
+		// detail of the first: the OUTPUT object is the inference result, the
+		// WORKER_VALUE_OPENING artifacts are the opening material local
+		// re-verification runs against, and they are separate objects under separate
+		// signed selectors on the task-data plane.
+		//
+		// This is where the verify path used to die on a real chain. The artifact refs
+		// a confirmed package carries are Worker-local model-service addresses that no
+		// wire transports, so on every real-transport node they are empty and
+		// FetchArtifact refused with "empty ref" -- for 100k blocks, until the commit
+		// deadline passed.
+		workerEvidence, err := e.confirmWorkerEvidence(ctx, task, pkg)
+		if err != nil {
+			e.cfg.Trace.ErrorEvent("evidence_confirm_failed",
+				tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
+				tasktrace.Str("builder", commitments.BuilderOperatorAddress), tasktrace.Err("error", err))
+			return builderclient.OutputPackage{}, WorkerEvidence{}, fmt.Errorf("confirm Worker evidence before verify: %w", err)
+		}
+		return pkg, workerEvidence, nil
+	}
+	// A commit this node already signed and persisted is re-delivered before
+	// any Builder is asked for the output or the Worker evidence, so it can
+	// still reach the chain while the Builders are unavailable. A fresh verify
+	// fetches first, as before.
+	resume, err := verifier.HasPersistedCommit(ctx, persistence)
+	if err != nil {
+		return task, false, err
+	}
+	var pkg builderclient.OutputPackage
+	var workerEvidence WorkerEvidence
+	if !resume {
+		if pkg, workerEvidence, err = fetch(); err != nil {
+			return task, false, err
+		}
+	}
 	identity, err := e.verifyRoundIdentity(ctx, taskHash, task)
 	if err != nil {
 		return task, false, err
@@ -324,7 +342,18 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 		return task, false, err
 	}
 	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TrustedNATSDev: e.cfg.TrustedNATSDev || e.cfg.FakeBus, NexusEnvelopeSigner: e.cfg.NexusEnvelopeSigner, EnvelopeTTL: e.cfg.EnvelopeTTL, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay})
-	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: inferReceiptHash, Member: member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OutputPackage: outputPackageSummary(pkg), ConfirmedOutput: pkg.Output, OutputConfirmed: true, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: expiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
+	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: inferReceiptHash, Member: member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: expiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
+	if resume {
+		if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil {
+			return task, false, err
+		} else if ok {
+			return e.verifyCommitted(taskHash, task, result), false, nil
+		}
+		if pkg, workerEvidence, err = fetch(); err != nil {
+			return task, false, err
+		}
+	}
+	state.OutputPackage, state.ConfirmedOutput, state.OutputConfirmed = outputPackageSummary(pkg), pkg.Output, true
 	state.ConfirmedFinishReason = workerEvidence.FinishReason
 	state.ConfirmedOutputChunkLengths = pkg.OutputChunkLengths
 	state.ConfirmedInputTokenIDs = workerEvidence.InputTokenIDs
@@ -334,40 +363,17 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	state.ConfirmedInferReceipt = pkg.SignedInferReceipt
 	result, err := v.HandleOpenVerifyAccepted(ctx, state)
 	if errors.Is(err, metric.ErrVerifierValuesUnavailable) {
-		// The Verifier's own prefill left nothing comparable where the Worker
-		// had values: its own execution failure. Nothing is committed and the
-		// round is not retried; it counts as this Verifier's miss.
-		task.Stage, task.LastError = "failed", err.Error()
-		e.cfg.Trace.Event("verify_stopped", tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", taskHash),
-			tasktrace.Uint("verify_round", task.VerifyRound), tasktrace.Str("reason", "verifier_values_unavailable"))
-		return task, false, nil
+		stopped, retryErr := verifierValuesUnavailable(task, err)
+		if retryErr == nil {
+			e.cfg.Trace.Event("verify_stopped", tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", taskHash),
+				tasktrace.Uint("verify_round", task.VerifyRound), tasktrace.Str("reason", "verifier_values_unavailable"))
+		}
+		return stopped, false, retryErr
 	}
 	if err != nil {
 		return task, false, err
 	}
-	e.cfg.Trace.Event("verify_completed",
-		tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", taskHash),
-		tasktrace.Uint("verify_round", task.VerifyRound),
-		tasktrace.Hash("output_hash", pkg.OutputHash), tasktrace.Hash("package_hash", pkg.PackageHash),
-		tasktrace.Hash("infer_receipt_hash", inferReceiptHash),
-		tasktrace.Hash("result_digest", result.ResultDigest), tasktrace.Hash("commit_hash", result.CommitHash),
-		tasktrace.Hash("verification_sample_seed", result.VerificationSampleSeed),
-		// The reveal is framed bytes, so the trace prints its length and its
-		// digest rather than the blob: result_digest above is what identifies it,
-		// and result_reveal_bytes is what tells an operator it is non-empty.
-		tasktrace.Int("result_reveal_bytes", len(result.ResultReveal)),
-		tasktrace.Int("main_mismatch_count", result.MainMismatchCount),
-		tasktrace.Str("sample_value_sequence_ref", result.SampleValueSequenceRef),
-		tasktrace.Bool("started", result.Started))
-	// StageCommitted, not "succeeded": the commit is on chain and the reveal is
-	// still owed. Marking the responsibility finished here is what let the reveal
-	// disappear -- the record would be dropped from the active set and the
-	// EventRevealPhaseStarted that opens the reveal would have nothing to land on.
-	task.Stage = string(layout.StageCommitted)
-	task.LastError = ""
-	task.RetryAtUnixMilli = 0
-	task.ReceiptDigest = result.ResultDigest
-	return task, false, nil
+	return e.verifyCommitted(taskHash, task, result), false, nil
 }
 
 // verifyRoundIdentity is the per-round identity both halves of the verify
@@ -1073,6 +1079,10 @@ func (p *evidenceVerifierPersistence) WriteSettleMaterial(ctx context.Context, r
 	return writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, p.task.TaskID, "settlement-"+r.Kind, r.Payload)
 }
 func (p *evidenceVerifierPersistence) ReadVerifierEvidence(ctx context.Context, kind string) ([]byte, error) {
+	if p.evidence == nil {
+		// Without an evidence store nothing was ever persisted.
+		return nil, fmt.Errorf("%w: no evidence store", evidence.ErrArtifactNotFound)
+	}
 	return p.evidence.ReadTaskKind(ctx, p.taskHash, kind)
 }
 func (p *evidenceVerifierPersistence) CheckpointModelJob(context.Context, verifier.ModelJobCheckpoint) error {
@@ -1095,3 +1105,49 @@ func writeTaskEvidence(ctx context.Context, s *evidence.Store, taskHash codec.Ha
 
 var _ worker.Persistence = (*evidenceWorkerPersistence)(nil)
 var _ verifier.Persistence = (*evidenceVerifierPersistence)(nil)
+
+// verifierValuesUnavailable decides a round whose own prefill left nothing
+// comparable where the Worker had values: the Verifier's own execution
+// failure, with nothing committed. A transient model-service fault gets a
+// bounded number of fresh prefills (returned as a retryable error, each still
+// inside the commit window the runner enforces); after that the round stops as
+// this Verifier's miss, with the reason kept on the record.
+func verifierValuesUnavailable(task store.VerifyTask, err error) (store.VerifyTask, error) {
+	if task.RetryCount+1 < maxVerifierValueAttempts {
+		return task, err
+	}
+	task.Stage, task.LastError = "failed", err.Error()
+	return task, nil
+}
+
+// maxVerifierValueAttempts bounds how many prefills a Verifier makes when its
+// own values leave nothing comparable before it gives the round up.
+const maxVerifierValueAttempts = 3
+
+// verifyCommitted records a verify whose commit is signed and delivered:
+// StageCommitted, not "succeeded", because the reveal is still owed.
+func (e *productionVerifyExecutor) verifyCommitted(taskHash codec.Hash, task store.VerifyTask, result verifier.VerifyResult) store.VerifyTask {
+	e.cfg.Trace.Event("verify_completed",
+		tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", taskHash),
+		tasktrace.Uint("verify_round", task.VerifyRound),
+		tasktrace.Hash("output_hash", task.OutputDigest), tasktrace.Hash("package_hash", task.PackageDigest),
+		tasktrace.Hash("infer_receipt_hash", task.InferReceiptDigest),
+		tasktrace.Hash("result_digest", result.ResultDigest), tasktrace.Hash("commit_hash", result.CommitHash),
+		tasktrace.Hash("verification_sample_seed", result.VerificationSampleSeed),
+		// The reveal is framed bytes, so the trace prints its length and its
+		// digest rather than the blob: result_digest above is what identifies it,
+		// and result_reveal_bytes is what tells an operator it is non-empty.
+		tasktrace.Int("result_reveal_bytes", len(result.ResultReveal)),
+		tasktrace.Int("main_mismatch_count", result.MainMismatchCount),
+		tasktrace.Str("sample_value_sequence_ref", result.SampleValueSequenceRef),
+		tasktrace.Bool("started", result.Started))
+	// StageCommitted, not "succeeded": the commit is on chain and the reveal is
+	// still owed. Marking the responsibility finished here is what let the reveal
+	// disappear -- the record would be dropped from the active set and the
+	// EventRevealPhaseStarted that opens the reveal would have nothing to land on.
+	task.Stage = string(layout.StageCommitted)
+	task.LastError = ""
+	task.RetryAtUnixMilli = 0
+	task.ReceiptDigest = result.ResultDigest
+	return task
+}

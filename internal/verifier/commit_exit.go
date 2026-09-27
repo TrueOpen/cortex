@@ -42,6 +42,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
 	"strings"
 
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -253,9 +254,12 @@ func (v *Verifier) deliverCommit(ctx context.Context, state TaskState, result Ve
 			"verify commit self-submission for task %s reached %q but not Keeper confirmation (tx %s, height %d)",
 			state.TaskID, observation.Tx.Status, observation.Tx.TxHash, observation.Tx.IncludedHeight)
 	}
-	if err := v.recordDelivery(ctx, state, scope, result, delivery); err != nil {
-		return delivery, fmt.Errorf("record confirmed verify commit for task %s: %w", state.TaskID, err)
-	}
+	// The chain confirmed it; that is the fact the dedup needs first. A failed
+	// durable record only costs a later duplicate noop, so it is reported, not
+	// returned as a failure of a commit that landed.
 	v.commits[scope] = delivery
+	if err := v.recordDelivery(ctx, state, scope, result, delivery); err != nil {
+		v.cfg.Trace.ErrorEvent("verify_commit_delivery_record_failed", tasktrace.Str("task", state.TaskID), tasktrace.Err("error", err))
+	}
 	return delivery, nil
 }

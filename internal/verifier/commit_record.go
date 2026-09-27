@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
+	"reflect"
+	"slices"
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
@@ -27,6 +30,70 @@ func randomSalt() (codec.Hash, error) {
 		}
 	}
 	return salt, nil
+}
+
+// HasPersistedCommit reports whether this round's verify record is persisted,
+// so a caller can re-deliver the signed commit before fetching anything.
+func HasPersistedCommit(ctx context.Context, persistence Persistence) (bool, error) {
+	reader, ok := persistence.(verifierEvidenceReader)
+	if !ok {
+		return false, nil
+	}
+	_, err := reader.ReadVerifierEvidence(ctx, verifierFullResultRevealEvidenceKind)
+	if errors.Is(err, evidence.ErrArtifactNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// ResumePersistedCommit re-delivers this round's already-signed commit when
+// one is persisted, before any evidence fetch or model call, so a commit can
+// reach the chain while Builders are unavailable. ok is false when there is
+// nothing persisted and the caller must verify from the start.
+//
+// The commit_hash, salt and verifier_value_root are never changed. If the
+// persisted signature was made under a service_authorization_nonce or expiry
+// that no longer matches what this node would sign now (a key rotation), the
+// same commit_hash is re-signed with the current key; the re-signed body is
+// kept in memory, because the persisted record is write-once.
+func (v *Verifier) ResumePersistedCommit(ctx context.Context, state TaskState) (VerifyResult, bool, error) {
+	if !state.OpenVerifyAccepted || !slices.Contains(state.AssignedVerifiers, v.cfg.VerifierAddress) {
+		return VerifyResult{}, false, nil
+	}
+	result, ok, err := v.persistedCommit(ctx, state)
+	if err != nil || !ok {
+		return VerifyResult{}, false, err
+	}
+	if result.CommitWire, err = v.currentCommitWire(ctx, state, result.CommitWire); err != nil {
+		return VerifyResult{}, false, err
+	}
+	delivery, err := v.deliverCommit(ctx, state, result)
+	result.CommitDelivery = delivery
+	return result, true, err
+}
+
+// currentCommitWire returns persisted when it is what this node would sign
+// now, and otherwise the same commit_hash signed under the current binding.
+func (v *Verifier) currentCommitWire(ctx context.Context, state TaskState, persisted nodewire.VerifyCommitV1) (nodewire.VerifyCommitV1, error) {
+	current, err := verifyCommitWire(v.cfg, state, codec.Hash(persisted.CommitHash))
+	if err != nil {
+		return nodewire.VerifyCommitV1{}, err
+	}
+	current.ServiceSignature = persisted.ServiceSignature
+	if reflect.DeepEqual(current, persisted) {
+		return persisted, nil
+	}
+	digest, err := nodewire.VerifyCommitSigningDigest(current)
+	if err != nil {
+		return nodewire.VerifyCommitV1{}, err
+	}
+	if current.ServiceSignature, err = v.signDigest(ctx, digest); err != nil {
+		return nodewire.VerifyCommitV1{}, err
+	}
+	v.cfg.Trace.Event("verify_commit_resigned", tasktrace.Str("task", state.TaskID), tasktrace.Uint("verify_round", state.VerifyRound),
+		tasktrace.Hex("commit_hash", hex.EncodeToString(current.CommitHash)),
+		tasktrace.Uint("persisted_nonce", persisted.ServiceAuthorizationNonce), tasktrace.Uint("current_nonce", current.ServiceAuthorizationNonce))
+	return current, nil
 }
 
 // persistedCommit restores this round's signed commit from the persisted
@@ -60,8 +127,11 @@ func (v *Verifier) persistedCommit(ctx context.Context, state TaskState) (Verify
 	if err != nil {
 		return VerifyResult{}, false, err
 	}
-	if record.CommitWire == nil || len(record.CommitWire.ServiceSignature) == 0 ||
-		!bytes.Equal(record.CommitWire.CommitHash, source.CommitHash[:]) {
+	if record.CommitWire == nil {
+		return VerifyResult{}, false, fmt.Errorf("persisted verify record for task %s round %d carries no signed commit (written by an "+
+			"earlier build); clear this task's local verifier record before retrying it", state.TaskID, state.VerifyRound)
+	}
+	if len(record.CommitWire.ServiceSignature) == 0 || !bytes.Equal(record.CommitWire.CommitHash, source.CommitHash[:]) {
 		return VerifyResult{}, false, fmt.Errorf("persisted verify commit for task %s round %d is not the signed commit of its commit_hash", state.TaskID, state.VerifyRound)
 	}
 	return VerifyResult{
