@@ -101,5 +101,6 @@
     "repo_type": "model"
   },
   "tool_call_parser": {},
-  "reasoning_parser": {}
+  "reasoning_parser": {},
+  "manifest_uri": "https://models.example.org/manifests/golden-model/v1.json"
 }

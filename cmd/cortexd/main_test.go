@@ -1580,6 +1580,7 @@ func (k *transitionKeeperClient) Params(context.Context) (chainclient.ParamsSnap
 	return chainclient.ParamsSnapshot{
 		ServiceUnbondingPeriodBlocks: 100,
 		DailySupportWindowBlocks:     30,
+		MaxManifestURIBytes:          2048,
 	}, nil
 }
 
@@ -1751,7 +1752,7 @@ func (k *recordingKeeperClient) ChainHeight(context.Context) (uint64, error) {
 }
 
 func (k *recordingKeeperClient) Params(context.Context) (chainclient.ParamsSnapshot, error) {
-	return chainclient.ParamsSnapshot{ServiceUnbondingPeriodBlocks: 100, DailySupportWindowBlocks: 30}, nil
+	return chainclient.ParamsSnapshot{ServiceUnbondingPeriodBlocks: 100, DailySupportWindowBlocks: 30, MaxManifestURIBytes: 2048}, nil
 }
 
 func (k *recordingKeeperClient) ChainStatus(context.Context) (uint64, string, error) {
@@ -2152,7 +2153,7 @@ func mustCurrentDaemonManifest(t *testing.T) modelregistry.CurrentManifest {
 				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
+			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}, ManifestURI: "https://models.trueopen.example/manifests/org-model/v1.json"},
 	})
 	if err != nil {
 		t.Fatalf("GenerateCurrentManifest: %v", err)

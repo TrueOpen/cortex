@@ -109,5 +109,6 @@ func currentProfileSnapshotFromWire(profile *hubv1.ProfileState) CurrentProfileS
 		},
 		ToolCallParser:  CurrentParserSnapshot{Name: profile.GetToolCallParser().GetName(), Version: profile.GetToolCallParser().GetVersion()},
 		ReasoningParser: CurrentParserSnapshot{Name: profile.GetReasoningParser().GetName(), Version: profile.GetReasoningParser().GetVersion()},
+		ManifestURI:     profile.GetManifestUri(),
 	}
 }

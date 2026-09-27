@@ -10,11 +10,14 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 type CurrentRegistrationReader interface {
 	CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error)
+	// Params supplies max_manifest_uri_bytes, the chain's cap on manifest_uri.
+	Params(context.Context) (chainclient.ParamsSnapshot, error)
 }
 
 type CurrentRegistrationSubmitter interface {
@@ -34,13 +37,10 @@ type CurrentRegisterResult struct {
 	Status             string `json:"status"`
 	TxID               string `json:"tx_id,omitempty"`
 	DryRun             bool   `json:"dry_run"`
-	// ManifestURI is the validated manifest_uri from the manifest document.
-	// The registration message does not carry it yet.
-	ManifestURI string `json:"manifest_uri,omitempty"`
 }
 
 func (r *Registry) RegisterCurrent(ctx context.Context, req CurrentRegisterRequest) (CurrentRegisterResult, error) {
-	result := CurrentRegisterResult{ManifestHash: req.Manifest.Hash, DryRun: req.DryRun, ManifestURI: req.Manifest.ManifestURI}
+	result := CurrentRegisterResult{ManifestHash: req.Manifest.Hash, DryRun: req.DryRun}
 	if err := ValidateCurrentManifest(req.Manifest); err != nil {
 		return result, err
 	}
@@ -55,6 +55,13 @@ func (r *Registry) RegisterCurrent(ctx context.Context, req CurrentRegisterReque
 
 	if r.currentRegistrationReader == nil {
 		return result, fmt.Errorf("current model registration reader is required")
+	}
+	params, err := r.currentRegistrationReader.Params(ctx)
+	if err != nil {
+		return result, fmt.Errorf("read Keeper params for max_manifest_uri_bytes: %w", err)
+	}
+	if err := modelmanifest.ValidateURI(req.Manifest.Profile.ManifestURI, int(params.MaxManifestURIBytes)); err != nil {
+		return result, err
 	}
 	state, err := r.currentRegistrationReader.CurrentModelProfile(ctx, string(req.Manifest.Profile.ModelID), fmt.Sprintf("%d", req.Manifest.Profile.ProfileVersion))
 	switch {

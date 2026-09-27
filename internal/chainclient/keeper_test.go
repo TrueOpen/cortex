@@ -94,12 +94,21 @@ func (m *nodeBuilderParams) Reset()         { *m = nodeBuilderParams{} }
 func (m *nodeBuilderParams) String() string { return proto.CompactTextString(m) }
 func (*nodeBuilderParams) ProtoMessage()    {}
 
+type nodeModelParams struct {
+	MaxManifestURIBytes uint32 `protobuf:"varint,12,opt,name=max_manifest_uri_bytes,json=maxManifestUriBytes,proto3"`
+}
+
+func (m *nodeModelParams) Reset()         { *m = nodeModelParams{} }
+func (m *nodeModelParams) String() string { return proto.CompactTextString(m) }
+func (*nodeModelParams) ProtoMessage()    {}
+
 type nodeHubParams struct {
 	SchemaVersion uint32            `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3"`
 	Epoch         nodeEpochParams   `protobuf:"bytes,2,opt,name=epoch,proto3"`
 	Support       nodeSupportParams `protobuf:"bytes,3,opt,name=support,proto3"`
 	Service       nodeServiceParams `protobuf:"bytes,5,opt,name=service,proto3"`
 	Builder       nodeBuilderParams `protobuf:"bytes,6,opt,name=builder,proto3"`
+	Model         nodeModelParams   `protobuf:"bytes,16,opt,name=model,proto3"`
 }
 
 func (m *nodeHubParams) Reset()         { *m = nodeHubParams{} }
@@ -555,6 +564,7 @@ func TestKeeperABCIClientReadsNodeV1HubParams(t *testing.T) {
 			Epoch:         nodeEpochParams{EpochLengthBlocks: 720},
 			Support:       nodeSupportParams{SupportWindowEpochs: 20},
 			Service:       nodeServiceParams{ServiceUnbondingPeriodBlocks: 302_400},
+			Model:         nodeModelParams{MaxManifestURIBytes: 2048},
 		}}, 0, ""
 	})
 	defer server.Close()
@@ -564,7 +574,7 @@ func TestKeeperABCIClientReadsNodeV1HubParams(t *testing.T) {
 		t.Fatalf("Params() error = %v", err)
 	}
 	if params.ServiceUnbondingPeriodBlocks.Uint64() != 302_400 ||
-		params.DailySupportWindowBlocks.Uint64() != 14_400 {
+		params.DailySupportWindowBlocks.Uint64() != 14_400 || params.MaxManifestURIBytes != 2048 {
 		t.Fatalf("Params() = %#v", params)
 	}
 }

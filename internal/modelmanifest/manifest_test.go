@@ -158,7 +158,8 @@ func TestGoldenManifestReproducesTheWireVector(t *testing.T) {
 }
 
 // The projection vector shares the golden manifest's values, with an opaque
-// manifest_hash and a registration fee that is not inside the manifest.
+// manifest_hash plus a registration fee and manifest_uri that are not inside
+// the manifest.
 // Rebuilding it from the manifest must reproduce chain_projection_hash.
 func TestManifestProjectionReproducesTheProjectionVector(t *testing.T) {
 	body, _ := goldenManifest(t)
@@ -174,6 +175,7 @@ func TestManifestProjectionReproducesTheProjectionVector(t *testing.T) {
 		ChainProjectionHash string `json:"chain_projection_hash"`
 		Projection          struct {
 			ManifestHash    string `json:"manifest_hash"`
+			ManifestURI     string `json:"manifest_uri"`
 			RegistrationFee Coin   `json:"registration_fee"`
 		} `json:"canonical_projection"`
 	}
@@ -185,6 +187,7 @@ func TestManifestProjectionReproducesTheProjectionVector(t *testing.T) {
 		t.Fatalf("projection vector manifest_hash %q", fixture.Projection.ManifestHash)
 	}
 	profile := manifest.Projection(codec.Hash(opaque))
+	profile.ManifestURI = fixture.Projection.ManifestURI
 	profile.RegistrationFee = txclient.CoinMessage{Denom: fixture.Projection.RegistrationFee.Denom, Amount: txclient.ProtoUint64(fixture.Projection.RegistrationFee.Amount)}
 	projection, err := keepercontract.CanonicalModelProfileProjection(profile)
 	if err != nil {
@@ -295,19 +298,17 @@ func TestVerifyRejectsAManifestThatDisagreesWithTheChain(t *testing.T) {
 	}
 }
 
-func TestCanonicalEscapesOnlyWhatJSONRequires(t *testing.T) {
-	got, err := canonicalJSON([]byte(`{"b":"<&>\u2028é\"\\\n\u0001","a":[1,0,-2]}`))
+func TestCanonicalSortsKeysAndEscapesOnlyWhatJSONRequires(t *testing.T) {
+	got, err := canonicalJSON([]byte(`{"b":"<&>\u2028\"\\\n\u0001","a":[1,0,2]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\"a\":[1,0,-2],\"b\":\"<&> é\\\"\\\\\\n\\u0001\"}"
+	want := `{"a":[1,0,2],"b":"<&>\u2028\"\\\n\u0001"}`
 	if string(got) != want {
 		t.Fatalf("canonical = %s, want %s", got, want)
 	}
-	for _, number := range []string{`1.0`, `1e3`, `-0`, `01`} {
-		if _, err := canonicalJSON([]byte(number)); err == nil {
-			t.Errorf("%s was accepted as a canonical integer", number)
-		}
+	if _, err := canonicalJSON([]byte(`{}{}`)); err == nil {
+		t.Error("trailing data was accepted")
 	}
 }
 

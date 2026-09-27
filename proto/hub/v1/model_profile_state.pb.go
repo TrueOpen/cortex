@@ -404,8 +404,13 @@ type ProfileState struct {
 	Source                        *v1.ProfileSourceRefV1      `protobuf:"bytes,31,opt,name=source,proto3" json:"source,omitempty"`
 	ToolCallParser                *v1.ParserRefV1             `protobuf:"bytes,32,opt,name=tool_call_parser,json=toolCallParser,proto3" json:"tool_call_parser,omitempty"`
 	ReasoningParser               *v1.ParserRefV1             `protobuf:"bytes,33,opt,name=reasoning_parser,json=reasoningParser,proto3" json:"reasoning_parser,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	// manifest_uri is the registrant-hosted retrieval pointer for the manifest
+	// body, copied from the registered ModelProfileProjection.manifest_uri and
+	// frozen with this profile version. QueryProfile returns it together with
+	// manifest_hash; there is no separate manifest-pointer query.
+	ManifestUri   string `protobuf:"bytes,34,opt,name=manifest_uri,json=manifestUri,proto3" json:"manifest_uri,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProfileState) Reset() {
@@ -648,6 +653,13 @@ func (x *ProfileState) GetReasoningParser() *v1.ParserRefV1 {
 	return nil
 }
 
+func (x *ProfileState) GetManifestUri() string {
+	if x != nil {
+		return x.ManifestUri
+	}
+	return ""
+}
+
 // RegistrationReceipt is the minimal replay locator stored under the
 // registration digest key. The remaining receipt facts live in ProfileState.
 // RegistrationReceipt defines the RegistrationReceipt wire type.
@@ -725,7 +737,7 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\x19pending_support_min_stake\x18\r \x01(\x04R\x16pendingSupportMinStake\x128\n" +
 	"\x18pending_effective_height\x18\x0e \x01(\x04R\x16pendingEffectiveHeight\x12\x1a\n" +
 	"\bprovider\x18\x0f \x01(\tR\bprovider\x12\x17\n" +
-	"\arepo_id\x18\x10 \x01(\tR\x06repoIdJ\x04\b\x04\x10\x05R\x14active_profile_count\"\xe9\r\n" +
+	"\arepo_id\x18\x10 \x01(\tR\x06repoIdJ\x04\b\x04\x10\x05R\x14active_profile_count\"\x8c\x0e\n" +
 	"\fProfileState\x12\x1f\n" +
 	"\bmodel_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\amodelId\x12'\n" +
 	"\x0fprofile_version\x18\x02 \x01(\rR\x0eprofileVersion\x12)\n" +
@@ -759,7 +771,8 @@ const file_hub_v1_model_profile_state_proto_rawDesc = "" +
 	"\tref_price\x18\x1e \x01(\x04R\brefPrice\x12;\n" +
 	"\x06source\x18\x1f \x01(\v2\x1d.shared.v1.ProfileSourceRefV1B\x04\xc8\xde\x1f\x00R\x06source\x12F\n" +
 	"\x10tool_call_parser\x18  \x01(\v2\x16.shared.v1.ParserRefV1B\x04\xc8\xde\x1f\x00R\x0etoolCallParser\x12G\n" +
-	"\x10reasoning_parser\x18! \x01(\v2\x16.shared.v1.ParserRefV1B\x04\xc8\xde\x1f\x00R\x0freasoningParserB$\n" +
+	"\x10reasoning_parser\x18! \x01(\v2\x16.shared.v1.ParserRefV1B\x04\xc8\xde\x1f\x00R\x0freasoningParser\x12!\n" +
+	"\fmanifest_uri\x18\" \x01(\tR\vmanifestUriB$\n" +
 	"\"_last_freeze_risk_window_evaluated\"_\n" +
 	"\x13RegistrationReceipt\x12\x1f\n" +
 	"\bmodel_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\amodelId\x12'\n" +

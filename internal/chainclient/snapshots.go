@@ -12,6 +12,9 @@ import (
 type ParamsSnapshot struct {
 	ServiceUnbondingPeriodBlocks Uint64String `json:"service_unbonding_period_blocks"`
 	DailySupportWindowBlocks     Uint64String `json:"daily_support_window_blocks"`
+	// MaxManifestURIBytes is ModelParamsV1.max_manifest_uri_bytes, the cap on
+	// a registered profile's manifest_uri.
+	MaxManifestURIBytes uint32 `json:"max_manifest_uri_bytes"`
 }
 
 type CortexNodeSnapshot struct {
@@ -370,6 +373,10 @@ type CurrentProfileSnapshot struct {
 	Source                    CurrentProfileSourceSnapshot           `json:"source"`
 	ToolCallParser            CurrentParserSnapshot                  `json:"tool_call_parser"`
 	ReasoningParser           CurrentParserSnapshot                  `json:"reasoning_parser"`
+	// ManifestURI is where the registrant hosts the manifest body. The chain
+	// checks only its syntax and length; content is authenticated by
+	// ManifestHash.
+	ManifestURI string `json:"manifest_uri"`
 }
 
 // CurrentProfileSourceSnapshot is ProfileSourceRefV1: the per-profile part of

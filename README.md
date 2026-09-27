@@ -249,8 +249,8 @@ bin/cortexctl model manifest fetch <model_id> --rpc <keeper-rpc> --profile-versi
   --cache-dir ~/.cortex/manifests --mirror https://<mirror>/manifests
 ```
 
-Sources are tried in order: `--cache-dir`, the profile's `manifest_uri` once
-the chain carries one, then each `--mirror` (served at
+Sources are tried in order: `--cache-dir`, the profile's registered
+`manifest_uri`, then each `--mirror` (served at
 `<mirror>/<manifest_hash hex>`). Whatever the source, the bytes are accepted
 only if they hash to the chain's `manifest_hash`, parse strictly as a
 `manifest_version` 4 manifest, are exactly their own canonical encoding, and
@@ -483,13 +483,14 @@ bin/cortexctl model support <model_id> --dry-run
 bin/cortexctl model daily-support <model_id> --dry-run
 ```
 
-`--manifest-uri` records where you host the full model manifest so other
-operators can fetch it. It is kept exactly as given and must be `https://` +
-a lowercase host (DNS name of at least two labels, or an IP literal) +
-optional `:port`, path and query, or `ipfs://` + a CIDv0 or lowercase base32
-CIDv1 + optional path; printable ASCII only, no userinfo or fragment, at most
-2048 bytes. It is validated now and will be submitted with the registration
-once the chain carries the field.
+Every profile needs a `manifest_uri`: where you host the full model manifest
+so other operators can fetch it. Put it in the profile file or pass
+`--manifest-uri`. It is part of the registered projection and its digests,
+kept exactly as given, and must be `https://` + a lowercase host (DNS name of
+at least two labels, or an IP literal) + optional `:port`, path and query, or
+`ipfs://` + a CIDv0 or lowercase base32 CIDv1 + optional path; printable ASCII
+only, no userinfo or fragment. Registration also checks its length against the
+chain parameter `max_manifest_uri_bytes`.
 
 Model/profile registration is an offline operator action and is intentionally
 not signed by cortexd. See [Model Registry Operations](docs/operations/model-registry.md)

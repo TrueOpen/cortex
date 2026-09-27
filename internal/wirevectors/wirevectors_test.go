@@ -33,7 +33,7 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// Every v0.3.0 file this repository derives must be registered in the
+// Every v0.3.1 file this repository derives must be registered in the
 // release manifest.
 func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{
@@ -52,12 +52,15 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		"task/canonical_json_v1.json",
 		"task/task_domains_v1.json",
 		"hub/model_id_v1.json",
+		"hub/model_manifest_v4.json",
+		"hub/model_profile_canonical_v3.json",
+		"hub/manifest_uri_v1.json",
 	} {
 		if _, err := File(path); err != nil {
 			t.Fatalf("File(%s): %v", path, err)
 		}
 	}
 	if _, err := File("task/infer_receipt_v2.json"); err == nil {
-		t.Fatal("File() error = nil for a file wire v0.3.0 no longer publishes")
+		t.Fatal("File() error = nil for a file wire v0.3.1 does not publish")
 	}
 }

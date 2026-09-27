@@ -3,10 +3,10 @@ package modelregistry
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/txclient"
@@ -36,7 +36,6 @@ type CurrentManifest struct {
 	Tokenizer             string                                 `json:"tokenizer"`
 	ModelServiceID        string                                 `json:"model_service_id"`
 	Metadata              map[string]string                      `json:"metadata,omitempty"`
-	ManifestURI           string                                 `json:"manifest_uri,omitempty"`
 	Profile               txclient.ModelProfileProjectionMessage `json:"profile"`
 	Canonical             string                                 `json:"-"`
 	Hash                  string                                 `json:"manifest_hash"`
@@ -67,7 +66,6 @@ func GenerateCurrentManifest(input CurrentManifestInput) (CurrentManifest, error
 		Tokenizer:             strings.TrimSpace(input.Tokenizer),
 		ModelServiceID:        strings.TrimSpace(input.ModelServiceID),
 		Metadata:              sortedMetadata(input.Metadata),
-		ManifestURI:           input.ManifestURI,
 		Profile:               input.Profile,
 	}
 	evidenceHash, err := keepercontract.EvidenceSchemaHash(manifest.Profile)
@@ -124,14 +122,12 @@ func validateCurrentManifestFields(manifest CurrentManifest) error {
 	if manifest.ModelServiceID == "" || strings.TrimSpace(manifest.ModelServiceID) != manifest.ModelServiceID {
 		return fmt.Errorf("model_service_id is required without surrounding whitespace")
 	}
-	// Optional until the registration projection carries manifest_uri; when
-	// set it must already satisfy the syntax the chain will enforce.
-	if manifest.ManifestURI != "" {
-		if err := modelmanifest.ValidateURI(manifest.ManifestURI, modelmanifest.DefaultMaxManifestURIBytes); err != nil {
-			return err
-		}
+	if err := txclient.ValidateModelProfileProjection(manifest.Profile); err != nil {
+		return err
 	}
-	return txclient.ValidateModelProfileProjection(manifest.Profile)
+	// The length cap is the chain parameter max_manifest_uri_bytes, which
+	// registration checks against the chain before submitting.
+	return modelmanifest.ValidateURI(manifest.Profile.ManifestURI, modelmanifest.NoLengthCap)
 }
 
 func canonicalCurrentManifest(manifest CurrentManifest) ([]byte, error) {
@@ -141,7 +137,6 @@ func canonicalCurrentManifest(manifest CurrentManifest) ([]byte, error) {
 		Tokenizer             string                                 `json:"tokenizer"`
 		ModelServiceID        string                                 `json:"model_service_id"`
 		Metadata              map[string]string                      `json:"metadata,omitempty"`
-		ManifestURI           string                                 `json:"manifest_uri,omitempty"`
 		Profile               txclient.ModelProfileProjectionMessage `json:"profile"`
 	}{
 		ManifestSchemaVersion: manifest.ManifestSchemaVersion,
@@ -149,8 +144,7 @@ func canonicalCurrentManifest(manifest CurrentManifest) ([]byte, error) {
 		Tokenizer:             manifest.Tokenizer,
 		ModelServiceID:        manifest.ModelServiceID,
 		Metadata:              sortedMetadata(manifest.Metadata),
-		ManifestURI:           manifest.ManifestURI,
 		Profile:               manifest.Profile,
 	}
-	return json.Marshal(wire)
+	return codec.CanonicalJSON(wire)
 }

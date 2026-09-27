@@ -203,6 +203,7 @@ func ProjectionFromChainState(model chainclient.CurrentModelSnapshot, state chai
 		},
 		ToolCallParser:  ParserRefMessage{Name: state.ToolCallParser.Name, Version: ProtoUint32(state.ToolCallParser.Version)},
 		ReasoningParser: ParserRefMessage{Name: state.ReasoningParser.Name, Version: ProtoUint32(state.ReasoningParser.Version)},
+		ManifestURI:     state.ManifestURI,
 		ModelID:         ProtoBytes32(state.ModelID), ProfileVersion: ProtoUint32(state.ProfileVersion.Uint32()), ManifestHash: ProtoBytes32(state.ManifestHash.Hex()),
 		TokenizerHash: ProtoBytes32(state.TokenizerHash.Hex()), RuntimeClass: state.RuntimeClass, RequiredTopK: ProtoUint32(state.RequiredTopK),
 		TaskTypes: append([]string(nil), state.TaskTypes...), GenerationType: state.GenerationType, ResourceTier: ProtoUint32(state.ResourceTier),

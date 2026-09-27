@@ -106,7 +106,7 @@ func validRegisterModelProfileMessage() RegisterModelProfileMessage {
 			VerificationThresholds:  VerificationThresholdsMessage{PassMinFiniteCount: 16, PassMeanAbsLogprobDiffMax: 50_000, RejectMeanAbsLogprobDiffMin: 300_000},
 			PricingProfile:          PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-			SchemaHash:              hash, RegistrationFee: CoinMessage{Denom: "uusdc", Amount: 10_000_000},
+			SchemaHash:              hash, RegistrationFee: CoinMessage{Denom: "uusdc", Amount: 10_000_000}, ManifestURI: "https://models.trueopen.example/manifests/org-model/v1.json",
 			Source: SourceRefMessage{Provider: "HUGGINGFACE", RepoID: "org/model", RepoType: "model", ResolverVersion: "HF_RESOLVER_V1",
 				Revision: strings.Repeat("0a", 20), SourceURI: "hf://org/model@" + strings.Repeat("0a", 20)}},
 	}

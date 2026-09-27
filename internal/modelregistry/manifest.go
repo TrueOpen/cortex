@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/TrueOpen/cortex/internal/codec"
 )
 
 type ManifestInput struct {
@@ -258,8 +259,8 @@ func writeJSONField(buf *bytes.Buffer, key string, value string, first bool) {
 	if !first {
 		buf.WriteString(",")
 	}
-	keyBytes, _ := json.Marshal(key)
-	valueBytes, _ := json.Marshal(value)
+	keyBytes, _ := codec.CanonicalJSON(key)
+	valueBytes, _ := codec.CanonicalJSON(value)
 	buf.Write(keyBytes)
 	buf.WriteString(":")
 	buf.Write(valueBytes)
@@ -269,7 +270,7 @@ func writeJSONNumberField(buf *bytes.Buffer, key string, value uint64, first boo
 	if !first {
 		buf.WriteString(",")
 	}
-	keyBytes, _ := json.Marshal(key)
+	keyBytes, _ := codec.CanonicalJSON(key)
 	buf.Write(keyBytes)
 	buf.WriteString(":")
 	buf.WriteString(fmt.Sprintf("%d", value))

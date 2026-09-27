@@ -55,15 +55,14 @@ func newModelManifestFetchCommand(stdout io.Writer, openChain func(string) curre
 		if err != nil {
 			return fmt.Errorf("read chain profile %s@%s: %w", args[0], profileVersion, err)
 		}
-		// The chain does not carry manifest_uri yet, so only the cache and
-		// mirrors can be tried.
-		fetched, err := fetcher.Fetch(ctx, chain, "")
+		fetched, err := fetcher.Fetch(ctx, chain)
 		if err != nil {
 			return err
 		}
 		manifest := fetched.Manifest
 		return printFormatted(stdout, map[string]string{
 			"model_id":        chain.Profile.ModelID,
+			"manifest_uri":    chain.Profile.ManifestURI,
 			"profile_version": profileVersion,
 			"manifest_hash":   chain.Profile.ManifestHash.Hex(),
 			"source":          fetched.Source,

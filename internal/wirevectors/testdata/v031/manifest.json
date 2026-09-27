@@ -52,6 +52,13 @@
       "sha256": "79742a74369a3bb74e1a9377575bb096b63e21b682e496d75514e4fa84675bd1"
     },
     {
+      "path": "hub/manifest_uri_v1.json",
+      "origin": "wire",
+      "contract_section": "Public manifest_uri syntax conformance forms",
+      "bytes": 12538,
+      "sha256": "1112c546447762c93c09a7dcd198c2f39f74f6125d1cc1f969ee302774ad0208"
+    },
+    {
       "path": "hub/model_id_v1.json",
       "origin": "wire",
       "contract_section": "Derived raw Hash32 model identity",
@@ -69,8 +76,8 @@
       "path": "hub/model_profile_canonical_v3.json",
       "origin": "wire",
       "contract_section": "Model chain projection and registration digest V3",
-      "bytes": 5758,
-      "sha256": "bdf352a1b685ba143e1da8eba8519f036600a8f6fecb902ddc9cd95d077c6993"
+      "bytes": 6239,
+      "sha256": "dcdb9fe304022ad5878e44e12058dbb88368889cf7afea0139ff3fee7fe31a9d"
     },
     {
       "path": "shared/account_signing_v1.json",
@@ -96,8 +103,8 @@
       "path": "shared/params_v1.json",
       "origin": "wire",
       "contract_section": "Hub and Task parameter commitments and replay separation",
-      "bytes": 58046,
-      "sha256": "75c9c33b4a632ba4711c62d687da1f779dff69835018c61dd26df2243283700d"
+      "bytes": 58227,
+      "sha256": "9a0bb2ebf04205bbbde5ee4fa325fbbc2df62c10c802f13bd72523d938175405"
     },
     {
         "path": "shared/query_page_v1.json",

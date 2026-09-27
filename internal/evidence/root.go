@@ -2,7 +2,6 @@ package evidence
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -112,7 +111,7 @@ func encodeEvidenceManifest(taskID string, leaves []EvidenceLeaf, counts map[str
 			Digest: fmt.Sprintf("%x", leaf.Digest[:]),
 		})
 	}
-	return json.Marshal(struct {
+	return codec.CanonicalJSON(struct {
 		Version         string         `json:"version"`
 		TaskID          string         `json:"task_id"`
 		LeafCountByType map[string]int `json:"leaf_count_by_type"`

@@ -5,15 +5,17 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/netip"
 	"strconv"
 	"strings"
 )
 
-// DefaultMaxManifestURIBytes is the default of the chain parameter
-// max_manifest_uri_bytes.
-const DefaultMaxManifestURIBytes = 2048
+// NoLengthCap checks syntax alone. The length cap is the chain parameter
+// max_manifest_uri_bytes; a value already accepted by the chain, or one whose
+// cap is checked later against the chain, is parsed with NoLengthCap.
+const NoLengthCap = math.MaxInt
 
 // ValidateURI applies the manifest_uri syntax. The value is hashed byte for
 // byte inside the model projection, so it is checked exactly as given and

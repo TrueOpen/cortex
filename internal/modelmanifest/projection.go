@@ -16,8 +16,8 @@ import (
 // Projection is the ModelProfileProjection this manifest projects onto, given
 // its manifest_hash. Fields that are not inside the manifest are left zero:
 // registration_fee, which the registrant supplies with the transaction, and
-// the manifest's own retrieval location. A caller rebuilding the full
-// projection takes those from the chain.
+// manifest_uri, the manifest's own retrieval location. A caller rebuilding
+// the full projection takes those from the chain.
 func (m *Manifest) Projection(manifestHash codec.Hash) txclient.ModelProfileProjectionMessage {
 	taskTypes := make([]string, len(m.ProfileSpec.TaskTypes))
 	for index, value := range m.ProfileSpec.TaskTypes {
@@ -120,12 +120,14 @@ func (m *Manifest) Projection(manifestHash codec.Hash) txclient.ModelProfileProj
 // the chain's registered state, which wins on any disagreement. The chain
 // keeps coin amounts without their denomination, so denominations are not
 // compared; registration_fee is not inside the manifest and is taken from
-// the chain.
+// the chain. manifest_uri is not inside the manifest either, so it is taken
+// from the chain as well and never compared.
 func (m *Manifest) CompareWithChain(manifestHash codec.Hash, chain chainclient.CurrentModelProfileSnapshot) error {
 	fromChain := txclient.ProjectionFromChainState(chain.Model, chain.Profile)
 	fromManifest := m.Projection(manifestHash)
 	fromManifest.MinStake.Denom = ""
 	fromManifest.RegistrationFee = fromChain.RegistrationFee
+	fromManifest.ManifestURI = fromChain.ManifestURI
 	if chain.Model.ModelID != chain.Profile.ModelID {
 		return fmt.Errorf("chain model %s and profile %s disagree", chain.Model.ModelID, chain.Profile.ModelID)
 	}

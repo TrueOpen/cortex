@@ -98,9 +98,13 @@ func (c *KeeperABCIClient) Params(ctx context.Context) (ParamsSnapshot, error) {
 	if params.GetService().GetServiceUnbondingPeriodBlocks() == 0 {
 		return ParamsSnapshot{}, fmt.Errorf("Keeper service unbonding period is required")
 	}
+	if params.GetModel().GetMaxManifestUriBytes() == 0 {
+		return ParamsSnapshot{}, fmt.Errorf("Keeper model max_manifest_uri_bytes is required")
+	}
 	return ParamsSnapshot{
 		ServiceUnbondingPeriodBlocks: Uint64String(params.Service.ServiceUnbondingPeriodBlocks),
 		DailySupportWindowBlocks:     Uint64String(epochLength * supportWindowEpochs),
+		MaxManifestURIBytes:          params.GetModel().GetMaxManifestUriBytes(),
 	}, nil
 }
 

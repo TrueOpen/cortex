@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/chainclient"
 )
 
 // routes serves fixed bodies by path and records what was requested.
@@ -39,6 +41,12 @@ func (r *routes) paths() []string {
 	return append([]string(nil), r.requested...)
 }
 
+// withURI returns chain with its registered manifest_uri set to uri.
+func withURI(chain chainclient.CurrentModelProfileSnapshot, uri string) chainclient.CurrentModelProfileSnapshot {
+	chain.Profile.ManifestURI = uri
+	return chain
+}
+
 func newTestFetcher(t *testing.T, bodies map[string][]byte, cfg FetcherConfig) (*Fetcher, *routes) {
 	t.Helper()
 	server := &routes{bodies: bodies}
@@ -57,7 +65,7 @@ func TestFetchPrefersAVerifiedCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	fetcher, server := newTestFetcher(t, nil, FetcherConfig{CacheDir: cache, Mirrors: []string{"https://example.com/mirror"}})
-	fetched, err := fetcher.Fetch(context.Background(), chain, "https://example.com/m.json")
+	fetched, err := fetcher.Fetch(context.Background(), withURI(chain, "https://example.com/m.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +89,7 @@ func TestFetchFallsThroughInOrderAndRechecksTheHash(t *testing.T) {
 		"/m.json":            []byte(`{"not":"it"}`),
 		"/mirror/" + hashHex: body,
 	}, FetcherConfig{CacheDir: cache, Mirrors: []string{"https://example.com/empty", "https://example.com/mirror/"}})
-	fetched, err := fetcher.Fetch(context.Background(), chain, "https://example.com/m.json")
+	fetched, err := fetcher.Fetch(context.Background(), withURI(chain, "https://example.com/m.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +117,7 @@ func TestFetchStopsOnACommittedInvalidManifest(t *testing.T) {
 	cache := t.TempDir()
 	fetcher, server := newTestFetcher(t, map[string][]byte{"/m.json": pretty.Bytes()},
 		FetcherConfig{CacheDir: cache, Mirrors: []string{"https://example.com/mirror"}})
-	if _, err := fetcher.Fetch(context.Background(), chain, "https://example.com/m.json"); !errors.Is(err, ErrInvalid) {
+	if _, err := fetcher.Fetch(context.Background(), withURI(chain, "https://example.com/m.json")); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("expected ErrInvalid, got %v", err)
 	}
 	if got := server.paths(); len(got) != 1 {
@@ -123,12 +131,12 @@ func TestFetchStopsOnACommittedInvalidManifest(t *testing.T) {
 func TestFetchReportsEverySourceWhenNoneHasTheManifest(t *testing.T) {
 	_, _, chain := goldenChain(t)
 	fetcher, _ := newTestFetcher(t, nil, FetcherConfig{Mirrors: []string{"https://example.com/mirror"}})
-	_, err := fetcher.Fetch(context.Background(), chain, "https://example.com/m.json")
+	_, err := fetcher.Fetch(context.Background(), withURI(chain, "https://example.com/m.json"))
 	if err == nil || !strings.Contains(err.Error(), "manifest_uri https://example.com/m.json") || !strings.Contains(err.Error(), "mirror https://example.com/mirror/") {
 		t.Fatalf("error does not name every source: %v", err)
 	}
 	unconfigured, _ := newTestFetcher(t, nil, FetcherConfig{})
-	if _, err := unconfigured.Fetch(context.Background(), chain, ""); err == nil || !strings.Contains(err.Error(), "no cache, manifest_uri or mirror") {
+	if _, err := unconfigured.Fetch(context.Background(), withURI(chain, "")); err == nil || !strings.Contains(err.Error(), "no cache, manifest_uri or mirror") {
 		t.Fatalf("unconfigured fetch: %v", err)
 	}
 }
@@ -137,7 +145,7 @@ func TestFetchRefusesAnInvalidManifestURI(t *testing.T) {
 	_, _, chain := goldenChain(t)
 	fetcher, server := newTestFetcher(t, nil, FetcherConfig{})
 	for _, uri := range []string{"http://example.com/m.json", "https://example.com/m.json#x", "https://Example.com/m.json"} {
-		if _, err := fetcher.Fetch(context.Background(), chain, uri); err == nil {
+		if _, err := fetcher.Fetch(context.Background(), withURI(chain, uri)); err == nil {
 			t.Errorf("%s was fetched", uri)
 		}
 	}
@@ -152,7 +160,7 @@ func TestFetchUsesOnlyTheConfiguredIPFSGateway(t *testing.T) {
 	uri := "ipfs://" + cid + "/manifests/golden.json"
 
 	without, _ := newTestFetcher(t, nil, FetcherConfig{})
-	if _, err := without.Fetch(context.Background(), chain, uri); err == nil || !strings.Contains(err.Error(), "IPFS gateway") {
+	if _, err := without.Fetch(context.Background(), withURI(chain, uri)); err == nil || !strings.Contains(err.Error(), "IPFS gateway") {
 		t.Fatalf("ipfs:// without a gateway: %v", err)
 	}
 
@@ -164,7 +172,7 @@ func TestFetchUsesOnlyTheConfiguredIPFSGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := fetcher.Fetch(context.Background(), chain, uri)
+	fetched, err := fetcher.Fetch(context.Background(), withURI(chain, uri))
 	if err != nil {
 		t.Fatal(err)
 	}

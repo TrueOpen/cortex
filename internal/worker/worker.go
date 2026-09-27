@@ -910,7 +910,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("locally verify infer receipt service signature: %w", err)
 	}
 	receipt.ServiceSignature = hex.EncodeToString(serviceSignature)
-	canonicalPayload, err := json.Marshal(receipt)
+	canonicalPayload, err := codec.CanonicalJSON(receipt)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("encode canonical infer receipt: %w", err)
 	}

@@ -5,9 +5,13 @@ import (
 	"testing"
 )
 
+// testMaxURIBytes is the published default of max_manifest_uri_bytes.
+// Production code reads the cap from the chain.
+const testMaxURIBytes = 2048
+
 func TestValidateURIAcceptsTheAllowedForms(t *testing.T) {
 	longPath := "https://models.trueopen.example/m/"
-	atLimit := longPath + strings.Repeat("a", DefaultMaxManifestURIBytes-len(longPath))
+	atLimit := longPath + strings.Repeat("a", testMaxURIBytes-len(longPath))
 	for _, uri := range []string{
 		"https://models.trueopen.example/manifests/golden-model/v1.json",
 		"https://models.trueopen.example",
@@ -20,14 +24,14 @@ func TestValidateURIAcceptsTheAllowedForms(t *testing.T) {
 		"ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/manifests/golden.json",
 		atLimit,
 	} {
-		if err := ValidateURI(uri, DefaultMaxManifestURIBytes); err != nil {
+		if err := ValidateURI(uri, testMaxURIBytes); err != nil {
 			t.Errorf("%.80s: %v", uri, err)
 		}
 	}
 }
 
 func TestValidateURIRejectsEverythingElse(t *testing.T) {
-	overLimit := "https://models.trueopen.example/m/" + strings.Repeat("a", DefaultMaxManifestURIBytes)
+	overLimit := "https://models.trueopen.example/m/" + strings.Repeat("a", testMaxURIBytes)
 	cases := map[string]string{
 		"empty":                       "",
 		"over max_manifest_uri_bytes": overLimit,
@@ -67,7 +71,7 @@ func TestValidateURIRejectsEverythingElse(t *testing.T) {
 		"missing CID":                 "ipfs://",
 	}
 	for name, uri := range cases {
-		if err := ValidateURI(uri, DefaultMaxManifestURIBytes); err == nil {
+		if err := ValidateURI(uri, testMaxURIBytes); err == nil {
 			t.Errorf("%s: %.80q was accepted", name, uri)
 		}
 	}

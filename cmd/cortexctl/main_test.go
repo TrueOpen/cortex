@@ -369,27 +369,45 @@ func TestModelManifestGenerateAcceptsCurrentProjectionFile(t *testing.T) {
 	}
 }
 
-func TestModelManifestGeneratePassesTheManifestURIThrough(t *testing.T) {
+func TestModelManifestGenerateSetsTheProfileManifestURI(t *testing.T) {
 	socketPath := startTestAdminServer(t)
 	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
-	profilePath := writeCurrentProfile(t)
-	args := func(uri string) []string {
-		return []string{
-			"model", "manifest", "generate", "--format", "json", "--profile", profilePath,
-			"--version", "v1", "--tokenizer", "tok", "--model-service", "svc", "--manifest-uri", uri,
-		}
+	profile := currentTestProfile()
+	profile.ManifestURI = ""
+	data, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(t.TempDir(), "profile.json")
+	if err := os.WriteFile(profilePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generate := func(path string, extra ...string) (string, error) {
+		var stdout bytes.Buffer
+		args := append([]string{
+			"model", "manifest", "generate", "--format", "json", "--profile", path,
+			"--version", "v1", "--tokenizer", "tok", "--model-service", "svc",
+		}, extra...)
+		err := run(args, &stdout)
+		return stdout.String(), err
 	}
 
-	var stdout bytes.Buffer
-	if err := run(args("ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/m.json"), &stdout); err != nil {
+	const uri = "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/m.json"
+	out, err := generate(profilePath, "--manifest-uri", uri)
+	if err != nil {
 		t.Fatalf("manifest generate returned error: %v", err)
 	}
-	if !strings.Contains(stdout.String(), `"manifest_uri": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/m.json"`) {
-		t.Fatalf("manifest_uri missing from %s", stdout.String())
+	if !strings.Contains(out, `"manifest_uri": "`+uri+`"`) {
+		t.Fatalf("manifest_uri missing from %s", out)
 	}
-	stdout.Reset()
-	if err := run(args("http://models.example/m.json"), &stdout); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
+	if _, err := generate(profilePath); err == nil || !strings.Contains(err.Error(), "manifest_uri is required") {
+		t.Fatalf("missing manifest_uri was accepted: %v", err)
+	}
+	if _, err := generate(profilePath, "--manifest-uri", "http://models.example/m.json"); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
 		t.Fatalf("http manifest_uri was accepted: %v", err)
+	}
+	if _, err := generate(writeCurrentProfile(t), "--manifest-uri", uri); err == nil || !strings.Contains(err.Error(), "differs from the profile") {
+		t.Fatalf("conflicting manifest_uri was accepted: %v", err)
 	}
 }
 
@@ -532,7 +550,7 @@ func startTestAdminServer(t *testing.T) string {
 type cliRegistrationReader struct{}
 
 func (cliRegistrationReader) Params(context.Context) (chainclient.ParamsSnapshot, error) {
-	return chainclient.ParamsSnapshot{}, nil
+	return chainclient.ParamsSnapshot{MaxManifestURIBytes: 2048}, nil
 }
 
 func (cliRegistrationReader) Model(context.Context, string) (chainclient.ModelSnapshot, error) {
@@ -588,7 +606,7 @@ func currentTestProfile() txclient.ModelProfileProjectionMessage {
 			Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 		PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 		TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-		SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}}
+		SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}, ManifestURI: "https://models.trueopen.example/manifests/org-model/v1.json"}
 }
 
 func passingSelfTest(_ context.Context, manifest modelregistry.Manifest) (modelregistry.SelfTestResult, error) {

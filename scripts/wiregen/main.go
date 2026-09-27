@@ -16,10 +16,10 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-const descriptorSHA256 = "d0c240eb9b1ca57ad645721dd0b23db1c4510901bdad18759ddbaf58b51460b9"
+const descriptorSHA256 = "9513467cc3aaa12d2ff997eb4460d5f37c5d21cf4a4e34c978e945c8f091b893"
 
 func main() {
-	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.3.0.binpb", "pinned wire release descriptor")
+	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.3.1.binpb", "pinned wire release descriptor")
 	out := flag.String("out", "bin/.chain-bindings", "empty scratch output directory")
 	flag.Parse()
 	data, err := os.ReadFile(*descriptor)

@@ -427,7 +427,7 @@ func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Comm
 	generate.Flags().StringVar(&tokenizer, "tokenizer", "", "tokenizer identifier")
 	generate.Flags().StringVar(&modelServiceID, "model-service", "", "model service id")
 	generate.Flags().StringVar(&metadata, "metadata", "", "comma-separated key=value operator metadata")
-	generate.Flags().StringVar(&manifestURI, "manifest-uri", "", "https:// or ipfs:// URI where the full model manifest is hosted, kept exactly as given")
+	generate.Flags().StringVar(&manifestURI, "manifest-uri", "", "https:// or ipfs:// URI where the full model manifest is hosted, kept exactly as given; sets the profile's manifest_uri")
 	generate.RunE = func(cmd *cobra.Command, _ []string) error {
 		if profilePath == "" {
 			return errors.New("--profile is required")
@@ -436,9 +436,16 @@ func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Comm
 		if err != nil {
 			return err
 		}
+		// --manifest-uri fills the projection's manifest_uri; it may not
+		// silently replace a different value already in the profile file.
+		if manifestURI != "" {
+			if profile.ManifestURI != "" && profile.ManifestURI != manifestURI {
+				return fmt.Errorf("--manifest-uri %q differs from the profile's manifest_uri %q", manifestURI, profile.ManifestURI)
+			}
+			profile.ManifestURI = manifestURI
+		}
 		value, err := client().CurrentModelManifestGenerate(cmd.Context(), modelregistry.CurrentManifestInput{
-			Version: version, Tokenizer: tokenizer, ModelServiceID: modelServiceID, Metadata: parseMetadata(metadata),
-			ManifestURI: manifestURI, Profile: profile,
+			Version: version, Tokenizer: tokenizer, ModelServiceID: modelServiceID, Metadata: parseMetadata(metadata), Profile: profile,
 		})
 		if err != nil {
 			return err

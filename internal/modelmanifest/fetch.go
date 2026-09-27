@@ -25,8 +25,6 @@ type FetcherConfig struct {
 	// Mirrors are https base URLs of services that serve a manifest by its
 	// hash, at <mirror>/<manifest_hash hex>.
 	Mirrors []string
-	// MaxURIBytes is max_manifest_uri_bytes; zero takes the default.
-	MaxURIBytes int
 }
 
 // Fetcher obtains a registered profile's manifest and returns it only after
@@ -40,9 +38,6 @@ func NewFetcher(cfg FetcherConfig, downloader *Downloader) (*Fetcher, error) {
 	if downloader == nil {
 		downloader = NewDownloader(DownloaderConfig{})
 	}
-	if cfg.MaxURIBytes <= 0 {
-		cfg.MaxURIBytes = DefaultMaxManifestURIBytes
-	}
 	if cfg.IPFSGateway != "" {
 		gateway, err := url.Parse(cfg.IPFSGateway)
 		if err != nil || gateway.Host == "" || gateway.User != nil || gateway.RawQuery != "" || gateway.Fragment != "" ||
@@ -53,7 +48,7 @@ func NewFetcher(cfg FetcherConfig, downloader *Downloader) (*Fetcher, error) {
 	}
 	mirrors := make([]string, len(cfg.Mirrors))
 	for index, mirror := range cfg.Mirrors {
-		parsed, err := ParseURI(mirror, cfg.MaxURIBytes)
+		parsed, err := ParseURI(mirror, NoLengthCap)
 		if err != nil || parsed.Scheme != "https" || strings.Contains(parsed.Rest, "?") {
 			return nil, fmt.Errorf("manifest mirror %q must be an https URL without query or fragment", mirror)
 		}
@@ -70,12 +65,13 @@ type Fetched struct {
 	Source   string
 }
 
-// Fetch tries the local cache, then manifestURI, then each mirror, and
-// re-checks the hash at each. A source whose bytes do not hash to the chain's
-// manifest_hash is skipped. Bytes that do hash to it but fail verification
-// end the search, since every copy of those bytes is equally invalid.
-// manifestURI is the chain's value; an empty one is skipped.
-func (f *Fetcher) Fetch(ctx context.Context, chain chainclient.CurrentModelProfileSnapshot, manifestURI string) (Fetched, error) {
+// Fetch tries the local cache, then the profile's manifest_uri, then each
+// mirror, and re-checks the hash at each. A source whose bytes do not hash to
+// the chain's manifest_hash is skipped. Bytes that do hash to it but fail
+// verification end the search, since every copy of those bytes is equally
+// invalid.
+func (f *Fetcher) Fetch(ctx context.Context, chain chainclient.CurrentModelProfileSnapshot) (Fetched, error) {
+	manifestURI := chain.Profile.ManifestURI
 	if !chain.Profile.ManifestHash.IsSet() {
 		return Fetched{}, errors.New("chain profile has no manifest_hash")
 	}
@@ -130,7 +126,8 @@ func (f *Fetcher) Fetch(ctx context.Context, chain chainclient.CurrentModelProfi
 }
 
 func (f *Fetcher) fetchURI(ctx context.Context, raw string) ([]byte, error) {
-	parsed, err := ParseURI(raw, f.cfg.MaxURIBytes)
+	// The chain already enforced max_manifest_uri_bytes on this value.
+	parsed, err := ParseURI(raw, NoLengthCap)
 	if err != nil {
 		return nil, err
 	}
