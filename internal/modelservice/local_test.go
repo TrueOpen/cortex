@@ -735,6 +735,16 @@ func liveLikeProfileSnapshot(modelID, profileVersion string) chainclient.Current
 	return snapshot
 }
 
+// liveLikeProfileSnapshotWithTopK is liveLikeProfileSnapshot with another
+// required_top_k.
+func liveLikeProfileSnapshotWithTopK(k uint32) func(string, string) chainclient.CurrentProfileSnapshot {
+	return func(modelID, profileVersion string) chainclient.CurrentProfileSnapshot {
+		snapshot := liveLikeProfileSnapshot(modelID, profileVersion)
+		snapshot.RequiredTopK, snapshot.VerificationProfile.Metrics.ComparedTopK = k, k
+		return snapshot
+	}
+}
+
 type flakyProfileResolver struct{ calls int }
 
 func (r *flakyProfileResolver) ResolveLocalProfile(_ context.Context, modelID, profileVersion string) (chainclient.CurrentProfileSnapshot, error) {

@@ -3,6 +3,10 @@ package modelservice
 import (
 	"context"
 	"encoding/json"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -62,14 +66,14 @@ func TestValidateGenerationMaterialBindsValuesToGeneratedTokens(t *testing.T) {
 }
 
 // A /v1/completions top_logprobs object is read in the engine's own key order
-// and never re-sorted; a row that is not exactly required_top_k distinct ids
-// with non-increasing logprobs is refused.
+// and never re-sorted; a row that is not K (or K plus the appended emitted
+// token) distinct ids with non-increasing logprobs is refused.
 func TestCompletionTopKKeepsTheEngineOrder(t *testing.T) {
 	var row TopLogprobRow
 	if err := json.Unmarshal([]byte(`{"token_id:9":-0.5,"token_id:4":-0.5,"token_id:2":-1,"token_id:7":-3}`), &row); err != nil {
 		t.Fatal(err)
 	}
-	topK, err := completionTopK(0, row, 4)
+	topK, err := completionTopK(0, 2, row, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,14 +93,102 @@ func TestCompletionTopKKeepsTheEngineOrder(t *testing.T) {
 	}
 	for name, bad := range map[string]TopLogprobRow{
 		"too few":      {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}},
-		"too many":     {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}},
+		"two extra":    {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}, {"token_id:6", -6}},
 		"duplicate":    {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:1", -3}, {"token_id:4", -4}},
 		"out of order": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -0.5}, {"token_id:4", -4}},
+		"nan":          {{"token_id:1", -1}, {"token_id:2", math.NaN()}, {"token_id:3", -3}, {"token_id:4", -4}},
 		"text key":     {{"hello", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}},
+		// K+1 entries are only legal when the extra one is the emitted token
+		// appended after a top-k that does not hold it.
+		"extra is not the emitted token": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}},
+		"emitted both in and after":      {{"token_id:1", -1}, {"token_id:9", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:9", -2}},
 	} {
-		if _, err := completionTopK(0, bad, 4); err == nil {
+		if _, err := completionTopK(0, 9, bad, 4); err == nil {
 			t.Fatalf("%s row was accepted", name)
 		}
+	}
+}
+
+// With sampling on, the emitted token can fall outside the top-k; vLLM then
+// appends it as entry K+1. That entry is dropped, the first K are kept in the
+// engine's order, and the emitted token's leaf rank is 0.
+func TestCompletionTopKDropsTheAppendedSampledToken(t *testing.T) {
+	row := TopLogprobRow{{"token_id:1", -0.1}, {"token_id:2", -0.9}, {"token_id:3", -1.5}, {"token_id:4", -2}, {"token_id:9", -4.2}}
+	topK, err := completionTopK(3, 9, row, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(topK) != 4 || topK[3].TokenID != 4 || rankIn(9, topK) != 0 {
+		t.Fatalf("top-k = %+v, want the first four in engine order and the sampled token unranked", topK)
+	}
+	leaves, err := metric.ValueLeaves([]metric.PositionValue{{TokenID: 9, Logprob: -4.2, Rank: rankIn(9, topK), TopK: topK}}, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !leaves[0].Finite || leaves[0].Missing || leaves[0].Rank != 0 || len(leaves[0].TopK) != 4 || leaves[0].LogprobFP1e6 != -4200000 {
+		t.Fatalf("leaf = %+v, want a finite rank-0 leaf with four top-k entries", leaves[0])
+	}
+}
+
+// A sampled generation in which vLLM reports no logprob for one position and
+// no top-k for another yields missing values there, and the out-of-top-k
+// sampled token at the last position keeps its logprob with rank 0.
+func TestLocalSampledInferMarksPositionsWithoutValuesMissing(t *testing.T) {
+	const k = 4
+	// vLLM writes each object in rank order; a Go map would not, so the
+	// response body is written by hand.
+	body := `{"choices":[{"text":"abcd","finish_reason":"stop","prompt_token_ids":[1,2,3],"token_ids":[10,11,12,13],` +
+		`"logprobs":{"tokens":["token_id:10","token_id:11","token_id:12","token_id:13"],"token_logprobs":[-0.1,null,-0.3,-3.5],` +
+		`"top_logprobs":[` +
+		`{"token_id:10":-0.1,"token_id:20":-0.2,"token_id:21":-0.3,"token_id:22":-0.4},` +
+		`{"token_id:11":-0.1,"token_id:20":-0.2,"token_id:21":-0.3,"token_id:22":-0.4},` +
+		`null,` +
+		`{"token_id:30":-0.1,"token_id:31":-0.2,"token_id:32":-0.3,"token_id:33":-0.4,"token_id:13":-3.5}]}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "Qwen/Qwen3-8B"}}})
+			return
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request["logprobs"] != float64(k) {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
+	svc.SetStreamInference(false)
+	svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(k)})
+	g := localTestGeneration(testQwenModelID(), 1)
+	g.Params.DecodingParams = nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 900, TopPPPM: 950000, TopK: 40, Seed: 11, RepetitionPenaltyPPM: 1000000}
+	resp, err := svc.Infer(context.Background(), localGenerationInfer(t, g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.PositionValuesRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := DecodePositionValuesArtifact(artifact.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves, err := metric.ValueLeaves(values, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaves) != 4 || !leaves[0].Finite || leaves[0].Rank != 1 {
+		t.Fatalf("leaf 0 = %+v, want a normal rank-1 value", leaves)
+	}
+	for _, i := range []int{1, 2} {
+		if l := leaves[i]; !l.Missing || l.Finite || l.LogprobFP1e6 != 0 || l.Rank != 0 || len(l.TopK) != 0 {
+			t.Fatalf("leaf %d = %+v, want a missing value", i, l)
+		}
+	}
+	if l := leaves[3]; !l.Finite || l.Rank != 0 || l.LogprobFP1e6 != -3500000 || len(l.TopK) != k || l.TopK[0].TokenID != 30 {
+		t.Fatalf("leaf 3 = %+v, want the sampled out-of-top-k token with rank 0 and the engine's top-k", l)
 	}
 }
 
@@ -172,5 +264,27 @@ func TestLocalVerifyScoresTheWorkerTokenIDs(t *testing.T) {
 	prompt, _ := json.Marshal(last.Prompt)
 	if !last.ReturnTokensAsTokenIDs || string(prompt) != "[1,2,3,10,11]" {
 		t.Fatalf("verify request prompt = %s, want the token ids", prompt)
+	}
+}
+
+// A null token logprob keeps its position when streamed chunks are joined.
+func TestStreamedNullLogprobKeepsItsPosition(t *testing.T) {
+	var first, second completionLogprobs
+	if err := json.Unmarshal([]byte(`{"token_logprobs":[-0.1,-0.2]}`), &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"token_logprobs":[-0.3,null]}`), &second); err != nil {
+		t.Fatal(err)
+	}
+	var joined completionLogprobs
+	joined.appendFrom(&first)
+	joined.appendFrom(&second)
+	if len(joined.TokenLogprobs) != 4 {
+		t.Fatalf("joined = %+v", joined)
+	}
+	for i, want := range []bool{false, false, false, true} {
+		if joined.logprobAbsent(i) != want {
+			t.Fatalf("position %d absent = %t, want %t", i, joined.logprobAbsent(i), want)
+		}
 	}
 }

@@ -101,12 +101,31 @@ func (r TopLogprobRow) MarshalJSON() ([]byte, error) {
 }
 
 // completionTopK reads one generated position's top_logprobs in the engine's
-// own rank order; nothing is re-sorted. The row must hold exactly requiredTopK
-// distinct vocabulary ids with non-increasing logprobs, otherwise it is refused
-// rather than repaired.
-func completionTopK(position int, row TopLogprobRow, requiredTopK int) ([]metric.TokenLogprob, error) {
-	if len(row) != requiredTopK {
-		return nil, fmt.Errorf("position %d: top-logprobs hold %d entries, want exactly %d", position, len(row), requiredTopK)
+// own rank order; nothing is re-sorted. The row holds requiredTopK entries,
+// or requiredTopK+1 when the sampled token fell outside the top-k and vLLM
+// appended it last: that extra entry is dropped, so the emitted token's rank
+// is 0 (not in the required top-k). The kept entries must be distinct
+// vocabulary ids with non-increasing, non-NaN logprobs; anything else is
+// refused rather than repaired.
+func completionTopK(position int, emitted uint32, row TopLogprobRow, requiredTopK int) ([]metric.TokenLogprob, error) {
+	if requiredTopK <= 0 {
+		return nil, fmt.Errorf("position %d: required_top_k must be positive", position)
+	}
+	appended := false
+	switch len(row) {
+	case requiredTopK:
+	case requiredTopK + 1:
+		appended = true
+		extra, err := tokenIDFromKey(row[requiredTopK].Token)
+		if err != nil {
+			return nil, fmt.Errorf("position %d: %w", position, err)
+		}
+		if extra != emitted {
+			return nil, fmt.Errorf("position %d: top-logprobs entry %d is token %d, not the emitted token %d", position, requiredTopK, extra, emitted)
+		}
+		row = row[:requiredTopK]
+	default:
+		return nil, fmt.Errorf("position %d: top-logprobs hold %d entries, want %d or %d", position, len(row), requiredTopK, requiredTopK+1)
 	}
 	out := make([]metric.TokenLogprob, 0, len(row))
 	seen := make(map[uint32]struct{}, len(row))
@@ -126,6 +145,10 @@ func completionTopK(position int, row TopLogprobRow, requiredTopK int) ([]metric
 			return nil, fmt.Errorf("position %d: top-logprobs are not in rank order at entry %d", position, i)
 		}
 		out = append(out, metric.TokenLogprob{TokenID: id, Logprob: entry.Logprob})
+	}
+	// An appended entry is only legal for a token outside the top-k.
+	if _, inTopK := seen[emitted]; inTopK && appended {
+		return nil, fmt.Errorf("position %d: the emitted token %d is both in the top-k and appended after it", position, emitted)
 	}
 	return out, nil
 }

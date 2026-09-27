@@ -292,6 +292,58 @@ type completionLogprobs struct {
 	Tokens        []string        `json:"tokens"`
 	TokenLogprobs []float64       `json:"token_logprobs"`
 	TopLogprobs   []TopLogprobRow `json:"top_logprobs"`
+	// absent marks positions whose token_logprobs entry vLLM wrote as null.
+	// Such a position has no value; nil means every entry was present.
+	absent []bool
+}
+
+// UnmarshalJSON reads token_logprobs entries that may be null.
+func (l *completionLogprobs) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Tokens        []string        `json:"tokens"`
+		TokenLogprobs []*float64      `json:"token_logprobs"`
+		TopLogprobs   []TopLogprobRow `json:"top_logprobs"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*l = completionLogprobs{Tokens: raw.Tokens, TopLogprobs: raw.TopLogprobs}
+	if raw.TokenLogprobs != nil {
+		l.TokenLogprobs = make([]float64, len(raw.TokenLogprobs))
+	}
+	for i, logprob := range raw.TokenLogprobs {
+		if logprob == nil {
+			if l.absent == nil {
+				l.absent = make([]bool, len(raw.TokenLogprobs))
+			}
+			l.absent[i] = true
+			continue
+		}
+		l.TokenLogprobs[i] = *logprob
+	}
+	return nil
+}
+
+// logprobAbsent reports whether position i's token logprob was null.
+func (l *completionLogprobs) logprobAbsent(i int) bool {
+	return i < len(l.absent) && l.absent[i]
+}
+
+// appendFrom appends one streamed chunk's logprobs, keeping the null marks
+// aligned with token_logprobs.
+func (l *completionLogprobs) appendFrom(src *completionLogprobs) {
+	if src.absent != nil {
+		for len(l.absent) < len(l.TokenLogprobs) {
+			l.absent = append(l.absent, false)
+		}
+		l.absent = append(l.absent, src.absent...)
+		for len(l.absent) < len(l.TokenLogprobs)+len(src.TokenLogprobs) {
+			l.absent = append(l.absent, false)
+		}
+	}
+	l.Tokens = append(l.Tokens, src.Tokens...)
+	l.TokenLogprobs = append(l.TokenLogprobs, src.TokenLogprobs...)
+	l.TopLogprobs = append(l.TopLogprobs, src.TopLogprobs...)
 }
 
 // completionChoice is one /v1/completions choice, named so the chat path can
@@ -923,7 +975,13 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		if i < len(choice.Logprobs.TopLogprobs) {
 			row = choice.Logprobs.TopLogprobs[i]
 		}
-		topK, err := completionTopK(i, row, profile.RequiredTopK)
+		// A position the engine reported no logprob or no top-k for has no
+		// value: it becomes a missing leaf rather than a refusal.
+		if choice.Logprobs.logprobAbsent(i) || len(row) == 0 {
+			values[i] = metric.PositionValue{TokenID: id, Missing: true}
+			continue
+		}
+		topK, err := completionTopK(i, id, row, profile.RequiredTopK)
 		if err != nil {
 			return InferResponse{}, fmt.Errorf("modelservice local infer: %w", err)
 		}
@@ -1468,9 +1526,7 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 				if dst.Logprobs == nil {
 					dst.Logprobs = &completionLogprobs{}
 				}
-				dst.Logprobs.Tokens = append(dst.Logprobs.Tokens, src.Tokens...)
-				dst.Logprobs.TokenLogprobs = append(dst.Logprobs.TokenLogprobs, src.TokenLogprobs...)
-				dst.Logprobs.TopLogprobs = append(dst.Logprobs.TopLogprobs, src.TopLogprobs...)
+				dst.Logprobs.appendFrom(src)
 			}
 			if len(cc.PromptLogprobs) > 0 {
 				dst.PromptLogprobs = append(dst.PromptLogprobs, cc.PromptLogprobs...)
