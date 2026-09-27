@@ -1,13 +1,54 @@
 package modelmanifest
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
+
+// TestValidateURIAgreesWithTheReleasedFixture runs every accepted and
+// rejected manifest_uri form wire publishes, at the published cap.
+func TestValidateURIAgreesWithTheReleasedFixture(t *testing.T) {
+	raw, err := wirevectors.File("hub/manifest_uri_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		MaxBytes int `json:"max_manifest_uri_bytes"`
+		Accepted []struct {
+			URI  string `json:"uri"`
+			Case string `json:"case"`
+		} `json:"accepted"`
+		Rejected []struct {
+			URI    string `json:"uri"`
+			Reason string `json:"reason"`
+		} `json:"rejected"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.MaxBytes != testMaxURIBytes || len(fixture.Accepted) == 0 || len(fixture.Rejected) == 0 {
+		t.Fatalf("fixture shape: max %d, %d accepted, %d rejected", fixture.MaxBytes, len(fixture.Accepted), len(fixture.Rejected))
+	}
+	for _, c := range fixture.Accepted {
+		if err := ValidateURI(c.URI, fixture.MaxBytes); err != nil {
+			t.Errorf("accepted %s: %.80q refused: %v", c.Case, c.URI, err)
+		}
+	}
+	for _, c := range fixture.Rejected {
+		if err := ValidateURI(c.URI, fixture.MaxBytes); err == nil {
+			t.Errorf("rejected %s: %.80q accepted", c.Reason, c.URI)
+		}
+	}
+}
 
 // testMaxURIBytes is the published default of max_manifest_uri_bytes.
 // Production code reads the cap from the chain.
 const testMaxURIBytes = 2048
+
+// The cases below add forms the fixture does not spell out.
 
 func TestValidateURIAcceptsTheAllowedForms(t *testing.T) {
 	longPath := "https://models.trueopen.example/m/"

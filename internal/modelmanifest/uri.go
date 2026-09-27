@@ -261,23 +261,38 @@ func validateCID(cid string) error {
 		if err != nil || base32Lower.EncodeToString(raw) != body {
 			return errors.New("manifest_uri CIDv1 base32 is not canonical")
 		}
-		version, n := binary.Uvarint(raw)
-		if n <= 0 || version != 1 {
+		// Version, content codec, multihash code and digest length, each a
+		// minimally encoded unsigned varint.
+		var fields [4]uint64
+		for index, name := range []string{"version", "codec", "multihash code", "digest length"} {
+			value, n, err := readMinimalUvarint(raw)
+			if err != nil {
+				return fmt.Errorf("manifest_uri CIDv1 %s: %w", name, err)
+			}
+			fields[index], raw = value, raw[n:]
+		}
+		if fields[0] != 1 {
 			return errors.New("manifest_uri CID version is not 1")
 		}
-		raw = raw[n:]
-		for _, field := range []string{"codec", "multihash code"} {
-			if _, n = binary.Uvarint(raw); n <= 0 {
-				return fmt.Errorf("manifest_uri CIDv1 %s varint is malformed", field)
-			}
-			raw = raw[n:]
-		}
-		length, n := binary.Uvarint(raw)
-		if n <= 0 || length == 0 || uint64(len(raw)-n) != length {
+		if fields[3] == 0 || uint64(len(raw)) != fields[3] {
 			return errors.New("manifest_uri CIDv1 multihash length does not match its digest")
 		}
 		return nil
 	default:
 		return errors.New("manifest_uri CID must be CIDv0 (Qm...) or CIDv1 base32 (b...)")
 	}
+}
+
+// readMinimalUvarint reads one multiformats unsigned varint: at most 9 bytes
+// and minimally encoded, so 0x81 0x00 is not another spelling of 1.
+func readMinimalUvarint(raw []byte) (uint64, int, error) {
+	value, n := binary.Uvarint(raw)
+	if n <= 0 || n > 9 {
+		return 0, 0, errors.New("malformed varint")
+	}
+	var minimal [binary.MaxVarintLen64]byte
+	if binary.PutUvarint(minimal[:], value) != n {
+		return 0, 0, errors.New("varint is not minimally encoded")
+	}
+	return value, n, nil
 }
