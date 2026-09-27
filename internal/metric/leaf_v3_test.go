@@ -22,12 +22,30 @@ type v3Node struct {
 }
 
 type v3Vector struct {
-	Name      string   `json:"name"`
-	Domain    string   `json:"domain"`
-	Fields    []v3Node `json:"fields"`
-	DigestHex string   `json:"digest_hex"`
-	RootHex   string   `json:"root_hex"`
-	LeavesHex []string `json:"leaves_hex"`
+	Name        string   `json:"name"`
+	Domain      string   `json:"domain"`
+	Fields      []v3Node `json:"fields"`
+	DigestHex   string   `json:"digest_hex"`
+	PreimageHex string   `json:"preimage_hex"`
+	RootHex     string   `json:"root_hex"`
+	LeavesHex   []string `json:"leaves_hex"`
+}
+
+// aggregateProofVectorName is the one vector in result_metric_v3.json that is
+// neither a metric leaf nor the metric root.
+const aggregateProofVectorName = "metric_aggregate_proof_v1"
+
+// findV3Vector returns the named vector, failing when wire stops publishing it.
+// A vector that quietly disappears would otherwise turn its test into a no-op.
+func findV3Vector(t *testing.T, path, name string) v3Vector {
+	t.Helper()
+	for _, vector := range loadV3Vectors(t, path) {
+		if vector.Name == name {
+			return vector
+		}
+	}
+	t.Fatalf("wire %s publishes no vector named %q in %s", wirevectors.WireVersion, name, path)
+	return v3Vector{}
 }
 
 func loadV3Vectors(t *testing.T, path string) []v3Vector {
@@ -152,6 +170,22 @@ func TestLeafV3ReproducesPublishedVectors(t *testing.T) {
 		for _, vector := range loadV3Vectors(t, path) {
 			if vector.Domain == DomainRootV3 {
 				root = vector
+				continue
+			}
+			// result_metric_v3.json also publishes the aggregate proof, which is
+			// neither a leaf nor the root: it is a bare FRAME_V1 blob with no
+			// domain at all, committed to by a plain SHA-256, and it has its own
+			// end-to-end check in aggregateproof_wire_test.go.
+			//
+			// Skipping is keyed on the empty domain rather than on "not a leaf",
+			// so a leaf whose domain drifts still reaches parseLeafV3 and fails
+			// there. The name is asserted too: a future domain-less vector is a
+			// new artifact this loop has not been taught about, and silently
+			// dropping it would leave it unchecked by anything.
+			if vector.Domain == "" {
+				if vector.Name != aggregateProofVectorName {
+					t.Fatalf("%s carries domain-less vector %q, which nothing in this package checks", path, vector.Name)
+				}
 				continue
 			}
 			binding, sample, _, _ := parseLeafV3(t, vector)

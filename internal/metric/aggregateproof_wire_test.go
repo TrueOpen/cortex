@@ -4,21 +4,37 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// wireMainAggregateProofHex is metric_aggregate_proof_v1 from
-// testdata/v1/task/result_metric_v3.json at wire commit
-// 3dec7cdb7595d8206cb430d4b10eeb28fccf8a4e (main, to be released as
-// v0.3.0-rc.3). The pinned rc.2 set has no such vector, so the bytes are
-// inlined here rather than copied into internal/wirevectors.
-const wireMainAggregateProofHex = "000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000020b9cc1d8c612df0db96bd365b24e2aa9db3f418775452b2106156922f8816a3140000000000000004000000020000000000000001010000000000000001010000000000000001000000000000000001000000000000000004000000020000000000000020c261e32222bab88b3ea110c865bb97a483d15968cbfe42317fc7c118e1568a9300000000000000040000000300000000000000209790987ab9c449018d2732afa71414d25fe268022f7566b6dac28dc80cbfd037"
-
-const wireMainAggregateProofDigestHex = "fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c"
-
 // The aggregate proof frames model_id as its raw 32 bytes and reproduces
 // wire's published proof byte for byte.
+//
+// The expected bytes used to be inlined here, because the proof was only on
+// wire's main branch and the pinned release set had no vector for it. v0.3.0
+// publishes it, so they are read from internal/wirevectors instead: a pinned
+// copy is checked against wire's own manifest digest on every read, which an
+// inlined constant is not.
 func TestAggregateProofReproducesTheWireRawModelIDVector(t *testing.T) {
+	vector := findV3Vector(t, "task/result_metric_v3.json", aggregateProofVectorName)
+	if vector.Domain != "" {
+		t.Fatalf("aggregate proof vector carries domain %q: it is a bare FRAME_V1 blob and must have none", vector.Domain)
+	}
+	if vector.PreimageHex == "" || vector.DigestHex == "" {
+		t.Fatal("aggregate proof vector publishes no preimage or digest")
+	}
+	// The vector's own two halves have to agree before either is used as an
+	// expectation: the proof is committed to by a plain SHA-256 over the blob,
+	// with no domain and no framing of its own.
+	preimage, err := hex.DecodeString(vector.PreimageHex)
+	if err != nil {
+		t.Fatalf("decode published preimage: %v", err)
+	}
+	if got := codec.HashBytes(preimage); got.String() != vector.DigestHex {
+		t.Fatalf("sha256(published preimage) = %s, published digest %s", got, vector.DigestHex)
+	}
+
 	binding := Binding{
 		ChainID: "trueopen-golden-1", TaskID: fill(0x11), VerifyRound: 1,
 		ModelID: "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f", ProfileVersion: 2,
@@ -45,7 +61,8 @@ func TestAggregateProofReproducesTheWireRawModelIDVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hex.EncodeToString(proof.Bytes) != wireMainAggregateProofHex || proof.Hash.String() != wireMainAggregateProofDigestHex {
-		t.Fatalf("aggregate proof = %x (%s), want wire's raw model_id encoding", proof.Bytes, proof.Hash)
+	if hex.EncodeToString(proof.Bytes) != vector.PreimageHex || proof.Hash.String() != vector.DigestHex {
+		t.Fatalf("aggregate proof = %x (%s), want wire's raw model_id encoding %s (%s)",
+			proof.Bytes, proof.Hash, vector.PreimageHex, vector.DigestHex)
 	}
 }
