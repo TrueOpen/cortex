@@ -54,7 +54,7 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	h, _, _ := generationBoundHarness(t, 1024, modelID)
 	enableEvidenceSchema(&h)
 	service := modelservice.NewLocalService(server.URL, "generation-test", 1, time.Minute, time.Second)
-	if err := service.BindModel(modelID, servedModel); err != nil {
+	if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
 		t.Fatal(err)
 	}
 	service.SetStreamInference(false)

@@ -191,7 +191,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 	event.ModelID = modelID
 	h.snapshotReader.seedFrom(event)
 	service := modelservice.NewLocalService(server.URL, "live-stream", 1, 5*time.Second, time.Second)
-	if err := service.BindModel(modelID, servedModel); err != nil {
+	if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
 		t.Fatal(err)
 	}
 	service.SetStreamInference(true)
@@ -414,7 +414,7 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 	event.ModelID = modelID
 	h.snapshotReader.seedFrom(event)
 	service := modelservice.NewLocalService(server.URL, "empty-output", 1, 5*time.Second, time.Second)
-	if err := service.BindModel(modelID, servedModel); err != nil {
+	if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
 		t.Fatal(err)
 	}
 	service.SetStreamInference(false)
@@ -597,7 +597,7 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 			event.ModelID = modelID
 			h.snapshotReader.seedFrom(event)
 			service := modelservice.NewLocalService(server.URL, "deferred-frame", 1, 5*time.Second, time.Second)
-			if err := service.BindModel(modelID, servedModel); err != nil {
+			if err := service.BindModel(modelID, modelservice.LocalModelProvider, servedModel); err != nil {
 				t.Fatal(err)
 			}
 			service.SetStreamInference(true)

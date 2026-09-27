@@ -361,9 +361,7 @@ func bindLocalModels(ctx context.Context, keeper KeeperClient, local *modelservi
 		if model.ModelID != modelID {
 			return fmt.Errorf("ModelState %s answered for model %s", modelID, model.ModelID)
 		}
-		// TODO(wire v0.3.0): provider is not checked; the local adapter only
-		// knows vLLM served-model names, which are the repo_id.
-		if err := local.BindModel(modelID, model.RepoID); err != nil {
+		if err := local.BindModel(modelID, model.Provider, model.RepoID); err != nil {
 			return err
 		}
 		if err := local.CheckServed(ctx, modelID); err != nil {

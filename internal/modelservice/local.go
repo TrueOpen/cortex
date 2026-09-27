@@ -18,6 +18,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
@@ -131,9 +132,18 @@ func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTime
 	}
 }
 
+// LocalModelProvider is the only source provider the local adapter serves:
+// vLLM loads and names its models by Hugging Face repo id.
+const LocalModelProvider = identity.ModelProviderHuggingFace
+
 // BindModel records that modelID is served by vLLM under repoID, the model's
-// on-chain repo_id. Only bound models are advertised or served.
-func (s *LocalService) BindModel(modelID, repoID string) error {
+// on-chain repo_id. provider is the model's on-chain source provider and must
+// be LocalModelProvider. Only bound models are advertised or served.
+func (s *LocalService) BindModel(modelID, provider, repoID string) error {
+	if provider != LocalModelProvider {
+		return fmt.Errorf("modelservice local: model %s has source provider %q; the local adapter serves only %s",
+			modelID, provider, LocalModelProvider)
+	}
 	if strings.TrimSpace(modelID) != modelID || modelID == "" || strings.TrimSpace(repoID) != repoID || repoID == "" {
 		return fmt.Errorf("modelservice local: model binding %q -> %q must be non-empty and trimmed", modelID, repoID)
 	}
