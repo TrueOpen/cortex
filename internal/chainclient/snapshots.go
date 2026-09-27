@@ -853,6 +853,16 @@ type TaskSnapshot struct {
 	CurrentContract    bool                       `json:"-"`
 }
 
+// TaskStatusTerminal is the status a settled task reports. The Keeper compacts
+// such a task into TaskTerminalSummaryState, so the snapshot built from it
+// (snapshotFromTerminalTask) carries the settlement and the assignment identity
+// and nothing else: no verifier assignment, no infer deadline. Those fields
+// read zero because the chain no longer holds them, not because anyone
+// disagrees about their value, and every reader that cross-checks them has to
+// make that allowance -- Validate below does, and so does the Keeper event
+// enrichment in internal/daemon.
+const TaskStatusTerminal = "TERMINAL"
+
 // Validate does not require a non-zero order_sequence. Keeper creates a
 // session's StreamState without assigning NextExpectedSequence, so the first
 // order of every session is sequence 0 and the Keeper answers Query/Task with
@@ -861,7 +871,7 @@ type TaskSnapshot struct {
 // signal of its own, and task_id, which is required here, already commits to it
 // through H_FIELDS_V1(TRUEOPEN_TASK_ID_V1, session_id, order_sequence).
 func (s TaskSnapshot) Validate() error {
-	if s.Status == "TERMINAL" {
+	if s.Status == TaskStatusTerminal {
 		if s.Assignment.SessionID == "" || s.Assignment.TaskID == "" ||
 			!s.Assignment.AcceptedTaskHash.IsSet() ||
 			s.Assignment.ModelID == "" || s.Assignment.ProfileVersion.Uint32() == 0 || s.Settlement.TaskVerdict == "" {

@@ -88,7 +88,7 @@ func snapshotFromTerminalTask(sessionID string, requestedTaskID []byte, terminal
 		return TaskSnapshot{}, fmt.Errorf("Keeper terminal task session_id does not match request")
 	}
 	return TaskSnapshot{
-		Status: "TERMINAL", UpdatedHeight: NewUint64String(terminal.CompactedHeight), CurrentContract: true,
+		Status: TaskStatusTerminal, UpdatedHeight: NewUint64String(terminal.CompactedHeight), CurrentContract: true,
 		Assignment: AssignmentSnapshot{SessionID: gotSession, TaskID: hex.EncodeToString(terminal.TaskId), OrderSequence: NewUint64String(terminal.OrderSequence), ModelID: terminal.ModelId, ProfileVersion: NewProfileVersion(terminal.ProfileVersion), SelectedWorker: terminal.GetWinnerWorker(), TaskReceiptFactsSnapshot: TaskReceiptFactsSnapshot{AcceptedTaskHash: ProtoBytes32(terminal.TaskHash), GenerationParamsDigest: ProtoBytes32(terminal.GenerationParamsDigest), ProfileExecutionSnapshotHash: ProtoBytes32(terminal.ProfileExecutionSnapshotHash)}},
 		Settlement: SettlementSnapshot{TaskVerdict: strings.TrimPrefix(terminal.Verdict.String(), "TASK_VERDICT_"), SettlementHeight: NewUint64String(terminal.SettlementHeight)},
 	}, nil
