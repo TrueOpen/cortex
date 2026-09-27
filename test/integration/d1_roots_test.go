@@ -5,6 +5,11 @@ package integration_test
 // recomputes every one of them from the model service's raw outputs and the
 // task's public facts alone, with the wire encoders and none of the node code,
 // and requires the published values to match byte for byte.
+//
+// The generation parameters are read from the Worker's A-level
+// generation_params artifact: its raw-bytes digest must be the chain's, the
+// receipt's, the result's and the one the Verifier's prefill ran under, and
+// the prefill's parameters must encode to exactly those bytes.
 
 import (
 	"bytes"
@@ -44,6 +49,7 @@ func assertD1RootsAndCommitments(t *testing.T, model *integrationGRPCServer, sc 
 	t.Helper()
 	model.mu.Lock()
 	rawTokenIDs, rawWorkerValues, rawVerifierValues := model.workerTokenIDs, model.workerPositionValues, model.verifierValues
+	verifyGeneration, verifyGenerationDigest := model.verifyGeneration, model.verifyGenerationDigest
 	model.mu.Unlock()
 	if rawTokenIDs == nil || rawWorkerValues == nil || rawVerifierValues == nil {
 		t.Fatal("D1: the model service recorded no Infer or Verify output")
@@ -55,6 +61,33 @@ func assertD1RootsAndCommitments(t *testing.T, model *integrationGRPCServer, sc 
 	taskHash := codec.Hash(sc.facts.AcceptedTaskHash)
 	requiredTopK := sc.profile.Profile.RequiredTopK
 	evidenceSchemaHash := codec.Hash(sc.profile.Profile.VerificationProfile.EvidenceSchemaHash)
+
+	// Generation parameters, from the A-level artifact only.
+	_, tokenBundle, err := sc.workerBundle(context.Background(), sc.taskID, nodewire.EvidenceKindWorkerTokenOpening)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generationParams := tokenBundle[builderclient.EvidenceArtifactGenerationParams]
+	generationParamsDigest := nodewire.GenerationParamsDigest(generationParams)
+	for name, digest := range map[string][]byte{
+		"chain":          sc.facts.GenerationParamsDigest[:],
+		"result receipt": sc.result.GenerationParamsDigest,
+		"verify prefill": verifyGenerationDigest,
+	} {
+		if !bytes.Equal(digest, generationParamsDigest[:]) {
+			t.Fatalf("D1: %s generation_params_digest = %x, the A-level artifact hashes to %s", name, digest, generationParamsDigest)
+		}
+	}
+	if sc.inferReceipt.GenerationParamsDigest != generationParamsDigest.String() {
+		t.Fatalf("D1: infer receipt generation_params_digest = %s, the A-level artifact hashes to %s", sc.inferReceipt.GenerationParamsDigest, generationParamsDigest)
+	}
+	if verifyGeneration == nil {
+		t.Fatal("D1: the Verifier's prefill ran without generation parameters")
+	}
+	prefillParams, err := verifyGeneration.CanonicalJSON()
+	if err != nil || !bytes.Equal(prefillParams, generationParams) {
+		t.Fatalf("D1: the prefill's parameters encode to %s, not the A-level artifact %s (%v)", prefillParams, generationParams, err)
+	}
 
 	// Worker value tree, from the Worker's raw position values.
 	positionValues, err := modelservice.DecodePositionValuesArtifact(rawWorkerValues)
@@ -112,7 +145,6 @@ func assertD1RootsAndCommitments(t *testing.T, model *integrationGRPCServer, sc 
 	if err != nil {
 		t.Fatal(err)
 	}
-	generationParamsDigest := codec.Hash(sc.facts.GenerationParamsDigest)
 	tokenDigest, tokenSize, err := nodewire.WorkerTokenCommitment(nodewire.WorkerTokenCommitmentV1{
 		SchemaVersion: nodewire.WorkerTokenCommitmentSchemaVersionV1, ChainID: sc.chainID, TaskID: taskID[:],
 		AcceptedTaskHash: taskHash[:], WorkerOperatorAddress: sc.workerAddress, GenerationParamsDigest: generationParamsDigest[:],
@@ -148,6 +180,7 @@ func assertD1RootsAndCommitments(t *testing.T, model *integrationGRPCServer, sc 
 		nodewire.EvidenceKindWorkerValueOpening: {builderclient.EvidenceArtifactWorkerValues: workerValues},
 		nodewire.EvidenceKindWorkerTokenOpening: {
 			builderclient.EvidenceArtifactInputTokenIDs: inputArtifact, builderclient.EvidenceArtifactGeneratedTokenIDs: generatedArtifact,
+			builderclient.EvidenceArtifactGenerationParams: generationParams,
 		},
 	} {
 		_, stored, err := sc.workerBundle(context.Background(), sc.taskID, kind)
@@ -198,7 +231,8 @@ func assertD1RootsAndCommitments(t *testing.T, model *integrationGRPCServer, sc 
 		t.Fatalf("D1: commit_hash = %x, recomputed %s", sc.commit.CommitHash, commitHash)
 	}
 
-	// The metric tree compares the two value trees and binds the Verifier root.
+	// The metric tree compares the two value trees and binds the Verifier root
+	// and the artifact's generation_params_digest into every leaf.
 	binding, err := metric.BindTask(sc.chainID, taskID, taskHash, 1, sc.profile.Profile, generationParamsDigest)
 	if err != nil {
 		t.Fatal(err)

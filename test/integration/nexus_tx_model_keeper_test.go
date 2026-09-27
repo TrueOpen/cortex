@@ -1551,6 +1551,30 @@ type integrationGRPCServer struct {
 	// The raw model outputs of the last Infer and Verify, which D1 recomputes
 	// every published root and commitment from.
 	workerTokenIDs, workerPositionValues, verifierValues []byte
+	// The generation parameters and digest the last Verify prefilled under.
+	verifyGeneration       *nodewire.GenerationContext
+	verifyGenerationDigest []byte
+}
+
+// generationFromProto reads a model-service request's generation context.
+func generationFromProto(g *cortexv1.GenerationContext) (*nodewire.GenerationContext, error) {
+	if g == nil {
+		return nil, nil
+	}
+	p, d := g.GetParams(), g.GetParams().GetDecodingParams()
+	modelID, err := identity.ModelIDHex(g.GetModelId())
+	if err != nil {
+		return nil, err
+	}
+	return &nodewire.GenerationContext{
+		ModelID: modelID, ProfileVersion: g.GetProfileVersion(), TaskType: g.GetTaskType(), OutputBudgetBucket: g.GetOutputBudgetBucket(),
+		Params: nodewire.GenerationParamsV1{SchemaVersion: p.GetGenerationParamsSchemaVersion(), MaxOutputTokens: p.GetMaxOutputTokens(), MaxOutputDuration: p.GetMaxOutputDuration(),
+			DecodingParams: nodewire.DecodingParamsV1{
+				SamplingEnabled: d.GetSamplingEnabled(), TemperatureMilli: d.GetTemperatureMilli(), TopPPPM: d.GetTopPPpm(), TopK: d.GetTopK(), Seed: d.GetSeed(),
+				PresencePenaltyMilli: d.GetPresencePenaltyMilli(), FrequencyPenaltyMilli: d.GetFrequencyPenaltyMilli(), RepetitionPenaltyPPM: d.GetRepetitionPenaltyPpm(),
+				StopSequences: d.GetStopSequences(), StopTokenIDs: d.GetStopTokenIds(),
+			}},
+	}, nil
 }
 
 func newIntegrationGRPCServer(t *testing.T) *integrationGRPCServer {
@@ -1581,22 +1605,12 @@ func (s *integrationGRPCServer) Infer(_ context.Context, req *cortexv1.InferRequ
 	if err != nil {
 		return nil, err
 	}
-	g, p, d := req.GetGeneration(), req.GetGeneration().GetParams(), req.GetGeneration().GetParams().GetDecodingParams()
-	generationModelID, err := identity.ModelIDHex(g.GetModelId())
-	if err != nil {
-		return nil, err
-	}
-	generation := nodewire.GenerationContext{
-		ModelID: generationModelID, ProfileVersion: g.GetProfileVersion(), TaskType: g.GetTaskType(), OutputBudgetBucket: g.GetOutputBudgetBucket(),
-		Params: nodewire.GenerationParamsV1{SchemaVersion: p.GetGenerationParamsSchemaVersion(), MaxOutputTokens: p.GetMaxOutputTokens(), MaxOutputDuration: p.GetMaxOutputDuration(),
-			DecodingParams: nodewire.DecodingParamsV1{
-				SamplingEnabled: d.GetSamplingEnabled(), TemperatureMilli: d.GetTemperatureMilli(), TopPPPM: d.GetTopPPpm(), TopK: d.GetTopK(), Seed: d.GetSeed(),
-				PresencePenaltyMilli: d.GetPresencePenaltyMilli(), FrequencyPenaltyMilli: d.GetFrequencyPenaltyMilli(), RepetitionPenaltyPPM: d.GetRepetitionPenaltyPpm(),
-				StopSequences: d.GetStopSequences(), StopTokenIDs: d.GetStopTokenIds(),
-			}},
+	generation, err := generationFromProto(req.GetGeneration())
+	if err != nil || generation == nil {
+		return nil, fmt.Errorf("infer request carries no valid generation context: %v", err)
 	}
 	tokenIDs, positionValues, err := generationfixture.Material(modelservice.InferRequest{
-		ModelID: modelID, ProfileVersion: req.GetProfileVersion(), Generation: &generation, GenerationParamsDigest: req.GetGenerationParamsDigest(),
+		ModelID: modelID, ProfileVersion: req.GetProfileVersion(), Generation: generation, GenerationParamsDigest: req.GetGenerationParamsDigest(),
 	}, integrationGeneratedTokens)
 	if err != nil {
 		return nil, err
@@ -1662,8 +1676,13 @@ func (s *integrationGRPCServer) Verify(_ context.Context, req *cortexv1.VerifyRe
 	if err := proto.Unmarshal(encoded, &verifierValues); err != nil {
 		return nil, err
 	}
+	generation, err := generationFromProto(req.GetGeneration())
+	if err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	s.verifierValues = encoded
+	s.verifyGeneration, s.verifyGenerationDigest = generation, append([]byte(nil), req.GetGenerationParamsDigest()...)
 	s.mu.Unlock()
 	sampleDigest := sha256.Sum256(req.GetSample())
 	materialDigest := sha256.Sum256(append(append([]byte(nil), req.GetSample()...), encoded...))
