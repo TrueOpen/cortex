@@ -1,6 +1,7 @@
 {
   "notes": [
-    "Three metric leaves bind the same generated positions and Verifier value root as the V3 result receipt."
+    "Three metric leaves bind the same generated positions and Verifier value root as the V3 result receipt.",
+    "metric_aggregate_proof_v1 is the aggregate proof of this Verifier result: SHA-256 over a bare FRAME_V1 with no domain, model_id framed as its raw 32 bytes. Its digest is the aggregate_proof_hash of result_v3_signing_digest and the content_hash of the aggregate_proof artifact in evidence_bundle_manifest_v1."
   ],
   "schema": "trueopen.task.result_metric.v3",
   "source": "Integrated result metric wire contract",
@@ -463,6 +464,112 @@
       "preimage_hex": "0000000000000025545255454f50454e5f50524546494c4c5f544f4b454e5f4d45545249435f4c4541465f5633000000000000000400000001000000000000025c0000000000000011747275656f70656e2d676f6c64656e2d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000004000000010000000000000020c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f5631000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000020b9cc1d8c612df0db96bd365b24e2aa9db3f418775452b2106156922f8816a31400000000000000040000000200000000000000040000ffff00000000000000040000000200000000000000080000000000000000000000000000000800000000000000000000000000000008000000000000000000000000000000040000000000000000000000040000000000000000000000080000000000000000000000000000000100000000000000000100000000000000000101000000000000000100000000000000002058e2382fc950514f3b698f7be548880f9a40f2095848d4ed5884cbd13eb8b3ea",
       "preimage_size_bytes": 669,
       "producer": "MetricLeafHash"
+    },
+    {
+      "contract_section": "Public wire proof PREFILL_METRIC_AGGREGATE_PROOF_V1",
+      "digest_hex": "fae247a0c474d717b1664551d73164995218c74f5a6e1490b38b290fbab6bb4c",
+      "fields": [
+        {
+          "name": "metric_aggregate_proof_version",
+          "type": "string",
+          "utf8": "PREFILL_METRIC_AGGREGATE_PROOF_V1"
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "judgment_function_version",
+          "type": "string",
+          "utf8": "PREFILL_GENERATED_TOKEN_METRICS_V1"
+        },
+        {
+          "name": "canonical_encoding_version",
+          "type": "string",
+          "utf8": "CANONICAL_OUTPUT_TEXT_V1"
+        },
+        {
+          "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+          "name": "evidence_schema_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "tokenizer_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "b9cc1d8c612df0db96bd365b24e2aa9db3f418775452b2106156922f8816a314",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "required_top_k",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "compare_logprob_diff",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "compare_rank_delta",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "compare_topk_jaccard",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "compare_union_js",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "compared_top_k",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "hex": "c261e32222bab88b3ea110c865bb97a483d15968cbfe42317fc7c118e1568a93",
+          "name": "metric_root",
+          "type": "bytes"
+        },
+        {
+          "name": "metric_leaf_count",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "hex": "9790987ab9c449018d2732afa71414d25fe268022f7566b6dac28dc80cbfd037",
+          "name": "metric_summary_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "FRAME_V1",
+      "name": "metric_aggregate_proof_v1",
+      "preimage_hex": "000000000000002150524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020c65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f000000000000000400000002000000000000002250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631000000000000001843414e4f4e4943414c5f4f55545055545f544558545f563100000000000000206666666666666666666666666666666666666666666666666666666666666666000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000020b9cc1d8c612df0db96bd365b24e2aa9db3f418775452b2106156922f8816a3140000000000000004000000020000000000000001010000000000000001010000000000000001000000000000000001000000000000000004000000020000000000000020c261e32222bab88b3ea110c865bb97a483d15968cbfe42317fc7c118e1568a9300000000000000040000000300000000000000209790987ab9c449018d2732afa71414d25fe268022f7566b6dac28dc80cbfd037",
+      "preimage_size_bytes": 504,
+      "producer": "selected Verifier"
     },
     {
       "domain": "TRUEOPEN_PREFILL_TOKEN_METRIC_ROOT_V3",
