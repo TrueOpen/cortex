@@ -237,6 +237,29 @@ with one of these reasons:
   model name differs from the chain `repo_id`;
 - a vLLM health or `/v1/models` error: vLLM is not answering.
 
+### Fetching a registered model's manifest
+
+The chain holds a profile's projection and the hash of its full manifest
+(`manifest_hash`); the manifest itself, with the artifact file list and output
+decoding rules, lives off chain. Fetch it for any registered profile, including
+one registered by another operator:
+
+```sh
+bin/cortexctl model manifest fetch <model_id> --rpc <keeper-rpc> --profile-version <n> \
+  --cache-dir ~/.cortex/manifests --mirror https://<mirror>/manifests
+```
+
+Sources are tried in order: `--cache-dir`, the profile's `manifest_uri` once
+the chain carries one, then each `--mirror` (served at
+`<mirror>/<manifest_hash hex>`). Whatever the source, the bytes are accepted
+only if they hash to the chain's `manifest_hash`, parse strictly as a
+`manifest_version` 4 manifest, are exactly their own canonical encoding, and
+agree field by field with the chain profile; the chain wins any disagreement.
+Downloads are https only, never reach loopback, private, link-local or cloud
+metadata addresses, follow at most three redirects and stop at 4 MiB.
+`ipfs://` URIs are fetched only through `--ipfs-gateway`; there is no default
+public gateway.
+
 ### Upgrading to v0.3
 
 v0.3 changes the Worker evidence (two bundles of token ids and per-position

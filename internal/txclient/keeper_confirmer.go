@@ -69,7 +69,7 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 		matches := state.Model.ModelID == string(msg.Profile.ModelID) && state.Profile.ModelID == string(msg.Profile.ModelID) &&
 			state.Model.ProposerAddress == msg.ProposerAddress && state.Profile.ProposerAddress == msg.ProposerAddress &&
 			state.Profile.CreatedHeight.Uint64() > 0 && state.Profile.CreatedHeight.Uint64() <= included.Height &&
-			reflect.DeepEqual(currentProjectionFromState(state.Model, state.Profile), expected)
+			reflect.DeepEqual(ProjectionFromChainState(state.Model, state.Profile), expected)
 		return matches, nil
 
 	case MsgDeclareModelSupport:
@@ -192,10 +192,10 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 	}
 }
 
-// currentProjectionFromState rebuilds the registered projection. The source
+// ProjectionFromChainState rebuilds the registered projection. The source
 // reference is split on chain: provider and repo_id live on ModelState, the
 // rest on ProfileState.
-func currentProjectionFromState(model chainclient.CurrentModelSnapshot, state chainclient.CurrentProfileSnapshot) ModelProfileProjectionMessage {
+func ProjectionFromChainState(model chainclient.CurrentModelSnapshot, state chainclient.CurrentProfileSnapshot) ModelProfileProjectionMessage {
 	return ModelProfileProjectionMessage{
 		Source: SourceRefMessage{
 			Provider: model.Provider, RepoID: model.RepoID, SourceURI: state.Source.SourceURI,

@@ -418,7 +418,7 @@ func newModelSupportCommand(client clientFactory, stdout io.Writer, daily bool) 
 }
 
 func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Command {
-	root := helpOnEmpty("manifest", "Generate and validate current manifests")
+	root := helpOnEmpty("manifest", "Generate, validate and fetch model manifests")
 	var profilePath, version, tokenizer, modelServiceID, metadata string
 	generate := &cobra.Command{Use: "generate", Short: "Generate a manifest", Args: cobra.NoArgs}
 	generateFormat := newFormatFlag(generate, "json")
@@ -461,7 +461,7 @@ func newModelManifestCommand(client clientFactory, stdout io.Writer) *cobra.Comm
 		}
 		return printFormatted(stdout, map[string]string{"manifest": manifestPath, "validation": "accepted"}, adminapi.Format(*validateFormat))
 	}
-	root.AddCommand(generate, validate)
+	root.AddCommand(generate, validate, newModelManifestFetchCommand(stdout, keeperProfileReader, nil))
 	return root
 }
 
