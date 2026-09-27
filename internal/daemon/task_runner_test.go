@@ -1217,7 +1217,7 @@ func (e staticEligibility) Verifier(context.Context, VerifierHandraiseCandidate)
 }
 
 func acceptingEligibility() policy.WorkerPrecheckInput {
-	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 10, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 10, SupportFreshnessWindow: 10, Profile: modelservice.CapabilityLLMTextV1, SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 1, CapacitySnapshotRef: "capacity", RewardEligible: true}
+	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 10, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 10, SupportFreshnessWindow: 10, Profile: modelservice.CapabilityLLMTextV1, SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 1, CapacitySnapshotRef: "capacity"}
 }
 
 // testBusEnvelope builds a complete 20-field TRUEOPEN_BUS_ENVELOPE_V1 for the

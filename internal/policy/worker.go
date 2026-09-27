@@ -24,7 +24,6 @@ type WorkerPrecheckInput struct {
 	SupportedProfiles               []string
 	AvailableSlots                  int
 	CapacitySnapshotRef             string
-	RewardEligible                  bool
 	SelfRescueGasAvailable          bool
 	SelfRescueGasBudgetNanoTRUEOPEN uint64
 }
@@ -35,7 +34,6 @@ type WorkerDecision struct {
 	ShouldSignWorkerHandraise       bool
 	SupportEligibility              string
 	CapacitySnapshotRef             string
-	RewardEligibilityEstimate       bool
 	SelfRescueGasBudgetNanoTRUEOPEN uint64
 	AuditSummary                    string
 }
@@ -44,7 +42,6 @@ func EvaluateWorkerPrecheck(in WorkerPrecheckInput) WorkerDecision {
 	decision := WorkerDecision{
 		SupportEligibility:              in.SupportState,
 		CapacitySnapshotRef:             in.CapacitySnapshotRef,
-		RewardEligibilityEstimate:       in.RewardEligible,
 		SelfRescueGasBudgetNanoTRUEOPEN: in.SelfRescueGasBudgetNanoTRUEOPEN,
 		AuditSummary:                    fmt.Sprintf("profile=%s capacity_ref=%s", in.Profile, in.CapacitySnapshotRef),
 	}
@@ -63,9 +60,6 @@ func EvaluateWorkerPrecheck(in WorkerPrecheckInput) WorkerDecision {
 	if in.AvailableSlots <= 0 {
 		return reject(decision, "L3_INSUFFICIENT_CAPACITY")
 	}
-	if !in.RewardEligible {
-		return reject(decision, "L4_REWARD_INELIGIBLE")
-	}
 	decision.Accepted = true
 	decision.ShouldSignWorkerHandraise = true
 	return decision
@@ -75,7 +69,6 @@ func reject(decision WorkerDecision, code string) WorkerDecision {
 	decision.Accepted = false
 	decision.RejectCode = code
 	decision.ShouldSignWorkerHandraise = false
-	decision.RewardEligibilityEstimate = false
 	return decision
 }
 

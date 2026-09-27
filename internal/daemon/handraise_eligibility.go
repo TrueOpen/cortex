@@ -62,13 +62,7 @@ func (e keeperHandraiseEligibility) Worker(ctx context.Context, candidate Worker
 		ChainSynced: true, CurrentHeight: height, SupportState: supportState,
 		SupportLastConfirmedHeight: support.LastRefreshHeight.Uint64(), SupportFreshnessWindow: freshnessWindow, Profile: candidate.Capability,
 		SupportedProfiles: []string{candidate.Capability}, AvailableSlots: availableSlots, CapacitySnapshotRef: capacityRef,
-		P30ColdStartCandidate: supportState == policy.SupportDeclaredBootstrap,
-		// TODO(wire v0.3.0): support is model-scoped and the bootstrap-eligible
-		// stake snapshot is gone. A declared-bootstrap node is treated as reward
-		// eligible on its service bond, which facts has already checked against
-		// the profile's min_stake, until the bootstrap reward rule is restated
-		// for model-scoped support.
-		RewardEligible:         support.ActiveSupportStakeSnapshot.Uint64() > 0 || supportState == policy.SupportDeclaredBootstrap,
+		P30ColdStartCandidate:  supportState == policy.SupportDeclaredBootstrap,
 		SelfRescueGasAvailable: e.cfg.SelfRescueGasBudget > 0, SelfRescueGasBudgetNanoTRUEOPEN: e.cfg.SelfRescueGasBudget,
 	}
 	if candidate.DeadlineHeight <= height {

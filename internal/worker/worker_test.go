@@ -1970,7 +1970,6 @@ func validWorkerPrecheck() policy.WorkerPrecheckInput {
 		SupportedProfiles:               []string{modelservice.CapabilityLLMTextV1},
 		AvailableSlots:                  1,
 		CapacitySnapshotRef:             "capacity://snapshot/1",
-		RewardEligible:                  true,
 		SelfRescueGasAvailable:          true,
 		SelfRescueGasBudgetNanoTRUEOPEN: 10,
 	}

@@ -184,7 +184,7 @@ func TestKeeperHandraiseEligibilityAllowsCurrentNodeColdStart(t *testing.T) {
 		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 	})
-	if workerErr != nil || verifierErr != nil || workerInput.SupportState != policy.SupportDeclaredBootstrap || !workerInput.P30ColdStartCandidate || !workerInput.RewardEligible || verifierInput.SupportState != policy.SupportDeclaredBootstrap {
+	if workerErr != nil || verifierErr != nil || workerInput.SupportState != policy.SupportDeclaredBootstrap || !workerInput.P30ColdStartCandidate || verifierInput.SupportState != policy.SupportDeclaredBootstrap {
 		t.Fatalf("cold-start worker = %#v err=%v, verifier = %#v err=%v", workerInput, workerErr, verifierInput, verifierErr)
 	}
 	if decision := policy.EvaluateWorkerPrecheck(workerInput); !decision.Accepted {

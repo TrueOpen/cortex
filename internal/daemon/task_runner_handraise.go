@@ -53,5 +53,5 @@ func (r *TaskRunner) workerEligibility(ctx context.Context, c WorkerHandraiseCan
 	if !r.cfg.FakeOutput {
 		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("production Worker handraise eligibility resolver is required")
 	}
-	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 1, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 1, SupportFreshnessWindow: 1, Profile: c.Capability, SupportedProfiles: []string{c.Capability}, AvailableSlots: 1, CapacitySnapshotRef: "fixture", RewardEligible: true, SelfRescueGasAvailable: true, SelfRescueGasBudgetNanoTRUEOPEN: 1}, c.DeadlineHeight, nil
+	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 1, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 1, SupportFreshnessWindow: 1, Profile: c.Capability, SupportedProfiles: []string{c.Capability}, AvailableSlots: 1, CapacitySnapshotRef: "fixture", SelfRescueGasAvailable: true, SelfRescueGasBudgetNanoTRUEOPEN: 1}, c.DeadlineHeight, nil
 }
