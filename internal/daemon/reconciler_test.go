@@ -390,3 +390,113 @@ func TestNonTerminalEventDoesNotFallBackToLocalState(t *testing.T) {
 		t.Fatalf("effects=%#v quarantined=%#v error=%v, want an unreadable assignment still refused", effects, quarantined, err)
 	}
 }
+
+// terminalTaskSnapshot mirrors chainclient.snapshotFromTerminalTask: once a task
+// settles the Keeper compacts it into TaskTerminalSummaryState, so the snapshot
+// carries the settlement and the assignment identity and nothing else. The
+// absent fields are the point of the fixture - no AcceptedOrderPayloadHash, no
+// InferDeadlineHeight, no VerifierAssignment - so do not "complete" it.
+func terminalTaskSnapshot(sessionID, taskID string, acceptedTaskHash codec.Hash) chainclient.TaskSnapshot {
+	return chainclient.TaskSnapshot{
+		Status: chainclient.TaskStatusTerminal, UpdatedHeight: chainclient.NewUint64String(30), CurrentContract: true,
+		Assignment: chainclient.AssignmentSnapshot{
+			SessionID: sessionID, TaskID: taskID, OrderSequence: chainclient.NewUint64String(1),
+			SelectedWorker: "worker-1", ModelID: "model-1", ProfileVersion: chainclient.NewProfileVersion(1),
+			TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{AcceptedTaskHash: chainclient.ProtoBytes32(acceptedTaskHash[:])},
+		},
+		Settlement: chainclient.SettlementSnapshot{TaskVerdict: "PASS", SettlementHeight: chainclient.NewUint64String(30)},
+	}
+}
+
+// A node replaying from genesis reaches phase events of tasks that settled long
+// ago. Their snapshots report zero for every phase field because the Keeper
+// compacted them away, not because the event disagrees, so cross-checking those
+// fields can never pass - and for EventRevealPhaseStarted the answer used to be
+// a *retryable* error, which stopped the whole poll, left the cursor parked
+// before that block, and made every fresh node replay the same window forever
+// while chain_sync stayed 503 (#34).
+//
+// Each case here fails on the pre-fix reconciler: the reveal one as a returned
+// error, the other two as quarantine records.
+func TestReconcilerReplaysPhaseEventsOfSettledTasksWithoutStalling(t *testing.T) {
+	hash := codec.HashWithDomain("TEST_ORDER", []byte("settled-task"))
+	snapshot := terminalTaskSnapshot("session-1", "settled-task", hash)
+
+	tests := []struct {
+		name  string
+		event chainclient.KeeperEvent
+	}{
+		{
+			name: "reveal phase started",
+			event: chainclient.KeeperEvent{
+				Type: chainclient.KeeperEventRevealPhaseStarted, TaskID: "settled-task", SessionID: "session-1", Height: 15011,
+				Attributes: map[string]string{"reveal_deadline_height": "115011"},
+			},
+		},
+		{
+			name: "open verify accepted",
+			event: chainclient.KeeperEvent{
+				Type: chainclient.KeeperEventOpenVerifyAccepted, TaskID: "settled-task", SessionID: "session-1", Height: 15012,
+				Verifier: "verifier-1",
+			},
+		},
+		{
+			name: "assignment finalized with a compacted infer deadline",
+			event: chainclient.KeeperEvent{
+				Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "settled-task", SessionID: "session-1", Height: 15011,
+				Worker: "worker-1", InferDeadlineHeight: 115011,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var quarantined []chainclient.KeeperEvent
+			r := NewReconciler(ReconcilerOptions{
+				TaskReader:         staticKeeperTaskReader{snapshot: snapshot},
+				OnQuarantinedEvent: func(event chainclient.KeeperEvent) { quarantined = append(quarantined, event) },
+			})
+			_, err := r.Apply(context.Background(), []chainclient.KeeperEvent{test.event})
+			if err != nil {
+				t.Fatalf("Apply() error = %v, want replay to advance past a settled task", err)
+			}
+			if chainclient.IsRetryable(err) {
+				t.Fatal("Apply() returned a retryable error: the poller would park the cursor and re-read this block forever")
+			}
+			if len(quarantined) != 0 {
+				t.Fatalf("quarantined = %#v, want none: a compacted phase field is not a contract mismatch", quarantined)
+			}
+		})
+	}
+}
+
+// The allowance above is for compacted tasks only. While the chain still tracks
+// a task, a zero reveal deadline means the queried node has not caught up -
+// keeper §10.7 writes the height inside the very transition this event
+// announces - so it must stay retryable. Quarantining it would discard the only
+// carrier of the value and block the reveal for good.
+func TestReconcilerStillRetriesZeroRevealDeadlineOnALiveTask(t *testing.T) {
+	hash := codec.HashWithDomain("TEST_ORDER", []byte("live-task"))
+	snapshot := validTaskSnapshot("session-1", "live-task", hash)
+	if snapshot.Status == chainclient.TaskStatusTerminal {
+		t.Fatal("fixture must be a live task for this test to mean anything")
+	}
+	if snapshot.VerifierAssignment.RevealDeadlineHeight.Uint64() != 0 {
+		t.Fatal("fixture must carry a zero reveal deadline")
+	}
+
+	var quarantined []chainclient.KeeperEvent
+	r := NewReconciler(ReconcilerOptions{
+		TaskReader:         staticKeeperTaskReader{snapshot: snapshot},
+		OnQuarantinedEvent: func(event chainclient.KeeperEvent) { quarantined = append(quarantined, event) },
+	})
+	_, err := r.Apply(context.Background(), []chainclient.KeeperEvent{{
+		Type: chainclient.KeeperEventRevealPhaseStarted, TaskID: "live-task", SessionID: "session-1", Height: 40,
+		Attributes: map[string]string{"reveal_deadline_height": "140"},
+	}})
+	if !chainclient.IsRetryable(err) {
+		t.Fatalf("Apply() error = %v, want a retryable error so the poll re-reads the height", err)
+	}
+	if len(quarantined) != 0 {
+		t.Fatalf("quarantined = %#v, want none: the event still carries the only copy of the deadline", quarantined)
+	}
+}

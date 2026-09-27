@@ -360,15 +360,36 @@ func (r *Reconciler) authoritativeTaskEvent(ctx context.Context, event chainclie
 	if event.ProfileVersion != "" && event.ProfileVersion != assignment.ProfileVersion.String() {
 		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper profile %q does not match event profile %q", assignment.ProfileVersion.String(), event.ProfileVersion)
 	}
-	if event.InferDeadlineHeight != 0 && event.InferDeadlineHeight != assignment.InferDeadlineHeight.Uint64() {
-		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper infer deadline %d does not match event infer deadline %d", assignment.InferDeadlineHeight.Uint64(), event.InferDeadlineHeight)
-	}
-	if event.Type == chainclient.KeeperEventOpenVerifyAccepted && event.Verifier != "" && !containsString(snapshot.VerifierAssignment.FormalVerifierSet, event.Verifier) {
-		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("event verifier %q is absent from Keeper formal verifier set", event.Verifier)
-	}
-	if event.Type == chainclient.KeeperEventRevealPhaseStarted {
-		if err := bindAuthoritativeRevealDeadline(&event, snapshot.VerifierAssignment); err != nil {
-			return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, err
+	// The checks above compare identity, which a settled task still answers for.
+	// The three below compare *phase state*, which it does not: once a task
+	// settles the Keeper compacts it into TaskTerminalSummaryState, and the
+	// snapshot built from that (chainclient.snapshotFromTerminalTask) carries no
+	// verifier assignment and no infer deadline at all. Those fields read zero
+	// because the chain no longer holds them, not because the event disagrees
+	// with them, so comparing against zero can never pass for any event of any
+	// settled task. TaskSnapshot.Validate already makes exactly this allowance
+	// for TERMINAL; enrichment has to make it too.
+	//
+	// Running them anyway is what stopped every fresh node from bootstrapping
+	// (#34). Replaying from genesis reaches events of tasks that settled tens of
+	// thousands of blocks ago, and bindAuthoritativeRevealDeadline answers a
+	// zero height with a *retryable* error -- correct for a live event, where
+	// zero means the queried node lagged, but wrong here, where no retry can
+	// ever change it. The poll fails, poller.applyPage never commits the height,
+	// and replay re-reads the same window forever while chain_sync stays 503.
+	// Live nodes never saw this because they validated these events while the
+	// task was still active.
+	if snapshot.Status != chainclient.TaskStatusTerminal {
+		if event.InferDeadlineHeight != 0 && event.InferDeadlineHeight != assignment.InferDeadlineHeight.Uint64() {
+			return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper infer deadline %d does not match event infer deadline %d", assignment.InferDeadlineHeight.Uint64(), event.InferDeadlineHeight)
+		}
+		if event.Type == chainclient.KeeperEventOpenVerifyAccepted && event.Verifier != "" && !containsString(snapshot.VerifierAssignment.FormalVerifierSet, event.Verifier) {
+			return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("event verifier %q is absent from Keeper formal verifier set", event.Verifier)
+		}
+		if event.Type == chainclient.KeeperEventRevealPhaseStarted {
+			if err := bindAuthoritativeRevealDeadline(&event, snapshot.VerifierAssignment); err != nil {
+				return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, err
+			}
 		}
 	}
 	if event.Type == chainclient.KeeperEventSettleAccepted {
@@ -438,6 +459,12 @@ func bindAuthoritativeSettlement(event *chainclient.KeeperEvent, settlement chai
 // the StartRevealPhase transition this very event announces, so zero means the
 // query read a node that has not caught up - and quarantining it would discard
 // the only carrier of the value and leave the reveal blocked for good.
+//
+// That reading of zero holds only for a task the chain still tracks, so the
+// caller MUST NOT reach here for a settled one: a compacted task reports zero
+// permanently, and answering that with a retryable error wedges the poller on
+// the same window forever (#34). authoritativeTaskEvent excludes
+// chainclient.TaskStatusTerminal before calling this.
 func bindAuthoritativeRevealDeadline(event *chainclient.KeeperEvent, assignment chainclient.VerifierAssignmentSnapshot) error {
 	height := assignment.RevealDeadlineHeight.Uint64()
 	if height == 0 {
