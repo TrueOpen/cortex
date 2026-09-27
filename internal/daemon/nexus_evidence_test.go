@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -431,6 +432,46 @@ func TestNexusEvidenceConfirmerRejectsMetadataAndStreamMismatch(t *testing.T) {
 			}
 			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil {
 				t.Fatalf("accepted %s", name)
+			}
+		})
+	}
+}
+
+// A Builder can declare generation_params sizes the commitment does not bound.
+// A declaration above the hard bound is refused before any artifact is
+// downloaded or a buffer is sized from it.
+func TestNexusEvidenceConfirmerRefusesOversizedGenerationParamsBeforeDownload(t *testing.T) {
+	for _, name := range []string{"summary total", "manifest artifact"} {
+		t.Run(name, func(t *testing.T) {
+			f := newEvidenceFixture(t)
+			huge := uint64(nodewire.MaxGenerationParamsBytes) + 1
+			if name == "manifest artifact" {
+				// A self-consistent lie: the manifest and the summary both claim
+				// an oversized generation_params, so only the bound can stop it.
+				f.rebuildManifests(t, func(m *evidencebundle.Manifest) {
+					for i := range m.Artifacts {
+						if m.Artifacts[i].ID == evidencebundle.ArtifactGenerationParams {
+							m.Artifacts[i].Size = strconv.FormatUint(huge, 10)
+						}
+					}
+				})
+			}
+			client := &evidenceTaskDataClient{objects: f.objects()}
+			if name == "summary total" {
+				client.metadataMutation = func(m *builderclient.TaskDataMetadata) {
+					if m.EvidenceBundle != nil && m.Key.EvidenceKind == nodewire.EvidenceKindWorkerTokenOpening {
+						m.EvidenceBundle.ArtifactTotalSizeBytes += huge
+					}
+				}
+			}
+			_, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments)
+			if err == nil {
+				t.Fatal("oversized generation_params declaration was accepted")
+			}
+			for _, fetch := range client.fetches {
+				if fetch.Key.EvidenceKind == nodewire.EvidenceKindWorkerTokenOpening && fetch.Key.Kind == builderclient.DataKindEvidenceArtifact {
+					t.Fatalf("token artifact %s was downloaded before the size refusal: %v", fetch.Key.ContentHash, err)
+				}
 			}
 		})
 	}

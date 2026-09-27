@@ -231,7 +231,7 @@ func (c *NexusOutputConfirmer) confirmFromTaskData(
 	if err != nil {
 		return builderclient.OutputPackage{}, err
 	}
-	output := make([]byte, 0, metadata.SizeBytes)
+	output := make([]byte, 0, min(metadata.SizeBytes, maxEvidencePrealloc))
 	ended := false
 	err = c.cfg.TaskData.FetchTaskData(ctx, endpoint, builderclient.FetchTaskDataRequest{Key: key, Auth: auth},
 		func(chunk builderclient.TaskDataChunk) error {

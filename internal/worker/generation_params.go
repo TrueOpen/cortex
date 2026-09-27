@@ -75,6 +75,9 @@ func (w *Worker) generationParamsArtifact(ctx context.Context, event chainclient
 	if err != nil {
 		return nil, err
 	}
+	if len(raw) > nodewire.MaxGenerationParamsBytes {
+		return nil, fmt.Errorf("canonical generation parameters are %d bytes, above the %d-byte artifact bound", len(raw), nodewire.MaxGenerationParamsBytes)
+	}
 	if got := nodewire.GenerationParamsDigest(raw); !bytes.Equal(got[:], digest) {
 		return nil, fmt.Errorf("generation parameters do not hash to the task's generation_params_digest")
 	}

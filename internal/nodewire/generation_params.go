@@ -13,6 +13,14 @@ import (
 
 const DomainGenerationParamsV1 = "TRUEOPEN_TASK_GENERATION_PARAMS_V1"
 
+// MaxGenerationParamsBytes bounds the canonical generation-params JSON, and so
+// the A-level generation_params artifact, which the evidence commitment does
+// not size. It follows from the frozen limits (generation_params_v1.json): at
+// most 16 stop sequences of 1024 bytes in total, which escaping can at most
+// grow sixfold (a control byte as \u00xx), 64 stop token ids of at most 10
+// digits, and under 1 KiB of fixed fields. 16 KiB leaves ample headroom.
+const MaxGenerationParamsBytes = 16 << 10
+
 const (
 	maxGenerationPayloadBytes = 32 << 20
 	maxGenerationListElements = 65534
@@ -83,8 +91,8 @@ func GenerationParamsDigest(raw []byte) codec.Hash {
 // so the parameters a Verifier prefills under are exactly the ones the digest
 // of raw commits to.
 func ParseCanonicalGenerationParams(raw []byte) (GenerationContext, error) {
-	if len(raw) == 0 || len(raw) > maxGenerationPayloadBytes {
-		return GenerationContext{}, fmt.Errorf("generation_params must hold 1..%d bytes", maxGenerationPayloadBytes)
+	if len(raw) == 0 || len(raw) > MaxGenerationParamsBytes {
+		return GenerationContext{}, fmt.Errorf("generation_params must hold 1..%d bytes", MaxGenerationParamsBytes)
 	}
 	var p generationProjection
 	dec := json.NewDecoder(bytes.NewReader(raw))

@@ -202,10 +202,17 @@ func (c *NexusEvidenceConfirmer) fetchBundle(ctx context.Context, facts Evidence
 	if kind == nodewire.EvidenceKindWorkerTokenOpening {
 		wantArtifacts = 3
 	}
+	// The only uncommitted bytes a Builder can declare are generation_params,
+	// so the declared total may exceed the committed size by at most its bound.
+	uncommitted := uint64(0)
+	if kind == nodewire.EvidenceKindWorkerTokenOpening {
+		uncommitted = nodewire.MaxGenerationParamsBytes
+	}
 	summary := metadata.EvidenceBundle
 	if summary == nil || summary.ManifestSizeBytes == 0 || summary.ManifestSizeBytes > evidencebundle.MaxManifestBytes ||
 		metadata.SizeBytes != summary.ManifestSizeBytes || summary.EvidenceSchemaHash != facts.EvidenceSchemaHash ||
-		summary.ArtifactCount != wantArtifacts || summary.ArtifactTotalSizeBytes < committed.EncodedSizeBytes {
+		summary.ArtifactCount != wantArtifacts || summary.ArtifactTotalSizeBytes < committed.EncodedSizeBytes ||
+		summary.ArtifactTotalSizeBytes-committed.EncodedSizeBytes > uncommitted {
 		return nil, fmt.Errorf("Worker %s bundle summary differs from receipt, profile or manifest bounds", evidencebundle.KindToken(kind))
 	}
 	// evidence_manifest_hash is Builder metadata, not a commitment: it only
@@ -228,6 +235,18 @@ func (c *NexusEvidenceConfirmer) fetchBundle(ctx context.Context, facts Evidence
 	}
 	if manifest.CommittedSize() != committed.EncodedSizeBytes || manifest.TotalSize() != summary.ArtifactTotalSizeBytes {
 		return nil, fmt.Errorf("Worker %s manifest size differs from the committed encoded_size_bytes or the Builder's artifact total", manifest.EvidenceKind)
+	}
+	// Every size is checked before anything is downloaded: the committed
+	// artifacts sum to encoded_size_bytes above, and generation_params has its
+	// own hard bound.
+	for _, artifact := range manifest.Artifacts {
+		size, err := artifact.SizeBytes()
+		if err != nil {
+			return nil, err
+		}
+		if artifact.ID == evidencebundle.ArtifactGenerationParams && (size == 0 || size > nodewire.MaxGenerationParamsBytes) {
+			return nil, fmt.Errorf("Worker generation_params declares %d bytes, outside 1..%d", size, nodewire.MaxGenerationParamsBytes)
+		}
 	}
 	out := make(map[string][]byte, len(manifest.Artifacts))
 	for _, artifact := range manifest.Artifacts {
@@ -280,7 +299,9 @@ func (c *NexusEvidenceConfirmer) fetchEvidenceBytes(ctx context.Context, facts E
 	if err != nil {
 		return nil, err
 	}
-	data := make([]byte, 0, size)
+	// The buffer grows with the bytes that actually arrive; a declared size
+	// only reserves up to maxEvidencePrealloc.
+	data := make([]byte, 0, min(size, maxEvidencePrealloc))
 	ended := false
 	err = c.cfg.TaskData.FetchTaskData(ctx, endpoint, builderclient.FetchTaskDataRequest{Key: key, Auth: auth}, func(chunk builderclient.TaskDataChunk) error {
 		if ended || chunk.Offset != uint64(len(data)) || uint64(len(chunk.Data)) > size-uint64(len(data)) {
@@ -305,6 +326,9 @@ func (c *NexusEvidenceConfirmer) fetchEvidenceBytes(ctx context.Context, facts E
 	}
 	return data, nil
 }
+
+// maxEvidencePrealloc caps the buffer reserved from a peer-declared size.
+const maxEvidencePrealloc = 1 << 20
 
 func decodeCanonicalHash(value, field string) (codec.Hash, error) {
 	raw, err := hex.DecodeString(value)
