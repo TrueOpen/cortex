@@ -958,6 +958,9 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 	if err != nil {
 		return nil, fmt.Errorf("task runner evidence store: %w", err)
 	}
+	if err := daemon.RefuseLegacyState(context.Background(), rt.Store, evidenceStore); err != nil {
+		return nil, err
+	}
 	fakeOutput := strings.EqualFold(strings.TrimSpace(cfg.ModelManagement.Transport), "fake")
 	var handraiseEligibility daemon.HandraiseEligibility
 	var taskReader daemon.KeeperTaskReader
