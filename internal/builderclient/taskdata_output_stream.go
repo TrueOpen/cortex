@@ -79,15 +79,19 @@ type TaskOutputStream interface {
 	Close() error
 }
 
-// TaskDataOutputStreamBodyDigest uses the fixed unknown-root projection from
-// monorepo 05afeeaf, Nexus interfaces section 4.2.1.
+// TaskDataOutputStreamBodyDigest is the TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2
+// body digest of an output stream, whose content hash and size are not known
+// when the stream opens: the nine-field OUTPUT object reference with a ZERO32
+// content_hash, no evidence producer, round or evidence kind, size 0 and an
+// empty media type. The retired V1 domain lacked evidence_kind.
 func TaskDataOutputStreamBodyDigest(taskHash, sessionID, taskID string) (codec.Hash, error) {
 	fields, err := finalizeScope(taskHash, sessionID, taskID)
 	if err != nil {
 		return codec.Hash{}, err
 	}
-	fields = append(fields, hfields.Uint32(uint32(DataKindOutput)), hfields.Hash(codec.Hash{}), hfields.Uint32(0), hfields.Uint32(0), hfields.Optional(false, hfields.Bytes(nil)))
-	return hfields.Digest("TRUEOPEN_TASK_DATA_UPLOAD_BODY_V1", hfields.Frame(fields...), hfields.Uint64(0), hfields.String(""))
+	fields = append(fields, hfields.Uint32(uint32(DataKindOutput)), hfields.Hash(codec.Hash{}), hfields.Uint32(0), hfields.Uint32(0),
+		hfields.Optional(false, hfields.Bytes(nil)), hfields.Uint32(uint32(nodewire.EvidenceKindUnspecified)))
+	return hfields.Digest("TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2", hfields.Frame(fields...), hfields.Uint64(0), hfields.String(""))
 }
 
 func validateOutputStreamRequest(request OutputStreamRequest) error {
