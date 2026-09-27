@@ -244,9 +244,11 @@ values instead of a trace and a checkpoint) and the receipts (InferReceiptV3,
 ResultReceiptV3). A task started by an older node cannot be finished or
 verified under v0.3, so `cortexd` refuses to start while the store holds
 pre-v0.3 data (trace or checkpoint evidence, or an infer receipt that is not a
-readable V3 receipt) of a task that is not yet terminal or settled, or that
-still has an open challenge. Drain those tasks on the previous release first,
-or start v0.3 from an empty `store.path` and `artifacts.root`.
+readable V3 receipt) of a task whose local record is not yet terminal or
+settled. Drain those tasks on the previous release first, or start v0.3 from
+an empty `store.path` and `artifacts.root`. The check reads only the local
+store: v0.3 starts from a fresh genesis, so the new chain knows nothing about
+these tasks.
 
 Pre-v0.3 evidence of finished tasks does not block startup: it is logged as a
 warning and removed by the normal retention cleanup (`cortexctl evidence

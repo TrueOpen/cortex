@@ -234,9 +234,9 @@ vLLM's served model name differs from the chain `repo_id`.
 
 Upgrading a node that ran a pre-v0.3 release: `cortexd` refuses to start while
 its store holds trace/checkpoint evidence or an older (or unreadable) infer
-receipt of a task that is not terminal or settled, or that has an open
-challenge. Drain those tasks on the old release first, or start from an empty
-store. Old evidence of finished tasks only logs a warning and is left for
+receipt of a task whose local record is not terminal or settled (the check
+never asks the chain: v0.3 is a fresh genesis). Drain those tasks on the old
+release first, or start from an empty store. Old evidence of finished tasks only logs a warning and is left for
 retention cleanup.
 
 **VERIFY / known hazards on the current deployment:**
