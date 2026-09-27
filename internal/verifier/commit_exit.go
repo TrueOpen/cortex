@@ -192,6 +192,12 @@ func (v *Verifier) deliverCommit(ctx context.Context, state TaskState, result Ve
 		previous.Duplicate = true
 		return previous, nil
 	}
+	if previous, ok, err := v.persistedDelivery(ctx, scope); err != nil {
+		return CommitDelivery{}, err
+	} else if ok {
+		v.commits[scope] = previous
+		return previous, nil
+	}
 	reason := CommitExitRelayChannelAbsent
 	if v.cfg.CommitRelay != nil {
 		relayErr := v.cfg.CommitRelay.RelayVerifyCommit(ctx, CommitRelayRequest{
@@ -246,6 +252,9 @@ func (v *Verifier) deliverCommit(ctx context.Context, state TaskState, result Ve
 		return delivery, fmt.Errorf(
 			"verify commit self-submission for task %s reached %q but not Keeper confirmation (tx %s, height %d)",
 			state.TaskID, observation.Tx.Status, observation.Tx.TxHash, observation.Tx.IncludedHeight)
+	}
+	if err := v.recordDelivery(ctx, state, scope, result, delivery); err != nil {
+		return delivery, fmt.Errorf("record confirmed verify commit for task %s: %w", state.TaskID, err)
 	}
 	v.commits[scope] = delivery
 	return delivery, nil

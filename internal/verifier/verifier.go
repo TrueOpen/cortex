@@ -570,6 +570,19 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if result, ok := v.results[resultKey]; ok {
 		return result, nil
 	}
+	// A commit already signed and persisted for this round is only
+	// re-delivered: no second prefill, no new salt, no second signature.
+	if result, ok, err := v.persistedCommit(ctx, state); err != nil {
+		return VerifyResult{}, err
+	} else if ok {
+		delivery, err := v.deliverCommit(ctx, state, result)
+		result.CommitDelivery = delivery
+		if err != nil {
+			return result, err
+		}
+		v.results[resultKey] = result
+		return result, nil
+	}
 	jobID := "verifier-verify-" + state.TaskID
 	if err := v.persistModelServiceJob(ctx, jobID, state.TaskID, "running", "verify"); err != nil {
 		return VerifyResult{}, err
@@ -654,7 +667,13 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 			"%w: metric_leaf_count %d does not fit the uint32 the reveal and the receipt carry",
 			ErrVerifyCommitInputUnavailable, metricMaterial.LeafCount)
 	}
-	salt := codec.HashWithDomain("TRUEOPEN_RESULT_COMMIT_SALT_V1", []byte(state.TaskID), []byte(v.cfg.VerifierAddress), seed[:], resp.MaterialDigest)
+	// 04 §9: the salt comes from a CSPRNG and is persisted with
+	// verifier_value_root before the commit leaves this node; a retry reuses
+	// the persisted one (see persistedCommit) and never draws again.
+	salt, err := randomSalt()
+	if err != nil {
+		return VerifyResult{}, err
+	}
 	manifest, err := (evidencebundle.Manifest{
 		Version: 1, ChainID: v.cfg.ChainID, TaskID: state.TaskID,
 		TaskHash: hex.EncodeToString(facts.AcceptedTaskHash), VerifyRound: commitVerifyRound,
@@ -1029,9 +1048,13 @@ func (v *Verifier) persistResult(ctx context.Context, state TaskState, result Ve
 		// is also how a record written by the retired compact text encoding is
 		// rejected instead of being turned into a credential whose commit_hash
 		// was derived from different bytes entirely.
-		"result_reveal":       hex.EncodeToString(result.ResultReveal),
-		"salt":                result.Salt.String(),
-		"commit_hash":         result.CommitHash.String(),
+		"result_reveal": hex.EncodeToString(result.ResultReveal),
+		"salt":          result.Salt.String(),
+		"commit_hash":   result.CommitHash.String(),
+		// The signed commit rides in the same record as the salt and the root
+		// it binds, so one write makes the whole commit durable and a retry
+		// re-delivers these exact bytes.
+		"commit_wire":         result.CommitWire,
 		"evidence_manifest":   hex.EncodeToString(result.EvidenceManifest),
 		"values_evidence_ref": evidenceRef(valuePayload),
 	}

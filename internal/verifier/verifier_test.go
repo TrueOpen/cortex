@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/evidence"
 	"math"
 	"reflect"
 	"strings"
@@ -496,11 +497,11 @@ func TestVerifyStoresEvidenceAndCommitMaterialsWithoutFullRevealInSettleInput(t 
 	if result.CommitHash == (codec.Hash{}) || result.ResultDigest == (codec.Hash{}) || result.Salt == (codec.Hash{}) {
 		t.Fatalf("missing commit materials: %#v", result)
 	}
-	if len(h.persistence.evidence) != 3 {
-		t.Fatalf("evidence writes = %d, want V_i, reveal skeleton, commit receipt", len(h.persistence.evidence))
+	if len(h.persistence.evidence) != 4 {
+		t.Fatalf("evidence writes = %d, want V_i, reveal skeleton, commit receipt, confirmed delivery", len(h.persistence.evidence))
 	}
-	kinds := []string{h.persistence.evidence[0].Kind, h.persistence.evidence[1].Kind, h.persistence.evidence[2].Kind}
-	if strings.Join(kinds, "|") != "verifier-v-values|verifier-full-result-reveal-state|verifier-result-commit-receipt" {
+	kinds := []string{h.persistence.evidence[0].Kind, h.persistence.evidence[1].Kind, h.persistence.evidence[2].Kind, h.persistence.evidence[3].Kind}
+	if strings.Join(kinds, "|") != "verifier-v-values|verifier-full-result-reveal-state|verifier-result-commit-receipt|verifier-commit-delivery" {
 		t.Fatalf("evidence kinds = %#v", kinds)
 	}
 	if len(h.persistence.settle) != 1 {
@@ -735,7 +736,7 @@ func TestRepeatedOpenVerifyChangedRoundDoesNotReturnStaleResult(t *testing.T) {
 
 	first := verifyLocally(t, h, state)
 	changed := state
-	changed.FutureBeaconID = "proposer-vrf-epoch-13"
+	changed.VerifyRound = 2
 	second := verifyLocally(t, h, changed)
 	if second.CommitHash == first.CommitHash {
 		t.Fatalf("changed verify round returned stale commit hash")
@@ -1495,7 +1496,7 @@ func (r *recordingPersistence) ReadVerifierEvidence(_ context.Context, kind stri
 			return append([]byte(nil), r.evidence[index].Data...), nil
 		}
 	}
-	return nil, fmt.Errorf("evidence kind %q not found", kind)
+	return nil, fmt.Errorf("%w: evidence kind %q not found", evidence.ErrArtifactNotFound, kind)
 }
 
 func (r *recordingPersistence) CheckpointModelJob(_ context.Context, record ModelJobCheckpoint) error {
