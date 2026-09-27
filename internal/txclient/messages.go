@@ -847,7 +847,7 @@ func validateSubmitVerifyResult(m SubmitVerifyResultMessage) error {
 	if r.VerifierEvidenceKeyCommitment.Hex() != zeroHash32Hex {
 		return fmt.Errorf("verify result verifier_evidence_key_commitment must be ZERO32 in plaintext")
 	}
-	// metric_leaf_count 0 is a legal zero-token output (05 empty-F case 1).
+	// metric_leaf_count 0 is a legal zero-token output (no leaves at all).
 	if r.VerifyRound < 1 || r.VerifyRound > 2 {
 		return fmt.Errorf("verify result verify_round must be %d", VerifyRoundV1)
 	}

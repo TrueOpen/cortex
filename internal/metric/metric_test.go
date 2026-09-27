@@ -30,7 +30,7 @@ const (
 	// The same summary with fields 7/8 present, and with them absent. Two
 	// different facts, two different hashes - see §9.7.
 	fixtureSummaryHashWithOptionalsHex = "347cbe49201e4f41708fd3e4bf59a8c0854041c1429b01d10ecdd96b248415af"
-	// Without either ratio compared_topk_count is 0 (05 field rules).
+	// Without either ratio compared_topk_count is 0.
 	fixtureSummaryHashWithoutOptionalsHex = "3166ab05fef70b1762688372f41ac2431d1061d4024fd6c298bd1855689f24a8"
 	// The aggregate proof's own encoding is Cortex's rather than the protocol's
 	// (see BuildAggregateProof), which is exactly why it is pinned: nothing

@@ -1038,7 +1038,7 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 // values: comparing the two, and everything derived from the comparison, is
 // Cortex's job.
 //
-// One check data-plane-and-evidence-transfer.md §9.1 names is deliberately NOT
+// One check the Verifier's evidence rules call for is deliberately NOT
 // here yet: `detokenize(token IDs) == text`. The Verifier binds the text to
 // `output_hash` and the token vectors to the A-level commitment, so what is
 // missing is only the tokenizer call, and it is missing for a reason rather

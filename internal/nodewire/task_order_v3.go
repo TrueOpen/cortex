@@ -1,7 +1,8 @@
 package nodewire
 
 // TaskOrderV3 of wire v0.3.0 (TrueOpen/wire#14, task/task_order_v3.json). It
-// binds the raw Hash32 model id and adds ADR-0024's three payload fields.
+// binds the raw Hash32 model id and adds the three payload-encryption fields
+// (payload_mode, input_key_commitment and user_recipient_pubkey).
 
 import (
 	"fmt"

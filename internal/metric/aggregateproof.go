@@ -44,8 +44,8 @@ type AggregateProof struct {
 //
 // # What is in it
 //
-// 05-verification-algorithm section 7.1 defines the content, and wire
-// publishes it as metric_aggregate_proof_v1:
+// The protocol defines the content, and wire publishes it as
+// metric_aggregate_proof_v1:
 //
 //	FRAME_V1(
 //	  utf8("PREFILL_METRIC_AGGREGATE_PROOF_V1"),   # self-describing version
@@ -120,7 +120,7 @@ func BuildAggregateProof(
 
 // proofFields is the locked binding as ordered frame fields, in Binding's own
 // declaration order — the same order the leaf preimage carries them in.
-// model_id is framed as its raw 32 bytes (05 section 7.1), like the leaf.
+// model_id is framed as its raw 32 bytes, like the leaf.
 func (b Binding) proofFields() ([]hfields.Field, error) {
 	rawModelID, err := hex.DecodeString(b.ModelID)
 	if err != nil || len(rawModelID) != len(codec.Hash{}) || hex.EncodeToString(rawModelID) != b.ModelID {

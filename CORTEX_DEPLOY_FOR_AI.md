@@ -189,7 +189,7 @@ deployment.
 | Red dependency | Meaning | Fixable on the machine? |
 |---|---|---|
 | `chain_sync` | replaying blocks toward the tip | no, wait |
-| `model_service` | vLLM is not answering, or a configured model id is not bound (see §5) | yes, see §5 |
+| `model_service` | vLLM is not answering, or a configured model id is not bound (see "vLLM" below) | yes, see "vLLM" below |
 | `keeper_identity` | operator bond is not ACTIVE / is JAILED | **no**, chain-side |
 | `model_support` | model support not declared on chain | **no**, chain-side |
 | `nexus` | ingress or NATS unreachable / auth refused | usually peer-side |

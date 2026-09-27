@@ -131,8 +131,8 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 			return 0, fmt.Errorf("max_output_duration finish reached max_output_tokens")
 		}
 		// A budget that expires before the first token is a legal empty
-		// generation (05 section 8.3 exempts MAX_OUTPUT_DURATION from the
-		// one-token minimum), and the Worker's own finish check agrees.
+		// generation (MAX_OUTPUT_DURATION is exempt from the one-token
+		// minimum), and the Worker's own finish check agrees.
 		return nodewire.FinishReasonV1MaxOutputDuration, nil
 	default:
 		return 0, fmt.Errorf("unsupported local finish reason %q", reason)

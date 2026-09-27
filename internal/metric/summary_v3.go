@@ -9,8 +9,8 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// SummaryV3 derives MetricSummaryV1 from the metric leaves exactly as
-// 05-verification-algorithm defines each field: integer arithmetic on the
+// SummaryV3 derives MetricSummaryV1 from the metric leaves exactly as the
+// protocol defines each field: integer arithmetic on the
 // leaves' fixed-point values only, so anyone holding the leaves under
 // metric_root recomputes the same summary.
 //

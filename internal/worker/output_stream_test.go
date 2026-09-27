@@ -403,8 +403,8 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 		}
 		inferCalls.Add(1)
 		// EOS first: vLLM reports the EOS token id as the one generated token
-		// and renders no text for it, so the output is empty (05 section 8.3
-		// requires at least one token for an EOS finish).
+		// and renders no text for it, so the output is empty (an EOS finish
+		// needs at least one token).
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
 			"text": "", "finish_reason": "stop", "prompt_token_ids": []int{42}, "token_ids": []int{2},
 			"logprobs": map[string]any{"token_logprobs": []float64{-0.1}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(2, -0.1)}},

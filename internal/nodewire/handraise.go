@@ -11,8 +11,8 @@ import (
 	"github.com/TrueOpen/cortex/internal/hfields"
 )
 
-// WorkerHandraiseV1 is the worker handraise wire. RecipientPubkey is
-// ADR-0024's reserved key slot and must be empty while only PLAINTEXT is
+// WorkerHandraiseV1 is the worker handraise wire. RecipientPubkey is a
+// reserved encryption key slot and must be empty while only PLAINTEXT is
 // accepted. ServiceSignature is outside the preimage.
 type WorkerHandraiseV1 struct {
 	SchemaVersion             uint32

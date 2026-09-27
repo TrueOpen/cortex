@@ -863,7 +863,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
-	// 05 section 8.3: the finish reason must agree with the generated tokens
+	// The finish reason must agree with the generated tokens
 	// under the task's parameters before this node signs it, whichever
 	// transport produced the generation.
 	generated, err := nodewire.DecodeTokenIDs(derived.generatedTokenIDs)

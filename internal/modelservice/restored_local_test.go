@@ -250,7 +250,7 @@ func TestLocalServiceDoesNotCacheFailedProfileResolution(t *testing.T) {
 }
 
 // A budget that expires before the engine emits a token ends as a successful
-// zero-token MAX_OUTPUT_DURATION generation, as 05 section 8.3 allows.
+// zero-token MAX_OUTPUT_DURATION generation, which the protocol allows.
 func TestLocalGenerationZeroTokenDurationStop(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {

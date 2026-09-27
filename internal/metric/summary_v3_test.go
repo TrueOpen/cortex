@@ -15,7 +15,7 @@ func normalSample(position uint32, worker, verifier int64, workerRank, verifierR
 		WorkerRank: workerRank, VerifierRank: verifierRank, Finite: true}
 }
 
-// The worked example of 05-verification-algorithm: required_top_k 20, two
+// The protocol's worked example: required_top_k 20, two
 // normal leaves (one with the Worker's rank outside the top-k), one missing and
 // one non-finite leaf.
 func TestSummaryV3ReproducesTheSpecWorkedExample(t *testing.T) {

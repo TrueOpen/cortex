@@ -97,8 +97,8 @@ type TaskDataRange struct {
 }
 
 // SignedInferReceipt carries the task.v1.InferReceiptV3 facts. Its four
-// ADR-0024 key slots are not carried: only PLAINTEXT is accepted, so they are
-// ZERO32 by rule, written on conversion and refused if a peer sends otherwise.
+// reserved encryption key slots are not carried: only PLAINTEXT is accepted, so
+// they are ZERO32 by rule, written on conversion and refused if a peer sends otherwise.
 // Cortex uses canonical lowercase hex for its hash and signature fields;
 // protobuf conversion decodes them into the released raw byte fields.
 //

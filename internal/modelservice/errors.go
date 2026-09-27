@@ -66,7 +66,7 @@ const (
 	// budget is decided here -- the count itself is not trustworthy yet.
 	FaultCodeTokenEvidenceCountMismatch = "GENERATION_TOKEN_EVIDENCE_COUNT_MISMATCH"
 	// FaultCodeFinishReasonInconsistent: the finish reason contradicts the
-	// generated tokens under the task's parameters (05 section 8.3).
+	// generated tokens under the task's parameters.
 	FaultCodeFinishReasonInconsistent = "GENERATION_FINISH_REASON_INCONSISTENT"
 	// FaultCodeResponseEvidenceDisagreement: the InferResponse's own count or
 	// finish reason contradicts the evidence artifacts it produced.

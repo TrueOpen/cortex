@@ -11,7 +11,7 @@ import (
 // InferReceiptFacts supplies the signed InferReceiptV3 fields of wire v0.3.0.
 // The schema is fixed at 3; output_hash and output_leaf_count come from the same
 // retained chunk stream, and evidence bounds come from the locked Profile. The
-// four ADR-0024 key slots are ZERO32 while only PLAINTEXT is accepted.
+// four reserved encryption key slots are ZERO32 while only PLAINTEXT is accepted.
 type InferReceiptFacts struct {
 	ChainID string
 	// TaskID is the canonical lowercase 64-hex Keeper task id.

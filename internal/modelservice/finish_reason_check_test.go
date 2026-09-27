@@ -6,7 +6,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// The 05 section 8.3 finish-reason checks, for every reason.
+// The local finish-reason checks, for every reason.
 func TestValidateFinishReasonAppliesTheLocalChecks(t *testing.T) {
 	g := localTestGeneration(testQwenModelID(), 1)
 	g.Params.MaxOutputTokens = 3

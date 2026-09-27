@@ -163,8 +163,8 @@ func ProtocolTokenIDs(ids TokenIDs) (input, generated []byte, err error) {
 	return input, generated, err
 }
 
-// ValidateFinishReason applies the local finish-reason checks of 05 section
-// 8.3 to a completed generation, whatever transport produced it:
+// ValidateFinishReason applies the protocol's local finish-reason checks to a
+// completed generation, whatever transport produced it:
 //
 //	MAX_OUTPUT_TOKENS   the generated count equals max_output_tokens
 //	MAX_OUTPUT_DURATION the generated count is below max_output_tokens

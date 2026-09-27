@@ -659,7 +659,7 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 			"%w: metric_leaf_count %d does not fit the uint32 the reveal and the receipt carry",
 			ErrVerifyCommitInputUnavailable, metricMaterial.LeafCount)
 	}
-	// 04 §9: the salt comes from a CSPRNG and is persisted with
+	// The salt comes from a CSPRNG and is persisted with
 	// verifier_value_root before the commit leaves this node; a retry reuses
 	// the persisted one (see persistedCommit) and never draws again.
 	salt, err := randomSalt()
