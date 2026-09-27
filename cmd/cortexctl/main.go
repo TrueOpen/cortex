@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -334,11 +335,17 @@ func newModelFindCommand(stdout io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&rpcEndpoint, "rpc", "", "chain CometBFT RPC endpoint")
 	cmd.Flags().StringVar(&provider, "provider", "", "model source provider; empty matches any")
 	cmd.Flags().StringVar(&repoID, "repo", "", "model source repository id, as vLLM serves it")
+	timeout := cmd.Flags().Duration("timeout", 30*time.Second, "bound on the whole chain scan")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		if strings.TrimSpace(rpcEndpoint) == "" || strings.TrimSpace(repoID) == "" {
 			return errors.New("--rpc and --repo are required")
 		}
-		models, err := chainclient.NewKeeperABCIClient(rpcEndpoint).ModelsBySource(cmd.Context(), provider, repoID)
+		if *timeout <= 0 {
+			return errors.New("--timeout must be positive")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), *timeout)
+		defer cancel()
+		models, err := chainclient.NewKeeperABCIClient(rpcEndpoint).ModelsBySource(ctx, provider, repoID)
 		if err != nil {
 			return err
 		}

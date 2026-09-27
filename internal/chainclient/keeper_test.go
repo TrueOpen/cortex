@@ -903,3 +903,59 @@ func mustReadFixture(t testing.TB, path string) []byte {
 	}
 	return data
 }
+
+func modelsTestModel(id byte, provider, repo string) *hubv1.ModelState {
+	return &hubv1.ModelState{
+		ModelId: bytes.Repeat([]byte{id}, 32), ProposerAddress: "trueopen1proposer", Provider: provider, RepoId: repo,
+		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1, LatestProfileVersion: 1,
+		StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT, CreatedHeight: 40, UpdatedHeight: 41,
+	}
+}
+
+// ModelsBySource pages through hub Models at one committed height, filters by
+// repository and provider, and stops on a repeated page token.
+func TestKeeperABCIClientModelsBySourcePagesAndFilters(t *testing.T) {
+	for _, repeat := range []bool{false, true} {
+		server := newABCITestServer(t, func(path, height string, data []byte) (proto.Message, uint32, string) {
+			if path != hubQuery+"Models" {
+				t.Fatalf("ABCI path = %q", path)
+			}
+			var request hubv1.QueryModelsRequest
+			mustUnmarshalProto(t, data, &request)
+			switch string(request.GetPage().GetPageToken()) {
+			case "":
+				return &hubv1.QueryModelsResponse{Models: []*hubv1.ModelState{
+					modelsTestModel(0x01, "HUGGINGFACE", "org/model"), modelsTestModel(0x02, "HUGGINGFACE", "org/other"),
+				}, Page: &sharedv1.QueryPageResponseV1{NextPageToken: []byte("p2")}}, 0, ""
+			default:
+				next := []byte(nil)
+				if repeat {
+					next = []byte("p2")
+				}
+				return &hubv1.QueryModelsResponse{Models: []*hubv1.ModelState{
+					modelsTestModel(0x03, "OCI", "org/model"), modelsTestModel(0x04, "HUGGINGFACE", "org/model"),
+				}, Page: &sharedv1.QueryPageResponseV1{NextPageToken: next}}, 0, ""
+			}
+		})
+		client := NewKeeperABCIClient(server.URL)
+		models, err := client.ModelsBySource(context.Background(), "HUGGINGFACE", "org/model")
+		if repeat {
+			if err == nil {
+				t.Fatal("a repeated page token did not stop the scan")
+			}
+			server.Close()
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(models) != 2 || models[0].ModelID != strings.Repeat("01", 32) || models[1].ModelID != strings.Repeat("04", 32) {
+			t.Fatalf("models = %+v, want the two HUGGINGFACE org/model entries across both pages", models)
+		}
+		anyProvider, err := client.ModelsBySource(context.Background(), "", "org/model")
+		if err != nil || len(anyProvider) != 3 {
+			t.Fatalf("any provider = %d models, %v, want 3", len(anyProvider), err)
+		}
+		server.Close()
+	}
+}

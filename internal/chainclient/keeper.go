@@ -366,7 +366,11 @@ func (c *KeeperABCIClient) ModelsBySource(ctx context.Context, provider, repoID 
 	}
 	var matches []CurrentModelSnapshot
 	var token []byte
-	for {
+	seen := map[string]bool{}
+	for page := 0; ; page++ {
+		if page >= maxModelsPages {
+			return nil, fmt.Errorf("hub Models paging did not end within %d pages", maxModelsPages)
+		}
 		var response hubv1.QueryModelsResponse
 		var snapshot struct {
 			Models []CurrentModelSnapshot `json:"models"`
@@ -387,9 +391,18 @@ func (c *KeeperABCIClient) ModelsBySource(ctx context.Context, provider, repoID 
 		if response.Page == nil || len(response.Page.NextPageToken) == 0 {
 			return matches, nil
 		}
+		// A token the chain already handed out would page forever.
+		if seen[string(response.Page.NextPageToken)] {
+			return nil, fmt.Errorf("hub Models paging repeated a page token")
+		}
+		seen[string(response.Page.NextPageToken)] = true
 		token = append(token[:0], response.Page.NextPageToken...)
 	}
 }
+
+// maxModelsPages bounds a hub Models scan: far more pages than any registry
+// holds, and a hard stop for a node that never ends the paging.
+const maxModelsPages = 10000
 
 func (c *KeeperABCIClient) CurrentModelProfile(ctx context.Context, modelID, profileVersion string) (CurrentModelProfileSnapshot, error) {
 	version, err := canonicalProfileVersionUint32(profileVersion)
