@@ -90,6 +90,9 @@ const (
 	// FaultCodeFinishReasonUnsupported: the engine's finish reason cannot be
 	// mapped onto a frozen FinishReasonV1 under the task's own parameters.
 	FaultCodeFinishReasonUnsupported = "GENERATION_FINISH_REASON_UNSUPPORTED"
+	// FaultCodeFinishReasonInconsistent: the finish reason contradicts the
+	// generated tokens under the task's parameters (05 section 8.3).
+	FaultCodeFinishReasonInconsistent = "GENERATION_FINISH_REASON_INCONSISTENT"
 	// FaultCodeResponseEvidenceDisagreement: the InferResponse's own count or
 	// finish reason contradicts the evidence artifacts it produced.
 	FaultCodeResponseEvidenceDisagreement = "GENERATION_RESPONSE_EVIDENCE_DISAGREEMENT"

@@ -855,12 +855,22 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	if w.cfg.EvidenceSchemaHash == "" {
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("%w: evidence_schema_hash requires the locked Profile's verification_profile.evidence_schema_hash from hub.v1.Query/Profile", builderclient.ErrInferReceiptInputUnavailable)
 	}
-	generationParams, err := w.generationParamsArtifact(ctx, event, facts.GenerationParamsDigest)
+	generationParams, generation, err := w.generationParamsArtifact(ctx, event, facts.GenerationParamsDigest)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
 	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, generationParams, tokenIDs, positionValues)
 	if err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
+	}
+	// 05 section 8.3: the finish reason must agree with the generated tokens
+	// under the task's parameters before this node signs it, whichever
+	// transport produced the generation.
+	generated, err := nodewire.DecodeTokenIDs(derived.generatedTokenIDs)
+	if err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
+	}
+	if err := modelservice.ValidateFinishReason(generation, generated, descriptor.FinishReason); err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
 	if derived.generatedCount != descriptor.GeneratedTokenCount {

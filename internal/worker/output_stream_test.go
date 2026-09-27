@@ -402,9 +402,12 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 			return
 		}
 		inferCalls.Add(1)
+		// EOS first: vLLM reports the EOS token id as the one generated token
+		// and renders no text for it, so the output is empty (05 section 8.3
+		// requires at least one token for an EOS finish).
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
-			"text": "", "finish_reason": "stop", "prompt_token_ids": []int{42}, "token_ids": []int{},
-			"logprobs": map[string]any{"token_logprobs": []float64{}, "top_logprobs": []modelservice.TopLogprobRow{}},
+			"text": "", "finish_reason": "stop", "prompt_token_ids": []int{42}, "token_ids": []int{2},
+			"logprobs": map[string]any{"token_logprobs": []float64{-0.1}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(2, -0.1)}},
 		}}})
 	}))
 	defer server.Close()
@@ -427,7 +430,7 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 	if err != nil || len(frames) != 1 || frames[0].Seq != 0 || len(frames[0].Text) != 0 || len(frames[0].WorkerSignature) != 64 {
 		t.Fatalf("empty output journal=%+v error=%v", frames, err)
 	}
-	if result.TaskDataReceipt.OutputSizeBytes != 0 || result.TaskDataReceipt.GeneratedTokenCount != 0 || result.TaskDataReceipt.OutputLeafCount != 1 || result.TaskDataReceipt.OutputHash != frames[0].MMRRoot.String() {
+	if result.TaskDataReceipt.OutputSizeBytes != 0 || result.TaskDataReceipt.GeneratedTokenCount != 1 || result.TaskDataReceipt.OutputLeafCount != 1 || result.TaskDataReceipt.OutputHash != frames[0].MMRRoot.String() {
 		t.Fatalf("empty receipt=%+v", result.TaskDataReceipt)
 	}
 	if len(h.persistence.confirmations) != 3 || len(h.taskData.FinalizedTaskResults) != 2 {

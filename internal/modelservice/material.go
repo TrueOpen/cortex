@@ -3,6 +3,7 @@ package modelservice
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"google.golang.org/protobuf/proto"
 
@@ -160,4 +161,44 @@ func ProtocolTokenIDs(ids TokenIDs) (input, generated []byte, err error) {
 	}
 	generated, err = nodewire.EncodeTokenIDs(ids.Generated)
 	return input, generated, err
+}
+
+// ValidateFinishReason applies the local finish-reason checks of 05 section
+// 8.3 to a completed generation, whatever transport produced it:
+//
+//	MAX_OUTPUT_TOKENS   the generated count equals max_output_tokens
+//	MAX_OUTPUT_DURATION the generated count is below max_output_tokens
+//	STOP_TOKEN          the last generated token is one of stop_token_ids
+//	every reason but MAX_OUTPUT_DURATION and USER_STOP needs at least one token
+//
+// A contradiction is deterministic: the same material fails the same way.
+func ValidateFinishReason(g *nodewire.GenerationContext, generated []uint32, reason nodewire.FinishReasonV1) error {
+	if g == nil {
+		return fmt.Errorf("generation context is required")
+	}
+	count, limit := uint64(len(generated)), g.Params.MaxOutputTokens
+	fail := func(format string, args ...any) error {
+		return Deterministic(FaultCodeFinishReasonInconsistent, fmt.Errorf(format, args...),
+			FaultUint("finish_reason", uint64(reason)), FaultInt("generated_token_count", len(generated)), FaultUint("max_output_tokens", limit))
+	}
+	if count == 0 && reason != nodewire.FinishReasonV1MaxOutputDuration && reason != nodewire.FinishReasonV1UserStop {
+		return fail("finish reason %d requires at least one generated token", reason)
+	}
+	switch reason {
+	case nodewire.FinishReasonV1MaxOutputTokens:
+		if count != limit {
+			return fail("MAX_OUTPUT_TOKENS with %d generated tokens, max_output_tokens is %d", count, limit)
+		}
+	case nodewire.FinishReasonV1MaxOutputDuration:
+		if count >= limit {
+			return fail("MAX_OUTPUT_DURATION with %d generated tokens reaches max_output_tokens %d", count, limit)
+		}
+	case nodewire.FinishReasonV1StopToken:
+		if !slices.Contains(g.Params.DecodingParams.StopTokenIDs, generated[count-1]) {
+			return fail("STOP_TOKEN, but the last generated token %d is not a stop token id", generated[count-1])
+		}
+	case nodewire.FinishReasonV1Unspecified:
+		return fail("finish reason is unspecified")
+	}
+	return nil
 }

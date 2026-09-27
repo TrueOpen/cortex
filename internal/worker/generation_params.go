@@ -63,23 +63,23 @@ func (w *Worker) validateGenerationOutput(ctx context.Context, event chainclient
 // generationParamsArtifact is the A-level generation_params artifact: the
 // Worker's own order's canonical generation parameters, which must hash to the
 // task's generation_params_digest.
-func (w *Worker) generationParamsArtifact(ctx context.Context, event chainclient.AssignmentFinalized, digest []byte) ([]byte, error) {
+func (w *Worker) generationParamsArtifact(ctx context.Context, event chainclient.AssignmentFinalized, digest []byte) ([]byte, *nodewire.GenerationContext, error) {
 	generation, _, err := w.taskGeneration(ctx, event)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if generation == nil {
-		return nil, fmt.Errorf("%w: the generation_params artifact requires the task's generation parameters", builderclient.ErrInferReceiptInputUnavailable)
+		return nil, nil, fmt.Errorf("%w: the generation_params artifact requires the task's generation parameters", builderclient.ErrInferReceiptInputUnavailable)
 	}
 	raw, err := generation.CanonicalJSON()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(raw) > nodewire.MaxGenerationParamsBytes {
-		return nil, fmt.Errorf("canonical generation parameters are %d bytes, above the %d-byte artifact bound", len(raw), nodewire.MaxGenerationParamsBytes)
+		return nil, nil, fmt.Errorf("canonical generation parameters are %d bytes, above the %d-byte artifact bound", len(raw), nodewire.MaxGenerationParamsBytes)
 	}
 	if got := nodewire.GenerationParamsDigest(raw); !bytes.Equal(got[:], digest) {
-		return nil, fmt.Errorf("generation parameters do not hash to the task's generation_params_digest")
+		return nil, nil, fmt.Errorf("generation parameters do not hash to the task's generation_params_digest")
 	}
-	return raw, nil
+	return raw, generation, nil
 }
