@@ -116,36 +116,36 @@
       "path": "task/builder_confirmation_v1.json",
       "origin": "wire",
       "contract_section": "Builder storage confirmation V2 signing projection",
-      "bytes": 32773,
-      "sha256": "0d99f639bdea88910aae1a2847a7eb9c96381e54e21c36823279782025bc85ef"
+      "bytes": 33045,
+      "sha256": "e773b87a90eaddc044f6f90f41e8ffc2c1d4a4fe28515d072b9bc8239abcbbeb"
     },
     {
       "path": "task/canonical_json_v1.json",
       "origin": "wire",
       "contract_section": "Canonical JSON evidence and generation-parameter digests",
-      "bytes": 10896,
-      "sha256": "3e315bcef10413f8c2f60a3c2de3e1b82900b1dfb2365e9feb78dd3a5c79dab9"
+      "bytes": 11285,
+      "sha256": "1fa026e01ffc130277514de8fd1d8be84f12538838e9f456cb6bef3f0eeafaae"
     },
     {
       "path": "task/generation_params_v1.json",
       "origin": "wire",
       "contract_section": "Canonical effective generation parameters with raw model identity",
-      "bytes": 1639,
-      "sha256": "5d39c3cdbbdab84d054bfa6484830b3732ce01f81d9105c102da798c2a7453e4"
+      "bytes": 1637,
+      "sha256": "22de2a71089b183ba80132ca23b1d960df5eb67bb01f5099f3c0df99dbf9b58c"
     },
     {
       "path": "task/infer_receipt_v3.json",
       "origin": "wire",
       "contract_section": "Two-kind InferReceiptV3 signing digest",
-      "bytes": 5829,
-      "sha256": "f8ced985ac5d47ad53ec703bc27caf2bfb10a2fea9f90a221c7167dfe1581ecf"
+      "bytes": 10231,
+      "sha256": "bf54ff2ba92c23aa7b97be7ad7497e12b89bf49270d950b5018b1796e6c20b30"
     },
     {
       "path": "task/metric_leaf_v3.json",
       "origin": "wire",
       "contract_section": "Metric leaf and root V3 conformance",
-      "bytes": 13036,
-      "sha256": "6cf7d629470689315c0432db9ea81acb60daa950f1a973e45121cde1579e89a9"
+      "bytes": 19572,
+      "sha256": "f856e5c223303adf1babbe240ee9dfbd83309293bedfd2de05011b171f5beb4c"
     },
     {
       "path": "task/output_chunk_equivocation_v1.json",
@@ -165,22 +165,22 @@
         "path": "task/output_stream_header_v1.json",
         "origin": "wire",
         "contract_section": "Signed OutputStreamHeaderV2 plaintext declaration",
-        "bytes": 2407,
-        "sha256": "c25f5d639ee939614293e277f04ae9fd098f45ed20ec313d12a66cec0b1d1787"
+        "bytes": 2660,
+        "sha256": "52cc794dab3d470737e27aba2578fc2983217fef1dcb1fb451215d9714e75553"
       },
       {
         "path": "task/result_metric_v3.json",
       "origin": "wire",
       "contract_section": "Integrated three-position metric root",
       "bytes": 18372,
-      "sha256": "f776e430734b6282160e44a9fa397308595c95feac2e54bcf7d7e3c786bb4519"
+      "sha256": "9b1d1c546fa888a9e25cbcf9a7b1c4e5b6b3c46273a91b6569111002ac875057"
     },
     {
         "path": "task/result_receipt_v3.json",
         "origin": "wire",
         "contract_section": "Result commitment V3, receipt V3 and reveal payload V2",
         "bytes": 12897,
-        "sha256": "4cd35be17b4d80cfbee22f5ea004d19865b6b04e59d75452125396e364bb80a1"
+        "sha256": "62189647af3df5a00a32de80f9dbe965c14dbdd4b022e4114abcddd3cd026a45"
     },
     {
       "path": "task/round_settlement_v1.json",
@@ -248,7 +248,7 @@
       "origin": "wire",
       "contract_section": "A-level Worker token commitment",
       "bytes": 4053,
-      "sha256": "b71b2cb73c5dee4c1285f4fff32075a655ed1c7f6efbae38b00cd5e0ba96be19"
+      "sha256": "11731ba7daf443ccbd86a6756db56af9166eb68587ad14041c135665cef8bd0a"
     },
     {
       "path": "task/worker_value_commitment_v3.json",

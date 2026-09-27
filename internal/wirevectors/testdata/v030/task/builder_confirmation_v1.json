@@ -3,7 +3,8 @@
     "The V2 confirmation signs the nine-field TaskDataObjectRefV1 projection.",
     "Non-evidence INPUT and OUTPUT use UNSPECIFIED evidence kind; each evidence bundle uses its typed kind.",
     "The Builder service signature is excluded from its own H_FIELDS preimage.",
-    "Worker evidence has two bundles per round, so the Worker A-level (WORKER_TOKEN_OPENING) and B-level (WORKER_VALUE_OPENING) manifests are confirmed as separate objects."
+    "Worker evidence has two bundles per round, so the Worker A-level (WORKER_TOKEN_OPENING) and B-level (WORKER_VALUE_OPENING) manifests are confirmed as separate objects.",
+    "The two Worker evidence confirmations name the published A-level and B-level objects: content_hash is the typed commitment in infer_receipt_v3.json, size_bytes the manifest length and artifact_total_size_bytes the sum of its artifact sizes in canonical_json_v1.json."
   ],
   "schema": "trueopen.task.builder_confirmation.v1",
   "source": "Builder storage confirmation wire contract",
@@ -498,7 +499,7 @@
     },
     {
       "contract_section": "Public wire fixture testdata/v1/task/builder_confirmation_v1.json",
-      "digest_hex": "605359818cc284ee905a806a45077b47e5cc6be2afad502414ecf7a80ea86437",
+      "digest_hex": "bc6a732447363ac93f1612ecc13cd0d7dabfaa948638be58c281eb763232a4ac",
       "domain": "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2",
       "fields": [
         {
@@ -546,7 +547,7 @@
               "value": 3
             },
             {
-              "hex": "7777777777777777777777777777777777777777777777777777777777777777",
+              "hex": "f9470df7daf275da0f23215b67fd2d6e6cadfb139e9da89fc70bed77cc7b9571",
               "name": "content_hash",
               "type": "bytes"
             },
@@ -587,12 +588,12 @@
         {
           "name": "size_bytes",
           "type": "uint64",
-          "value": 700
+          "value": 873
         },
         {
           "name": "artifact_total_size_bytes",
           "type": "uint64",
-          "value": 2048
+          "value": 527
         },
         {
           "name": "retention_until_height",
@@ -604,69 +605,69 @@
       "mutations": [
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "d856558e8701bb11c601424c30482759d6aeaa0bf5c4e96460820d84fc3a52fa",
+          "digest_hex": "4c3f14d2d6751a1c65548b5d70881ea9ae2c439760fd738f845b4069270b8d43",
           "expect": "digest_changes",
           "field_path": "schema_version",
           "name": "field.schema_version"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "878f8fddc505fc1f73e209aa346f4b92a7f2b5dda54673e348151fa3b9ae27fb",
+          "digest_hex": "c5d02605714d94bfcca58368f2272bffdcadab44a9ae63640ff2314da5fbdb7d",
           "expect": "digest_changes",
           "field_path": "chain_id",
           "name": "field.chain_id"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "dfee91f4e963b9cb5293d57e441b292c3210e20221dff37ed64ce6f03e50295d",
+          "digest_hex": "2d9a1d24d735037eda9fc909d41f4572ce6b24d5ffe0907447cee07fe3543a42",
           "expect": "digest_changes",
           "field_path": "builder_operator_address",
           "name": "field.builder_operator_address"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "c455a1ded9c3b25bad6838c0d3b7cef9176f0643033f4a146332645b9253bc05",
+          "digest_hex": "bc60ce2d93ef541d6edb7d075ea28cfb38391d30cbc66551394681d48b03e5c9",
           "expect": "digest_changes",
           "field_path": "service_authorization_nonce",
           "name": "field.service_authorization_nonce"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "c39789e8d843c7f258a2de8b851858e4568231353560e87be37e5bd0cfb27db8",
+          "digest_hex": "a87ddd690cb3a28f4a4bf2d4e86fea886c9c778192ea007abcd5ec24521085af",
           "expect": "digest_changes",
           "field_path": "size_bytes",
           "name": "field.size_bytes"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "bebd59f7e7b21b28ed55bde79e75ed8688afbd4ee379dfa26d07bf60455b3f62",
+          "digest_hex": "46caf5ea7827f53c78e9373224021ad3f7be37bfcca0995d447749554f30f2ea",
           "expect": "digest_changes",
           "field_path": "artifact_total_size_bytes",
           "name": "field.artifact_total_size_bytes"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "9eba16ef43ef3e0be41428be25ce8155a33062aef5575975163cd649b9920ce0",
+          "digest_hex": "c2b9c86981a9f7420119ffd06b7cab09d24fd6fe69874d307e864a34bf10570b",
           "expect": "digest_changes",
           "field_path": "retention_until_height",
           "name": "field.retention_until_height"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "d53422c598a7b30164d2fffc0092fb8c6982755d0e37b0c7683982732dbdddef",
+          "digest_hex": "75b8940d92bd622c827e94160fbb785295a71711e18d6a60fbec86c4bbc63d84",
           "expect": "digest_changes",
           "field_path": "object_ref.evidence_kind",
           "name": "field.object_ref.evidence_kind"
         }
       ],
       "name": "builder_confirmation_worker_token_evidence",
-      "preimage_hex": "0000000000000028545255454f50454e5f4255494c4445525f53544f524147455f434f4e4649524d4154494f4e5f56320000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b80000000000000008000000000000000700000000000000f500000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000207777777777777777777777777777777777777777777777777777777777777777000000000000000400000001000000000000000400000001000000000000001d0100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000004000000000000000800000000000002bc0000000000000008000000000000080000000000000000080000000000001388",
+      "preimage_hex": "0000000000000028545255454f50454e5f4255494c4445525f53544f524147455f434f4e4649524d4154494f4e5f56320000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b80000000000000008000000000000000700000000000000f50000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000004000000030000000000000020f9470df7daf275da0f23215b67fd2d6e6cadfb139e9da89fc70bed77cc7b9571000000000000000400000001000000000000000400000001000000000000001d0100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000004000000000000000800000000000003690000000000000008000000000000020f00000000000000080000000000001388",
       "preimage_size_bytes": 430,
       "producer": "BuilderStorageConfirmationDigest"
     },
     {
       "contract_section": "Public wire fixture testdata/v1/task/builder_confirmation_v1.json",
-      "digest_hex": "6a7b72355491bb4f52c583618b8c1faf28a554cf27a9283f5231fce4caf4a7aa",
+      "digest_hex": "0f3969da97e62f138fd8bcc6ecf65cc9a0f8febdc5f72a5f26a61e3c8127a506",
       "domain": "TRUEOPEN_BUILDER_STORAGE_CONFIRMATION_V2",
       "fields": [
         {
@@ -714,7 +715,7 @@
               "value": 3
             },
             {
-              "hex": "8888888888888888888888888888888888888888888888888888888888888888",
+              "hex": "17b4b66711beba88ab8ea07f28d21576daa206c78583ec4f3023aaaa1fd7f44d",
               "name": "content_hash",
               "type": "bytes"
             },
@@ -755,12 +756,12 @@
         {
           "name": "size_bytes",
           "type": "uint64",
-          "value": 640
+          "value": 597
         },
         {
           "name": "artifact_total_size_bytes",
           "type": "uint64",
-          "value": 8192
+          "value": 817
         },
         {
           "name": "retention_until_height",
@@ -772,63 +773,63 @@
       "mutations": [
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "a27afeae4cb3c0191b4a02bf55a65aa6915f75769bf1e8117e554dfc441bc17d",
+          "digest_hex": "44f2f7bdc41515ef5f7c0b84d1b8748aebf71b3b3cfb40e5b42930db04dec5b6",
           "expect": "digest_changes",
           "field_path": "schema_version",
           "name": "field.schema_version"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "d4e972cf61c4e73ad8ee2dacf69c513abd8af04f00585d5cc67d214db0b5e4be",
+          "digest_hex": "a0919eff3a4bebb60be07c20bcea95452a2aae4a3b1240b5276ede51d4a84673",
           "expect": "digest_changes",
           "field_path": "chain_id",
           "name": "field.chain_id"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "54149c5a23078c4365257f2b17de7c6b2e951506b71e846b27f546a55b7b6429",
+          "digest_hex": "8f3d64e8b543148ac0392f25c8f1f7fc268de15d6861f0f25d7a50e5f9566f9a",
           "expect": "digest_changes",
           "field_path": "builder_operator_address",
           "name": "field.builder_operator_address"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "8de2cd62e4dc505731e46626b1870abfeebcb6cbea9626a6cdd4436808399dfb",
+          "digest_hex": "97291acee5b73e7e192c04ea4d099eb9c377a496ed954987617632af986adf19",
           "expect": "digest_changes",
           "field_path": "service_authorization_nonce",
           "name": "field.service_authorization_nonce"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "d6f0442aa653171a1bd4cd9cd23aba462f2b33fe439accaf70108e07a67396e6",
+          "digest_hex": "2f51ab3161a85e583a5b3917dcc9a64edc699177dae9d25ee364a7bb95be995c",
           "expect": "digest_changes",
           "field_path": "size_bytes",
           "name": "field.size_bytes"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "72aea934dd02777c638f9a1fe7ce4c2d39932fcfa6ad168dae6c4fc1c4faa260",
+          "digest_hex": "4482db47434354632ff8215e8ef2489182aaaf71a0c38a7ad42ac897c9fd0c29",
           "expect": "digest_changes",
           "field_path": "artifact_total_size_bytes",
           "name": "field.artifact_total_size_bytes"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "037d3033a3d3802b516ac1b4e7aaba4bf9633e103f9b07aca3133658e39f17dc",
+          "digest_hex": "dc3cac01538dc247e644c64dfa7b46769ae22efd0e94a9bced03c0fc62cffbc6",
           "expect": "digest_changes",
           "field_path": "retention_until_height",
           "name": "field.retention_until_height"
         },
         {
           "change": "one encoded leaf changed",
-          "digest_hex": "acae45e0e174d80f7c62ff95c7da612ceb458e916d3aac95dc85b86499b4ea56",
+          "digest_hex": "ae1499c9ae25f3f2b6934e8e8aebe2579f0a94a4cd6d2131676019d1a8293394",
           "expect": "digest_changes",
           "field_path": "object_ref.evidence_kind",
           "name": "field.object_ref.evidence_kind"
         }
       ],
       "name": "builder_confirmation_worker_value_evidence",
-      "preimage_hex": "0000000000000028545255454f50454e5f4255494c4445525f53544f524147455f434f4e4649524d4154494f4e5f56320000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b80000000000000008000000000000000700000000000000f500000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000208888888888888888888888888888888888888888888888888888888888888888000000000000000400000001000000000000000400000001000000000000001d0100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000000800000000000002800000000000000008000000000000200000000000000000080000000000001388",
+      "preimage_hex": "0000000000000028545255454f50454e5f4255494c4445525f53544f524147455f434f4e4649524d4154494f4e5f56320000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b80000000000000008000000000000000700000000000000f5000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000020333333333333333333333333333333333333333333333333333333333333333300000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000000400000003000000000000002017b4b66711beba88ab8ea07f28d21576daa206c78583ec4f3023aaaa1fd7f44d000000000000000400000001000000000000000400000001000000000000001d0100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000000800000000000002550000000000000008000000000000033100000000000000080000000000001388",
       "preimage_size_bytes": 430,
       "producer": "BuilderStorageConfirmationDigest"
     }

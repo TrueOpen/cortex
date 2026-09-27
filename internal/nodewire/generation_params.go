@@ -65,6 +65,70 @@ func (g GenerationContext) Digest() (codec.Hash, error) {
 	return codec.HashV1(DomainGenerationParamsV1, payload), nil
 }
 
+// CanonicalJSON returns canonical_generation_params_json, the exact bytes the
+// digest covers and the Worker's A-level generation_params artifact carries.
+func (g GenerationContext) CanonicalJSON() ([]byte, error) {
+	return g.canonicalJSON()
+}
+
+// GenerationParamsDigest is generation_params_digest over raw canonical bytes.
+// Consumers of the generation_params artifact hash the bytes they received and
+// never a re-serialization.
+func GenerationParamsDigest(raw []byte) codec.Hash {
+	return codec.HashV1(DomainGenerationParamsV1, raw)
+}
+
+// ParseCanonicalGenerationParams reads a generation_params artifact. It decodes
+// strictly and requires raw to be the canonical encoding of what it decoded,
+// so the parameters a Verifier prefills under are exactly the ones the digest
+// of raw commits to.
+func ParseCanonicalGenerationParams(raw []byte) (GenerationContext, error) {
+	if len(raw) == 0 || len(raw) > maxGenerationPayloadBytes {
+		return GenerationContext{}, fmt.Errorf("generation_params must hold 1..%d bytes", maxGenerationPayloadBytes)
+	}
+	var p generationProjection
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return GenerationContext{}, fmt.Errorf("decode generation_params: %w", err)
+	}
+	if dec.More() {
+		return GenerationContext{}, fmt.Errorf("generation_params carries trailing data")
+	}
+	if len(p.ModelID) != 66 || p.ModelID[:2] != "0x" {
+		return GenerationContext{}, fmt.Errorf("generation_params model_id must be 0x-prefixed Hash32 hex")
+	}
+	g := GenerationContext{
+		ModelID: p.ModelID[2:], ProfileVersion: p.ProfileVersion, OutputBudgetBucket: p.OutputBudgetBucket,
+		Params: GenerationParamsV1{
+			SchemaVersion: p.SchemaVersion, MaxOutputTokens: p.MaxOutputTokens, MaxOutputDuration: p.MaxOutputDuration,
+			DecodingParams: DecodingParamsV1{
+				SamplingEnabled: p.DecodingParams.SamplingEnabled, TemperatureMilli: p.DecodingParams.TemperatureMilli,
+				TopPPPM: p.DecodingParams.TopPPPM, TopK: p.DecodingParams.TopK, Seed: p.DecodingParams.Seed,
+				PresencePenaltyMilli: p.DecodingParams.PresencePenaltyMilli, FrequencyPenaltyMilli: p.DecodingParams.FrequencyPenaltyMilli,
+				RepetitionPenaltyPPM: p.DecodingParams.RepetitionPenaltyPPM,
+				StopSequences:        p.DecodingParams.StopSequences, StopTokenIDs: p.DecodingParams.StopTokenIDs,
+			},
+		},
+	}
+	switch p.TaskType {
+	case "TEXT_GENERATION":
+		g.TaskType = 1
+	case "CHAT":
+		g.TaskType = 2
+	default:
+		return GenerationContext{}, fmt.Errorf("generation_params task_type %q is not TEXT_GENERATION or CHAT", p.TaskType)
+	}
+	canonical, err := g.canonicalJSON()
+	if err != nil {
+		return GenerationContext{}, err
+	}
+	if !bytes.Equal(canonical, raw) {
+		return GenerationContext{}, fmt.Errorf("generation_params is not canonical JSON")
+	}
+	return g, nil
+}
+
 // Struct declaration order is canonical UTF-8 key order, including the nested
 // object. Transport structs deliberately do not define the digest projection.
 type generationProjection struct {
@@ -171,11 +235,11 @@ func (g GenerationContext) canonicalJSON() ([]byte, error) {
 func encodeGenerationProjection(p generationProjection) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
-	// TODO(wire v0.3.0): wire rc.1's generation_params_v1 and canonical_json_v1
-	// vectors HTML-escape '<', '>' and '&' (as \u003c etc.), while its
-	// CANONICAL_ENCODING_V1.md says HTML escaping is disabled. The published
-	// vectors are followed until wire settles which one is normative.
-	encoder.SetEscapeHTML(true)
+	// CANONICAL_ENCODING_V1 strings: only '"', '\\' and U+0000..U+001F are
+	// escaped (\b \t \n \f \r short, others lowercase \u00xx), plus U+2028 and
+	// U+2029; '<', '>', '&' and '/' are written as themselves. That is exactly
+	// encoding/json with HTML escaping off (Go 1.22+ writes \b and \f short).
+	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(p); err != nil {
 		return nil, fmt.Errorf("encode generation params: %w", err)
 	}
@@ -190,8 +254,6 @@ func generationJSONStringContentSize(s string) uint64 {
 			size++
 		case '\u2028', '\u2029':
 			size += 3
-		case '<', '>', '&':
-			size += 5 // HTML-escaped as \u003c, \u003e, \u0026
 		default:
 			if r < 0x20 {
 				size += 5

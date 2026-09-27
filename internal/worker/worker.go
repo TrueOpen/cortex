@@ -855,7 +855,11 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	if w.cfg.EvidenceSchemaHash == "" {
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("%w: evidence_schema_hash requires the locked Profile's verification_profile.evidence_schema_hash from hub.v1.Query/Profile", builderclient.ErrInferReceiptInputUnavailable)
 	}
-	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, tokenIDs, positionValues)
+	generationParams, err := w.generationParamsArtifact(ctx, event, facts.GenerationParamsDigest)
+	if err != nil {
+		return builderclient.SignedInferReceipt{}, InferResult{}, err
+	}
+	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, generationParams, tokenIDs, positionValues)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}

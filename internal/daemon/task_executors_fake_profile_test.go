@@ -167,6 +167,7 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	fixture := evidenceFixture{
 		WorkerValues: valueArtifacts["worker_values"], ValueManifest: valueManifest, TokenManifest: tokenManifest,
 		InputTokenIDs: tokenArtifacts["input_token_ids"], GeneratedTokenIDs: tokenArtifacts["generated_token_ids"],
+		GenerationParams: tokenArtifacts["generation_params"],
 		Commitments: EvidenceCommitments{SessionID: task.SessionID, TaskID: task.TaskID, BuilderOperatorAddress: inputTestBuilder,
 			Receipt: receipt, EvidenceSchemaHash: schemaHash.String(), Output: output,
 			OutputChunkLengths: []uint64{receipt.OutputSizeBytes}, RequiredTopK: fakeRequiredTopK,

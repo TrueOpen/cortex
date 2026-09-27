@@ -27,10 +27,10 @@ func TestWorkerStagesCanonicalBundleBeforeFinalizingAvailability(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Each bundle uploads its artifacts and then its manifest, value bundle
-	// first: worker_values, manifest, generated_token_ids, input_token_ids,
-	// manifest.
-	if len(h.taskData.uploads) != 5 {
-		t.Fatalf("uploads = %d, want three artifacts and two manifests", len(h.taskData.uploads))
+	// first: worker_values, manifest, generated_token_ids, generation_params,
+	// input_token_ids, manifest.
+	if len(h.taskData.uploads) != 6 {
+		t.Fatalf("uploads = %d, want four artifacts and two manifests", len(h.taskData.uploads))
 	}
 	receipt := result.TaskDataReceipt
 	for bundle, spec := range []struct {
@@ -39,7 +39,7 @@ func TestWorkerStagesCanonicalBundleBeforeFinalizingAvailability(t *testing.T) {
 		artifacts  []string
 	}{
 		{1, nodewire.EvidenceKindWorkerValueOpening, []string{"worker_values"}},
-		{4, nodewire.EvidenceKindWorkerTokenOpening, []string{"generated_token_ids", "input_token_ids"}},
+		{5, nodewire.EvidenceKindWorkerTokenOpening, []string{"generated_token_ids", "generation_params", "input_token_ids"}},
 	} {
 		manifestUpload := h.taskData.uploads[spec.manifestAt]
 		manifest, err := evidencebundle.Decode(manifestUpload.Data)
@@ -51,7 +51,7 @@ func TestWorkerStagesCanonicalBundleBeforeFinalizingAvailability(t *testing.T) {
 			commitment.EvidenceKind != spec.kind || commitment.EvidenceHashOrRoot.String() != manifestUpload.Key.ContentHash {
 			t.Fatalf("bundle %d manifest object commitment mismatch", bundle)
 		}
-		if commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestUpload.Data) || commitment.EncodedSizeBytes != manifest.TotalSize() {
+		if commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestUpload.Data) || commitment.EncodedSizeBytes != manifest.CommittedSize() {
 			t.Fatalf("receipt does not commit bundle %d's artifacts", bundle)
 		}
 		if len(manifest.Artifacts) != len(spec.artifacts) {
@@ -103,7 +103,7 @@ func TestWorkerRetainedConfirmationsSurviveBuilderKeyRotation(t *testing.T) {
 			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
 				t.Fatal(err)
 			}
-			if len(h.taskData.uploads) != 5 || len(h.taskData.relays) != 1 || len(h.persistence.confirmations) != 3 {
+			if len(h.taskData.uploads) != 6 || len(h.taskData.relays) != 1 || len(h.persistence.confirmations) != 3 {
 				t.Fatal("key rotation repeated finalized material")
 			}
 		})
@@ -129,7 +129,7 @@ func TestWorkerExpiredRetainedConfirmationDoesNotReleaseAvailability(t *testing.
 	if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.taskData.uploads) != 10 || len(h.persistence.confirmations) != 6 || h.persistence.confirmations[3].RetentionUntilHeight != 300 {
+	if len(h.taskData.uploads) != 12 || len(h.persistence.confirmations) != 6 || h.persistence.confirmations[3].RetentionUntilHeight != 300 {
 		t.Fatal("expired storage was reused to release availability")
 	}
 }
@@ -175,7 +175,7 @@ func TestWorkerRetainedConfirmationNeedsCurrentHeightAndExpectedBuilder(t *testi
 }
 
 func TestWorkerRecoveryRejectsBundleProfileOrArtifactTampering(t *testing.T) {
-	for _, name := range []string{"schema", "profile size", "value manifest", "token manifest", "input token IDs", "generated token IDs", "worker values", "leaf count", "generated token count"} {
+	for _, name := range []string{"schema", "profile size", "value manifest", "token manifest", "input token IDs", "generated token IDs", "generation params", "worker values", "leaf count", "generated token count"} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			event := finalizedTask()
@@ -215,6 +215,8 @@ func TestWorkerRecoveryRejectsBundleProfileOrArtifactTampering(t *testing.T) {
 					id = builderclient.EvidenceArtifactInputTokenIDs
 				case "generated token IDs":
 					id = builderclient.EvidenceArtifactGeneratedTokenIDs
+				case "generation params":
+					id = builderclient.EvidenceArtifactGenerationParams
 				case "worker values":
 					kind, id = nodewire.EvidenceKindWorkerValueOpening, builderclient.EvidenceArtifactWorkerValues
 				}
@@ -230,7 +232,7 @@ func TestWorkerRecoveryRejectsBundleProfileOrArtifactTampering(t *testing.T) {
 			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err == nil {
 				t.Fatal("recovery accepted invalid retained bundle")
 			}
-			if len(h.taskData.uploads) != 5 {
+			if len(h.taskData.uploads) != 6 {
 				t.Fatal("invalid retained bundle reached upload")
 			}
 		})
@@ -272,7 +274,7 @@ func TestWorkerRecoveryRequiresBothFullSignedConfirmations(t *testing.T) {
 			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
 				t.Fatal(err)
 			}
-			if len(h.taskData.uploads) != 10 || len(h.taskData.relays) != 2 {
+			if len(h.taskData.uploads) != 12 || len(h.taskData.relays) != 2 {
 				t.Fatal("incomplete or invalid confirmation suppressed idempotent finalization")
 			}
 		})

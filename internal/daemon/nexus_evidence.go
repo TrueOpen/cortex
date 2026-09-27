@@ -31,7 +31,10 @@ type EvidenceCommitments struct {
 type WorkerEvidence struct {
 	InputTokenIDs, GeneratedTokenIDs []byte
 	WorkerValues                     []byte
-	FinishReason                     nodewire.FinishReasonV1
+	// GenerationParams is the A-level generation_params artifact, already
+	// checked against the signed generation_params_digest.
+	GenerationParams []byte
+	FinishReason     nodewire.FinishReasonV1
 }
 
 type EvidenceConfirmer interface {
@@ -103,6 +106,13 @@ func (c *NexusEvidenceConfirmer) confirmFrom(ctx context.Context, facts Evidence
 		InputTokenIDs:     artifacts[builderclient.EvidenceArtifactInputTokenIDs],
 		GeneratedTokenIDs: artifacts[builderclient.EvidenceArtifactGeneratedTokenIDs],
 		WorkerValues:      artifacts[builderclient.EvidenceArtifactWorkerValues],
+		GenerationParams:  artifacts[builderclient.EvidenceArtifactGenerationParams],
+	}
+	// generation_params is bound by hashing the received bytes, never a
+	// re-serialization; the digest is then bound to the token commitment by
+	// ConfirmWorkerEvidence below.
+	if got := nodewire.GenerationParamsDigest(result.GenerationParams); got.String() != receipt.GenerationParamsDigest {
+		return WorkerEvidence{}, fmt.Errorf("Worker generation_params does not hash to the signed generation_params_digest")
 	}
 	outputRoot, err := codec.OutputMMRRootFromLengths(facts.Output, facts.OutputChunkLengths)
 	if err != nil || outputRoot.String() != receipt.OutputHash || uint64(len(facts.Output)) != receipt.OutputSizeBytes || uint64(len(facts.OutputChunkLengths)) != receipt.OutputLeafCount {
@@ -185,14 +195,17 @@ func (c *NexusEvidenceConfirmer) fetchBundle(ctx context.Context, facts Evidence
 	if err != nil {
 		return nil, err
 	}
+	// The A-level bundle also carries generation_params, which the committed
+	// encoded_size_bytes does not count; the exact total is checked against
+	// the manifest once it is read.
 	wantArtifacts := uint32(1)
 	if kind == nodewire.EvidenceKindWorkerTokenOpening {
-		wantArtifacts = 2
+		wantArtifacts = 3
 	}
 	summary := metadata.EvidenceBundle
 	if summary == nil || summary.ManifestSizeBytes == 0 || summary.ManifestSizeBytes > evidencebundle.MaxManifestBytes ||
 		metadata.SizeBytes != summary.ManifestSizeBytes || summary.EvidenceSchemaHash != facts.EvidenceSchemaHash ||
-		summary.ArtifactCount != wantArtifacts || summary.ArtifactTotalSizeBytes != committed.EncodedSizeBytes {
+		summary.ArtifactCount != wantArtifacts || summary.ArtifactTotalSizeBytes < committed.EncodedSizeBytes {
 		return nil, fmt.Errorf("Worker %s bundle summary differs from receipt, profile or manifest bounds", evidencebundle.KindToken(kind))
 	}
 	// evidence_manifest_hash is Builder metadata, not a commitment: it only
@@ -213,8 +226,8 @@ func (c *NexusEvidenceConfirmer) fetchBundle(ctx context.Context, facts Evidence
 		manifest.EvidenceSchemaHash != facts.EvidenceSchemaHash || manifest.EvidenceKind != evidencebundle.KindToken(kind) {
 		return nil, fmt.Errorf("Worker %s manifest scope differs from the receipt or locked profile", manifest.EvidenceKind)
 	}
-	if manifest.TotalSize() != committed.EncodedSizeBytes {
-		return nil, fmt.Errorf("Worker %s manifest size differs from the committed encoded_size_bytes", manifest.EvidenceKind)
+	if manifest.CommittedSize() != committed.EncodedSizeBytes || manifest.TotalSize() != summary.ArtifactTotalSizeBytes {
+		return nil, fmt.Errorf("Worker %s manifest size differs from the committed encoded_size_bytes or the Builder's artifact total", manifest.EvidenceKind)
 	}
 	out := make(map[string][]byte, len(manifest.Artifacts))
 	for _, artifact := range manifest.Artifacts {

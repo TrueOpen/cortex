@@ -8,8 +8,9 @@
 // rather than read from disk so a caller's working directory cannot change
 // which file is checked.
 //
-// The vectors are wire v0.3.0-rc.1's files copied byte for byte. VerifyProvenance
-// checks the embedded bytes against wire's own release manifest, which is what
+// The vectors are wire's testdata/v1 at WireCommit copied byte for byte: the
+// v0.3.0-rc.2 candidate, which is not a release. VerifyProvenance checks the
+// embedded bytes against that commit's own fixture manifest, which is what
 // makes them evidence rather than transcription: without it a fixture could be
 // edited to agree with whatever this repository happens to compute, which is
 // precisely the failure a cross-implementation vector exists to catch.
@@ -26,10 +27,18 @@ import (
 	"fmt"
 )
 
-// WireVersion is the wire release the embedded files were copied from. Raising
-// the go.mod dependency without recopying these is a drift this constant makes
-// visible in a diff.
-const WireVersion = "v0.3.0-rc.1"
+// WireVersion names the wire version the embedded files were copied from.
+// Raising the go.mod dependency without recopying these is a drift this
+// constant makes visible in a diff.
+//
+// TODO(wire v0.3.0-rc.2): these are the rc.2 candidate's fixtures at
+// WireCommit (TrueOpen/wire#18), not a tagged release; the generated code is
+// still rc.1's, whose descriptor rc.2 leaves unchanged. Recopy from the tag
+// once rc.2 is published.
+const WireVersion = "v0.3.0-rc.2-candidate"
+
+// WireCommit is the wire commit the embedded files were copied from.
+const WireCommit = "52346e04bd926d9cd92affcf01330764ab5a165c"
 
 //go:embed testdata/v030
 var released embed.FS
@@ -45,7 +54,7 @@ type vectorSet struct {
 
 var releasedSet = vectorSet{
 	fs: released, dir: "testdata/v030", version: WireVersion,
-	manifestSum: "d272b9e95b7cfb4b2ca56a269201ab7b4fce0abce2a85e7be322fab69cb7cf66",
+	manifestSum: "de06a4128849b73401d8234971d61a3c6350369f54fae0a3fde622f285c4e539",
 }
 
 // File returns exact released fixture bytes after checking their provenance.

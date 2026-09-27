@@ -281,12 +281,14 @@ func (f *FakeClient) FinalizeTaskResult(_ context.Context, _ string, req Finaliz
 	if err != nil {
 		return FinalizeTaskResultResponse{}, err
 	}
-	if confirmation.ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
-		return FinalizeTaskResultResponse{}, fmt.Errorf("artifact total does not match receipt")
-	}
 	manifest, bundleKeys, err := f.fakeBundle(bundleKey, req.Receipt.ChainID)
 	if err != nil {
 		return FinalizeTaskResultResponse{}, err
+	}
+	// The committed size excludes the A-level generation_params artifact; the
+	// confirmation's artifact total counts every artifact.
+	if manifest.CommittedSize() != commitment.EncodedSizeBytes || confirmation.ArtifactTotalSizeBytes != manifest.TotalSize() {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("artifact total does not match receipt")
 	}
 	if err := f.fakeConfirmWorkerCommitment(req.Receipt, manifest, bundleKeys, *commitment); err != nil {
 		return FinalizeTaskResultResponse{}, err
@@ -341,6 +343,9 @@ func (f *FakeClient) fakeConfirmWorkerCommitment(receipt SignedInferReceipt, man
 		}
 		if uint64(len(generated)) != receipt.GeneratedTokenCount {
 			return fmt.Errorf("Worker generated token IDs count differs from receipt")
+		}
+		if digest := nodewire.GenerationParamsDigest(artifacts[EvidenceArtifactGenerationParams]); digest.String() != receipt.GenerationParamsDigest {
+			return fmt.Errorf("Worker generation_params does not hash to the receipt's generation_params_digest")
 		}
 		if facts.InputTokenIDsHash, err = nodewire.InputTokenIDsHash(input); err != nil {
 			return err

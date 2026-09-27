@@ -347,8 +347,11 @@ func (c *ConnectTaskDataClient) FinalizeTaskResult(ctx context.Context, endpoint
 		return FinalizeTaskResultResponse{}, fmt.Errorf("receipt commits no evidence of kind %d", request.EvidenceKind)
 	}
 	key = EvidenceObjectKey(request.TaskHash, request.SessionID, request.TaskID, DataKindEvidenceManifest, hex.EncodeToString(commitment.EvidenceHashOrRoot[:]), EvidenceProducerWorker, 1, request.Receipt.WorkerOperatorAddress, commitment.EvidenceKind)
-	if confirmations[0] == nil || confirmations[0].SizeBytes == 0 || confirmations[0].ArtifactTotalSizeBytes != commitment.EncodedSizeBytes {
-		return FinalizeTaskResultResponse{}, fmt.Errorf("Worker bundle confirmation must bind manifest size and committed artifact total")
+	// artifact_total_size_bytes counts every artifact, so for the A-level bundle
+	// it also counts generation_params, which the committed encoded_size_bytes
+	// does not. The caller checks the exact total against its own manifest.
+	if confirmations[0] == nil || confirmations[0].SizeBytes == 0 || confirmations[0].ArtifactTotalSizeBytes < commitment.EncodedSizeBytes {
+		return FinalizeTaskResultResponse{}, fmt.Errorf("Worker bundle confirmation must bind manifest size and cover the committed artifacts")
 	}
 	confirmation, err := validateFinalizeConfirmation(confirmations[0], request.Auth, key, confirmations[0].SizeBytes)
 	if err != nil {

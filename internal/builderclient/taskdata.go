@@ -47,6 +47,7 @@ const (
 	EvidenceArtifactInputTokenIDs     = "input_token_ids"
 	EvidenceArtifactGeneratedTokenIDs = "generated_token_ids"
 	EvidenceArtifactWorkerValues      = "worker_values"
+	EvidenceArtifactGenerationParams  = "generation_params"
 	EvidenceArtifactAggregateProof    = "aggregate_proof"
 )
 

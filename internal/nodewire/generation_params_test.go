@@ -52,6 +52,44 @@ func TestGenerationContextDigestMatchesPublishedVector(t *testing.T) {
 	}
 }
 
+// The published generation_params bytes parse back to the same context, their
+// raw-bytes digest is the published digest, and a non-canonical or foreign
+// encoding is refused.
+func TestParseCanonicalGenerationParamsReadsThePublishedBytes(t *testing.T) {
+	raw, err := wirevectors.File("task/generation_params_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		CanonicalJSON string `json:"canonical_json"`
+		DigestHex     string `json:"digest_hex"`
+	}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseCanonicalGenerationParams([]byte(vector.CanonicalJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, goldenGenerationContext()) {
+		t.Fatalf("parsed = %+v, want the golden context", got)
+	}
+	if GenerationParamsDigest([]byte(vector.CanonicalJSON)).String() != vector.DigestHex {
+		t.Fatal("raw-bytes digest differs from the published digest")
+	}
+	for name, bad := range map[string]string{
+		"html escaped":  strings.Replace(vector.CanonicalJSON, "</s>", `\u003c/s\u003e`, 1),
+		"whitespace":    strings.Replace(vector.CanonicalJSON, `{"decoding_params"`, `{ "decoding_params"`, 1),
+		"unknown field": strings.Replace(vector.CanonicalJSON, `"task_type"`, `"x":1,"task_type"`, 1),
+		"unhexed model": strings.Replace(vector.CanonicalJSON, `"0x55`, `"55`, 1),
+		"trailing":      vector.CanonicalJSON + "{}",
+	} {
+		if _, err := ParseCanonicalGenerationParams([]byte(bad)); err == nil {
+			t.Fatalf("%s generation_params was accepted", name)
+		}
+	}
+}
+
 func TestGenerationContextDigestBindsEveryField(t *testing.T) {
 	mutations := map[string]func(*GenerationContext){
 		"model":         func(g *GenerationContext) { g.ModelID = strings.Repeat("56", 32) },
@@ -149,13 +187,14 @@ func TestGenerationContextCanonicalZerosEmptyListsAndEscapes(t *testing.T) {
 	if err != nil || emptyDigest != nilDigest {
 		t.Fatalf("nil and empty differ: %v", err)
 	}
-	// String escaping follows the published vectors, which HTML-escape.
+	// CANONICAL_ENCODING_V1 escapes only '"', '\\', controls and U+2028/U+2029;
+	// '/', '<', '>' and '&' are written as themselves.
 	g.Params.DecodingParams.StopSequences = []string{"\"\\\b\t\n\f\r\x01/<>&  中"}
 	payload, err = g.canonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `"stop_sequences":["\"\\\b\t\n\f\r\u0001/\u003c\u003e\u0026\u2028\u2029` + "\u4e2d" + `"]`
+	want := `"stop_sequences":["\"\\\b\t\n\f\r\u0001/<>&\u2028\u2029` + "\u4e2d" + `"]`
 	if !bytes.Contains(payload, []byte(want)) {
 		t.Fatalf("canonical payload missing %s: %s", want, payload)
 	}

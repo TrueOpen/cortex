@@ -205,7 +205,7 @@ func taskDataTestReceipt(t *testing.T, keyPair taskDataTestKeyPair, chainID stri
 		TaskHash:                  strings.Repeat("22", 32),
 		WorkerOperatorAddress:     keyPair.address(t),
 		ServiceAuthorizationNonce: 9,
-		GenerationParamsDigest:    strings.Repeat("33", 32),
+		GenerationParamsDigest:    nodewire.GenerationParamsDigest(taskDataTestGenerationParams).String(),
 		OutputHash:                hex.EncodeToString(outputHash[:]),
 		OutputSizeBytes:           uint64(len(data)),
 		OutputLeafCount:           1,
@@ -575,3 +575,7 @@ func TestConnectTaskDataClientClosesUploadResponseBodyOnSuccess(t *testing.T) {
 		t.Fatalf("upload response bodies opened = %d, closed = %d, want every body closed", opened, closed)
 	}
 }
+
+// taskDataTestGenerationParams stands in for a task's canonical generation
+// parameters: consumers of the A-level bundle only hash these bytes.
+var taskDataTestGenerationParams = []byte(`{"fixture":"generation params"}`)

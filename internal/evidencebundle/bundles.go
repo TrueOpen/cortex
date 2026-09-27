@@ -22,9 +22,14 @@ const (
 	KindVerifierValueOpening = "VERIFIER_VALUE_OPENING"
 )
 
+// ArtifactGenerationParams is the A-level artifact holding the task's exact
+// canonical_generation_params_json. It is stored in the bundle but not counted
+// in the A-level commitment's encoded_size_bytes.
+const ArtifactGenerationParams = "generation_params"
+
 // artifactsV3 is the exact artifact set of each bundle, in canonical order.
 var artifactsV3 = map[string][]string{
-	KindWorkerTokenOpening:   {"generated_token_ids", "input_token_ids"},
+	KindWorkerTokenOpening:   {"generated_token_ids", ArtifactGenerationParams, "input_token_ids"},
 	KindWorkerValueOpening:   {"worker_values"},
 	KindVerifierValueOpening: {"aggregate_proof"},
 }

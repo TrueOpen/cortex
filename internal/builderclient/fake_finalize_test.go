@@ -20,7 +20,7 @@ func fakeFinalizeFixture(t *testing.T, mutate func(*evidencebundle.Manifest)) (*
 	receipt := taskDataTestReceipt(t, pair, "chain-A", output)
 	// The fixture finalizes the A-level token bundle.
 	req := FinalizeTaskResultRequest{TaskHash: receipt.TaskHash, SessionID: strings.Repeat("11", 32), TaskID: receipt.TaskID, Receipt: receipt, EvidenceKind: nodewire.EvidenceKindWorkerTokenOpening}
-	manifest := evidencebundle.Manifest{Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("generated_token_ids", generated), evidencebundle.NewArtifact("input_token_ids", input)}, ChainID: receipt.ChainID, EvidenceKind: evidencebundle.KindWorkerTokenOpening, EvidenceSchemaHash: strings.Repeat("22", 32), Version: 1, ProducerKind: "WORKER", ProducerOperator: receipt.WorkerOperatorAddress, TaskHash: receipt.TaskHash, TaskID: receipt.TaskID, VerifyRound: 1}
+	manifest := evidencebundle.Manifest{Artifacts: []evidencebundle.Artifact{evidencebundle.NewArtifact("generated_token_ids", generated), evidencebundle.NewArtifact("generation_params", taskDataTestGenerationParams), evidencebundle.NewArtifact("input_token_ids", input)}, ChainID: receipt.ChainID, EvidenceKind: evidencebundle.KindWorkerTokenOpening, EvidenceSchemaHash: strings.Repeat("22", 32), Version: 1, ProducerKind: "WORKER", ProducerOperator: receipt.WorkerOperatorAddress, TaskHash: receipt.TaskHash, TaskID: receipt.TaskID, VerifyRound: 1}
 	inputHash, _ := nodewire.InputTokenIDsHash([]uint32{7})
 	generatedHash, _ := nodewire.GeneratedTokenIDsHash([]uint32{1, 2, 3})
 	commitment, err := WorkerTokenEvidenceCommitment(WorkerEvidenceFacts{ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest, EvidenceSchemaHash: manifest.EvidenceSchemaHash, OutputHash: mustHash(t, receipt.OutputHash), OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: 1, GeneratedTokenCount: 3, FinishReason: nodewire.FinishReasonV1EosToken, InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash, InputTokenIDsSizeBytes: uint64(len(input)), GeneratedTokenIDsSizeBytes: uint64(len(generated))})
@@ -41,9 +41,9 @@ func fakeFinalizeFixture(t *testing.T, mutate func(*evidencebundle.Manifest)) (*
 		key  TaskDataKey
 		data []byte
 	}{{outputKey, output}}
-	for i, data := range [][]byte{input, generated, encoded} {
+	for i, data := range [][]byte{input, generated, taskDataTestGenerationParams, encoded} {
 		kind, hash := DataKindEvidenceArtifact, codec.HashBytes(data)
-		if i == 2 {
+		if i == 3 {
 			kind, hash = DataKindEvidenceManifest, commitment.EvidenceHashOrRoot
 		}
 		objects = append(objects, struct {
@@ -130,7 +130,9 @@ func TestFakeFinalizeIsAtomicAndIdempotent(t *testing.T) {
 	if err != nil || result.Idempotent || len(result.EvidenceBundleConfirmations) != 1 {
 		t.Fatalf("finalize=%+v err=%v", result, err)
 	}
-	if result.EvidenceBundleConfirmations[0].ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[1].EncodedSizeBytes {
+	// The artifact total also counts generation_params, which the committed
+	// encoded_size_bytes does not.
+	if result.EvidenceBundleConfirmations[0].ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[1].EncodedSizeBytes+uint64(len(taskDataTestGenerationParams)) {
 		t.Fatal("bundle total incorrect")
 	}
 	for _, metadata := range f.TaskDataMetadata {
@@ -144,7 +146,7 @@ func TestFakeFinalizeIsAtomicAndIdempotent(t *testing.T) {
 	if err != nil || !result.Idempotent || len(f.FinalizedTaskResults) != 1 {
 		t.Fatal("identical finalize not idempotent")
 	}
-	if result.EvidenceBundleConfirmations[0].Key != uploads[3].Key || result.OutputConfirmation.Signature[0] != 1 {
+	if result.EvidenceBundleConfirmations[0].Key != uploads[4].Key || result.OutputConfirmation.Signature[0] != 1 {
 		t.Fatal("caller mutated the cached finalization")
 	}
 	req.Receipt.GeneratedTokenCount++
@@ -169,7 +171,7 @@ func TestFakeFinalizeRejectsManifestScopeAndStoredTampering(t *testing.T) {
 			}
 			f, pair, req, uploads := fakeFinalizeFixture(t, mutate)
 			if name == "noncanonical" {
-				upload := &uploads[3]
+				upload := &uploads[4]
 				upload.Data = append(upload.Data, '\n')
 				upload.SizeBytes = uint64(len(upload.Data))
 				upload.Key.ContentHash = evidencebundle.Hash(upload.Data).String()

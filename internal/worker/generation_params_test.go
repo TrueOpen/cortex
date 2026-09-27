@@ -115,6 +115,7 @@ func TestRealWorkerRejectsIgnoredGenerationAndExcessTokens(t *testing.T) {
 func TestRealWorkerRefusesMissingGenerationBeforeModelCall(t *testing.T) {
 	h := newHarness(t)
 	h.worker.cfg.FakeOutput = false
+	h.worker.cfg.GenerationReader = nil
 	_, err := h.worker.prepareOutput(context.Background(), finalizedTask())
 	if err == nil || !strings.Contains(err.Error(), "generation") || h.model.InferCalls != 0 {
 		t.Fatalf("err=%v, model calls=%d: missing frozen parameters must stop inference", err, h.model.InferCalls)

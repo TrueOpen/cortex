@@ -38,8 +38,11 @@ type workerBundle struct {
 // workerEvidence is what the two bundles contribute to the commitments.
 type workerEvidence struct {
 	inputTokenIDs, generatedTokenIDs, workerValues []byte
-	inputHash, generatedHash, valueRoot            codec.Hash
-	generatedCount                                 uint64
+	// generationParams is the task's exact canonical_generation_params_json,
+	// carried in the A-level bundle so a Verifier prefills under it.
+	generationParams                    []byte
+	inputHash, generatedHash, valueRoot codec.Hash
+	generatedCount                      uint64
 }
 
 // decodeMaterial reads the model service's two Infer artifacts.
@@ -72,12 +75,12 @@ func (w *Worker) valueBinding(taskID string, acceptedTaskHash []byte) (nodewire.
 
 // deriveWorkerEvidence encodes the protocol artifacts of both bundles from the
 // model material. It is deterministic, so a restart re-derives the same bytes.
-func (w *Worker) deriveWorkerEvidence(taskID string, acceptedTaskHash []byte, tokenIDs, positionValues []byte) (workerEvidence, error) {
+func (w *Worker) deriveWorkerEvidence(taskID string, acceptedTaskHash, generationParams []byte, tokenIDs, positionValues []byte) (workerEvidence, error) {
 	ids, values, err := decodeMaterial(tokenIDs, positionValues)
 	if err != nil {
 		return workerEvidence{}, err
 	}
-	var out workerEvidence
+	out := workerEvidence{generationParams: generationParams}
 	if out.inputTokenIDs, out.generatedTokenIDs, err = modelservice.ProtocolTokenIDs(ids); err != nil {
 		return workerEvidence{}, err
 	}
@@ -115,9 +118,10 @@ func (w *Worker) workerManifest(event chainclient.AssignmentFinalized, taskHash 
 	if kind == nodewire.EvidenceKindWorkerTokenOpening {
 		manifest.Artifacts = []evidencebundle.Artifact{
 			evidencebundle.NewArtifact(builderclient.EvidenceArtifactGeneratedTokenIDs, ev.generatedTokenIDs),
+			evidencebundle.NewArtifact(builderclient.EvidenceArtifactGenerationParams, ev.generationParams),
 			evidencebundle.NewArtifact(builderclient.EvidenceArtifactInputTokenIDs, ev.inputTokenIDs),
 		}
-		return manifest, [][]byte{ev.generatedTokenIDs, ev.inputTokenIDs}
+		return manifest, [][]byte{ev.generatedTokenIDs, ev.generationParams, ev.inputTokenIDs}
 	}
 	manifest.Artifacts = []evidencebundle.Artifact{evidencebundle.NewArtifact(builderclient.EvidenceArtifactWorkerValues, ev.workerValues)}
 	return manifest, [][]byte{ev.workerValues}
@@ -186,7 +190,7 @@ func (w *Worker) readWorkerBundles(ctx context.Context, event chainclient.Assign
 			m.EvidenceSchemaHash != w.cfg.EvidenceSchemaHash || m.EvidenceKind != evidencebundle.KindToken(kind) {
 			return nil, fmt.Errorf("Worker %s manifest scope differs from task or locked Profile", m.EvidenceKind)
 		}
-		if receipt.RequiredEvidenceCommitments[i].EvidenceKind != kind || receipt.RequiredEvidenceCommitments[i].EncodedSizeBytes != m.TotalSize() {
+		if receipt.RequiredEvidenceCommitments[i].EvidenceKind != kind || receipt.RequiredEvidenceCommitments[i].EncodedSizeBytes != m.CommittedSize() {
 			return nil, fmt.Errorf("Worker %s manifest does not match signed receipt", m.EvidenceKind)
 		}
 		for _, artifact := range m.Artifacts {
@@ -221,8 +225,13 @@ func (w *Worker) readWorkerBundles(ctx context.Context, event chainclient.Assign
 	if err != nil {
 		return nil, err
 	}
+	generationParams := token.artifacts[builderclient.EvidenceArtifactGenerationParams]
+	if nodewire.GenerationParamsDigest(generationParams) != codec.Hash(facts.GenerationParamsDigest) {
+		return nil, fmt.Errorf("Worker generation_params artifact differs from the task's generation_params_digest")
+	}
 	ev := workerEvidence{
-		inputTokenIDs: token.artifacts[builderclient.EvidenceArtifactInputTokenIDs], generatedTokenIDs: token.artifacts[builderclient.EvidenceArtifactGeneratedTokenIDs],
+		generationParams: generationParams,
+		inputTokenIDs:    token.artifacts[builderclient.EvidenceArtifactInputTokenIDs], generatedTokenIDs: token.artifacts[builderclient.EvidenceArtifactGeneratedTokenIDs],
 		workerValues: value.artifacts[builderclient.EvidenceArtifactWorkerValues], generatedCount: uint64(len(generated)),
 	}
 	if ev.inputHash, err = nodewire.InputTokenIDsHash(input); err != nil {

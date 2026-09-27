@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
+	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelservice"
@@ -56,4 +58,25 @@ func (w *Worker) validateGenerationOutput(ctx context.Context, event chainclient
 		return fmt.Errorf("retained generated token count differs from material")
 	}
 	return nil
+}
+
+// generationParamsArtifact is the A-level generation_params artifact: the
+// Worker's own order's canonical generation parameters, which must hash to the
+// task's generation_params_digest.
+func (w *Worker) generationParamsArtifact(ctx context.Context, event chainclient.AssignmentFinalized, digest []byte) ([]byte, error) {
+	generation, _, err := w.taskGeneration(ctx, event)
+	if err != nil {
+		return nil, err
+	}
+	if generation == nil {
+		return nil, fmt.Errorf("%w: the generation_params artifact requires the task's generation parameters", builderclient.ErrInferReceiptInputUnavailable)
+	}
+	raw, err := generation.CanonicalJSON()
+	if err != nil {
+		return nil, err
+	}
+	if got := nodewire.GenerationParamsDigest(raw); !bytes.Equal(got[:], digest) {
+		return nil, fmt.Errorf("generation parameters do not hash to the task's generation_params_digest")
+	}
+	return raw, nil
 }

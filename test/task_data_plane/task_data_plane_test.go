@@ -338,7 +338,7 @@ func TestNexusEnforcesOperatorRequesterAuthorization(t *testing.T) {
 func proofReceiptFacts(t *testing.T) builderclient.InferReceiptFacts {
 	t.Helper()
 	taskHash := codec.HashWithDomain("TRUEOPEN_TASK_ORDER_V1", []byte(proofTaskID))
-	generation := codec.HashWithDomain("TRUEOPEN_TASK_GENERATION_PARAMS_V1", []byte(proofTaskID))
+	generation := nodewire.GenerationParamsDigest(proofGenerationParams)
 	outputHash, _ := codec.OutputMMRRoot([][]byte{proofOutput})
 	inputHash, _ := nodewire.InputTokenIDsHash([]uint32{7})
 	generatedHash, _ := nodewire.GeneratedTokenIDsHash([]uint32{1, 2, 3, 4})
@@ -349,6 +349,10 @@ func proofReceiptFacts(t *testing.T) builderclient.InferReceiptFacts {
 	}
 	return builderclient.InferReceiptFacts{ChainID: proofChainID, TaskID: proofTaskID, TaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, ServiceAuthorizationNonce: proofServiceAuthorizationNonce, GenerationParamsDigest: generation.String(), OutputHash: outputHash, OutputLeafCount: 1, OutputSizeBytes: uint64(len(proofOutput)), GeneratedTokenCount: proofTokenCount, RequiredEvidenceCommitments: commitments, ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(), ExpiryHeight: proofInferDeadline}
 }
+
+// proofGenerationParams stands in for the proof task's canonical generation
+// parameters; the task-data plane only ever hashes these bytes.
+var proofGenerationParams = []byte(`{"proof":"generation params"}`)
 
 // proofRequiredTopK frames the proof Worker's worker_values.
 const proofRequiredTopK = 4
@@ -402,7 +406,8 @@ func proofEvidence(t testing.TB, taskHash string) proofWorkerEvidence {
 		return encoded
 	}
 	out.valueManifest = scope(evidencebundle.KindWorkerValueOpening, evidencebundle.NewArtifact("worker_values", out.values))
-	out.tokenManifest = scope(evidencebundle.KindWorkerTokenOpening, evidencebundle.NewArtifact("generated_token_ids", out.generated), evidencebundle.NewArtifact("input_token_ids", out.input))
+	out.tokenManifest = scope(evidencebundle.KindWorkerTokenOpening, evidencebundle.NewArtifact("generated_token_ids", out.generated),
+		evidencebundle.NewArtifact("generation_params", proofGenerationParams), evidencebundle.NewArtifact("input_token_ids", out.input))
 	return out
 }
 
@@ -1011,7 +1016,7 @@ func (h *taskDataHarness) stageBundle(t *testing.T, receipt builderclient.Signed
 		artifacts [][]byte
 	}{
 		{nodewire.EvidenceKindWorkerValueOpening, evidence.valueManifest, [][]byte{evidence.values}},
-		{nodewire.EvidenceKindWorkerTokenOpening, evidence.tokenManifest, [][]byte{evidence.generated, evidence.input}},
+		{nodewire.EvidenceKindWorkerTokenOpening, evidence.tokenManifest, [][]byte{evidence.generated, proofGenerationParams, evidence.input}},
 	} {
 		stage := func(dataKind builderclient.DataKind, hash string, data []byte) {
 			key := builderclient.EvidenceObjectKey(receipt.TaskHash, proofSessionID, proofTaskID, dataKind, hash, builderclient.EvidenceProducerWorker, 1, proofWorkerOperator, bundle.kind)

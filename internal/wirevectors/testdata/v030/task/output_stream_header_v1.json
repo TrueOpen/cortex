@@ -1,7 +1,8 @@
 {
   "notes": [
     "The Worker signs the seven-field H_FIELDS_V1 digest independently of TaskDataRequestAuthV1.",
-    "Plaintext Phase 0 requires attempt 0, stream_instance 1, an empty recipient key and two zero32 commitments."
+    "Plaintext Phase 0 requires attempt 0, stream_instance 1, an empty recipient key and two zero32 commitments.",
+    "signature_raw64_hex verifies under service_pubkey_compressed_hex, the same Worker service test key as output_chunk_equivocation_v1.json."
   ],
   "rejected_cases": [
     "attempt != 0",
@@ -16,6 +17,7 @@
     {
       "digest_hex": "403a6bd3bfc6163d9ee2aac6903627a82ecf5875c6f15aaf06a1b711d2280c01",
       "signature_raw64_hex": "c00086ab5ce9e3aa7d5431740ecf7f4874fcd5b099e5f999936604133761b1664942ee026fdebe94cb664be41d2178541e09113a0128c4be1874f5060a6b57c4",
+      "service_pubkey_compressed_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
       "domain": "TRUEOPEN_OUTPUT_STREAM_HEADER_V1",
       "fields": [
         {

@@ -50,9 +50,13 @@ func TestV040FinalizeResultRequiresCompleteScopedConfirmations(t *testing.T) {
 		"wrong task hash": func(r *nexusv1.FinalizeTaskResultResponse) {
 			r.OutputConfirmation.ObjectRef.TaskHash = strings.Repeat("99", 32)
 		},
-		"wrong size":           func(r *nexusv1.FinalizeTaskResultResponse) { r.OutputConfirmation.SizeBytes++ },
-		"empty manifest":       func(r *nexusv1.FinalizeTaskResultResponse) { r.EvidenceBundleConfirmations[0].SizeBytes = 0 },
-		"wrong artifact total": func(r *nexusv1.FinalizeTaskResultResponse) { r.EvidenceBundleConfirmations[0].ArtifactTotalSizeBytes++ },
+		"wrong size":     func(r *nexusv1.FinalizeTaskResultResponse) { r.OutputConfirmation.SizeBytes++ },
+		"empty manifest": func(r *nexusv1.FinalizeTaskResultResponse) { r.EvidenceBundleConfirmations[0].SizeBytes = 0 },
+		// The total may exceed the committed size (generation_params is not
+		// committed) but never fall short of it.
+		"short artifact total": func(r *nexusv1.FinalizeTaskResultResponse) {
+			r.EvidenceBundleConfirmations[0].ArtifactTotalSizeBytes = commitment.EncodedSizeBytes - 1
+		},
 		"wrong producer": func(r *nexusv1.FinalizeTaskResultResponse) {
 			operator := "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe"
 			r.EvidenceBundleConfirmations[0].ObjectRef.ProducerOperator = &operator

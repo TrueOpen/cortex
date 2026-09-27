@@ -49,7 +49,7 @@ func TestWorkerManifestMetadataSeparatesLocatorAndIntegrityHash(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	key := uploads[3].Key
+	key := uploads[4].Key
 	body, err := TaskDataMetadataBodyDigest(key)
 	if err != nil {
 		t.Fatal(err)
@@ -59,8 +59,9 @@ func TestWorkerManifestMetadataSeparatesLocatorAndIntegrityHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := evidencebundle.Hash(uploads[3].Data).String()
-	if metadata.EvidenceBundle.EvidenceManifestHash != want || want == key.ContentHash || metadata.EvidenceBundle.ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[1].EncodedSizeBytes {
+	want := evidencebundle.Hash(uploads[4].Data).String()
+	if metadata.EvidenceBundle.EvidenceManifestHash != want || want == key.ContentHash ||
+		metadata.EvidenceBundle.ArtifactTotalSizeBytes != req.Receipt.RequiredEvidenceCommitments[1].EncodedSizeBytes+uint64(len(taskDataTestGenerationParams)) {
 		t.Fatalf("metadata=%+v key=%+v", metadata, key)
 	}
 	server := newTaskDataTestServer(t, &taskDataTestHandler{metadata: func(_ context.Context, r *connect.Request[nexusv1.GetTaskDataMetadataRequest]) (*connect.Response[nexusv1.GetTaskDataMetadataResponse], error) {

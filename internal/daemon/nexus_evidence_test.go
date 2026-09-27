@@ -76,6 +76,7 @@ func (c *evidenceTaskDataClient) FetchTaskData(ctx context.Context, _ string, re
 
 type evidenceFixture struct {
 	InputTokenIDs, GeneratedTokenIDs, WorkerValues []byte
+	GenerationParams                               []byte
 	ValueManifest, TokenManifest                   []byte
 	FinishReason                                   nodewire.FinishReasonV1
 	Commitments                                    EvidenceCommitments
@@ -94,6 +95,10 @@ func newEvidenceFixture(t *testing.T) evidenceFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	generationParams, err := generation.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
 	model := modelservice.NewFakeService()
 	result, err := model.Infer(context.Background(), modelservice.InferRequest{ModelID: generation.ModelID, ProfileVersion: "1", Capability: modelservice.CapabilityLLMTextV1,
 		Input: []byte("fixture prompt"), Generation: generation, GenerationParamsDigest: digest[:]})
@@ -108,7 +113,7 @@ func newEvidenceFixture(t *testing.T) evidenceFixture {
 		}
 		artifacts = append(artifacts, artifact.Data)
 	}
-	f := evidenceFixture{FinishReason: result.FinishReason, Commitments: EvidenceCommitments{
+	f := evidenceFixture{FinishReason: result.FinishReason, GenerationParams: generationParams, Commitments: EvidenceCommitments{
 		SessionID: strings.Repeat("11", 32), TaskID: outputTestTaskID, BuilderOperatorAddress: inputTestBuilder,
 		EvidenceSchemaHash: evidenceTestSchemaHash, Output: artifacts[0], OutputChunkLengths: []uint64{uint64(len(artifacts[0]))},
 		MaxEncodedSizeBytes: map[nodewire.EvidenceKind]uint64{nodewire.EvidenceKindWorkerValueOpening: 256 << 20, nodewire.EvidenceKindWorkerTokenOpening: 256 << 20},
@@ -186,7 +191,8 @@ func (f *evidenceFixture) rebuildManifests(t *testing.T, mutate func(*evidencebu
 			EvidenceKind: kind, Artifacts: artifacts}
 	}
 	value := scope(evidencebundle.KindWorkerValueOpening, evidencebundle.NewArtifact("worker_values", f.WorkerValues))
-	token := scope(evidencebundle.KindWorkerTokenOpening, evidencebundle.NewArtifact("generated_token_ids", f.GeneratedTokenIDs), evidencebundle.NewArtifact("input_token_ids", f.InputTokenIDs))
+	token := scope(evidencebundle.KindWorkerTokenOpening, evidencebundle.NewArtifact("generated_token_ids", f.GeneratedTokenIDs),
+		evidencebundle.NewArtifact("generation_params", f.GenerationParams), evidencebundle.NewArtifact("input_token_ids", f.InputTokenIDs))
 	if mutate != nil {
 		mutate(&value)
 		mutate(&token)
@@ -234,8 +240,9 @@ func (f *evidenceFixture) rebuildManifests(t *testing.T, mutate func(*evidencebu
 	f.Commitments.Receipt.RequiredEvidenceCommitments = commitments
 }
 
-// keys are, in fetch order: value manifest, worker_values, token manifest,
-// generated_token_ids, input_token_ids.
+// keys are: value manifest, worker_values, token manifest,
+// generated_token_ids, input_token_ids, generation_params. The last is fetched
+// between the two token-id artifacts; it is appended so earlier indexes stay.
 func (f evidenceFixture) keys() []builderclient.TaskDataKey {
 	r := f.Commitments.Receipt
 	key := func(dataKind builderclient.DataKind, hash string, kind nodewire.EvidenceKind) builderclient.TaskDataKey {
@@ -248,12 +255,13 @@ func (f evidenceFixture) keys() []builderclient.TaskDataKey {
 		key(builderclient.DataKindEvidenceManifest, r.RequiredEvidenceCommitments[1].EvidenceHashOrRoot.String(), token),
 		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.GeneratedTokenIDs).String(), token),
 		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.InputTokenIDs).String(), token),
+		key(builderclient.DataKindEvidenceArtifact, codec.HashBytes(f.GenerationParams).String(), token),
 	}
 }
 
 func (f evidenceFixture) objects() map[builderclient.TaskDataKey][]byte {
 	keys := f.keys()
-	return map[builderclient.TaskDataKey][]byte{keys[0]: f.ValueManifest, keys[1]: f.WorkerValues, keys[2]: f.TokenManifest, keys[3]: f.GeneratedTokenIDs, keys[4]: f.InputTokenIDs}
+	return map[builderclient.TaskDataKey][]byte{keys[0]: f.ValueManifest, keys[1]: f.WorkerValues, keys[2]: f.TokenManifest, keys[3]: f.GeneratedTokenIDs, keys[4]: f.InputTokenIDs, keys[5]: f.GenerationParams}
 }
 
 func evidenceAuth(t *testing.T) (*taskdataauth.Authenticator, signer.Signer) {
@@ -287,19 +295,22 @@ func TestNexusEvidenceConfirmerFetchesManifestBeforeFullArtifactReferences(t *te
 		t.Fatal(err)
 	}
 	if !bytes.Equal(result.WorkerValues, f.WorkerValues) || !bytes.Equal(result.GeneratedTokenIDs, f.GeneratedTokenIDs) ||
-		!bytes.Equal(result.InputTokenIDs, f.InputTokenIDs) || result.FinishReason != f.FinishReason {
+		!bytes.Equal(result.InputTokenIDs, f.InputTokenIDs) || !bytes.Equal(result.GenerationParams, f.GenerationParams) || result.FinishReason != f.FinishReason {
 		t.Fatal("confirmed evidence differs from the manifest")
 	}
 	keys := f.keys()
-	if len(client.metadataRequests) != 5 || len(client.fetches) != 5 {
+	if len(client.metadataRequests) != 6 || len(client.fetches) != 6 {
 		t.Fatalf("manifest/artifact requests=%d/%d", len(client.metadataRequests), len(client.fetches))
 	}
 	if keys[0].ContentHash == evidencebundle.Hash(f.ValueManifest).String() || keys[0].ContentHash != f.Commitments.Receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot.String() ||
 		keys[2].ContentHash != f.Commitments.Receipt.RequiredEvidenceCommitments[1].EvidenceHashOrRoot.String() {
 		t.Fatal("Worker manifest locator must be the typed commitment, independent of manifest hash")
 	}
+	// Artifacts are fetched in manifest order: generation_params sits between
+	// the two token-id artifacts.
+	fetchOrder := []builderclient.TaskDataKey{keys[0], keys[1], keys[2], keys[3], keys[5], keys[4]}
 	for i, request := range client.metadataRequests {
-		if request.Key != keys[i] || client.fetches[i].Key != keys[i] || client.fetches[i].Range != nil {
+		if request.Key != fetchOrder[i] || client.fetches[i].Key != fetchOrder[i] || client.fetches[i].Range != nil {
 			t.Fatalf("object %d lost its full scoped reference", i)
 		}
 		if !strings.HasSuffix(request.Auth.Method, "/GetTaskDataMetadata") || request.Auth.BuilderAddress != inputTestBuilder || request.Auth.ChainID != outputTestChainID || len(request.Auth.Signature) != 64 || len(client.fetches[i].Auth.Signature) != 64 {

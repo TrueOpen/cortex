@@ -32,9 +32,22 @@ func inferReceiptV3Fixture(t *testing.T) (nodewire.InferReceiptV3, inferReceiptV
 	if err := json.Unmarshal(data, &file); err != nil {
 		t.Fatal(err)
 	}
-	if len(file.Vectors) != 1 || file.Vectors[0].Domain != nodewire.DomainInferReceiptV3 || len(file.Vectors[0].Fields) != 17 {
-		t.Fatal("infer_receipt_v3.json must publish one 17-field TRUEOPEN_INFER_RECEIPT_V3 vector")
+	// infer_receipt_v3 is the base vector; infer_receipt_v3_distinct_counts
+	// differs in generated_token_count and output_leaf_count so the two
+	// cannot be swapped unnoticed.
+	if len(file.Vectors) != 2 || file.Vectors[0].Name != "infer_receipt_v3" || file.Vectors[1].Name != "infer_receipt_v3_distinct_counts" {
+		t.Fatal("infer_receipt_v3.json must publish the base and distinct-count TRUEOPEN_INFER_RECEIPT_V3 vectors")
 	}
+	for _, v := range file.Vectors {
+		if v.Domain != nodewire.DomainInferReceiptV3 || len(v.Fields) != 17 {
+			t.Fatalf("%s must be a 17-field TRUEOPEN_INFER_RECEIPT_V3 vector", v.Name)
+		}
+	}
+	return inferReceiptV3FromVector(t, file, file.Vectors[0]), file
+}
+
+func inferReceiptV3FromVector(t *testing.T, file inferReceiptV3File, v goldenVector) nodewire.InferReceiptV3 {
+	t.Helper()
 	items := make([]nodewire.EvidenceCommitmentV1, 0, len(file.CommitmentList.Items))
 	for _, item := range file.CommitmentList.Items {
 		hashOrRoot, err := hex.DecodeString(item.EvidenceHashOrRootHex)
@@ -47,7 +60,6 @@ func inferReceiptV3Fixture(t *testing.T) (nodewire.InferReceiptV3, inferReceiptV
 			EncodedSizeBytes:   item.EncodedSizeBytes,
 		})
 	}
-	v := file.Vectors[0]
 	if hex.EncodeToString(fieldBytes(t, v, 9, "evidence_commitments_hash")) != file.CommitmentList.DigestHex {
 		t.Fatal("the receipt vector does not carry the published commitment list digest")
 	}
@@ -69,7 +81,7 @@ func inferReceiptV3Fixture(t *testing.T) (nodewire.InferReceiptV3, inferReceiptV
 		WorkerTokenKeyCommitment:    fieldBytes(t, v, 14, "worker_token_key_commitment"),
 		WorkerValueKeyCommitment:    fieldBytes(t, v, 15, "worker_value_key_commitment"),
 		CiphertextOutputRoot:        fieldBytes(t, v, 16, "ciphertext_output_root"),
-	}, file
+	}
 }
 
 func TestInferReceiptV3ReproducesPublishedVector(t *testing.T) {
@@ -90,6 +102,19 @@ func TestInferReceiptV3ReproducesPublishedVector(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkPublished(t, file.Vectors[0], preimage, digest)
+	distinct := inferReceiptV3FromVector(t, file, file.Vectors[1])
+	if distinct.GeneratedTokenCount == distinct.OutputLeafCount {
+		t.Fatal("the distinct-count vector carries equal counts")
+	}
+	distinctPreimage, err := nodewire.InferReceiptSigningPreimage(distinct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	distinctDigest, err := nodewire.InferReceiptSigningDigest(distinct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkPublished(t, file.Vectors[1], distinctPreimage, distinctDigest)
 	// The service signature is outside the preimage.
 	signed := receipt
 	signed.ServiceSignature = []byte("signature")

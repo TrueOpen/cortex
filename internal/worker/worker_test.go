@@ -703,10 +703,10 @@ func TestWorkerRetriesWithStableReceiptAndOutputMaterial(t *testing.T) {
 	if h.model.InferCalls != 1 {
 		t.Fatalf("model infer calls = %d, want the durable prepared output reused", h.model.InferCalls)
 	}
-	// The first evidence artifact fails once, then four artifacts and manifest
-	// are staged on retry. The already stored output stream is reused.
-	if len(h.taskData.relays) != 2 || len(h.taskData.uploads) != 6 {
-		t.Fatalf("relay/upload attempts = %d/%d, want 2/6", len(h.taskData.relays), len(h.taskData.uploads))
+	// The first evidence artifact fails once, then four artifacts and two
+	// manifests are staged on retry. The already stored output stream is reused.
+	if len(h.taskData.relays) != 2 || len(h.taskData.uploads) != 7 {
+		t.Fatalf("relay/upload attempts = %d/%d, want 2/7", len(h.taskData.relays), len(h.taskData.uploads))
 	}
 	for index, upload := range h.taskData.uploads[:2] {
 		if upload.Key.Kind != builderclient.DataKindEvidenceArtifact {
@@ -767,8 +767,8 @@ func TestWorkerRestartAfterAvailabilityReleaseDoesNotDowngradeOrRepublish(t *tes
 				t.Fatalf("restarted HandleAssignmentFinalized: %v", err)
 			}
 			// The stored output and manifest confirmations avoid repeating any of
-			// the four uploads or the finalization request after restart.
-			if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 5 || len(h.persistence.confirmations) != 3 {
+			// the six uploads or the finalization request after restart.
+			if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 6 || len(h.persistence.confirmations) != 3 {
 				t.Fatalf("restart duplicated relay/upload/confirmation = %d/%d/%d",
 					len(h.taskData.relays), len(h.taskData.uploads), len(h.persistence.confirmations))
 			}
@@ -1287,6 +1287,9 @@ func newHarnessWithConfig(t *testing.T, mutate func(*Config)) harness {
 		// come from. Both are keyed by task id, so a reader pointed at the wrong
 		// task serves visibly different bytes.
 		TaskFacts: taskFacts,
+		GenerationReader: generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
+			return workerTestGeneration(), nil
+		}),
 		// SnapshotReader re-reads the canonical assignment before the worker
 		// accepts an event. Tests use a fixed snapshot that matches the event.
 		SnapshotReader: snapshotReader,
@@ -1345,9 +1348,23 @@ func (h harness) seedPreparedOutput(t *testing.T, event chainclient.AssignmentFi
 // workerTestServedTaskFacts is what the Keeper's frozen section 16.2 read serves
 // for one task. It is the single source for both fixture facts, so the seeded
 // prepared output and the production fetch cannot drift apart.
+// workerTestGeneration is the harness task's generation context: its digest is
+// the served generation_params_digest and its canonical bytes are the A-level
+// generation_params artifact.
+func workerTestGeneration() nodewire.GenerationContext {
+	return nodewire.GenerationContext{
+		ModelID: finalizedTask().ModelID, ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 1,
+		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: 1024, MaxOutputDuration: 30000,
+			DecodingParams: nodewire.DecodingParamsV1{TopPPPM: 1000000, RepetitionPenaltyPPM: 1000000}},
+	}
+}
+
 func workerTestServedTaskFacts(taskID string) taskfacts.Facts {
 	accepted := codec.HashWithDomain("WORKER_TEST_ACCEPTED_TASK_HASH_V1", []byte(taskID))
-	generation := codec.HashWithDomain("WORKER_TEST_GENERATION_PARAMS_DIGEST_V1", []byte(taskID))
+	generation, err := workerTestGeneration().Digest()
+	if err != nil {
+		panic(err)
+	}
 	return taskfacts.Facts{
 		TaskID: taskID,
 		TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
@@ -2015,7 +2032,7 @@ func TestWorkerRelaysExactReceiptAndEvidenceFacts(t *testing.T) {
 	for i, want := range []struct {
 		kind       nodewire.EvidenceKind
 		manifestAt int
-	}{{nodewire.EvidenceKindWorkerValueOpening, 1}, {nodewire.EvidenceKindWorkerTokenOpening, 4}} {
+	}{{nodewire.EvidenceKindWorkerValueOpening, 1}, {nodewire.EvidenceKindWorkerTokenOpening, 5}} {
 		commitment := relay.Receipt.RequiredEvidenceCommitments[i]
 		manifestBytes := h.taskData.uploads[want.manifestAt].Data
 		manifest, err := evidencebundle.Decode(manifestBytes)
@@ -2023,7 +2040,7 @@ func TestWorkerRelaysExactReceiptAndEvidenceFacts(t *testing.T) {
 			t.Fatal(err)
 		}
 		if commitment.EvidenceKind != want.kind || commitment.EvidenceHashOrRoot == (codec.Hash{}) ||
-			commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestBytes) || commitment.EncodedSizeBytes != manifest.TotalSize() {
+			commitment.EvidenceHashOrRoot == evidencebundle.Hash(manifestBytes) || commitment.EncodedSizeBytes != manifest.CommittedSize() {
 			t.Fatalf("relayed evidence commitment %d = %#v", i, commitment)
 		}
 	}
@@ -2079,8 +2096,13 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 		}
 	}
 	// And the read really happened, for exactly the task in hand.
-	if len(h.taskFacts.asked) != 2 || h.taskFacts.asked[0] != finalizedTask().TaskID || h.taskFacts.asked[1] != finalizedTask().TaskID {
+	if len(h.taskFacts.asked) < 2 {
 		t.Fatalf("task facts asked = %#v, want stream and receipt reads for the finalized assignment", h.taskFacts.asked)
+	}
+	for _, asked := range h.taskFacts.asked {
+		if asked != finalizedTask().TaskID {
+			t.Fatalf("task facts asked = %#v, want only the finalized assignment", h.taskFacts.asked)
+		}
 	}
 	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 {
 		t.Fatalf("refusal reached the network: relays=%d uploads=%d", len(h.taskData.relays), len(h.taskData.uploads))
@@ -2109,11 +2131,23 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 func TestWorkerReceiptCarriesTheServedTaskFacts(t *testing.T) {
 	h := newHarness(t)
 	event := finalizedTask()
+	// The served digest is of parameters only this test's order carries, so it
+	// cannot be the harness default; the generation_params artifact must hash
+	// to it.
+	generation := workerTestGeneration()
+	generation.Params.DecodingParams.Seed = 0x6c6c
+	generationDigest, err := generation.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.worker.cfg.GenerationReader = generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
+		return generation.Clone(), nil
+	})
 	served := taskfacts.Facts{
 		TaskID: event.TaskID,
 		TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
 			AcceptedTaskHash:       chainclient.ProtoBytes32(bytes.Repeat([]byte{0x5b}, 32)),
-			GenerationParamsDigest: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x6c}, 32)),
+			GenerationParamsDigest: chainclient.ProtoBytes32(generationDigest[:]),
 		},
 	}
 	h.taskFacts.override = func(string) (taskfacts.Facts, error) { return served, nil }

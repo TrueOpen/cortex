@@ -48,6 +48,22 @@ func (a Artifact) SizeBytes() (uint64, error) {
 	return n, nil
 }
 
+// CommittedSize is the encoded_size_bytes the bundle's evidence commitment
+// counts: every artifact except the A-level generation_params.
+func (m Manifest) CommittedSize() uint64 {
+	var n uint64
+	for _, a := range m.Artifacts {
+		if m.EvidenceKind == KindWorkerTokenOpening && a.ID == ArtifactGenerationParams {
+			continue
+		}
+		s, _ := a.SizeBytes()
+		n += s
+	}
+	return n
+}
+
+// TotalSize is the sum of every artifact size, the Builder's
+// artifact_total_size_bytes.
 func (m Manifest) TotalSize() uint64 {
 	var n uint64
 	for _, a := range m.Artifacts {
