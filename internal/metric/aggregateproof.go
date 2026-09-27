@@ -82,7 +82,7 @@ type AggregateProof struct {
 //
 // This binds the summary to the root, the count and the locked profile. It does
 // NOT by itself prove the summary is the aggregation of those leaves — that
-// property comes from AggregateFromSamples being the only aggregator, so an
+// property comes from SummaryV3 being the only aggregator, so an
 // opening that reveals the leaves lets anyone recompute the summary and check
 // it. A proof that carried the aggregation inline would be O(tokens) inside a
 // consensus state whose bound nobody has published.

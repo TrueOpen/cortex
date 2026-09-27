@@ -141,7 +141,7 @@ func (p persistedMetricMaterial) restore() (metric.Material, error) {
 	if len(proof) == 0 {
 		return metric.Material{}, fmt.Errorf("persisted aggregate_proof is empty")
 	}
-	if p.MetricLeafCount <= 0 {
+	if p.MetricLeafCount < 0 {
 		return metric.Material{}, fmt.Errorf("persisted metric_leaf_count is %d", p.MetricLeafCount)
 	}
 	derived := codec.HashBytes(proof)

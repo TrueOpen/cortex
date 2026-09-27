@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/TrueOpen/cortex/internal/metric"
 	"math"
 	"sort"
 	"strings"
@@ -332,6 +333,15 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	state.ConfirmedGenerationParams = workerEvidence.GenerationParams
 	state.ConfirmedInferReceipt = pkg.SignedInferReceipt
 	result, err := v.HandleOpenVerifyAccepted(ctx, state)
+	if errors.Is(err, metric.ErrVerifierValuesUnavailable) {
+		// The Verifier's own prefill left nothing comparable where the Worker
+		// had values: its own execution failure. Nothing is committed and the
+		// round is not retried; it counts as this Verifier's miss.
+		task.Stage, task.LastError = "failed", err.Error()
+		e.cfg.Trace.Event("verify_stopped", tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", taskHash),
+			tasktrace.Uint("verify_round", task.VerifyRound), tasktrace.Str("reason", "verifier_values_unavailable"))
+		return task, false, nil
+	}
 	if err != nil {
 		return task, false, err
 	}

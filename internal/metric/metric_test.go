@@ -29,8 +29,9 @@ const (
 	fixtureMetricRootHex = "bed50329055c4c44bd2d888ade2dd7a665fe6262f371e38393b568bd07dcbc17"
 	// The same summary with fields 7/8 present, and with them absent. Two
 	// different facts, two different hashes - see §9.7.
-	fixtureSummaryHashWithOptionalsHex    = "347cbe49201e4f41708fd3e4bf59a8c0854041c1429b01d10ecdd96b248415af"
-	fixtureSummaryHashWithoutOptionalsHex = "536822decaa2c96009a43f82101c8650c0765e6a2515a6a435324124089e91c3"
+	fixtureSummaryHashWithOptionalsHex = "347cbe49201e4f41708fd3e4bf59a8c0854041c1429b01d10ecdd96b248415af"
+	// Without either ratio compared_topk_count is 0 (05 field rules).
+	fixtureSummaryHashWithoutOptionalsHex = "3166ab05fef70b1762688372f41ac2431d1061d4024fd6c298bd1855689f24a8"
 	// The aggregate proof's own encoding is Cortex's rather than the protocol's
 	// (see BuildAggregateProof), which is exactly why it is pinned: nothing
 	// upstream would notice it moving.
@@ -116,35 +117,25 @@ func TestNonContiguousOrOutOfOrderPositionsAreRefused(t *testing.T) {
 	}
 }
 
-func TestEmptySampleSetIsRefusedRatherThanRootedEmpty(t *testing.T) {
-	_, err := Build(fixtureBinding(), nil)
-	if err == nil {
-		t.Fatalf("an empty sample set produced a signed-able root")
-	}
-	if !strings.Contains(err.Error(), "empty tree") {
-		t.Fatalf("error does not explain the empty-tree refusal: %v", err)
-	}
-}
-
 // §9.7: presence of fields 7 and 8 is decided by the locked MetricSpec alone.
 // Both directions are checked, and so is the consequence - the two summaries
 // must not hash alike, or the distinction would not reach the Keeper.
 func TestOptionalSummaryMembersFollowTheLockedMetricSpec(t *testing.T) {
-	measured := fixtureAggregates()
+	samples := fixtureSamplesV3(t)
 
-	withOptionals, err := Summary(Spec{
-		CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 4,
-	}, measured)
+	withOptionals, err := SummaryV3(Spec{
+		CompareLogprobDiff: true, CompareRankDelta: true, CompareTopKJaccard: true, CompareUnionJS: true, ComparedTopK: 4,
+	}, 4, samples)
 	if err != nil {
-		t.Fatalf("Summary returned error: %v", err)
+		t.Fatalf("SummaryV3 returned error: %v", err)
 	}
 	if !withOptionals.TopkJaccardMeanFP1e6.Present || !withOptionals.UnionJSP99FP1e6.Present {
 		t.Fatalf("profile asked for both optionals and the summary omitted one: %#v", withOptionals)
 	}
 
-	withoutOptionals, err := Summary(Spec{ComparedTopK: 4}, measured)
+	withoutOptionals, err := SummaryV3(Spec{CompareLogprobDiff: true, CompareRankDelta: true, ComparedTopK: 4}, 4, samples)
 	if err != nil {
-		t.Fatalf("Summary returned error: %v", err)
+		t.Fatalf("SummaryV3 returned error: %v", err)
 	}
 	if withoutOptionals.TopkJaccardMeanFP1e6.Present || withoutOptionals.UnionJSP99FP1e6.Present {
 		t.Fatalf("profile asked for neither optional and the summary carried one: %#v", withoutOptionals)
@@ -169,35 +160,6 @@ func TestOptionalSummaryMembersFollowTheLockedMetricSpec(t *testing.T) {
 	}
 }
 
-// A profile that judges on a metric the run never measured is a refusal, not an
-// absent field: absent means "this profile does not judge on it", which would be
-// a false statement the Keeper then judges against.
-func TestARequiredOptionalTheRunDidNotMeasureIsRefused(t *testing.T) {
-	measured := fixtureAggregates()
-	measured.TopKJaccardMean = OptionalFP{}
-
-	_, err := Summary(Spec{CompareTopKJaccard: true, ComparedTopK: 4}, measured)
-	if err == nil {
-		t.Fatalf("a required but unmeasured optional was silently omitted")
-	}
-	if !strings.Contains(err.Error(), "compare_topk_jaccard") {
-		t.Fatalf("error does not name the profile flag that required it: %v", err)
-	}
-}
-
-// A metric the profile does NOT ask for must not reach the preimage even when
-// the run measured it - the run measures everything the model service can give,
-// and the profile is what the sample is judged on.
-func TestAMeasuredOptionalTheProfileDoesNotAskForIsDropped(t *testing.T) {
-	summary, err := Summary(Spec{ComparedTopK: 4}, fixtureAggregates())
-	if err != nil {
-		t.Fatalf("Summary returned error: %v", err)
-	}
-	if summary.TopkJaccardMeanFP1e6 != (nodewire.OptionalUint32{}) {
-		t.Fatalf("a measured but unrequested jaccard reached the summary: %#v", summary.TopkJaccardMeanFP1e6)
-	}
-}
-
 // keeper §9.7 judgment layer 2: the Keeper "must not accept a verdict field carried
 // by the Verifier itself". The wire type has no place for one, and this asserts the
 // producer did not grow a channel for it either.
@@ -208,15 +170,6 @@ func TestSummaryCarriesNoVerdictField(t *testing.T) {
 		for _, forbidden := range []string{"verdict", "pass", "fail", "reject", "inconclusive"} {
 			if strings.Contains(name, forbidden) {
 				t.Fatalf("MetricSummaryV1 field %s looks like a verdict; the Keeper recomputes the verdict", typ.Field(i).Name)
-			}
-		}
-	}
-	typ = reflect.TypeFor[Aggregates]()
-	for i := 0; i < typ.NumField(); i++ {
-		name := strings.ToLower(typ.Field(i).Name)
-		for _, forbidden := range []string{"verdict", "pass", "fail", "reject"} {
-			if strings.Contains(name, forbidden) {
-				t.Fatalf("Aggregates field %s carries a verdict into the summary producer", typ.Field(i).Name)
 			}
 		}
 	}
@@ -363,29 +316,7 @@ func TestBindTaskRefusesAnUnsetConsensusField(t *testing.T) {
 	}
 }
 
-// The uint32 fp_1e6 fields top out at 4294.967295 and the protocol defines no
-// truncation. Truncating would be a signable claim that the sample agreed far
-// better than it did, so the summary is refused instead.
-func TestSummaryOverflowIsRefusedNotTruncated(t *testing.T) {
-	aggregates := fixtureAggregates()
-	aggregates.MeanAbsLogprobDiff = 5000 // 5e9 in fp_1e6, past MaxUint32
-
-	_, err := Summary(Spec{ComparedTopK: 4}, aggregates)
-	if err == nil {
-		t.Fatalf("an overflowing mean_abs_logprob_diff was silently narrowed")
-	}
-	if !strings.Contains(err.Error(), "ceiling") {
-		t.Fatalf("error does not explain the refusal: %v", err)
-	}
-}
-
 func TestNonFiniteMetricsAreRefused(t *testing.T) {
-	aggregates := fixtureAggregates()
-	aggregates.AbsLogprobDiffP99 = math.NaN()
-	if _, err := Summary(Spec{ComparedTopK: 4}, aggregates); err == nil {
-		t.Fatalf("NaN reached the summary")
-	}
-
 	samples := fixtureSamples()
 	samples[0].VerifierLogprob = math.Inf(-1)
 	if _, err := Build(fixtureBinding(), samples); err == nil {
@@ -468,19 +399,13 @@ func sampleAt(position uint32) Sample {
 	}
 }
 
-func fixtureAggregates() Aggregates {
-	return Aggregates{
-		FiniteCount:          2,
-		MissingComparedCount: 0,
-		MeanAbsLogprobDiff:   0.005,
-		AbsLogprobDiffP95:    0.005,
-		AbsLogprobDiffP99:    0.005,
-		RankDeltaNonzeroRate: 0,
-		TopKJaccardMean:      PresentFP(0.875),
-		UnionJSP99:           PresentFP(0.002),
-		ComparedTopKCount:    2,
-		ComparedRankCount:    2,
+func fixtureSamplesV3(t *testing.T) []SampleV3 {
+	t.Helper()
+	samples, err := samplesToV3(fixtureSamples())
+	if err != nil {
+		t.Fatal(err)
 	}
+	return samples
 }
 
 func fill(b byte) codec.Hash {

@@ -56,28 +56,6 @@ func unsignedFP1e6(name string, value float64) (uint64, error) {
 	return uint64(scaled), nil
 }
 
-// summaryFP1e6 converts a metric to the uint32 fixed-point width MetricSummaryV1
-// uses (keeper §9.7 fields 3-8).
-//
-// The narrowing is checked, never truncated. uint32 fp_1e6 tops out at
-// 4294.967295, and no document says what a verifier should do when a summary
-// value exceeds it - so this refuses. A truncated summary is worse than a
-// refused one: it is a well-formed, signable claim that the sample agreed far
-// better than it did, and the Keeper judges from exactly this number.
-func summaryFP1e6(name string, value float64) (uint32, error) {
-	scaled, err := unsignedFP1e6(name, value)
-	if err != nil {
-		return 0, err
-	}
-	if scaled > math.MaxUint32 {
-		return 0, fmt.Errorf(
-			"%s = %v exceeds the MetricSummaryV1 uint32 fp_1e6 ceiling of %v; the protocol defines no "+
-				"truncation or saturation behaviour, so the summary is refused rather than misreported",
-			name, value, float64(math.MaxUint32)/FixedPointScale)
-	}
-	return uint32(scaled), nil
-}
-
 // countUint32 narrows a Go int count to the uint32 the wire carries, refusing a
 // negative or oversized one instead of wrapping.
 func countUint32(name string, value int) (uint32, error) {

@@ -43,8 +43,8 @@ func canonicalResultPayload(cfg Config, state TaskState, facts taskfacts.Facts, 
 	if material.VerifierValueRoot.IsZero() {
 		return nil, fmt.Errorf("verifier_value_root must be nonzero")
 	}
-	if state.VerifyRound == 0 || state.VerifyRound > math.MaxUint32 || material.LeafCount <= 0 || uint64(material.LeafCount) > math.MaxUint32 {
-		return nil, fmt.Errorf("result round and metric leaf count must fit positive uint32")
+	if state.VerifyRound == 0 || state.VerifyRound > math.MaxUint32 || material.LeafCount < 0 || uint64(material.LeafCount) > math.MaxUint32 {
+		return nil, fmt.Errorf("result round must be positive and metric leaf count must fit uint32")
 	}
 	index, err := selectedVerifierIndex(state, cfg.VerifierAddress)
 	if err != nil {

@@ -87,9 +87,9 @@ func TestMetricSummaryHashAgreesWithAnIndependentSpecEncoder(t *testing.T) {
 		"only jaccard required":   {CompareTopKJaccard: true, ComparedTopK: 4},
 	} {
 		t.Run(name, func(t *testing.T) {
-			summary, err := Summary(spec, fixtureAggregates())
+			summary, err := SummaryV3(spec, 4, fixtureSamplesV3(t))
 			if err != nil {
-				t.Fatalf("Summary returned error: %v", err)
+				t.Fatalf("SummaryV3 returned error: %v", err)
 			}
 			got, err := nodewire.MetricSummaryHash(summary)
 			if err != nil {

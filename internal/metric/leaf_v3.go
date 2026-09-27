@@ -73,24 +73,11 @@ func LeafHashV3(binding BindingV3, sample SampleV3) (codec.Hash, error) {
 	if err := sample.validate(binding.RequiredTopK); err != nil {
 		return codec.Hash{}, fmt.Errorf("output_position %d: %w", sample.OutputPosition, err)
 	}
-	diff := sample.WorkerLogprobFP1e6 - sample.VerifierLogprobFP1e6
-	if (sample.WorkerLogprobFP1e6 < 0) != (sample.VerifierLogprobFP1e6 < 0) &&
-		(diff < 0) != (sample.WorkerLogprobFP1e6 < 0) {
-		return codec.Hash{}, fmt.Errorf("output_position %d: logprob difference overflows int64", sample.OutputPosition)
+	absDiff, err := sample.absLogprobDiffFP1e6()
+	if err != nil {
+		return codec.Hash{}, err
 	}
-	absDiff := uint64(diff)
-	if diff < 0 {
-		absDiff = uint64(-diff)
-	}
-	// effective_rank maps "not in the required top-k" past the last rank, so
-	// dropping out of the top-k counts as a rank change.
-	effectiveRank := func(rank uint32) int64 {
-		if rank == 0 {
-			return int64(binding.RequiredTopK) + 1
-		}
-		return int64(rank)
-	}
-	rankDelta := effectiveRank(sample.VerifierRank) - effectiveRank(sample.WorkerRank)
+	rankDelta := sample.rankDelta(binding.RequiredTopK)
 
 	return hfields.Digest(DomainLeafV3, hfields.Uint32(LeafVersionV1), hfields.Frame(
 		hfields.String(binding.ChainID),
@@ -120,6 +107,31 @@ func LeafHashV3(binding BindingV3, sample SampleV3) (codec.Hash, error) {
 		hfields.Bool(sample.Finite),
 		hfields.Hash(binding.VerifierValueRoot),
 	))
+}
+
+// absLogprobDiffFP1e6 is the leaf's abs_logprob_diff_fp_1e6.
+func (s SampleV3) absLogprobDiffFP1e6() (uint64, error) {
+	diff := s.WorkerLogprobFP1e6 - s.VerifierLogprobFP1e6
+	if (s.WorkerLogprobFP1e6 < 0) != (s.VerifierLogprobFP1e6 < 0) && (diff < 0) != (s.WorkerLogprobFP1e6 < 0) {
+		return 0, fmt.Errorf("output_position %d: logprob difference overflows int64", s.OutputPosition)
+	}
+	if diff < 0 {
+		return uint64(-diff), nil
+	}
+	return uint64(diff), nil
+}
+
+// rankDelta is the leaf's rank_delta. effective_rank maps "not in the required
+// top-k" (rank 0) past the last rank, so dropping out of the top-k on either
+// side counts as a rank change; both sides at 0 give 0.
+func (s SampleV3) rankDelta(requiredTopK uint32) int64 {
+	effectiveRank := func(rank uint32) int64 {
+		if rank == 0 {
+			return int64(requiredTopK) + 1
+		}
+		return int64(rank)
+	}
+	return effectiveRank(s.VerifierRank) - effectiveRank(s.WorkerRank)
 }
 
 // RootV3 derives the V3 metric_root over leaf hashes in output_position order.

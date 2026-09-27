@@ -49,9 +49,6 @@ func CanonicalVerifierResultPayload(payload VerifierResultPayloadV2) ([]byte, er
 	if payload.VerifyRound == 0 {
 		return nil, fmt.Errorf("result payload verify_round must be positive")
 	}
-	if payload.MetricLeafCount == 0 {
-		return nil, fmt.Errorf("result payload metric_leaf_count must be positive")
-	}
 	if payload.VerifierEvidenceManifestSizeBytes == 0 {
 		return nil, fmt.Errorf("result payload verifier_evidence_manifest_size_bytes must be positive")
 	}

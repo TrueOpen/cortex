@@ -1320,7 +1320,7 @@ func resultReceiptUnsourced(receipt nodewire.ResultReceiptV3) []string {
 	if isZeroHash32(receipt.Salt) {
 		unsourced = append(unsourced, "salt")
 	}
-	if isZeroHash32(receipt.VerifierValueRoot) || receipt.MetricLeafCount == 0 {
+	if isZeroHash32(receipt.VerifierValueRoot) {
 		unsourced = append(unsourced, "verifier_value_root")
 	}
 	return unsourced

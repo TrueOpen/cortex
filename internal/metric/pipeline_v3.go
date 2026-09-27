@@ -2,6 +2,7 @@ package metric
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -67,14 +68,34 @@ func CompareLeavesV3(spec Spec, requiredTopK uint32, worker, verifier []nodewire
 		}
 		samples[i] = sample
 	}
+	// An empty F is only the Worker's to answer for when no position had a
+	// finite Worker value. If one did and the Verifier's own value is what is
+	// missing, the Verifier cannot produce an attributable sample: that is its
+	// own execution failure, and no worst-value summary may be committed.
+	anyFinite, verifierGap := false, false
+	for i, s := range samples {
+		anyFinite = anyFinite || s.Finite
+		// A missing leaf is never finite, so this covers both missing and
+		// non-finite Verifier values.
+		verifierGap = verifierGap || worker[i].Finite && !verifier[i].Finite
+	}
+	if !anyFinite && verifierGap {
+		return nil, ErrVerifierValuesUnavailable
+	}
 	return samples, nil
 }
 
+// ErrVerifierValuesUnavailable is an empty comparison set caused by the
+// Verifier's own missing or non-finite values. The verification stops without
+// a commit; it counts as a verifier miss, never against the Worker.
+var ErrVerifierValuesUnavailable = errors.New(
+	"metric compare: no comparable position, and at least one has a finite Worker value but no finite Verifier value; " +
+		"this is a Verifier execution failure, not a sample")
+
 // BuildV3 produces the metric material for one single-sample verification run
 // from V3 samples. The root is over V3 leaves bound to the Verifier's committed
-// value root; the summary is derived from the same samples, read in real units,
-// by the one aggregator (AggregateFromSamples), so root and summary describe
-// the same data.
+// value root; the summary is derived from the same samples by SummaryV3, so
+// root and summary describe the same data.
 func BuildV3(binding Binding, verifierValueRoot codec.Hash, samples []SampleV3) (Material, error) {
 	if err := binding.validate(); err != nil {
 		return Material{}, err
@@ -85,11 +106,6 @@ func BuildV3(binding Binding, verifierValueRoot codec.Hash, samples []SampleV3) 
 		return Material{}, fmt.Errorf("metric binding model_id must be 64 lowercase hex characters")
 	}
 	modelID := codec.Hash(rawModelID)
-	if len(samples) == 0 {
-		return Material{}, fmt.Errorf(
-			"metric pipeline has no token samples; an empty tree has a valid root, so it is refused rather " +
-				"than signed as a claim that no token was generated")
-	}
 	bindingV3 := BindingV3{
 		ChainID: binding.ChainID, TaskID: binding.TaskID, TaskHash: binding.TaskHash, VerifyRound: binding.VerifyRound,
 		ModelID: modelID, ProfileVersion: binding.ProfileVersion, JudgmentFunctionVersion: binding.JudgmentFunctionVersion,
@@ -106,36 +122,21 @@ func BuildV3(binding Binding, verifierValueRoot codec.Hash, samples []SampleV3) 
 	if err != nil {
 		return Material{}, err
 	}
-	summary, err := Summary(binding.Spec, AggregateFromSamples(samplesFromV3(samples), binding.RequiredTopK))
+	summary, err := SummaryV3(binding.Spec, binding.RequiredTopK, samples)
 	if err != nil {
 		return Material{}, err
+	}
+	// Every leaf is either normal or counted as missing; a summary that does
+	// not cover the tree must never reach a commit.
+	if uint64(summary.FiniteCount)+uint64(summary.MissingComparedCount) != uint64(len(leafHashes)) {
+		return Material{}, fmt.Errorf("metric summary covers %d+%d leaves, the tree has %d",
+			summary.FiniteCount, summary.MissingComparedCount, len(leafHashes))
 	}
 	proof, err := BuildAggregateProof(binding, root, len(leafHashes), summary)
 	if err != nil {
 		return Material{}, err
 	}
 	return Material{Root: root, Summary: summary, AggregateProof: proof, VerifierValueRoot: verifierValueRoot, LeafCount: len(leafHashes), LeafHashes: leafHashes}, nil
-}
-
-// samplesFromV3 reads fixed-point samples in real units for the aggregator.
-// A V3 rank of 0 means "not in the required top-k"; the aggregator treats 0 as
-// "no rank", so such a position does not enter the rank comparison.
-func samplesFromV3(samples []SampleV3) []Sample {
-	out := make([]Sample, len(samples))
-	for i, s := range samples {
-		out[i] = Sample{
-			OutputPosition: s.OutputPosition, EmittedTokenID: s.EmittedTokenID,
-			WorkerLogprob: float64(s.WorkerLogprobFP1e6) / FixedPointScale, VerifierLogprob: float64(s.VerifierLogprobFP1e6) / FixedPointScale,
-			WorkerRank: s.WorkerRank, VerifierRank: s.VerifierRank, Missing: s.Missing, Finite: s.Finite,
-		}
-		if s.TopKJaccardFP1e6.Present {
-			out[i].TopKJaccard = PresentFP(float64(s.TopKJaccardFP1e6.Value) / FixedPointScale)
-		}
-		if s.UnionJSFP1e6.Present {
-			out[i].UnionJS = PresentFP(float64(s.UnionJSFP1e6.Value) / FixedPointScale)
-		}
-	}
-	return out
 }
 
 func leafTopK(entries []nodewire.TopKEntryV1, limit int) []TokenLogprob {
