@@ -1,6 +1,8 @@
 package modelservice
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -24,16 +26,92 @@ func tokenIDFromKey(key string) (uint32, error) {
 	return uint32(id), nil
 }
 
-// completionTopK orders one /v1/completions top_logprobs dictionary into rank
-// order. The completions API reports the dictionary without ranks, and JSON
-// object order does not survive decoding, so rank order is reconstructed as
-// logprob descending with ties broken by token id ascending. A sampled token
-// the engine appended outside its top-k has the lowest logprob and lands last.
-func completionTopK(position int, row map[string]float64) ([]metric.TokenLogprob, error) {
+// TopLogprob is one entry of a generated position's top_logprobs.
+type TopLogprob struct {
+	Token   string
+	Logprob float64
+}
+
+// TopLogprobRow is one generated position's top_logprobs in the order the
+// engine wrote them, which is rank order: chat returns an ordered list, and
+// vLLM writes a /v1/completions top_logprobs object key by key in rank order.
+// It decodes from either shape and never through a Go map, which would lose
+// that order.
+type TopLogprobRow []TopLogprob
+
+func (r *TopLogprobRow) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		*r = nil
+		return nil
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return fmt.Errorf("top_logprobs row must be a JSON object, got %v", tok)
+	}
+	row := TopLogprobRow{}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key, _ := keyTok.(string)
+		var logprob float64
+		if err := dec.Decode(&logprob); err != nil {
+			return fmt.Errorf("top_logprobs %q: %w", key, err)
+		}
+		row = append(row, TopLogprob{Token: key, Logprob: logprob})
+	}
+	if _, err := dec.Token(); err != nil {
+		return err
+	}
+	*r = row
+	return nil
+}
+
+// MarshalJSON writes the row as a JSON object in row order, the shape vLLM's
+// /v1/completions emits.
+func (r TopLogprobRow) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return []byte("null"), nil
+	}
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, entry := range r {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		key, err := json.Marshal(entry.Token)
+		if err != nil {
+			return nil, err
+		}
+		value, err := json.Marshal(entry.Logprob)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		buf.Write(value)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+// completionTopK reads one generated position's top_logprobs in the engine's
+// own rank order; nothing is re-sorted. The row must hold exactly requiredTopK
+// distinct vocabulary ids with non-increasing logprobs, otherwise it is refused
+// rather than repaired.
+func completionTopK(position int, row TopLogprobRow, requiredTopK int) ([]metric.TokenLogprob, error) {
+	if len(row) != requiredTopK {
+		return nil, fmt.Errorf("position %d: top-logprobs hold %d entries, want exactly %d", position, len(row), requiredTopK)
+	}
 	out := make([]metric.TokenLogprob, 0, len(row))
 	seen := make(map[uint32]struct{}, len(row))
-	for key, logprob := range row {
-		id, err := tokenIDFromKey(key)
+	for i, entry := range row {
+		id, err := tokenIDFromKey(entry.Token)
 		if err != nil {
 			return nil, fmt.Errorf("position %d: %w", position, err)
 		}
@@ -41,19 +119,14 @@ func completionTopK(position int, row map[string]float64) ([]metric.TokenLogprob
 			return nil, fmt.Errorf("position %d: top-logprobs repeat token %d", position, id)
 		}
 		seen[id] = struct{}{}
-		out = append(out, metric.TokenLogprob{TokenID: id, Logprob: logprob})
+		if math.IsNaN(entry.Logprob) {
+			return nil, fmt.Errorf("position %d: top-logprobs token %d has a NaN logprob", position, id)
+		}
+		if i > 0 && entry.Logprob > row[i-1].Logprob {
+			return nil, fmt.Errorf("position %d: top-logprobs are not in rank order at entry %d", position, i)
+		}
+		out = append(out, metric.TokenLogprob{TokenID: id, Logprob: entry.Logprob})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i].Logprob, out[j].Logprob
-		if a == b || math.IsNaN(a) && math.IsNaN(b) {
-			return out[i].TokenID < out[j].TokenID
-		}
-		// NaN sorts last, so a non-finite entry never displaces a real one.
-		if math.IsNaN(a) || math.IsNaN(b) {
-			return !math.IsNaN(a)
-		}
-		return a > b
-	})
 	return out, nil
 }
 

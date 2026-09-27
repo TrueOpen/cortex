@@ -61,10 +61,15 @@ func TestValidateGenerationMaterialBindsValuesToGeneratedTokens(t *testing.T) {
 	}
 }
 
-// The completions API reports top_logprobs as an unordered dictionary, so rank
-// order is logprob descending with ties broken by token id ascending.
-func TestCompletionTopKIsReconstructedInRankOrder(t *testing.T) {
-	topK, err := completionTopK(0, map[string]float64{"token_id:9": -1, "token_id:4": -0.5, "token_id:2": -1, "token_id:7": -3})
+// A /v1/completions top_logprobs object is read in the engine's own key order
+// and never re-sorted; a row that is not exactly required_top_k distinct ids
+// with non-increasing logprobs is refused.
+func TestCompletionTopKKeepsTheEngineOrder(t *testing.T) {
+	var row TopLogprobRow
+	if err := json.Unmarshal([]byte(`{"token_id:9":-0.5,"token_id:4":-0.5,"token_id:2":-1,"token_id:7":-3}`), &row); err != nil {
+		t.Fatal(err)
+	}
+	topK, err := completionTopK(0, row, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,14 +77,26 @@ func TestCompletionTopKIsReconstructedInRankOrder(t *testing.T) {
 	for _, entry := range topK {
 		order = append(order, entry.TokenID)
 	}
-	if !reflect.DeepEqual(order, []uint32{4, 2, 9, 7}) {
-		t.Fatalf("rank order = %v, want [4 2 9 7]", order)
+	if !reflect.DeepEqual(order, []uint32{9, 4, 2, 7}) {
+		t.Fatalf("order = %v, want the engine's key order [9 4 2 7]", order)
 	}
-	if rankIn(9, topK) != 3 || rankIn(8, topK) != 0 {
-		t.Fatal("rankIn does not read the rank-ordered list")
+	if rankIn(2, topK) != 3 || rankIn(8, topK) != 0 {
+		t.Fatal("rankIn does not read the engine-ordered list")
 	}
-	if _, err := completionTopK(0, map[string]float64{"hello": -1}); err == nil {
-		t.Fatal("a text top-logprobs key was accepted")
+	encoded, err := json.Marshal(row)
+	if err != nil || string(encoded) != `{"token_id:9":-0.5,"token_id:4":-0.5,"token_id:2":-1,"token_id:7":-3}` {
+		t.Fatalf("row re-encodes as %s, %v", encoded, err)
+	}
+	for name, bad := range map[string]TopLogprobRow{
+		"too few":      {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}},
+		"too many":     {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}},
+		"duplicate":    {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:1", -3}, {"token_id:4", -4}},
+		"out of order": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -0.5}, {"token_id:4", -4}},
+		"text key":     {{"hello", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}},
+	} {
+		if _, err := completionTopK(0, bad, 4); err == nil {
+			t.Fatalf("%s row was accepted", name)
+		}
 	}
 }
 
@@ -97,9 +114,9 @@ func TestPromptTopKKeepsTheEngineRankOrder(t *testing.T) {
 // asks the engine for token ids rather than token text.
 func TestLocalInferReturnsTokenIDAndPositionValueMaterial(t *testing.T) {
 	generated := genResponse()
-	generated.Choices[0].Logprobs.TopLogprobs = []map[string]float64{
-		{"token_id:10": -0.1, "token_id:12": -2},
-		{"token_id:13": -0.05, "token_id:11": -0.2},
+	generated.Choices[0].Logprobs.TopLogprobs = []TopLogprobRow{
+		fullTopRow(TopLogprob{"token_id:10", -0.1}, TopLogprob{"token_id:12", -2}),
+		fullTopRow(TopLogprob{"token_id:13", -0.05}, TopLogprob{"token_id:11", -0.2}),
 	}
 	srv, seen := newVLLMStub(t, generated, verifyResponse())
 	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)

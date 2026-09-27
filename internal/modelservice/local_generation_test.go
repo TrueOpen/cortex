@@ -82,13 +82,14 @@ func localGenerationServer(t *testing.T, reply map[string]any, captured *map[str
 }
 
 func localGenerationReply(count int, finish string, stop any) map[string]any {
-	ids, probs := make([]int, count), make([]float64, count)
+	ids, probs, top := make([]int, count), make([]float64, count), make([]TopLogprobRow, count)
 	for i := range ids {
 		ids[i], probs[i] = 10+i, -0.1
+		top[i] = fullTopRow(TopLogprob{Token: fmt.Sprintf("token_id:%d", ids[i]), Logprob: probs[i]})
 	}
 	return map[string]any{"choices": []map[string]any{{"text": strings.Repeat("x", count), "finish_reason": finish,
 		"stop_reason": stop, "prompt_token_ids": []int{1, 2, 3}, "token_ids": ids,
-		"logprobs": map[string]any{"token_logprobs": probs}}}}
+		"logprobs": map[string]any{"token_logprobs": probs, "top_logprobs": top}}}}
 }
 
 func TestLocalGenerationRejectsMissingAndMismatchedContext(t *testing.T) {

@@ -232,7 +232,7 @@ type InferStreamFrame struct {
 	TextDelta     string
 	TokenIDs      []int
 	TokenLogprobs []float64
-	TopLogprobs   []map[string]float64
+	TopLogprobs   []TopLogprobRow
 	FinishReason  string
 	// Done is true on the final frame (the [DONE] sentinel or stream EOF).
 	Done bool
@@ -289,9 +289,9 @@ type logprobEntry struct {
 // inline-anonymous) so the chat path can construct it when it projects a chat
 // response onto completionResponse for the shared post-processing.
 type completionLogprobs struct {
-	Tokens        []string             `json:"tokens"`
-	TokenLogprobs []float64            `json:"token_logprobs"`
-	TopLogprobs   []map[string]float64 `json:"top_logprobs"`
+	Tokens        []string        `json:"tokens"`
+	TokenLogprobs []float64       `json:"token_logprobs"`
+	TopLogprobs   []TopLogprobRow `json:"top_logprobs"`
 }
 
 // completionChoice is one /v1/completions choice, named so the chat path can
@@ -919,11 +919,11 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	}
 	values := make([]metric.PositionValue, len(generatedIDs))
 	for i, id := range generatedIDs {
-		var row map[string]float64
+		var row TopLogprobRow
 		if i < len(choice.Logprobs.TopLogprobs) {
 			row = choice.Logprobs.TopLogprobs[i]
 		}
-		topK, err := completionTopK(i, row)
+		topK, err := completionTopK(i, row, profile.RequiredTopK)
 		if err != nil {
 			return InferResponse{}, fmt.Errorf("modelservice local infer: %w", err)
 		}

@@ -169,7 +169,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 			}
 			payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{
 				"text": text, "finish_reason": finish, "prompt_token_ids": []int{42}, "token_ids": []int{token},
-				"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []map[string]float64{{fmt.Sprintf("token_id:%d", token): -0.25}}},
+				"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(token, -0.25)}},
 			}}})
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 			w.(http.Flusher).Flush()
@@ -404,7 +404,7 @@ func TestWorkerFinalizesAndRecoversEmptyOutputAsOneSignedLeaf(t *testing.T) {
 		inferCalls.Add(1)
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
 			"text": "", "finish_reason": "stop", "prompt_token_ids": []int{42}, "token_ids": []int{},
-			"logprobs": map[string]any{"token_logprobs": []float64{}, "top_logprobs": []map[string]float64{}},
+			"logprobs": map[string]any{"token_logprobs": []float64{}, "top_logprobs": []modelservice.TopLogprobRow{}},
 		}}})
 	}))
 	defer server.Close()
@@ -583,7 +583,7 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 					}
 					payload, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{
 						"text": part, "finish_reason": finish, "prompt_token_ids": []int{42}, "token_ids": []int{index + 7},
-						"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []map[string]float64{{fmt.Sprintf("token_id:%d", index+7): -0.25}}},
+						"logprobs": map[string]any{"token_logprobs": []float64{-0.25}, "top_logprobs": []modelservice.TopLogprobRow{engineTopLogprobs(index+7, -0.25)}},
 					}}})
 					_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
 					w.(http.Flusher).Flush()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,9 +24,9 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	output := strings.Repeat("\u5b8c\u6574\u8f93\u51fa ", tokens)
 	ids := make([]int, tokens)
 	logprobs := make([]float64, tokens)
-	top := make([]map[string]float64, tokens)
+	top := make([]modelservice.TopLogprobRow, tokens)
 	for i := range ids {
-		ids[i], logprobs[i], top[i] = 7, -0.25, map[string]float64{"token_id:7": -0.25}
+		ids[i], logprobs[i], top[i] = 7, -0.25, engineTopLogprobs(7, -0.25)
 	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,4 +137,14 @@ func TestWorkerUploadsFullOutputBeyond128TokensAndRecoversIt(t *testing.T) {
 	if err != nil || !bytes.Equal(stored, []byte(output)) {
 		t.Fatalf("retained output was truncated or replaced: %v", err)
 	}
+}
+
+// engineTopLogprobs is a full vLLM top_logprobs row led by tokenID: the local
+// adapter refuses anything but exactly the profile's default top-k (16).
+func engineTopLogprobs(tokenID int, logprob float64) modelservice.TopLogprobRow {
+	row := modelservice.TopLogprobRow{{Token: fmt.Sprintf("token_id:%d", tokenID), Logprob: logprob}}
+	for id := 900000; len(row) < 16; id++ {
+		row = append(row, modelservice.TopLogprob{Token: fmt.Sprintf("token_id:%d", id), Logprob: logprob - float64(len(row))})
+	}
+	return row
 }

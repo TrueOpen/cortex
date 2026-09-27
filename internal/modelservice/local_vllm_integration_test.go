@@ -164,7 +164,7 @@ func fetchRealVLLMArtifact(t *testing.T, ctx context.Context, svc *LocalService,
 
 // streamFrame builds a single-choice completion chunk as it appears inside one
 // SSE data frame during a streaming generation.
-func streamFrame(text string, tokenIDs []int, tokenLogprobs []float64, topLogprobs []map[string]float64, promptTokenIDs []int, finishReason string) completionResponse {
+func streamFrame(text string, tokenIDs []int, tokenLogprobs []float64, topLogprobs []TopLogprobRow, promptTokenIDs []int, finishReason string) completionResponse {
 	var resp completionResponse
 	resp.Choices = append(resp.Choices, completionChoice{
 		Text:           text,
@@ -176,7 +176,7 @@ func streamFrame(text string, tokenIDs []int, tokenLogprobs []float64, topLogpro
 			TopLogprobs:   topLogprobs,
 		},
 	})
-	return resp
+	return withFullTopK(resp)
 }
 
 // twoFrameGeneration is the SSE split of genResponse() used across these tests:

@@ -446,16 +446,12 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 		logprobs = &completionLogprobs{
 			Tokens:        make([]string, 0, len(c.Logprobs.Content)),
 			TokenLogprobs: make([]float64, 0, len(c.Logprobs.Content)),
-			TopLogprobs:   make([]map[string]float64, 0, len(c.Logprobs.Content)),
+			TopLogprobs:   make([]TopLogprobRow, 0, len(c.Logprobs.Content)),
 		}
 		for _, entry := range c.Logprobs.Content {
 			logprobs.Tokens = append(logprobs.Tokens, entry.Token)
 			logprobs.TokenLogprobs = append(logprobs.TokenLogprobs, entry.Logprob)
-			top := make(map[string]float64, len(entry.TopLogprobs))
-			for _, t := range entry.TopLogprobs {
-				top[t.Token] = t.Logprob
-			}
-			logprobs.TopLogprobs = append(logprobs.TopLogprobs, top)
+			logprobs.TopLogprobs = append(logprobs.TopLogprobs, chatTopLogprobRow(entry.TopLogprobs))
 		}
 	}
 
@@ -790,16 +786,21 @@ func defaultChatRole(role string) string {
 // chatLogprobDeltas projects a chunk's logprobs.content into the positional
 // (token_logprobs, top_logprobs) shape InferStreamFrame carries, matching what the
 // raw-text path emits.
-func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []map[string]float64) {
+func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []TopLogprobRow) {
 	tokenLogprobs := make([]float64, 0, len(lp.Content))
-	topLogprobs := make([]map[string]float64, 0, len(lp.Content))
+	topLogprobs := make([]TopLogprobRow, 0, len(lp.Content))
 	for _, entry := range lp.Content {
 		tokenLogprobs = append(tokenLogprobs, entry.Logprob)
-		top := make(map[string]float64, len(entry.TopLogprobs))
-		for _, t := range entry.TopLogprobs {
-			top[t.Token] = t.Logprob
-		}
-		topLogprobs = append(topLogprobs, top)
+		topLogprobs = append(topLogprobs, chatTopLogprobRow(entry.TopLogprobs))
 	}
 	return tokenLogprobs, topLogprobs
+}
+
+// chatTopLogprobRow keeps chat's already rank-ordered top_logprobs list as is.
+func chatTopLogprobRow(entries []chatRespTopLogprob) TopLogprobRow {
+	row := make(TopLogprobRow, len(entries))
+	for i, t := range entries {
+		row[i] = TopLogprob{Token: t.Token, Logprob: t.Logprob}
+	}
+	return row
 }

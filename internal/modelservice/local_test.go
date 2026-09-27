@@ -65,7 +65,11 @@ func newVLLMStubWithModels(t *testing.T, gen completionResponse, verify completi
 			_ = json.NewEncoder(w).Encode(verify)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(gen)
+		k := defaultTopK
+		if req.Logprobs != nil {
+			k = *req.Logprobs
+		}
+		_ = json.NewEncoder(w).Encode(withTopK(gen, k))
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &seen

@@ -21,6 +21,9 @@ import (
 // it received so a test can assert the Cortex-pinned fields.
 func newChatVLLMStub(t *testing.T, resp chatCompletionResponse, models []string) (*httptest.Server, *[]chatCompletionRequest) {
 	t.Helper()
+	for i := range resp.Choices {
+		resp.Choices[i].Logprobs = chatFullTopK(resp.Choices[i].Logprobs)
+	}
 	var seen []chatCompletionRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
@@ -253,6 +256,7 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 // trailing [DONE] included), plus /v1/models and /metrics.
 func newChatVLLMStreamStub(t *testing.T, chunks []chatCompletionChunk, models []string) (*httptest.Server, *[]chatCompletionRequest) {
 	t.Helper()
+	chunks = chatChunksFullTopK(chunks)
 	var seen []chatCompletionRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -663,6 +667,7 @@ func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
 // place max_output_duration in the middle of the stream. It never sends [DONE],
 // which is the real shape: vLLM keeps generating and this node stops listening.
 func newSlowChatStreamStub(t *testing.T, chunks []chatCompletionChunk, delay time.Duration, models []string) *httptest.Server {
+	chunks = chatChunksFullTopK(chunks)
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -697,4 +702,16 @@ func newSlowChatStreamStub(t *testing.T, chunks []chatCompletionChunk, delay tim
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func chatChunksFullTopK(chunks []chatCompletionChunk) []chatCompletionChunk {
+	out := make([]chatCompletionChunk, len(chunks))
+	for i, chunk := range chunks {
+		chunk.Choices = append([]chatChunkChoice(nil), chunk.Choices...)
+		for c := range chunk.Choices {
+			chunk.Choices[c].Logprobs = chatFullTopK(chunk.Choices[c].Logprobs)
+		}
+		out[i] = chunk
+	}
+	return out
 }
