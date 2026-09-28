@@ -121,6 +121,17 @@ func (r *TaskRunner) RunOnce(ctx context.Context) error {
 		launchInfer(hash, task)
 	}
 	for hash, task := range verify {
+		// Before any scheduling decision is made about it, because every one of
+		// them reads the reveal deadline: verifyDeadline bounds a committed
+		// responsibility by it, taskTerminalReason stops the task on it, and
+		// awaitingRevealPhase parks on its absence. Recovering afterwards would
+		// leave this tick deciding on a zero it has already replaced.
+		if awaitingRevealPhase(task) {
+			if recovered := r.recoverRevealDeadline(ctx, hash, task); recovered != 0 {
+				task.RevealDeadlineHeight = recovered
+				verify[hash] = task
+			}
+		}
 		deadline := verifyDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
 			r.reportStoppedResponsibility("verify", task.TaskID, hash, tip, deadline, task.RetryCount, reason)
