@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -143,7 +144,7 @@ func TestLocalGenerationFinishReasonMatrix(t *testing.T) {
 		{"stop", `"END"`, 2, nodewire.FinishReasonV1StopSequence, true},
 		{"stop", `"OTHER"`, 2, 0, false},
 		{"stop", "7", 2, nodewire.FinishReasonV1StopToken, true},
-		{"stop", "8", 2, nodewire.FinishReasonV1EosToken, true}, // a secondary model EOS id
+		{"stop", "8", 2, 0, false}, // a secondary model EOS id needs output_decoding to say so
 		{"stop", `"8"`, 2, 0, false},
 		{"eos_token", "7", 2, 0, false},
 		{"stop_sequence", "", 2, 0, false},
@@ -153,7 +154,7 @@ func TestLocalGenerationFinishReasonMatrix(t *testing.T) {
 		{"max_output_duration", "", 4, 0, false},
 		{"max_output_duration", `"END"`, 2, 0, false},
 	} {
-		got, err := localGenerationFinishReason(g, tc.reason, json.RawMessage(tc.stop), tc.count)
+		got, err := localGenerationFinishReason(g, modelmanifest.OutputDecoding{}, tc.reason, json.RawMessage(tc.stop), tc.count)
 		if (err == nil) != tc.ok || (tc.ok && got != tc.want) {
 			t.Fatalf("%s/%s/%d = %v, %v; want %v ok=%t", tc.reason, tc.stop, tc.count, got, err, tc.want, tc.ok)
 		}

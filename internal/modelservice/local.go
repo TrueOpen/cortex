@@ -988,7 +988,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	if err := checkRawTextCommittedOutput(resp, profile.OutputDecoding); err != nil {
 		return InferResponse{}, err
 	}
-	return s.buildInferResultFromCompletion(ctx, req, profile, resp, nil, completionFinishResolver(req))
+	return s.buildInferResultFromCompletion(ctx, req, profile, resp, nil, completionFinishResolver(req, profile.OutputDecoding))
 }
 
 // checkRawTextCommittedOutput decides whether the engine's text can be
@@ -1043,9 +1043,9 @@ type finishReasonResolver func(reason string, stop json.RawMessage, count uint64
 // completionFinishResolver honours the chain-bound generation parameters: the
 // raw-text path validates req.Generation, so it can cross-check the reported
 // finish against max_output_tokens and the configured stop conditions (#370).
-func completionFinishResolver(req InferRequest) finishReasonResolver {
+func completionFinishResolver(req InferRequest, decoding modelmanifest.OutputDecoding) finishReasonResolver {
 	return func(reason string, stop json.RawMessage, count uint64) (nodewire.FinishReasonV1, error) {
-		return localGenerationFinishReason(req.Generation, reason, stop, count)
+		return localGenerationFinishReason(req.Generation, decoding, reason, stop, count)
 	}
 }
 
