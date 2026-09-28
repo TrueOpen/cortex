@@ -81,13 +81,19 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 			var sequence string
 			if err := json.Unmarshal(stop, &sequence); err != nil {
 				// A numeric stop_reason is the stop token that ended the
-				// generation. It is STOP_TOKEN only when the order lists it.
+				// generation. It is STOP_TOKEN when the order lists it.
 				var token uint32
-				if json.Unmarshal(stop, &token) != nil || strings.EqualFold(strings.TrimSpace(reason), "eos_token") ||
-					!slices.Contains(g.Params.DecodingParams.StopTokenIDs, token) {
+				if json.Unmarshal(stop, &token) != nil || strings.EqualFold(strings.TrimSpace(reason), "eos_token") {
 					return 0, fmt.Errorf("stop_reason does not match a configured stop token")
 				}
-				return nodewire.FinishReasonV1StopToken, nil
+				if slices.Contains(g.Params.DecodingParams.StopTokenIDs, token) {
+					return nodewire.FinishReasonV1StopToken, nil
+				}
+				// Otherwise it is one of the model's own EOS ids. vLLM reports the
+				// primary EOS as null but the additional EOS ids from the model's
+				// generation config as their numeric id; the engine stops on no
+				// other token, so an unlisted numeric id is an EOS stop.
+				return nodewire.FinishReasonV1EosToken, nil
 			}
 			if strings.EqualFold(strings.TrimSpace(reason), "eos_token") || !slices.Contains(g.Params.DecodingParams.StopSequences, sequence) {
 				return 0, fmt.Errorf("stop_reason does not match a configured stop sequence")
