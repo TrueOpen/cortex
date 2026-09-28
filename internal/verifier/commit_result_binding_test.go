@@ -5,10 +5,16 @@ package verifier
 // The Keeper accepts a commit WITHOUT recomputing commit_hash - it stores the
 // value it is handed. The recomputation happens when a full reveal arrives: the
 // Keeper re-derives commit_hash from the ResultReceiptState's
-// result_reveal_hash and aggregate_proof_hash and requires equality with
-// CommitState. So a commit derived by any other formula is accepted, written to
-// state, and counted toward StartRevealPhase, and only fails a whole task
-// lifecycle later.
+// verifier_value_root and salt and requires equality with CommitState. So a
+// commit derived by any other formula is accepted, written to state, and
+// counted toward StartRevealPhase, and only fails a whole task lifecycle later.
+//
+// Those two fields and no others: ResultCommitmentV3 binds the value root, the
+// salt and the task/round/verifier identity, and the v0.3.3 vector says so in
+// as many words ("The V3 commit binds only the Verifier value root and salt,
+// not the reveal payload hash"). Naming the reveal payload digests here instead
+// would promise a binding this test cannot check, because the commit does not
+// carry them.
 //
 // No single-stage test can see that. Every assertion here therefore spans both
 // stages: it takes the commit this node actually submitted and the credential

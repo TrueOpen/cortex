@@ -539,9 +539,7 @@ treats assignment-finalized events as the authority for starting local
 inference, recomputes output hashes from fetched artifacts, and has validated
 receipt-only and WorkerRevealReceipt rescue handlers through `txclient`.
 Automatic deadline-driven invocation of those handlers is not yet wired and is
-tracked by issue #108. Worker reveal
-handling stores full `W_i` opening material in evidence while publishing or
-broadcasting only the sampled-value receipt payload.
+tracked by issue #108.
 
 Production task output uses the same runtime-owned task-data client and current
 service-key authenticator as input. After inference Cortex waits for the
