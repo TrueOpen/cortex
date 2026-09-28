@@ -143,7 +143,8 @@ func TestLocalGenerationFinishReasonMatrix(t *testing.T) {
 		{"stop", `"END"`, 2, nodewire.FinishReasonV1StopSequence, true},
 		{"stop", `"OTHER"`, 2, 0, false},
 		{"stop", "7", 2, nodewire.FinishReasonV1StopToken, true},
-		{"stop", "8", 2, 0, false},
+		{"stop", "8", 2, nodewire.FinishReasonV1EosToken, true}, // a secondary model EOS id
+		{"stop", `"8"`, 2, 0, false},
 		{"eos_token", "7", 2, 0, false},
 		{"stop_sequence", "", 2, 0, false},
 		{"stop", "null", 5, 0, false},
