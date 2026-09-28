@@ -82,6 +82,9 @@ type CometEventClientConfig struct {
 	ChainID       string
 	FinalityDepth uint64
 	HTTPClient    *http.Client
+	// Transport carries the node's TLS trust (node.tls) when HTTPClient is nil.
+	// Nil means http.DefaultTransport and the system root CAs.
+	Transport http.RoundTripper
 	// Identifier decides which protocol event each raw chain event is. Nil
 	// selects released message names and the typed protocol event envelope.
 	Identifier EventIdentifier
@@ -98,7 +101,7 @@ type CometEventClient struct {
 func NewCometEventClient(cfg CometEventClientConfig) *CometEventClient {
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{Timeout: 10 * time.Second, Transport: cfg.Transport}
 	}
 	identifier := cfg.Identifier
 	if identifier == nil {

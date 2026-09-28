@@ -161,7 +161,11 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 
 	deps.Keeper = opts.Keeper
 	if deps.Keeper == nil {
-		deps.Keeper = chainclient.NewKeeperABCIClient(cfg.Node.RPCEndpoint)
+		nodeTransport, err := nodeHTTPTransport(cfg)
+		if err != nil {
+			return Dependencies{}, err
+		}
+		deps.Keeper = chainclient.NewKeeperABCIClientWithTransport(cfg.Node.RPCEndpoint, nodeTransport)
 	}
 	deps.Tx = opts.TxClient
 	modelReady := opts.ModelClient != nil || opts.ModelTransport != nil || isLocalModelTransport(cfg) || isFakeModelTransport(cfg)

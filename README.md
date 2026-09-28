@@ -173,6 +173,8 @@ the corresponding flag always has higher precedence.
 | `CORTEX_MODEL_MAX_CONCURRENCY` | `--model-max-concurrency` | `model_management.max_concurrency` |
 | `CORTEX_NODE_RPC` | `--node-rpc` | `node.rpc_endpoint` |
 | `CORTEX_NODE_REST` | `--node-rest` | `node.rest_endpoint` |
+| `CORTEX_NODE_TLS_CA_FILE` | `--node-tls-ca-file` | `node.tls.ca_file` |
+| `CORTEX_NODE_TLS_PUBKEY_HASH` | `--node-tls-pubkey-hash` | `node.tls.pubkey_hash` |
 | `CORTEX_KEEPER_API` | `--keeper-api` | deprecated compatibility setting; Keeper reads use `node.rpc_endpoint` |
 | `CORTEX_KEEPER_POLL_INTERVAL_MS` | `--keeper-poll-interval-ms` | `keeper.poll_interval_ms` |
 | `CORTEX_KEEPER_MAX_LAG_BLOCKS` | `--keeper-max-lag-blocks` | `keeper.max_lag_blocks` |
@@ -674,6 +676,50 @@ Operator runbooks live in `docs/operations/`:
   tx, and admin socket issues.
 - `signer.md`: signer URI schemes, keystore v3 key directories, password
   sources, and which signing paths work in each mode.
+
+### Chain node TLS
+
+Every connection cortexd makes to the chain node (Keeper ABCI queries, CometBFT
+status and block results, and Cosmos REST for transaction broadcast) verifies
+the node against the system root CAs by default. For a node that serves a
+self-signed certificate, trust it directly with `node.tls` instead of setting
+`SSL_CERT_FILE`:
+
+```yaml
+node:
+  rpc_endpoint: https://62.84.178.46:26657
+  rest_endpoint: https://62.84.178.46:1317
+  tls:
+    pubkey_hash: "<64 lowercase hex>"
+    # or, instead of pubkey_hash:
+    # ca_file: /etc/cortex/node-ca.pem
+```
+
+- `pubkey_hash` is the sha256 of the node certificate's SubjectPublicKeyInfo
+  (DER), 64 lowercase hex characters, the same fingerprint used for
+  `model_management.tls.pubkey_hash` and the Builder `tls_pubkey_hash`. The node
+  is accepted when its certificate carries exactly that public key; issuer,
+  expiry and hostname are not checked. Compute it from the node's PEM
+  certificate:
+
+  ```sh
+  openssl x509 -in node.pem -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum | cut -d" " -f1
+  ```
+
+  Take `node.pem` from the node operator rather than from the connection you
+  are about to pin.
+- `ca_file` is the node certificate, or the CA that issued it, in PEM. The node
+  is verified as a normal certificate chain against this file only, so the
+  certificate must name the endpoint's host name or IP address.
+- Set one or the other, never both. `node.tls` applies to both
+  `node.rpc_endpoint` and `node.rest_endpoint`, and cortexd refuses to start if
+  it is set while either endpoint is not `https://`. Without `node.tls`, real
+  mode still requires `https://` for any node endpoint that is not loopback.
+- Environment: `CORTEX_NODE_TLS_CA_FILE`, `CORTEX_NODE_TLS_PUBKEY_HASH`; flags:
+  `--node-tls-ca-file`, `--node-tls-pubkey-hash`.
+
+`cortexctl` commands that read the chain directly (`--rpc`) do not read
+`node.tls`; point them at a node the system roots trust, or set `SSL_CERT_FILE`.
 
 Start troubleshooting with:
 

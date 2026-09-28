@@ -141,6 +141,8 @@ type daemonFlags struct {
 	nexusNATSUserKeyFile         string
 	modelServiceTLSCAFile        string
 	modelServiceTLSPubkeyHash    string
+	nodeTLSCAFile                string
+	nodeTLSPubkeyHash            string
 	healthBind                   string
 }
 
@@ -187,6 +189,8 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 				"nexus-nats-user-key-file":        "nexus_nats_user_key_file",
 				"model-service-tls-ca-file":       "model_service_tls_ca_file",
 				"model-service-tls-pubkey-hash":   "model_service_tls_pubkey_hash",
+				"node-tls-ca-file":                "node_tls_ca_file",
+				"node-tls-pubkey-hash":            "node_tls_pubkey_hash",
 				"health-bind":                     "health_bind",
 			} {
 				if cmd.Flags().Changed(flagName) {
@@ -250,6 +254,8 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.nexusNATSUserKeyFile, "nexus-nats-user-key-file", "", "NATS user key seed file (ed25519 nkey); generated on first start when absent; cortexd binds it to its on-chain service key (ADR-0016 decision three); required in real mode for a remote NATS")
 	flags.StringVar(&values.modelServiceTLSCAFile, "model-service-tls-ca-file", "", "model service certificate / CA PEM for the grpc transport")
 	flags.StringVar(&values.modelServiceTLSPubkeyHash, "model-service-tls-pubkey-hash", "", "sha256 of the model service certificate SubjectPublicKeyInfo (64 lowercase hex)")
+	flags.StringVar(&values.nodeTLSCAFile, "node-tls-ca-file", "", "chain node certificate / CA PEM for the https node endpoints")
+	flags.StringVar(&values.nodeTLSPubkeyHash, "node-tls-pubkey-hash", "", "sha256 of the chain node certificate SubjectPublicKeyInfo (64 lowercase hex)")
 	flags.StringVar(&values.healthBind, "health-bind", "", "health HTTP bind address")
 	return cmd
 }

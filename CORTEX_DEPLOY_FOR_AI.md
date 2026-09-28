@@ -16,7 +16,7 @@ them in tests:
 
 | Boundary | What it is | Config keys |
 |---|---|---|
-| Keeper / chain | CometBFT node, RPC + REST | `node.rpc_endpoint`, `node.rest_endpoint` |
+| Keeper / chain | CometBFT node, RPC + REST | `node.rpc_endpoint`, `node.rest_endpoint`, `node.tls` |
 | Nexus | Builder ingress (connect-go) + NATS bus | `nexus.ingress_url`, `nexus.nats_url` |
 | Model service | vLLM, OpenAI-compatible HTTP | `model_management.endpoint` |
 | Signer | local keystore (`file://`) or remote HTTP | `local_identity.service_key_ref` |
@@ -127,6 +127,19 @@ CORTEX_NEXUS_ENVELOPE_AUTH_MODE=strict
 CORTEX_NEXUS_JETSTREAM_STREAM=TRUEOPEN_TASK
 CORTEX_NEXUS_ALLOW_INSECURE_DESCRIPTOR=false
 ```
+
+Chain node with a self-signed certificate: set exactly one of
+`CORTEX_NODE_TLS_PUBKEY_HASH` (sha256 of the node certificate's
+SubjectPublicKeyInfo DER, 64 lowercase hex) or `CORTEX_NODE_TLS_CA_FILE` (node
+certificate or its CA, PEM; must name the endpoint host or IP), or `node.tls` in
+the config file. Both node endpoints must then be `https://`. Do not use
+`SSL_CERT_FILE` for this. Compute the pin from the node's PEM certificate:
+
+```sh
+openssl x509 -in node.pem -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum | cut -d" " -f1
+```
+
+See "Chain node TLS" in README.md.
 
 `CORTEX_NEXUS_BUILDER_OPERATOR` is optional: strict authentication already
 accepts any sender in the chain's current BuilderSet, and this only narrows it

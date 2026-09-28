@@ -27,6 +27,9 @@ const maxCosmosResponseBytes = 4 << 20
 type CosmosHTTPConfig struct {
 	Endpoint   string
 	HTTPClient *http.Client
+	// Transport carries the node's TLS trust (node.tls) when HTTPClient is nil.
+	// Nil means http.DefaultTransport and the system root CAs.
+	Transport http.RoundTripper
 }
 
 type CosmosHTTPClient struct {
@@ -37,7 +40,7 @@ type CosmosHTTPClient struct {
 func NewCosmosHTTPClient(cfg CosmosHTTPConfig) *CosmosHTTPClient {
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{Timeout: 10 * time.Second, Transport: cfg.Transport}
 	}
 	return &CosmosHTTPClient{endpoint: strings.TrimRight(strings.TrimSpace(cfg.Endpoint), "/"), http: httpClient}
 }

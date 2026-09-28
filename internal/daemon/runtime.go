@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -290,9 +291,16 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		return nil, err
 	}
 
+	var nodeTransport http.RoundTripper
+	if cfg.UsesRealDependencies() {
+		nodeTransport, err = nodeHTTPTransport(cfg)
+		if err != nil {
+			return failRuntime(err)
+		}
+	}
 	keeperClient := opts.Keeper
 	if keeperClient == nil && cfg.UsesRealDependencies() {
-		keeperClient = chainclient.NewKeeperABCIClient(cfg.Node.RPCEndpoint)
+		keeperClient = chainclient.NewKeeperABCIClientWithTransport(cfg.Node.RPCEndpoint, nodeTransport)
 	}
 	txClient := opts.TxClient
 	// Build the signer once. A local key file would otherwise be decrypted on
@@ -436,8 +444,9 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 	keeperEvents := opts.KeeperEvents
 	if keeperEvents == nil && cfg.UsesRealDependencies() {
 		keeperEvents = chainclient.NewCometEventClient(chainclient.CometEventClientConfig{
-			RPCURL:  cfg.Node.RPCEndpoint,
-			ChainID: cfg.ChainID,
+			RPCURL:    cfg.Node.RPCEndpoint,
+			ChainID:   cfg.ChainID,
+			Transport: nodeTransport,
 		})
 	}
 	chainStatus := opts.ChainStatus
@@ -451,7 +460,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 				return txclient.NewBroadcaster(txclient.BroadcasterConfig{
 					ChainID: cfg.ChainID, GasPayer: gasPayer, MaxFeeAmount: cfg.Tx.MaxFeeAmount, FeeDenom: cfg.Tx.FeeDenom,
 					MaxAttempts: cfg.Tx.MaxAttempts, PollAttempts: cfg.Tx.PollAttempts, PollInterval: runtimePollInterval(cfg.Keeper.PollIntervalMS), GasLimit: cfg.Tx.GasLimit,
-					Signer: txSigner, RPC: txclient.NewCosmosHTTPClient(txclient.CosmosHTTPConfig{Endpoint: cfg.Node.RESTEndpoint}),
+					Signer: txSigner, RPC: txclient.NewCosmosHTTPClient(txclient.CosmosHTTPConfig{Endpoint: cfg.Node.RESTEndpoint, Transport: nodeTransport}),
 					Confirmer: txclient.NewKeeperConfirmer(confirmationReader),
 				})
 			}

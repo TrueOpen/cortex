@@ -137,19 +137,33 @@ func (m ModelManagementConfig) ProbeTimeout() time.Duration {
 type NodeConfig struct {
 	RPCEndpoint  string `yaml:"rpc_endpoint"`
 	RESTEndpoint string `yaml:"rest_endpoint"`
+	// TLS names the chain node's certificate for a node that serves a
+	// self-signed one: either the certificate / CA file or the public key
+	// fingerprint. It applies to every connection to rpc_endpoint and
+	// rest_endpoint, which must then both be https://. Left empty, those
+	// connections verify against the system root CAs.
+	TLS NodeTLSConfig `yaml:"tls"`
 }
 
-// ModelServiceTLSConfig: CAFile is the model service certificate (or the CA that
-// issued it) in PEM, validated as a certificate chain; PubkeyHash is
-// sha256(certificate SubjectPublicKeyInfo) as 64 lowercase hex chars and accepts
-// that one public key. One or the other.
-type ModelServiceTLSConfig struct {
+// PeerTLSConfig names how cortex trusts a peer that serves a self-signed
+// certificate. CAFile is the peer certificate (or the CA that issued it) in
+// PEM, validated as a certificate chain including the hostname; PubkeyHash is
+// sha256(certificate SubjectPublicKeyInfo DER) as 64 lowercase hex chars and
+// accepts that one public key in place of chain and hostname verification.
+// One or the other.
+type PeerTLSConfig struct {
 	CAFile     string `yaml:"ca_file"`
 	PubkeyHash string `yaml:"pubkey_hash"`
 }
 
+// ModelServiceTLSConfig is model_management.tls.
+type ModelServiceTLSConfig = PeerTLSConfig
+
+// NodeTLSConfig is node.tls.
+type NodeTLSConfig = PeerTLSConfig
+
 // Enabled reports whether either TLS check is configured.
-func (t ModelServiceTLSConfig) Enabled() bool {
+func (t PeerTLSConfig) Enabled() bool {
 	return strings.TrimSpace(t.CAFile) != "" || strings.TrimSpace(t.PubkeyHash) != ""
 }
 
@@ -695,6 +709,8 @@ var deploymentEnvironment = map[string]string{
 	"CORTEX_NEXUS_NATS_USER_KEY_FILE":           "nexus_nats_user_key_file",
 	"CORTEX_MODEL_SERVICE_TLS_CA_FILE":          "model_service_tls_ca_file",
 	"CORTEX_MODEL_SERVICE_TLS_PUBKEY_HASH":      "model_service_tls_pubkey_hash",
+	"CORTEX_NODE_TLS_CA_FILE":                   "node_tls_ca_file",
+	"CORTEX_NODE_TLS_PUBKEY_HASH":               "node_tls_pubkey_hash",
 	"CORTEX_NEXUS_JETSTREAM_STREAM":             "nexus_jetstream_stream",
 	"CORTEX_NEXUS_ENVELOPE_AUTH_MODE":           "nexus_envelope_auth_mode",
 	"CORTEX_NEXUS_ENVELOPE_TTL_MS":              "nexus_envelope_ttl_ms",
@@ -813,6 +829,10 @@ func setDeploymentValue(cfg *Config, key, value string) error {
 		cfg.ModelManagement.TLS.CAFile = value
 	case "model_service_tls_pubkey_hash":
 		cfg.ModelManagement.TLS.PubkeyHash = value
+	case "node_tls_ca_file":
+		cfg.Node.TLS.CAFile = value
+	case "node_tls_pubkey_hash":
+		cfg.Node.TLS.PubkeyHash = value
 	case "nexus_jetstream_stream":
 		cfg.Nexus.JetStreamStream = value
 	case "nexus_envelope_auth_mode":
@@ -1030,9 +1050,10 @@ func (c *Config) Validate() error {
 	if modelTransport != "fake" && modelTransport != "local" && modelTransport != "grpc" && modelTransport != "" {
 		problems = append(problems, "model_management.transport must be fake, local, or grpc")
 	}
-	if err := c.ModelManagement.TLS.validate(); err != nil {
+	if err := c.ModelManagement.TLS.validate("model_management.tls"); err != nil {
 		problems = append(problems, err.Error())
 	}
+	problems = append(problems, c.nodeTLSProblems()...)
 	if modelTransport == "local" && c.ModelManagement.MaxConcurrency == 0 {
 		problems = append(problems, "model_management.max_concurrency must be greater than zero for transport local")
 	}
@@ -1264,15 +1285,37 @@ func retiredDutiesProblem(duties []string) string {
 
 var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-func (t ModelServiceTLSConfig) validate() error {
+func (t PeerTLSConfig) validate(field string) error {
 	ca, hash := strings.TrimSpace(t.CAFile), strings.TrimSpace(t.PubkeyHash)
 	if ca != "" && hash != "" {
-		return fmt.Errorf("model_management.tls: set ca_file or pubkey_hash, not both")
+		return fmt.Errorf("%s: set ca_file or pubkey_hash, not both", field)
 	}
 	if hash != "" && !hex64.MatchString(hash) {
-		return fmt.Errorf("model_management.tls.pubkey_hash must be 64 lowercase hex (sha256 of the certificate SubjectPublicKeyInfo)")
+		return fmt.Errorf("%s.pubkey_hash must be 64 lowercase hex (sha256 of the certificate SubjectPublicKeyInfo)", field)
 	}
 	return nil
+}
+
+// nodeTLSProblems checks node.tls in every mode: the field shape, and that a
+// configured node.tls is never silently unused because an endpoint is
+// plaintext.
+func (c *Config) nodeTLSProblems() []string {
+	if !c.Node.TLS.Enabled() {
+		return nil
+	}
+	var problems []string
+	if err := c.Node.TLS.validate("node.tls"); err != nil {
+		problems = append(problems, err.Error())
+	}
+	for _, endpoint := range []struct{ field, value string }{
+		{"node.rpc_endpoint", c.Node.RPCEndpoint}, {"node.rest_endpoint", c.Node.RESTEndpoint},
+	} {
+		value := strings.TrimSpace(endpoint.value)
+		if value != "" && !strings.HasPrefix(strings.ToLower(value), "https://") {
+			problems = append(problems, fmt.Sprintf("node.tls is set but %s %q is not https://: node.tls only applies to https endpoints", endpoint.field, value))
+		}
+	}
+	return problems
 }
 
 // realModeTransportProblems is the deployment security baseline's transport check

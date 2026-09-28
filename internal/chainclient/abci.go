@@ -42,9 +42,16 @@ var ErrNotFound = errors.New("Keeper state not found")
 var ErrFailedPrecondition = errors.New("Keeper state is not materialized yet")
 
 func NewKeeperABCIClient(rpcURL string) *KeeperABCIClient {
+	return NewKeeperABCIClientWithTransport(rpcURL, nil)
+}
+
+// NewKeeperABCIClientWithTransport is NewKeeperABCIClient over transport, which
+// carries the node's TLS trust (node.tls). A nil transport means
+// http.DefaultTransport and the system root CAs.
+func NewKeeperABCIClientWithTransport(rpcURL string, transport http.RoundTripper) *KeeperABCIClient {
 	return &KeeperABCIClient{
 		rpcURL: strings.TrimRight(strings.TrimSpace(rpcURL), "/"),
-		http:   &http.Client{Timeout: keeperQueryTimeout},
+		http:   &http.Client{Timeout: keeperQueryTimeout, Transport: transport},
 	}
 }
 
