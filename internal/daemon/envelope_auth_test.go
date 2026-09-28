@@ -879,7 +879,6 @@ func TestBuildRuntimeStrictModeConstructsEnvelopeAuthenticationFromConfig(t *tes
 	cfg := realConfig()
 	cfg.Store.Path = t.TempDir() + "/cortex.kv"
 	cfg.ModelManagement.Transport = "local"
-	cfg.ModelManagement.ManifestDir = t.TempDir()
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 1
 	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthStrict
@@ -928,7 +927,6 @@ func TestBuildRuntimeStrictModeAuthenticatesWithoutAConfiguredBuilderOperator(t 
 	cfg := realConfig()
 	cfg.Store.Path = t.TempDir() + "/cortex.kv"
 	cfg.ModelManagement.Transport = "local"
-	cfg.ModelManagement.ManifestDir = t.TempDir()
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 1
 	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthStrict
@@ -968,7 +966,6 @@ func TestBuildRuntimeStrictModeWithoutABuilderSetReaderReportsUnready(t *testing
 	cfg := realConfig()
 	cfg.Store.Path = t.TempDir() + "/cortex.kv"
 	cfg.ModelManagement.Transport = "local"
-	cfg.ModelManagement.ManifestDir = t.TempDir()
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 1
 	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthStrict
@@ -1025,7 +1022,6 @@ func TestBuildRuntimeTrustedNATSDevBuildsNoEnvelopeAuthentication(t *testing.T) 
 	cfg.Mode = config.ModeFake
 	cfg.Store.Path = t.TempDir() + "/cortex.kv"
 	cfg.ModelManagement.Transport = "local"
-	cfg.ModelManagement.ManifestDir = t.TempDir()
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 1
 	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthTrustedDev

@@ -203,10 +203,14 @@ func TestLocalGenerationDeadlineDoesNotPublishPartialOutput(t *testing.T) {
 }
 
 func TestLocalGenerationDoesNotContaminateProfileCache(t *testing.T) {
-	srv, seen := newVLLMStub(t, genResponse(), verifyResponse())
+	// The generation ends on an EOS token, so its finish is consistent with
+	// the profile's output_decoding.
+	generated := genResponse()
+	generated.Choices[0].TokenIDs = []int{10, 151645}
+	srv, seen := newVLLMStub(t, generated, verifyResponse())
 	svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
 	resolver := &countingProfileResolver{snapshot: liveLikeProfileSnapshot}
-	svc.SetManifestSource(testManifestSource())
+	svc.SetOutputDecodingSource(testOutputDecodingSource())
 	svc.SetProfileResolver(resolver)
 	for i, limit := range []uint64{8, 1024, 128} {
 		g := localTestGeneration(testQwenModelID(), 1)
