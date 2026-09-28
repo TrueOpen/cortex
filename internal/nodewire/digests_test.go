@@ -354,7 +354,7 @@ func TestRejectsMalformedInput(t *testing.T) {
 	})
 
 	t.Run("settlement_bill_short_receipt_ref", func(t *testing.T) {
-		_, err := nodewire.SettlementBillLeafHash(nodewire.TaskSettlementBillLeafV1{
+		_, err := nodewire.SettlementBillHash(nodewire.SettlementBillV1{
 			WorkerOperatorAddress: receipt.WorkerOperatorAddress,
 			InferReceiptRef:       receipt.TaskID[:4],
 		})

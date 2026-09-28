@@ -5,15 +5,13 @@
 package nodewire
 
 // Frozen H_FIELDS_V1 domain separators. Changing any literal is a breaking
-// protocol change; the §1.4 registry rows live upstream, and
-// TRUEOPEN_SETTLEMENT_BILL_LEAF_V1 is the ruling-32 structure-only freeze that the
-// registry deliberately does not carry yet.
+// protocol change; wire's domain registry is the source of truth.
 const (
 	DomainInferEvidenceCommitmentsV1 = "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"
 	DomainVerifyCommitV1             = "TRUEOPEN_COMMIT_V1"
 	DomainWorkerHandraiseV1          = "TRUEOPEN_WORKER_HANDRAISE_V1"
 	DomainVerifierHandraiseV1        = "TRUEOPEN_VERIFIER_HANDRAISE_V1"
-	DomainSettlementBillLeafV1       = "TRUEOPEN_SETTLEMENT_BILL_LEAF_V1"
+	DomainSettlementBillV1           = "TRUEOPEN_SETTLEMENT_BILL_V1"
 )
 
 // Each signing contract carries its own published schema version.
@@ -82,11 +80,11 @@ type CandidateMemberRefV1 struct {
 	OperatorAddress         string
 }
 
-// TaskSettlementBillLeafV1 is the structure-only frozen settlement bill leaf.
-// It carries no amount: the fee rule stays with the budget state's
-// fee_rule_version. Freezing the structure does not license producing the leaf
-// on chain, so this exists to compute and pin the value only.
-type TaskSettlementBillLeafV1 struct {
+// SettlementBillV1 is the settlement bill of one accepted Worker inference,
+// hashed into a round settlement's settlement_bill_hash. It carries no
+// amount: the fee rule is named by fee_rule_version. Cortex computes it to
+// check the value only; it never writes it on chain.
+type SettlementBillV1 struct {
 	WorkerOperatorAddress string
 	InferReceiptRef       []byte // Hash32: the accepted receipt's digest
 	FeeRuleVersion        uint64
