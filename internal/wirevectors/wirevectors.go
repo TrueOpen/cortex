@@ -30,12 +30,12 @@ import (
 // WireVersion names the wire release the embedded files were copied from.
 // Raising the go.mod dependency without recopying these is a drift this
 // constant makes visible in a diff.
-const WireVersion = "v0.3.0"
+const WireVersion = "v0.3.3"
 
 // WireCommit is the wire commit the embedded files were copied from.
-const WireCommit = "3938bd25c20e63d767a0abc0067f662a993cd75a"
+const WireCommit = "8ae35684a93c1decd8fe73a29e5516badd870165"
 
-//go:embed testdata/v030
+//go:embed testdata/v033
 var released embed.FS
 
 // vectorSet is one embedded copy of wire's testdata and the checksum of the
@@ -48,8 +48,8 @@ type vectorSet struct {
 }
 
 var releasedSet = vectorSet{
-	fs: released, dir: "testdata/v030", version: WireVersion,
-	manifestSum: "211a77b8f3158d1e79a5ea275dba509e6e14c5d9c04ae182e65f88e3623351ba",
+	fs: released, dir: "testdata/v033", version: WireVersion,
+	manifestSum: "7c6904c5539caa6c23ecf18c66da0e4d3ea924f3f75bd76b31ea4c727751e155",
 }
 
 // File returns exact released fixture bytes after checking their provenance.
@@ -62,11 +62,12 @@ func (set vectorSet) file(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if path == "manifest.json" {
-		return manifestBytes, nil
-	}
+	// The manifest itself is served only once its pinned checksum matches.
 	if sum := sha256.Sum256(manifestBytes); hex.EncodeToString(sum[:]) != set.manifestSum {
 		return nil, fmt.Errorf("wire %s fixture manifest checksum mismatch", set.version)
+	}
+	if path == "manifest.json" {
+		return manifestBytes, nil
 	}
 	var manifest releaseManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {

@@ -43,6 +43,28 @@ func TestRegisterCurrentSubmitsWithoutAnInnerRegistrantSignature(t *testing.T) {
 	}
 }
 
+// The length cap on manifest_uri is the chain parameter, read at
+// registration: a URI the document accepts can still exceed a lower cap.
+func TestRegisterCurrentEnforcesTheChainManifestURICap(t *testing.T) {
+	manifest := mustCurrentManifest(t)
+	uriBytes := uint32(len(manifest.Profile.ManifestURI))
+	submitter := &currentRegistrationSubmitterStub{}
+	tight := newCurrentRegistry(&currentRegistrationReaderStub{err: chainclient.ErrNotFound, maxURIBytes: uriBytes - 1}, submitter, nil)
+	if _, err := tight.RegisterCurrent(context.Background(), CurrentRegisterRequest{Manifest: manifest}); err == nil || !strings.Contains(err.Error(), "manifest_uri length") {
+		t.Fatalf("over-cap manifest_uri was registered: %v", err)
+	}
+	if len(submitter.messages) != 0 {
+		t.Fatal("over-cap manifest_uri was submitted")
+	}
+	exact := newCurrentRegistry(&currentRegistrationReaderStub{err: chainclient.ErrNotFound, maxURIBytes: uriBytes}, submitter, nil)
+	if _, err := exact.RegisterCurrent(context.Background(), CurrentRegisterRequest{Manifest: manifest}); err != nil {
+		t.Fatalf("manifest_uri at the cap: %v", err)
+	}
+	if len(submitter.messages) != 1 || submitter.messages[0].Profile.ManifestURI != manifest.Profile.ManifestURI {
+		t.Fatalf("submitted %#v", submitter.messages)
+	}
+}
+
 func TestRegisterCurrentSkipsExactExistingDigestWithoutSigning(t *testing.T) {
 	manifest := mustCurrentManifest(t)
 	digest, _, err := keepercontract.ModelRegistrationDigest("trueopen-devnet-1", "trueopen1operator", manifest.Profile)
@@ -142,6 +164,16 @@ func mustDecodeHex(value string) []byte {
 type currentRegistrationReaderStub struct {
 	state chainclient.CurrentModelProfileSnapshot
 	err   error
+	// maxURIBytes stands in for the chain's max_manifest_uri_bytes; zero
+	// takes the published default.
+	maxURIBytes uint32
+}
+
+func (r *currentRegistrationReaderStub) Params(context.Context) (chainclient.ParamsSnapshot, error) {
+	if r.maxURIBytes == 0 {
+		return chainclient.ParamsSnapshot{MaxManifestURIBytes: 2048}, nil
+	}
+	return chainclient.ParamsSnapshot{MaxManifestURIBytes: r.maxURIBytes}, nil
 }
 
 func (r *currentRegistrationReaderStub) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {

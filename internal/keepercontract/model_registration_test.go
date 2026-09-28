@@ -99,5 +99,6 @@ func nodeGoldenModelProfileProjection() txclient.ModelProfileProjectionMessage {
 		},
 		PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 		TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-		SchemaHash:              txclient.ProtoBytes32(strings.Repeat("99", 32)), RegistrationFee: txclient.CoinMessage{Denom: "uusdc", Amount: 1_000_000}}
+		SchemaHash:              txclient.ProtoBytes32(strings.Repeat("99", 32)), RegistrationFee: txclient.CoinMessage{Denom: "uusdc", Amount: 1_000_000},
+		ManifestURI: "https://models.trueopen.example/manifests/golden-model/v1.json?rev=3&sig=ab"}
 }

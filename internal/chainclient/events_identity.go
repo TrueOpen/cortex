@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// Chain events are identified from the wire v0.4.1 payload descriptor registry.
+// Chain events are identified from the pinned wire release's payload
+// descriptor registry.
 
 // RawChainEvent is one chain event exactly as the node presented it: the ABCI
 // event type plus its decoded attributes. It is the only wire-shaped value the

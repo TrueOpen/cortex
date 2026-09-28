@@ -64,12 +64,11 @@ func TestObjectRefAndRangePresenceCannotBeConfused(t *testing.T) {
 	}
 }
 
-// wire v0.4.2 corrected the previously unverifiable Bech32 column on the
-// c0..d3 raw address fields (task/task_data_auth_v1.json and
-// task/builder_confirmation_v1.json) to trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe,
-// with no digest change. The fixture's annotation is now well-formed, so it
-// is verified like any other published address instead of being whitelisted
-// as a known-malformed exception.
+// The fixtures (task/task_data_auth_v1.json and
+// task/builder_confirmation_v1.json) spell the c0..d3 raw address fields as
+// trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe. The annotation is
+// well-formed, so it is verified like any other published address instead of
+// being whitelisted as a known-malformed exception.
 func goldenAddress(t *testing.T, field taskDataGoldenField) string {
 	t.Helper()
 	address := field.Bech32

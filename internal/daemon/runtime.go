@@ -67,12 +67,16 @@ type Runtime struct {
 	signingClient               signer.Signer
 	trustInjectedSignerForTests bool
 	signerProofMu               sync.Mutex
-	signerProofDigest           codec.Hash
-	signerProofValidUntil       time.Time
-	signerProofValid            bool
-	workloadTxFactory           func(string) txclient.Client
-	nexusProbe                  ReadinessProbe
-	txProbe                     ReadinessProbe
+	// manifestGate keeps model_service red until every configured profile
+	// registered by another operator has a verified manifest. Nil outside
+	// real mode.
+	manifestGate          *manifestGate
+	signerProofDigest     codec.Hash
+	signerProofValidUntil time.Time
+	signerProofValid      bool
+	workloadTxFactory     func(string) txclient.Client
+	nexusProbe            ReadinessProbe
+	txProbe               ReadinessProbe
 	// natsIdentity is the on-chain identity binding this machine uses to join NATS
 	// (ADR-0016 decision three). It exists only when real mode configured
 	// nats_user_key_file and the runtime builds the NATS connection itself; on a node
@@ -731,6 +735,13 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		SelectedTaskBuilders:        selectedTaskBuildersReader(keeperClient),
 	}
 	envelopeRuntime = runtime
+	if cfg.UsesRealDependencies() {
+		gate, err := newManifestGate(cfg, keeperClient)
+		if err != nil {
+			return nil, err
+		}
+		runtime.manifestGate = gate
+	}
 	runtime.setDiagnosticsSnapshot(deps.Diagnostics)
 	// The outbound signer resolves its identity from the activated workload, so
 	// it can only be built once the runtime exists.

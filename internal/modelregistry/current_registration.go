@@ -10,11 +10,14 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 type CurrentRegistrationReader interface {
 	CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error)
+	// Params supplies max_manifest_uri_bytes, the chain's cap on manifest_uri.
+	Params(context.Context) (chainclient.ParamsSnapshot, error)
 }
 
 type CurrentRegistrationSubmitter interface {
@@ -52,6 +55,13 @@ func (r *Registry) RegisterCurrent(ctx context.Context, req CurrentRegisterReque
 
 	if r.currentRegistrationReader == nil {
 		return result, fmt.Errorf("current model registration reader is required")
+	}
+	params, err := r.currentRegistrationReader.Params(ctx)
+	if err != nil {
+		return result, fmt.Errorf("read Keeper params for max_manifest_uri_bytes: %w", err)
+	}
+	if err := modelmanifest.ValidateURI(req.Manifest.Profile.ManifestURI, int(params.MaxManifestURIBytes)); err != nil {
+		return result, err
 	}
 	state, err := r.currentRegistrationReader.CurrentModelProfile(ctx, string(req.Manifest.Profile.ModelID), fmt.Sprintf("%d", req.Manifest.Profile.ProfileVersion))
 	switch {

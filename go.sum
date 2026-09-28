@@ -10,6 +10,12 @@ github.com/TrueOpen/wire v0.3.0-rc.2 h1:YYDa38uYC/y/GiBW0NthUR6SYKEqocXNb3aR/KeL
 github.com/TrueOpen/wire v0.3.0-rc.2/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
 github.com/TrueOpen/wire v0.3.0 h1:Lw+Wi9ru0B3LYUD7VDQPUMXJ0MhGSrmRhNJi6RWEi0w=
 github.com/TrueOpen/wire v0.3.0/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
+github.com/TrueOpen/wire v0.3.1 h1:y2Ql+RTpg80HnhVeEDJqfbk+NHNurhjh0Fj0IqMAE5w=
+github.com/TrueOpen/wire v0.3.1/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
+github.com/TrueOpen/wire v0.3.2 h1:t/FIk8Bu5lOeP/EmkA7TcRT4Nko3rigDpK6vquGYDXA=
+github.com/TrueOpen/wire v0.3.2/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
+github.com/TrueOpen/wire v0.3.3 h1:UTYDUcjo0u/maCm+quYYhakEUnpPWjbTMV2jrLoOcFc=
+github.com/TrueOpen/wire v0.3.3/go.mod h1:AFFxZGikd4t3+KD1dKTNLxd6Pq+aHft1ZCIyv3Szfa4=
 github.com/aclements/go-perfevent v0.0.0-20240301234650-f7843625020f h1:JjxwchlOepwsUWcQwD2mLUAGE9aCp0/ehy6yCHFBOvo=
 github.com/aclements/go-perfevent v0.0.0-20240301234650-f7843625020f/go.mod h1:tMDTce/yLLN/SK8gMOxQfnyeMeCg8KGzp0D1cbECEeo=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

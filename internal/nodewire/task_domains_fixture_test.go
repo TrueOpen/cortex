@@ -30,7 +30,6 @@ const (
 	vectorVerifyCommit      = "verify_commit_v1"
 	vectorWorkerHandraise   = "worker_handraise_v1"
 	vectorVerifierHandraise = "verifier_handraise_v1"
-	vectorSettlementBill    = "settlement_bill_leaf_v1"
 )
 
 // evidenceCommitmentFrameBytesV1 is the exact framed length of one

@@ -271,6 +271,11 @@ type ModelProfileProjectionMessage struct {
 	Source                    SourceRefMessage               `json:"source"`
 	ToolCallParser            ParserRefMessage               `json:"tool_call_parser"`
 	ReasoningParser           ParserRefMessage               `json:"reasoning_parser"`
+	// ManifestURI is where the registrant hosts the manifest body, kept
+	// exactly as given. It enters the projection and registration digests
+	// but not manifest_hash. Required; its syntax and its length cap, the
+	// chain parameter max_manifest_uri_bytes, are checked before submission.
+	ManifestURI string `json:"manifest_uri"`
 }
 
 type RegisterModelProfileMessage struct {
@@ -942,6 +947,9 @@ func validateRegisterModelProfile(message RegisterModelProfileMessage) error {
 func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error {
 	if err := requireStrings(string(profile.ModelID), profile.RuntimeClass); err != nil {
 		return err
+	}
+	if profile.ManifestURI == "" {
+		return fmt.Errorf("model profile manifest_uri is required")
 	}
 	if err := validateHashHex(string(profile.ModelID)); err != nil {
 		return fmt.Errorf("model_id must be a Hash32: %w", err)

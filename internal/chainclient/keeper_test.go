@@ -94,12 +94,21 @@ func (m *nodeBuilderParams) Reset()         { *m = nodeBuilderParams{} }
 func (m *nodeBuilderParams) String() string { return proto.CompactTextString(m) }
 func (*nodeBuilderParams) ProtoMessage()    {}
 
+type nodeModelParams struct {
+	MaxManifestURIBytes uint32 `protobuf:"varint,12,opt,name=max_manifest_uri_bytes,json=maxManifestUriBytes,proto3"`
+}
+
+func (m *nodeModelParams) Reset()         { *m = nodeModelParams{} }
+func (m *nodeModelParams) String() string { return proto.CompactTextString(m) }
+func (*nodeModelParams) ProtoMessage()    {}
+
 type nodeHubParams struct {
 	SchemaVersion uint32            `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3"`
 	Epoch         nodeEpochParams   `protobuf:"bytes,2,opt,name=epoch,proto3"`
 	Support       nodeSupportParams `protobuf:"bytes,3,opt,name=support,proto3"`
 	Service       nodeServiceParams `protobuf:"bytes,5,opt,name=service,proto3"`
 	Builder       nodeBuilderParams `protobuf:"bytes,6,opt,name=builder,proto3"`
+	Model         nodeModelParams   `protobuf:"bytes,16,opt,name=model,proto3"`
 }
 
 func (m *nodeHubParams) Reset()         { *m = nodeHubParams{} }
@@ -187,10 +196,10 @@ func TestKeeperABCIClientQueriesModelByHash32(t *testing.T) {
 		}
 		return &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
 			ModelId: rawModelID, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
-			Status:             hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
-			ActiveProfileCount: 1, LatestProfileVersion: 2,
-			StatusSource:        hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
-			RegistrationFeePaid: 100, CreatedHeight: 40, UpdatedHeight: 41,
+			Status:               hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE,
+			LatestProfileVersion: 2,
+			StatusSource:         hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
+			RegistrationFeePaid:  100, CreatedHeight: 40, UpdatedHeight: 41,
 		}}, 0, ""
 	})
 	defer server.Close()
@@ -220,8 +229,7 @@ func TestKeeperABCIClientReadsCurrentProfileTypedEvidenceSchema(t *testing.T) {
 			mustUnmarshalProto(t, data, &request)
 			return &hubv1.QueryModelResponse{Model: &hubv1.ModelState{
 				ModelId: request.ModelId, ProposerAddress: "trueopen1proposer", Provider: "HUGGINGFACE", RepoId: "org/model",
-				Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1,
-				LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
+				Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, LatestProfileVersion: 7, StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT,
 				CreatedHeight: 40, UpdatedHeight: 41,
 			}}, 0, ""
 		case hubQuery + "Profile":
@@ -556,6 +564,7 @@ func TestKeeperABCIClientReadsNodeV1HubParams(t *testing.T) {
 			Epoch:         nodeEpochParams{EpochLengthBlocks: 720},
 			Support:       nodeSupportParams{SupportWindowEpochs: 20},
 			Service:       nodeServiceParams{ServiceUnbondingPeriodBlocks: 302_400},
+			Model:         nodeModelParams{MaxManifestURIBytes: 2048},
 		}}, 0, ""
 	})
 	defer server.Close()
@@ -565,7 +574,7 @@ func TestKeeperABCIClientReadsNodeV1HubParams(t *testing.T) {
 		t.Fatalf("Params() error = %v", err)
 	}
 	if params.ServiceUnbondingPeriodBlocks.Uint64() != 302_400 ||
-		params.DailySupportWindowBlocks.Uint64() != 14_400 {
+		params.DailySupportWindowBlocks.Uint64() != 14_400 || params.MaxManifestURIBytes != 2048 {
 		t.Fatalf("Params() = %#v", params)
 	}
 }
@@ -897,7 +906,7 @@ func mustUnmarshalProto(t testing.TB, data []byte, message proto.Message) {
 func modelsTestModel(id byte, provider, repo string) *hubv1.ModelState {
 	return &hubv1.ModelState{
 		ModelId: bytes.Repeat([]byte{id}, 32), ProposerAddress: "trueopen1proposer", Provider: provider, RepoId: repo,
-		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, ActiveProfileCount: 1, LatestProfileVersion: 1,
+		Status: hubv1.ModelProfileStatus_MODEL_PROFILE_STATUS_ACTIVE, LatestProfileVersion: 1,
 		StatusSource: hubv1.ModelStatusSource_MODEL_STATUS_SOURCE_AUTO_SUPPORT, CreatedHeight: 40, UpdatedHeight: 41,
 	}
 }

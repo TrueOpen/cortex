@@ -30,7 +30,7 @@ func settlementUint(field protowire.Number, value uint64) []byte {
 	return protowire.AppendVarint(protowire.AppendTag(nil, field, protowire.VarintType), value)
 }
 
-// Generated responses follow the exact v0.4.0 descriptors.
+// Generated responses follow the exact descriptors of the pinned wire release.
 func settlementFixtureResponse(path string, taskID []byte, phase, anchor, grace uint64, builders []string, count uint64) proto.Message {
 	switch path {
 	case taskQuery + "Task":

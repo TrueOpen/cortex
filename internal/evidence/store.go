@@ -1,12 +1,17 @@
 // Package evidence implements the task-scoped local artifact store. The name
 // "evidence" reflects its origin as the keeper of protocol evidence openings,
 // but the store now holds all task artifacts: model material (worker-token-ids-material,
-// worker-position-values-material, worker-reveal-opening, verifier-v-values,
+// worker-position-values-material, verifier-v-values,
 // verifier-full-result-reveal-state, settlement-*), OUTPUT payload
-// (worker-output), local-only signed material (worker-handshake,
-// worker-infer-receipt, verifier-handshake, verifier-result-commit), and
-// resolved task input. Evidence, in the strict protocol sense of an opening
-// commitment, is only one category of tenant.
+// (worker-output), local-only signed material (worker-infer-receipt,
+// verifier-result-commit), and resolved task input. Evidence, in the strict
+// protocol sense of an opening commitment, is only one category of tenant.
+//
+// The list names kinds something actually writes. worker-reveal-opening left it
+// with the Worker reveal path; worker-handshake and verifier-handshake were
+// already unwritten before that. A kind listed here with no writer reads as a
+// retention obligation an operator has to provision for and a reader has to
+// handle, and neither is true of a kind nothing produces.
 //
 // Bytes live under tasks/<taskHash[0:2]>/<taskHash>/ (see paths.go), are staged
 // inside that task's own .staging/ and published write-once, and are retired by

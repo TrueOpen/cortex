@@ -247,6 +247,10 @@ func TestStandardModelRegisterEndpointAcceptsV3AndRejectsLegacyV2(t *testing.T) 
 
 type currentAdminReader struct{}
 
+func (currentAdminReader) Params(context.Context) (chainclient.ParamsSnapshot, error) {
+	return chainclient.ParamsSnapshot{MaxManifestURIBytes: 2048}, nil
+}
+
 func (currentAdminReader) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
 	return chainclient.CurrentModelProfileSnapshot{}, chainclient.ErrNotFound
 }
@@ -263,7 +267,7 @@ func currentAdminManifest(t testing.TB) modelregistry.CurrentManifest {
 				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
+			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}, ManifestURI: "https://models.trueopen.example/manifests/org-model/v1.json"},
 	})
 	if err != nil {
 		t.Fatalf("GenerateCurrentManifest: %v", err)

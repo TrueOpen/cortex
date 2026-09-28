@@ -132,6 +132,19 @@ artifacts:
   sweep_grace_period: 1h
 store:
   path: /var/lib/cortex/store
+# Before serving a model profile registered by another operator, the node
+# fetches that profile's full manifest and verifies it against the chain;
+# model_service stays red until it is verified. Sources: the cache, then the
+# profile's registered manifest_uri, then the mirrors below.
+model_manifest:
+  # Verified manifests, reused across restarts. Default: "manifests" beside
+  # store.path.
+  cache_dir: /var/lib/cortex/manifests
+  # Needed only for ipfs:// manifest URIs: https, or http on loopback. There
+  # is no default public gateway.
+  ipfs_gateway: ""
+  # https base URLs serving manifests at <mirror>/<manifest_hash hex>.
+  mirrors: []
 signer:
   uri: http://127.0.0.1:9080
   readiness_proof_interval_ms: 30000

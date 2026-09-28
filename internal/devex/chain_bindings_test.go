@@ -25,12 +25,12 @@ import (
 )
 
 func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
-	data, err := os.ReadFile("../../proto/testdata/wire-v0.3.0-rc.2.binpb")
+	data, err := os.ReadFile("../../proto/testdata/wire-v0.3.3.binpb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "e584422a7c2e4215576aaf6b7733591338d95f866f2c3350a6c89cc28402c569" {
-		t.Fatalf("pinned wire v0.3.0-rc.2 descriptor changed: %s", got)
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "2cc1ce24c0c4f75eff2b4d870b588f19378dad771242b0211cc09f7a87564822" {
+		t.Fatalf("pinned wire v0.3.3 descriptor changed: %s", got)
 	}
 	var set descriptorpb.FileDescriptorSet
 	if err := proto.Unmarshal(data, &set); err != nil {
@@ -54,7 +54,7 @@ func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
 		got := protodesc.ToFileDescriptorProto(actual)
 		got.SourceCodeInfo = nil
 		if !proto.Equal(want, got) {
-			t.Fatalf("binding descriptor differs from pinned wire v0.3.0-rc.2: %s\n%s", name, cmp.Diff(want, got, protocmp.Transform()))
+			t.Fatalf("binding descriptor differs from pinned wire v0.3.3: %s\n%s", name, cmp.Diff(want, got, protocmp.Transform()))
 		}
 		checked++
 	}

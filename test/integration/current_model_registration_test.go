@@ -56,6 +56,10 @@ type devnetRegistrationReader struct {
 	profileVersion string
 }
 
+func (r *devnetRegistrationReader) Params(context.Context) (chainclient.ParamsSnapshot, error) {
+	return chainclient.ParamsSnapshot{MaxManifestURIBytes: 2048}, nil
+}
+
 func (r *devnetRegistrationReader) CurrentModelProfile(_ context.Context, modelID, profileVersion string) (chainclient.CurrentModelProfileSnapshot, error) {
 	r.modelID, r.profileVersion = modelID, profileVersion
 	return chainclient.CurrentModelProfileSnapshot{}, chainclient.ErrNotFound

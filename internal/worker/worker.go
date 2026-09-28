@@ -121,7 +121,6 @@ type Worker struct {
 	cfg                Config
 	receipts           map[string]ReceiptState
 	results            map[string]InferResult
-	reveals            map[string]WorkerRevealResult
 	snapshot           chainclient.TaskSnapshot
 }
 
@@ -317,40 +316,6 @@ type WorkerHandraiseResult struct {
 	DedupID string
 }
 
-type WorkerRevealTrigger struct {
-	SessionID                  string
-	TaskID                     string
-	VerifyRound                uint64
-	InferReceiptHash           codec.Hash
-	VerificationSampleSeed     codec.Hash
-	SelectedPositions          []uint64
-	SampledValueSet            [][]byte
-	OpeningMaterial            []byte
-	SampleEncodingProfile      string
-	SourceRootKind             string
-	EvidenceSchemaVersion      string
-	WorkerRevealDeadlineHeight uint64
-}
-
-type WorkerRevealReceipt struct {
-	TaskID                 string
-	VerifyRound            uint64
-	WorkerAddress          string
-	InferReceiptHash       codec.Hash
-	VerificationSampleSeed codec.Hash
-	SelectedPositions      []uint64
-	SampledValueSetHash    codec.Hash
-	SampleEncodingProfile  string
-	SourceRootKind         string
-	EvidenceSchemaVersion  string
-	WorkerSignature        []byte
-}
-
-type WorkerRevealResult struct {
-	Receipt WorkerRevealReceipt
-	Payload []byte
-}
-
 // crashAt invokes the configured crash hook, if any. It is a no-op in
 // production and returns any error the hook produces so the caller aborts.
 func (w *Worker) crashAt(point string) error {
@@ -363,7 +328,6 @@ func (w *Worker) crashAt(point string) error {
 func New(cfg Config) *Worker {
 	return &Worker{
 		cfg: cfg, receipts: make(map[string]ReceiptState), results: make(map[string]InferResult),
-		reveals: make(map[string]WorkerRevealResult),
 	}
 }
 
@@ -910,7 +874,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("locally verify infer receipt service signature: %w", err)
 	}
 	receipt.ServiceSignature = hex.EncodeToString(serviceSignature)
-	canonicalPayload, err := json.Marshal(receipt)
+	canonicalPayload, err := codec.CanonicalJSON(receipt)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("encode canonical infer receipt: %w", err)
 	}

@@ -1,6 +1,9 @@
 package wirevectors
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEmbeddedHubVectorsAreWireVerbatim(t *testing.T) {
 	if err := VerifyProvenance(); err != nil {
@@ -33,7 +36,7 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// Every v0.3.0 file this repository derives must be registered in the
+// Every v0.3.3 file this repository derives must be registered in the
 // release manifest.
 func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{
@@ -52,12 +55,28 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		"task/canonical_json_v1.json",
 		"task/task_domains_v1.json",
 		"hub/model_id_v1.json",
+		"hub/model_manifest_v4.json",
+		"hub/model_profile_canonical_v3.json",
+		"hub/manifest_uri_v1.json",
 	} {
 		if _, err := File(path); err != nil {
 			t.Fatalf("File(%s): %v", path, err)
 		}
 	}
 	if _, err := File("task/infer_receipt_v2.json"); err == nil {
-		t.Fatal("File() error = nil for a file wire v0.3.0 no longer publishes")
+		t.Fatal("File() error = nil for a file wire v0.3.3 does not publish")
+	}
+}
+
+// The fixture manifest is served only when it matches its pinned checksum,
+// like every file it lists.
+func TestManifestIsServedOnlyWithItsPinnedChecksum(t *testing.T) {
+	if _, err := releasedSet.file("manifest.json"); err != nil {
+		t.Fatalf("pinned manifest: %v", err)
+	}
+	tampered := releasedSet
+	tampered.manifestSum = strings.Repeat("0", 64)
+	if _, err := tampered.file("manifest.json"); err == nil {
+		t.Fatal("a manifest that does not match its pinned checksum was served")
 	}
 }
