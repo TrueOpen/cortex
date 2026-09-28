@@ -20,6 +20,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/metric"
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -50,6 +51,12 @@ type LocalService struct {
 	serviceID       string
 	http            *http.Client
 	profileResolver LocalProfileResolver
+
+	// outputDecodingSource supplies the output_decoding block of a
+	// chain-registered profile's manifest, whose eos_token_ids decide which
+	// generated tokens the committed output covers. Infer on a chain-resolved
+	// profile is refused without it; see outputDecodingFor.
+	outputDecodingSource OutputDecodingSource
 
 	// inferStreamObserver, when set, receives the per-frame delta of each SSE
 	// chunk during a streaming Infer. It is a best-effort delivery hook (nil by
@@ -104,6 +111,13 @@ type LocalService struct {
 
 type LocalProfileResolver interface {
 	ResolveLocalProfile(context.Context, string, string) (chainclient.CurrentProfileSnapshot, error)
+}
+
+// OutputDecodingSource returns the output_decoding block of a registered
+// profile's manifest, read from bytes that hash to the profile's on-chain
+// manifest_hash. *modelmanifest.Fetcher implements it.
+type OutputDecodingSource interface {
+	OutputDecoding(context.Context, chainclient.CurrentProfileSnapshot) (modelmanifest.OutputDecoding, error)
 }
 
 func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTimeout, probeTimeout time.Duration) *LocalService {
@@ -184,6 +198,15 @@ func (s *LocalService) withProbeTimeout(ctx context.Context) (context.Context, c
 func (s *LocalService) SetProfileResolver(resolver LocalProfileResolver) {
 	s.mu.Lock()
 	s.profileResolver = resolver
+	s.mu.Unlock()
+}
+
+// SetOutputDecodingSource installs where the output_decoding block of a
+// chain-registered profile is read from. With a profile resolver installed and
+// no source, Infer refuses every chain-resolved profile; see outputDecodingFor.
+func (s *LocalService) SetOutputDecodingSource(source OutputDecodingSource) {
+	s.mu.Lock()
+	s.outputDecodingSource = source
 	s.mu.Unlock()
 }
 
@@ -275,6 +298,10 @@ type completionRequest struct {
 	ReturnTokenIDs         bool     `json:"return_token_ids,omitempty"`
 	ReturnTokensAsTokenIDs bool     `json:"return_tokens_as_token_ids,omitempty"`
 	SkipSpecialTokens      *bool    `json:"skip_special_tokens,omitempty"`
+	// SpacesBetweenSpecialTokens is pinned false on generation, so the engine
+	// text renders adjacent special tokens without inserting a space between
+	// them (see checkRawTextCommittedOutput). Verify leaves it unset.
+	SpacesBetweenSpecialTokens *bool `json:"spaces_between_special_tokens,omitempty"`
 }
 
 // logprobEntry is a single "token id -> detail" entry in a prompt_logprobs
@@ -377,6 +404,16 @@ type localModelProfile struct {
 	ContextLength  int
 	Sampling       localSamplingProfile
 	Verification   localVerificationProfile
+
+	// chain is the registered profile this one was resolved from, or nil on
+	// the dev path that has no profile resolver.
+	chain *chainclient.CurrentProfileSnapshot
+	// OutputDecoding decides which of the generated tokens the committed output
+	// covers. Only Infer needs it, so it is filled by outputDecodingFor rather
+	// than by resolveLocalProfile, and a Verifier never depends on the
+	// manifest being obtainable. It stays empty on the dev path, where nothing
+	// is stripped.
+	OutputDecoding modelmanifest.OutputDecoding
 }
 
 type localSamplingProfile struct {
@@ -636,8 +673,42 @@ func (s *LocalService) resolveLocalProfile(ctx context.Context, modelID string, 
 	if err != nil {
 		return localModelProfile{}, err
 	}
+	resolved.chain = &snapshot
 	s.rememberProfile(cacheKey, resolved)
 	return resolved, nil
+}
+
+// outputDecodingFor returns profile with its output_decoding filled in.
+//
+// A chain-resolved profile needs the block from its manifest, and every
+// failure to obtain it refuses the task instead of falling back. Carrying on
+// without it would mean keeping a trailing EOS in the committed output: this
+// node would still look healthy and sign receipts, while its output_hash
+// disagreed with every node that read the manifest.
+//
+// A block that was obtained is cached with the profile, since a registered
+// profile version and its manifest_hash never change. A failure is not cached,
+// so the next task tries again.
+func (s *LocalService) outputDecodingFor(ctx context.Context, profile localModelProfile) (localModelProfile, error) {
+	if profile.chain == nil || len(profile.OutputDecoding.EOSTokenIDs) != 0 {
+		return profile, nil
+	}
+	s.mu.RLock()
+	source := s.outputDecodingSource
+	s.mu.RUnlock()
+	if source == nil {
+		return localModelProfile{}, fmt.Errorf("modelservice local: profile %s@%s: no model manifest source is configured, so output_decoding.eos_token_ids is unknown and the committed output cannot be built", profile.ModelID, profile.ProfileVersion)
+	}
+	decoding, err := source.OutputDecoding(ctx, *profile.chain)
+	if err != nil {
+		return localModelProfile{}, fmt.Errorf("modelservice local: profile %s@%s: read output_decoding from the model manifest: %w", profile.ModelID, profile.ProfileVersion, err)
+	}
+	if len(decoding.EOSTokenIDs) == 0 {
+		return localModelProfile{}, fmt.Errorf("modelservice local: profile %s@%s: model manifest output_decoding has no eos_token_ids", profile.ModelID, profile.ProfileVersion)
+	}
+	profile.OutputDecoding = decoding
+	s.rememberProfile(localProfileCacheKey(profile.ModelID, profile.ProfileVersion), profile)
+	return profile, nil
 }
 
 func defaultQwenSingleSampleProfile(modelID string, profileVersion string, servedModel string) localModelProfile {
@@ -858,6 +929,10 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	if err != nil {
 		return InferResponse{}, err
 	}
+	profile, err = s.outputDecodingFor(ctx, profile)
+	if err != nil {
+		return InferResponse{}, err
+	}
 	streaming := s.streamInferenceEnabled()
 	genReq, duration, err := localGenerationRequest(req, profile, streaming)
 	if err != nil {
@@ -910,7 +985,54 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	if err := ctx.Err(); err != nil && !budgetStopped(&resp) {
 		return InferResponse{}, err
 	}
-	return s.buildInferResultFromCompletion(ctx, req, profile, resp, nil, completionFinishResolver(req))
+	if err := checkRawTextCommittedOutput(resp, profile.OutputDecoding); err != nil {
+		return InferResponse{}, err
+	}
+	return s.buildInferResultFromCompletion(ctx, req, profile, resp, nil, completionFinishResolver(req, profile.OutputDecoding))
+}
+
+// checkRawTextCommittedOutput decides whether the engine's text can be
+// committed as the raw-text path's output.
+//
+// The committed output is every generated token's bytes, minus one trailing
+// token if and only if it is in eos_token_ids. The chat path builds exactly
+// that from logprobs.content[i].bytes. /v1/completions has no per-token bytes:
+// its logprobs carry only token strings, which return_tokens_as_token_ids turns
+// into "token_id:<id>" (needed so the top-k rows are keyed by id), so this path
+// has only the engine's detokenized text. The request pins skip_special_tokens
+// false and spaces_between_special_tokens false, so that text renders special
+// tokens and adds nothing between them, and the engine leaves out the text of
+// the token it stopped on.
+//
+// The engine's text is therefore the committed output exactly when the token
+// the engine left out, if any, is the token the rule leaves out. Anything else
+// cannot be built from this response and is refused rather than committed:
+//   - the engine stopped on a configured stop token that is not an EOS token.
+//     The rule strips eos_token_ids only, so that token belongs in the
+//     committed output, but its text is not in the response;
+//   - the generation ended for another reason on a token that is an EOS
+//     token, whose text the response then contains and cannot be cut off.
+//
+// A stop on a stop sequence is left to the finish-reason checks, as before.
+// Without an output_decoding (the dev path) nothing is checked.
+func checkRawTextCommittedOutput(resp completionResponse, decoding modelmanifest.OutputDecoding) error {
+	if len(decoding.EOSTokenIDs) == 0 || len(resp.Choices) == 0 || len(resp.Choices[0].TokenIDs) == 0 {
+		return nil
+	}
+	choice := resp.Choices[0]
+	last := choice.TokenIDs[len(choice.TokenIDs)-1]
+	stop := bytes.TrimSpace(choice.StopReason)
+	var stopToken int
+	stoppedOnToken := strings.EqualFold(strings.TrimSpace(choice.FinishReason), "stop") &&
+		(len(stop) == 0 || bytes.Equal(stop, []byte("null")) || json.Unmarshal(stop, &stopToken) == nil)
+	stoppedOnSequence := strings.EqualFold(strings.TrimSpace(choice.FinishReason), "stop") && !stoppedOnToken
+	if stoppedOnSequence || stoppedOnToken == decoding.IsEOS(last) {
+		return nil
+	}
+	if stoppedOnToken {
+		return fmt.Errorf("modelservice local: the generation stopped on token %d, which is not in output_decoding.eos_token_ids and so belongs in the committed output, but /v1/completions returns no per-token bytes to render it", last)
+	}
+	return fmt.Errorf("modelservice local: the generation ended (%q) on token %d, which is in output_decoding.eos_token_ids and must be left out of the committed output, but /v1/completions returns no per-token bytes to cut it from the engine's text", choice.FinishReason, last)
 }
 
 // finishReasonResolver derives the frozen FinishReasonV1 for one choice. The two
@@ -921,9 +1043,9 @@ type finishReasonResolver func(reason string, stop json.RawMessage, count uint64
 // completionFinishResolver honours the chain-bound generation parameters: the
 // raw-text path validates req.Generation, so it can cross-check the reported
 // finish against max_output_tokens and the configured stop conditions (#370).
-func completionFinishResolver(req InferRequest) finishReasonResolver {
+func completionFinishResolver(req InferRequest, decoding modelmanifest.OutputDecoding) finishReasonResolver {
 	return func(reason string, stop json.RawMessage, count uint64) (nodewire.FinishReasonV1, error) {
-		return localGenerationFinishReason(req.Generation, reason, stop, count)
+		return localGenerationFinishReason(req.Generation, decoding, reason, stop, count)
 	}
 }
 
@@ -956,6 +1078,9 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	}
 	finishReason, err := resolveFinish(choice.FinishReason, choice.StopReason, uint64(len(choice.TokenIDs)))
 	if err != nil {
+		return InferResponse{}, err
+	}
+	if err := checkEOSFinish(finishReason, choice.TokenIDs, profile.OutputDecoding); err != nil {
 		return InferResponse{}, err
 	}
 
@@ -1033,24 +1158,44 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	}, nil
 }
 
+// checkEOSFinish refuses an EOS_TOKEN finish whose last generated token is not
+// in output_decoding.eos_token_ids. The committed output leaves out a trailing
+// EOS token, so an EOS finish that does not end on one would commit an output
+// no one can reconcile with the finish reason. It is refused here, before
+// anything is signed.
+//
+// A STOP_TOKEN finish is not touched: the order's stop_token_ids keep their
+// meaning, and a stop token is not stripped from the committed output, because
+// only eos_token_ids are. Without an output_decoding (the dev path) nothing is
+// checked.
+func checkEOSFinish(finish nodewire.FinishReasonV1, tokenIDs []int, decoding modelmanifest.OutputDecoding) error {
+	if finish != nodewire.FinishReasonV1EosToken || len(decoding.EOSTokenIDs) == 0 {
+		return nil
+	}
+	if len(tokenIDs) == 0 || !decoding.IsEOS(tokenIDs[len(tokenIDs)-1]) {
+		last := "none"
+		if len(tokenIDs) > 0 {
+			last = strconv.Itoa(tokenIDs[len(tokenIDs)-1])
+		}
+		return fmt.Errorf("modelservice local infer: finish reason is EOS but the last generated token (%s) is not in output_decoding.eos_token_ids %v", last, decoding.EOSTokenIDs)
+	}
+	return nil
+}
+
 // Verify re-runs the Worker's committed token IDs as a prefill and reports the
 // verifier's own value at every generated position. It never sees the Worker's
 // values: comparing the two, and everything derived from the comparison, is
 // Cortex's job.
 //
-// One check the Verifier's evidence rules call for is deliberately NOT
-// here yet: `detokenize(token IDs) == text`. The Verifier binds the text to
-// `output_hash` and the token vectors to the A-level commitment, so what is
-// missing is only the tokenizer call, and it is missing for a reason rather
-// than by oversight: the engine does not render the stop-triggering token into
-// the text (measured on vLLM 0.25.1 / Qwen/Qwen3-8B: the returned IDs end in
-// 151645, the text does not, with skip_special_tokens=false), so a straight
-// comparison fails every normal EOS completion. Dropping the final token to
-// make it pass is what must not be done without first establishing that
-// token's identity, and this deployment exposes no authority for it --
-// `/tokenizer_info` answers 404, and the task's frozen generation params carry
-// only the *configured* StopTokenIDs, never the model's own EOS. Landing that
-// check needs an EOS-identity source decided first, not a looser comparison.
+// One check the Verifier's evidence rules call for is NOT here yet: that the
+// committed output equals the decode of the token IDs without their trailing
+// EOS. The EOS set is known on the Worker side (localModelProfile.OutputDecoding,
+// from the profile manifest checked against the on-chain manifest_hash); what
+// is missing is a byte-exact decode. This path makes no tokenizer call, and
+// vLLM's /detokenize does not expose the render_special_tokens and
+// clean_up_tokenization_spaces settings output_decoding fixes, so the
+// comparison cannot be made exact yet. Verify therefore does not need the
+// manifest at all, and does not read it.
 func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyResponse, error) {
 	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {
 		return VerifyResponse{}, err

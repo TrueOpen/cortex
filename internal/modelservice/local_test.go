@@ -663,8 +663,14 @@ func (r *countingProfileResolver) Calls(key string) int {
 
 func liveLikeProfileSnapshot(modelID, profileVersion string) chainclient.CurrentProfileSnapshot {
 	version, _ := strconv.ParseUint(profileVersion, 10, 32)
+	manifestHash := testManifestHash()
 	snapshot := chainclient.CurrentProfileSnapshot{
-		ModelID:        modelID,
+		ModelID: modelID,
+		// Infer on a chain-resolved profile is refused without an
+		// output_decoding from a manifest that hashes to this, so a test that
+		// installs a resolver and calls Infer also installs
+		// testOutputDecodingSource.
+		ManifestHash:   chainclient.ProtoBytes32(manifestHash[:]),
 		ProfileVersion: chainclient.NewProfileVersion(uint32(version)),
 		RuntimeClass:   defaultLocalRuntimeClass,
 		RequiredTopK:   20,

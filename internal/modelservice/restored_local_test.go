@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -152,7 +153,7 @@ func TestLocalGenerationFinishReasonMatrix(t *testing.T) {
 		{"max_output_duration", "", 4, 0, false},
 		{"max_output_duration", `"END"`, 2, 0, false},
 	} {
-		got, err := localGenerationFinishReason(g, tc.reason, json.RawMessage(tc.stop), tc.count)
+		got, err := localGenerationFinishReason(g, modelmanifest.OutputDecoding{}, tc.reason, json.RawMessage(tc.stop), tc.count)
 		if (err == nil) != tc.ok || (tc.ok && got != tc.want) {
 			t.Fatalf("%s/%s/%d = %v, %v; want %v ok=%t", tc.reason, tc.stop, tc.count, got, err, tc.want, tc.ok)
 		}
@@ -238,6 +239,7 @@ func TestLocalServiceChatStopsAtMaxOutputDurationAsSuccess(t *testing.T) {
 func TestLocalServiceDoesNotCacheFailedProfileResolution(t *testing.T) {
 	srv, _ := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{"Qwen/Qwen3-8B"})
 	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc.SetOutputDecodingSource(testOutputDecodingSource())
 	svc.SetProfileResolver(&flakyProfileResolver{})
 	ctx := context.Background()
 	if _, err := svc.resolveLocalProfile(ctx, testQwenModelID(), "1"); err == nil {

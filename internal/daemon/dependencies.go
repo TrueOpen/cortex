@@ -11,6 +11,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/diagnostics"
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
@@ -203,6 +204,24 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 		// readiness check (bindLocalModels), which keeps the node unready
 		// until every configured model is bound and served.
 		local := modelservice.NewLocalService(cfg.ModelManagement.Endpoint, cfg.LocalIdentity.ModelServiceID, cfg.ModelManagement.MaxConcurrency, cfg.ModelManagement.InferTimeout(), cfg.ModelManagement.ProbeTimeout())
+		// Each chain-registered profile's output_decoding.eos_token_ids decide
+		// which generated tokens the committed output covers. They are read
+		// from the profile manifest through the same cache, manifest_uri and
+		// mirrors as the startup manifest gate, and accepted only from bytes
+		// that hash to the chain's manifest_hash. This holds for this
+		// operator's own registrations too, which the gate lets through
+		// unfetched: they are read from manifest_uri, or from a copy the
+		// operator placed in the cache as <manifest_hash hex>.json, which is
+		// hash-checked like any other source.
+		manifests, err := modelmanifest.NewFetcher(modelmanifest.FetcherConfig{
+			CacheDir:    cfg.ManifestCacheDir(),
+			IPFSGateway: cfg.ModelManifest.IPFSGateway,
+			Mirrors:     cfg.ModelManifest.Mirrors,
+		}, nil)
+		if err != nil {
+			return Dependencies{}, fmt.Errorf("model_manifest: %w", err)
+		}
+		local.SetOutputDecodingSource(manifests)
 		if resolver := newKeeperLocalProfileResolver(deps.Keeper); resolver != nil {
 			local.SetProfileResolver(resolver)
 		}

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -30,13 +31,16 @@ import (
 //
 // Output is NOT the engine's detokenized message.content, nor a ChatCompletion
 // JSON envelope: the delivered output and the streamed chunk text are both the
-// RAW TEXT decoded from the committed token_ids --
-// each generated token's bytes (logprobs.content[i].bytes) concatenated in order
-// (decodeTokensFromLogprobs). This makes every text artifact correspond
-// byte-for-byte to the token_ids the Verifier scores (including the trailing EOS
-// special token, which the engine drops from message.content), rather than to the
-// engine's own detokenization. tool_calls are therefore not parsed out separately;
-// any tool-call syntax the model emitted is just tokens in that raw text.
+// committed output, built from the generated token_ids T -- each token's bytes
+// (logprobs.content[i].bytes) concatenated in order, with exactly one trailing
+// token left out if and only if it is one of the profile's
+// output_decoding.eos_token_ids (decodeTokensFromLogprobs). Special tokens are
+// rendered like any other token and nothing is cleaned up, so every text
+// artifact corresponds byte-for-byte to the token_ids the Verifier scores,
+// rather than to the engine's own detokenization. T itself keeps the EOS: it is
+// what the Verifier prefills and what the token count covers. tool_calls are
+// therefore not parsed out separately; any tool-call syntax the model emitted
+// is just tokens in that raw text.
 //
 // Scope: the sampling parameters come from the chain-bound generation context
 // (NOT from the request), exactly as the raw-text path (see decodeGenerationParams).
@@ -150,11 +154,15 @@ type chatRespUsage struct {
 }
 
 type chatResponseChoice struct {
-	Index        int               `json:"index"`
-	Message      chatRespMessage   `json:"message"`
-	FinishReason string            `json:"finish_reason"`
-	TokenIDs     []int             `json:"token_ids"`
-	Logprobs     *chatRespLogprobs `json:"logprobs"`
+	Index        int             `json:"index"`
+	Message      chatRespMessage `json:"message"`
+	FinishReason string          `json:"finish_reason"`
+	// StopReason is vLLM's stop_reason: null for the primary EOS, or the token
+	// id the engine stopped on, which on this path can only be one of the
+	// model's other EOS ids (chat sends no stop_token_ids).
+	StopReason json.RawMessage   `json:"stop_reason,omitempty"`
+	TokenIDs   []int             `json:"token_ids"`
+	Logprobs   *chatRespLogprobs `json:"logprobs"`
 }
 
 type chatRespMessage struct {
@@ -216,6 +224,12 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	if err != nil {
 		return InferResponse{}, err
 	}
+	// Before the engine call: without the EOS set neither the committed output
+	// nor the streamed frames can be built, so there is no point generating.
+	profile, err = s.outputDecodingFor(ctx, profile)
+	if err != nil {
+		return InferResponse{}, err
+	}
 	streaming := s.streamInferenceEnabled()
 	chatReq, duration, err := localChatGenerationRequest(req, profile, input, streaming)
 	if err != nil {
@@ -243,7 +257,7 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 			taskID:    req.TaskID,
 			modelID:   profile.ModelID,
 		}
-		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident, budgetAt); err != nil {
+		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident, budgetAt, profile.OutputDecoding); err != nil {
 			return InferResponse{}, err
 		}
 	} else if err := s.post(ctx, "/v1/chat/completions", chatReq, &chatResp); err != nil {
@@ -252,7 +266,7 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	if err := ctx.Err(); err != nil && !chatBudgetStopped(&chatResp) {
 		return InferResponse{}, err
 	}
-	projected, err := projectChatToCompletion(chatResp)
+	projected, err := projectChatToCompletion(chatResp, profile.OutputDecoding)
 	if err != nil {
 		return InferResponse{}, err
 	}
@@ -265,7 +279,7 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	// chain-bound evidence contract (ValidateGenerationEvidence) for the chat path
 	// exactly as for inferV0. projectChatToCompletion already normalised the chat-only
 	// "tool_calls" finish to EOS, so the raw-text resolver applies unchanged.
-	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, completionFinishResolver(req))
+	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, completionFinishResolver(req, profile.OutputDecoding))
 }
 
 // validateChatUsage fails closed when the engine's reported completion token count
@@ -416,13 +430,13 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 // are carried unchanged. This is also the authoritative point where each token id
 // is checked against its logprobs entry (decodeTokensFromLogprobs fails closed on a
 // mismatch), for both the non-streaming body and the reassembled stream.
-func projectChatToCompletion(chatResp chatCompletionResponse) (completionResponse, error) {
+func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmanifest.OutputDecoding) (completionResponse, error) {
 	if len(chatResp.Choices) == 0 {
 		return completionResponse{}, fmt.Errorf("modelservice local chat: empty choices")
 	}
 	c := chatResp.Choices[0]
 
-	text, err := decodeTokensFromLogprobs(c.TokenIDs, c.Logprobs)
+	text, err := decodeTokensFromLogprobs(c.TokenIDs, c.Logprobs, decoding)
 	if err != nil {
 		return completionResponse{}, err
 	}
@@ -454,13 +468,16 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 		}
 	}
 
-	// StopReason is deliberately left unset: chat refuses any configured stop
-	// condition (rejectNonOpenAIChatGenerationParams), so a natural EOS is the only
-	// termination and localGenerationFinishReason resolves it from finishReason alone.
+	// StopReason is carried through: chat refuses any configured stop condition
+	// (rejectNonOpenAIChatGenerationParams), but vLLM still reports a stop on one
+	// of the model's secondary EOS ids as a numeric stop_reason, and
+	// localGenerationFinishReason maps an id in eos_token_ids to EOS and refuses
+	// any other.
 	return completionResponse{
 		Choices: []completionChoice{{
 			Text:           text,
 			FinishReason:   finishReason,
+			StopReason:     c.StopReason,
 			PromptTokenIDs: chatResp.PromptTokenIDs,
 			TokenIDs:       c.TokenIDs,
 			Logprobs:       logprobs,
@@ -468,15 +485,16 @@ func projectChatToCompletion(chatResp chatCompletionResponse) (completionRespons
 	}, nil
 }
 
-// decodeTokensFromLogprobs reconstructs the delivered text from the committed
+// decodeTokensFromLogprobs builds the committed output from the generated
 // token_ids: it concatenates, in order, the bytes of each generated token
-// (logprobs.content[i].bytes). It also verifies that content[i]'s token id equals
+// (logprobs.content[i].bytes), leaving out one trailing token if and only if it
+// is in decoding.EOSTokenIDs. It also verifies that content[i]'s token id equals
 // tokenIDs[i] (under return_tokens_as_token_ids=true content[i].Token is the
 // "token_id:X" form), so the bytes being decoded provably belong to the token_ids
-// the Verifier scores. A length or per-position mismatch fails closed. Special/EOS
-// tokens are decoded like any other, so the result corresponds byte-for-byte to the
-// full token_ids sequence (unlike the engine's message.content, which drops EOS).
-func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, error) {
+// the Verifier scores. A length or per-position mismatch fails closed. Special
+// tokens are decoded like any other; an EOS token anywhere but the last position
+// is kept.
+func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs, decoding modelmanifest.OutputDecoding) (string, error) {
 	if lp == nil || len(lp.Content) != len(tokenIDs) {
 		n := 0
 		if lp != nil {
@@ -484,10 +502,20 @@ func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs) (string, err
 		}
 		return "", fmt.Errorf("modelservice local chat: token_ids (%d) / logprobs (%d) length mismatch", len(tokenIDs), n)
 	}
+	// The alignment check runs over every position, the bytes only over the
+	// committed prefix. Those are different questions: alignment is about
+	// whether these logprob entries describe these token ids at all, and a
+	// mismatch in the EOS position is just as much a broken response as one in
+	// the middle -- it must not go unnoticed merely because its bytes are about
+	// to be dropped.
+	committed := decoding.CommittedTokenCount(tokenIDs)
 	var buf []byte
 	for i, e := range lp.Content {
 		if id, err := tokenIDFromKey(e.Token); err != nil || int64(id) != int64(tokenIDs[i]) {
 			return "", fmt.Errorf("modelservice local chat: token id mismatch at position %d: token_ids=%d logprobs token=%q", i, tokenIDs[i], e.Token)
+		}
+		if i >= committed {
+			continue
 		}
 		for _, v := range e.Bytes {
 			buf = append(buf, byte(v))
@@ -561,6 +589,7 @@ type chatChunkChoice struct {
 	Index        int               `json:"index"`
 	Delta        chatChunkDelta    `json:"delta"`
 	FinishReason string            `json:"finish_reason"`
+	StopReason   json.RawMessage   `json:"stop_reason,omitempty"`
 	TokenIDs     []int             `json:"token_ids"`
 	Logprobs     *chatRespLogprobs `json:"logprobs"`
 }
@@ -573,8 +602,10 @@ type chatChunkDelta struct {
 // postStreamingChat issues a streaming chat request and reassembles the SSE frames
 // into out. If the server did not actually stream (Content-Type is not
 // text/event-stream -- a stub, or a vLLM that ignored stream:true), it falls back
-// to the plain JSON decode, mirroring postStreamingCompletion.
-func (s *LocalService) postStreamingChat(ctx context.Context, path string, body any, out *chatCompletionResponse, ident inferStreamIdentity, budget time.Time) error {
+// to the plain JSON decode, mirroring postStreamingCompletion. decoding is the
+// profile's output_decoding, which the streamed text must follow exactly as the
+// committed output does.
+func (s *LocalService) postStreamingChat(ctx context.Context, path string, body any, out *chatCompletionResponse, ident inferStreamIdentity, budget time.Time, decoding modelmanifest.OutputDecoding) error {
 	resp, err := s.doPost(ctx, path, body)
 	if err != nil {
 		return err
@@ -588,7 +619,7 @@ func (s *LocalService) postStreamingChat(ctx context.Context, path string, body 
 		}
 		return nil
 	}
-	return s.reassembleChatStream(ctx, resp.Body, out, ident, budget)
+	return s.reassembleChatStream(ctx, resp.Body, out, ident, budget, decoding)
 }
 
 // chatBudgetStopped reports whether this node, rather than the engine, ended the
@@ -603,14 +634,15 @@ func chatBudgetStopped(out *chatCompletionResponse) bool {
 // entries appended in order, prompt_token_ids and usage taken once, finish_reason
 // taken from the frame that carries it. The delivered text (committed output and
 // each frame's TextDelta) is decoded from the token ids via their logprobs bytes,
-// not the engine's delta.content -- see decodeTokensFromLogprobs. Per-frame text
-// is buffered to UTF-8 rune boundaries so a multi-byte character split across
-// frames is never delivered as a partial (invalid-UTF-8) TextDelta.
+// not the engine's delta.content -- see decodeTokensFromLogprobs -- and
+// concat(TextDelta) is exactly the committed output; see committedTextStream for
+// how a trailing EOS and a multi-byte character split across frames are held
+// back.
 // budget, when non-zero, is the max_output_duration deadline. It is checked
 // between whole frames so a truncation never lands inside a token, and it ends
 // the generation successfully rather than failing it; see the completions
 // counterpart for the full reasoning.
-func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity, budget time.Time) error {
+func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, out *chatCompletionResponse, ident inferStreamIdentity, budget time.Time, decoding modelmanifest.OutputDecoding) error {
 	overBudget := func() bool { return !budget.IsZero() && !time.Now().Before(budget) }
 	// observerForRequest, not inferObserver: the Worker installs its output-stream
 	// recorder per request with WithInferStreamObserver, and the process-wide sink
@@ -629,10 +661,7 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 
 	sawChoice := false
 	finishReason := ""
-	// pendingText carries bytes decoded from earlier frames that did not yet end
-	// on a UTF-8 rune boundary (a multi-byte character split across frames), so
-	// each delivered TextDelta stays valid UTF-8. See lastCompleteUTF8Boundary.
-	var pendingText []byte
+	text := committedTextStream{decoding: decoding}
 
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
@@ -687,6 +716,13 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 			dst.FinishReason = cc.FinishReason
 			finishReason = cc.FinishReason
 		}
+		// Only a non-null stop_reason is carried; intermediate frames send null.
+		if stop := bytes.TrimSpace(cc.StopReason); len(stop) != 0 && !bytes.Equal(stop, []byte("null")) {
+			if len(dst.StopReason) != 0 && !bytes.Equal(dst.StopReason, stop) {
+				return fmt.Errorf("modelservice local chat: conflicting stream stop_reason")
+			}
+			dst.StopReason = slices.Clone(stop)
+		}
 		if src := cc.Logprobs; src != nil {
 			if dst.Logprobs == nil {
 				dst.Logprobs = &chatRespLogprobs{}
@@ -695,24 +731,14 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 		}
 
 		if observerActive {
-			// The frame's text is decoded from this chunk's token ids via their
-			// logprobs bytes (not delta.content). Raw per-token bytes carry none of
-			// vLLM's incremental-detokenize buffering, so a multi-byte character
-			// split across frame boundaries would otherwise surface as a partial,
-			// invalid-UTF-8 TextDelta. Buffer the incomplete trailing bytes and only
-			// deliver up to the last complete rune boundary, mirroring delta.content;
-			// TokenIDs / logprobs stay per-frame. Byte parity is preserved: the held
-			// bytes are delivered on a later frame (or the final flush below), so
-			// concat(TextDelta) still equals the full decoded output. This is transient
-			// delivery, so a decode/alignment error just drops this frame's text -- the
-			// authoritative check runs over the full reassembled sequence in
-			// projectChatToCompletion.
-			frameText, _ := decodeTokensFromLogprobs(cc.TokenIDs, cc.Logprobs)
-			pendingText = append(pendingText, frameText...)
-			cut := lastCompleteUTF8Boundary(pendingText)
-			textDelta := string(pendingText[:cut])
-			n := copy(pendingText, pendingText[cut:]) // left-shift the held remainder
-			pendingText = pendingText[:n]
+			// The text is read off the accumulated sequence, not this chunk
+			// alone: committedTextStream holds back the most recent token until
+			// it is known not to be a trailing EOS, and any bytes that do not
+			// yet end a UTF-8 character. TokenIDs / logprobs stay per-frame.
+			// This is transient delivery, so an alignment error only stops the
+			// text -- the authoritative check runs over the full reassembled
+			// sequence in projectChatToCompletion, and fails the inference.
+			textDelta := text.push(dst.TokenIDs, dst.Logprobs)
 			frame := InferStreamFrame{
 				RequestID:    ident.requestID,
 				JobID:        ident.jobID,
@@ -742,22 +768,21 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 		return fmt.Errorf("modelservice local chat: read completion stream: %w", err)
 	}
 
-	if observerActive && len(pendingText) > 0 {
-		// Flush any bytes still held back. For valid UTF-8 output this is empty --
-		// the final token closes the last rune. A non-empty remainder means the
-		// model produced ill-formed UTF-8; deliver it as-is so the downstream UTF-8
-		// check fails closed rather than silently dropping it, and so byte parity
-		// with the committed output is preserved.
+	if rest := text.finish(); observerActive && rest != "" {
+		// The generation has ended, so the held-back last token is released
+		// unless it is an EOS, together with any bytes still waiting for the
+		// end of a UTF-8 character. Ill-formed UTF-8 is delivered as-is so the
+		// downstream UTF-8 check fails closed and byte parity with the
+		// committed output is preserved.
 		if err := observer.ObserveInferFrame(ctx, InferStreamFrame{
 			RequestID: ident.requestID,
 			JobID:     ident.jobID,
 			TaskID:    ident.taskID,
 			ModelID:   ident.modelID,
-			TextDelta: string(pendingText),
+			TextDelta: rest,
 		}); err != nil {
 			observerActive = false
 		}
-		pendingText = nil
 	}
 
 	if observerActive {
@@ -771,6 +796,77 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 		})
 	}
 	return nil
+}
+
+// committedTextStream turns a generation that arrives a few tokens at a time
+// into text deltas whose concatenation is exactly the committed output (see
+// decodeTokensFromLogprobs), so that no byte is ever streamed that the
+// committed output does not contain.
+//
+// Two things are held back:
+//   - the bytes of the most recent token, until the next token arrives or the
+//     stream ends. Only then is it known whether that token is the last one,
+//     and a last token in eos_token_ids is dropped rather than released;
+//   - released bytes that do not yet end on a UTF-8 character boundary (a
+//     multi-byte character split across tokens), so every delta stays valid
+//     UTF-8. See lastCompleteUTF8Boundary.
+type committedTextStream struct {
+	decoding modelmanifest.OutputDecoding
+	next     int    // next position of the accumulated sequence to read
+	held     []byte // bytes of the most recent token
+	heldID   int
+	holding  bool
+	pending  []byte // released bytes not yet delivered
+	broken   bool   // a token id disagreed with its logprobs entry
+}
+
+// push reads the positions of the accumulated sequence it has not seen yet and
+// returns the text that can now be delivered.
+func (c *committedTextStream) push(tokenIDs []int, lp *chatRespLogprobs) string {
+	if c.broken || lp == nil {
+		return ""
+	}
+	n := min(len(tokenIDs), len(lp.Content))
+	for ; c.next < n; c.next++ {
+		entry := lp.Content[c.next]
+		if id, err := tokenIDFromKey(entry.Token); err != nil || int64(id) != int64(tokenIDs[c.next]) {
+			c.broken = true
+			return ""
+		}
+		c.release()
+		c.held = c.held[:0]
+		for _, v := range entry.Bytes {
+			c.held = append(c.held, byte(v))
+		}
+		c.heldID, c.holding = tokenIDs[c.next], true
+	}
+	cut := lastCompleteUTF8Boundary(c.pending)
+	delta := string(c.pending[:cut])
+	c.pending = c.pending[:copy(c.pending, c.pending[cut:])]
+	return delta
+}
+
+// finish ends the stream: the held token is the last one, so it is dropped if
+// it is an EOS and released otherwise, and everything still pending is
+// returned.
+func (c *committedTextStream) finish() string {
+	if c.broken {
+		return ""
+	}
+	if c.holding && !c.decoding.IsEOS(c.heldID) {
+		c.release()
+	}
+	c.holding = false
+	rest := string(c.pending)
+	c.pending = nil
+	return rest
+}
+
+func (c *committedTextStream) release() {
+	if c.holding {
+		c.pending = append(c.pending, c.held...)
+		c.holding = false
+	}
 }
 
 // defaultChatRole returns the assistant role for a delta that omitted it (only the
