@@ -679,41 +679,6 @@ func (s ResultReceiptSnapshot) Validate() error {
 	return nil
 }
 
-type FullResultRevealSnapshot struct {
-	SessionID       string       `json:"session_id"`
-	TaskID          string       `json:"task_id"`
-	VerifyRound     Uint64String `json:"verify_round"`
-	VerifierAddress string       `json:"verifier_address"`
-	ResultDigest    HexHash      `json:"result_digest"`
-	AcceptedHeight  Uint64String `json:"accepted_height"`
-	Source          string       `json:"source"`
-	Status          string       `json:"status"`
-}
-
-func (s FullResultRevealSnapshot) Validate() error {
-	if s.SessionID == "" || s.TaskID == "" || s.VerifyRound.Uint64() == 0 || s.VerifierAddress == "" || s.ResultDigest.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Source == "" || s.Status == "" {
-		return fmt.Errorf("Keeper full result reveal is incomplete")
-	}
-	return nil
-}
-
-type WorkerRevealReceiptSnapshot struct {
-	TaskID                string       `json:"task_id"`
-	VerifyRound           Uint64String `json:"verify_round"`
-	WorkerAddress         string       `json:"worker_address"`
-	SampledValueSetHash   HexHash      `json:"sampled_value_set_hash"`
-	EvidenceSchemaVersion string       `json:"evidence_schema_version"`
-	AcceptedHeight        Uint64String `json:"accepted_height"`
-	Status                string       `json:"status"`
-}
-
-func (s WorkerRevealReceiptSnapshot) Validate() error {
-	if s.TaskID == "" || s.VerifyRound.Uint64() == 0 || s.WorkerAddress == "" || s.SampledValueSetHash.IsZero() || s.EvidenceSchemaVersion == "" || s.AcceptedHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper worker reveal receipt is incomplete")
-	}
-	return nil
-}
-
 type TaskSettlementSnapshot struct {
 	SessionID          string       `json:"session_id"`
 	TaskID             string       `json:"task_id"`
@@ -860,13 +825,6 @@ func (s ChallengeAssignmentSnapshot) Validate() error {
 		}
 	default:
 		return fmt.Errorf("Keeper challenge sample seed status %q is unsupported", s.ChallengeSampleSeedStatus)
-	}
-	return nil
-}
-
-func (s ChallengeFullResultRevealSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.VerifierAddress == "" || s.ResultDigest.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Source == "" || s.Status == "" {
-		return fmt.Errorf("Keeper challenge full result reveal is incomplete")
 	}
 	return nil
 }
