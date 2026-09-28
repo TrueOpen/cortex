@@ -203,6 +203,11 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 		// readiness check (bindLocalModels), which keeps the node unready
 		// until every configured model is bound and served.
 		local := modelservice.NewLocalService(cfg.ModelManagement.Endpoint, cfg.LocalIdentity.ModelServiceID, cfg.ModelManagement.MaxConcurrency, cfg.ModelManagement.InferTimeout(), cfg.ModelManagement.ProbeTimeout())
+		// The manifest source is installed before the resolver, and both or
+		// neither: a resolver without a source resolves no profile at all,
+		// because the profile's output_decoding is what decides which tokens
+		// the committed output covers and there is no safe default for it.
+		local.SetManifestSource(modelservice.NewDirManifestSource(cfg.ModelManagement.ManifestDir))
 		if resolver := newKeeperLocalProfileResolver(deps.Keeper); resolver != nil {
 			local.SetProfileResolver(resolver)
 		}

@@ -206,6 +206,7 @@ func TestLocalGenerationDoesNotContaminateProfileCache(t *testing.T) {
 	srv, seen := newVLLMStub(t, genResponse(), verifyResponse())
 	svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
 	resolver := &countingProfileResolver{snapshot: liveLikeProfileSnapshot}
+	svc.SetManifestSource(testManifestSource())
 	svc.SetProfileResolver(resolver)
 	for i, limit := range []uint64{8, 1024, 128} {
 		g := localTestGeneration(testQwenModelID(), 1)

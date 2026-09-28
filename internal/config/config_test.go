@@ -145,9 +145,39 @@ func TestValidateAllowsLocalModelManagementWithoutEndpoint(t *testing.T) {
 	cfg.ModelManagement.Transport = " LOCAL "
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 4
+	cfg.ModelManagement.ManifestDir = "/tmp/cortex-manifests"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+// The local transport cannot resolve any chain-registered profile without a
+// manifest directory: that is where output_decoding comes from, and
+// output_decoding.eos_token_ids decides which generated tokens the committed
+// output covers. Guessing it produces an output_hash no Verifier reproduces
+// while the node sees nothing wrong, so this is refused at startup rather than
+// at the first assigned task.
+func TestValidateRequiresManifestDirForLocalTransport(t *testing.T) {
+	cfg := validConfig()
+	cfg.ModelManagement.Transport = "local"
+	cfg.ModelManagement.MaxConcurrency = 4
+	cfg.ModelManagement.ManifestDir = ""
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() accepted transport local with no manifest_dir")
+	}
+	if !strings.Contains(err.Error(), "model_management.manifest_dir") {
+		t.Fatalf("Validate() error = %v, want one naming model_management.manifest_dir", err)
+	}
+
+	// Other transports have no such requirement: they never resolve a profile
+	// through this path.
+	cfg.ModelManagement.Transport = "grpc"
+	cfg.ModelManagement.Endpoint = "127.0.0.1:9090"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want grpc transport to need no manifest_dir", err)
 	}
 }
 
@@ -1544,8 +1574,10 @@ func TestValidateRealModeAcceptsNexusInputResolver(t *testing.T) {
 			cfg.ModelManagement.Transport = transport
 			cfg.TaskExecution.InputResolver = InputResolverNexus
 			if transport == "local" {
-				// The local transport carries its own concurrency bound.
+				// The local transport carries its own concurrency bound and
+				// its own manifest directory.
 				cfg.ModelManagement.MaxConcurrency = 1
+				cfg.ModelManagement.ManifestDir = "/tmp/cortex-manifests"
 			}
 
 			if err := cfg.Validate(); err != nil {
