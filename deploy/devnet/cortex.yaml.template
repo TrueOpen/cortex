@@ -13,6 +13,10 @@ model_management:
 node:
   rpc_endpoint: @@NODE_RPC@@
   rest_endpoint: @@NODE_REST@@
+  # A node with a self-signed certificate: pin its public key (or set ca_file)
+  # instead of relying on SSL_CERT_FILE. Endpoints must then be https://.
+  # tls:
+  #   pubkey_hash: "<sha256 of the node certificate SubjectPublicKeyInfo DER, 64 lowercase hex>"
 keeper:
   api_url: @@KEEPER_API@@
   poll_interval_ms: 1000
