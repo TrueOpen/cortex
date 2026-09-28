@@ -1033,8 +1033,7 @@ func (w *Worker) persistCanonicalReceipt(ctx context.Context, prepared *produced
 //
 // Steps that happen once for the task are separated from steps that happen once
 // per Builder, because only the first kind is genuinely shared. data-ready is a
-// per-Builder judgement made from that Builder's own complete local copy
-// (04-任务/02 §257), so a Builder that never received the evidence never becomes
+// per-Builder judgement made from that Builder's own complete local copy, so a Builder that never received the evidence never becomes
 // data-ready, never sends OPEN_VERIFY and never proposes a Verifier, no matter
 // what the other two hold. Uploading to one Builder therefore made the task
 // depend on it and left the 2-of-3 redundancy the data plane assumes absent.
