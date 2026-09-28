@@ -33,10 +33,11 @@ type TopLogprob struct {
 }
 
 // TopLogprobRow is one generated position's top_logprobs in the order the
-// engine wrote them, which is rank order: chat returns an ordered list, and
-// vLLM writes a /v1/completions top_logprobs object key by key in rank order.
-// It decodes from either shape and never through a Go map, which would lose
-// that order.
+// engine wrote them. That order is NOT rank order: vLLM writes the sampled token
+// first (chat as the leading list element, /v1/completions as the first object
+// key), so completionTopK sorts the row by logprob before it becomes evidence.
+// The row is decoded preserving the engine's order -- never through a Go map,
+// which would drop it -- so the sort has a stable, well-defined input.
 type TopLogprobRow []TopLogprob
 
 func (r *TopLogprobRow) UnmarshalJSON(data []byte) error {
@@ -100,36 +101,33 @@ func (r TopLogprobRow) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// completionTopK reads one generated position's top_logprobs in the engine's
-// own rank order; nothing is re-sorted. The row holds requiredTopK entries,
-// or requiredTopK+1 when the sampled token fell outside the top-k and vLLM
-// appended it last: that extra entry is dropped, so the emitted token's rank
-// is 0 (not in the required top-k). The kept entries must be distinct
-// vocabulary ids with non-increasing, non-NaN logprobs; anything else is
-// refused rather than repaired.
+// completionTopK reads one generated position's top_logprobs and returns the
+// required top-k in rank order (highest logprob first).
+//
+// vLLM does NOT emit the entries in rank order: it writes the sampled token
+// first regardless of its logprob, and when that token falls outside the
+// requested top-k the row carries requiredTopK+1 entries with the sampled token
+// still up front. So the entries are sorted by logprob here rather than trusted
+// as the engine wrote them -- otherwise the emitted token's rank (rankIn, derived
+// from list position) would read 1 whenever the sampled token led the row, even
+// when its logprob ranked it lower. The sort is stable, so equal logprobs keep
+// the engine's relative order and the result stays deterministic.
+//
+// When the row holds requiredTopK+1 entries the sampled token fell outside the
+// top-k: it is dropped so the kept list is exactly the requiredTopK highest
+// logprobs and the emitted token's rank is 0. The entries must be distinct
+// vocabulary ids with non-NaN logprobs; anything else is refused rather than
+// repaired.
 func completionTopK(position int, emitted uint32, row TopLogprobRow, requiredTopK int) ([]metric.TokenLogprob, error) {
 	if requiredTopK <= 0 {
 		return nil, fmt.Errorf("position %d: required_top_k must be positive", position)
 	}
-	appended := false
-	switch len(row) {
-	case requiredTopK:
-	case requiredTopK + 1:
-		appended = true
-		extra, err := tokenIDFromKey(row[requiredTopK].Token)
-		if err != nil {
-			return nil, fmt.Errorf("position %d: %w", position, err)
-		}
-		if extra != emitted {
-			return nil, fmt.Errorf("position %d: top-logprobs entry %d is token %d, not the emitted token %d", position, requiredTopK, extra, emitted)
-		}
-		row = row[:requiredTopK]
-	default:
+	if len(row) != requiredTopK && len(row) != requiredTopK+1 {
 		return nil, fmt.Errorf("position %d: top-logprobs hold %d entries, want %d or %d", position, len(row), requiredTopK, requiredTopK+1)
 	}
-	out := make([]metric.TokenLogprob, 0, len(row))
+	entries := make([]metric.TokenLogprob, 0, len(row))
 	seen := make(map[uint32]struct{}, len(row))
-	for i, entry := range row {
+	for _, entry := range row {
 		id, err := tokenIDFromKey(entry.Token)
 		if err != nil {
 			return nil, fmt.Errorf("position %d: %w", position, err)
@@ -141,16 +139,34 @@ func completionTopK(position int, emitted uint32, row TopLogprobRow, requiredTop
 		if math.IsNaN(entry.Logprob) {
 			return nil, fmt.Errorf("position %d: top-logprobs token %d has a NaN logprob", position, id)
 		}
-		if i > 0 && entry.Logprob > row[i-1].Logprob {
-			return nil, fmt.Errorf("position %d: top-logprobs are not in rank order at entry %d", position, i)
+		entries = append(entries, metric.TokenLogprob{TokenID: id, Logprob: entry.Logprob})
+	}
+	// Rank order is logprob descending. Stable so equal logprobs keep the engine's
+	// order and the committed vector is reproducible.
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].Logprob > entries[j].Logprob
+	})
+	if len(entries) == requiredTopK+1 {
+		// The extra entry is the sampled token, appended because it fell outside the
+		// top-k. Drop the emitted token specifically, and require it to be no better
+		// than any kept token so a mis-sized row is refused rather than repaired.
+		dropped := -1
+		for i, entry := range entries {
+			if entry.TokenID == emitted {
+				dropped = i
+				break
+			}
 		}
-		out = append(out, metric.TokenLogprob{TokenID: id, Logprob: entry.Logprob})
+		if dropped < 0 {
+			return nil, fmt.Errorf("position %d: top-logprobs hold %d entries but none is the emitted token %d to drop", position, len(entries), emitted)
+		}
+		droppedLogprob := entries[dropped].Logprob
+		entries = append(entries[:dropped], entries[dropped+1:]...)
+		if droppedLogprob > entries[len(entries)-1].Logprob {
+			return nil, fmt.Errorf("position %d: the emitted token %d is inside the top-k but was appended as an extra entry", position, emitted)
+		}
 	}
-	// An appended entry is only legal for a token outside the top-k.
-	if _, inTopK := seen[emitted]; inTopK && appended {
-		return nil, fmt.Errorf("position %d: the emitted token %d is both in the top-k and appended after it", position, emitted)
-	}
-	return out, nil
+	return entries, nil
 }
 
 // promptTopK orders one prompt_logprobs row by the rank vLLM reported for each

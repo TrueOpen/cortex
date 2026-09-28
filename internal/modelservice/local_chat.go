@@ -795,7 +795,8 @@ func chatLogprobDeltas(lp *chatRespLogprobs) ([]float64, []TopLogprobRow) {
 	return tokenLogprobs, topLogprobs
 }
 
-// chatTopLogprobRow keeps chat's already rank-ordered top_logprobs list as is.
+// chatTopLogprobRow carries chat's top_logprobs list in the engine's order (the
+// sampled token first, not rank order); completionTopK sorts it by logprob.
 func chatTopLogprobRow(entries []chatRespTopLogprob) TopLogprobRow {
 	row := make(TopLogprobRow, len(entries))
 	for i, t := range entries {
