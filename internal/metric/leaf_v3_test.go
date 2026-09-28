@@ -215,35 +215,49 @@ func TestLeafV3ReproducesPublishedVectors(t *testing.T) {
 }
 
 // The derived fields are computed, not passed in, so they must match what the
-// vectors publish for the same inputs, including effective_rank for rank 0.
+// vectors publish for the same inputs, including effective_rank for rank 0:
+// a rank outside the required top-k counts as K+1. Both leaf files are read,
+// and metric_leaf_v3_worker_rank_outside_top_k must be among them.
 func TestLeafV3DerivesAbsDiffAndEffectiveRankDelta(t *testing.T) {
-	for _, vector := range loadV3Vectors(t, "task/result_metric_v3.json") {
-		if vector.Domain != DomainLeafV3 {
-			continue
-		}
-		binding, sample, absDiff, rankDelta := parseLeafV3(t, vector)
-		for _, wantRank := range []struct{ worker, verifier uint32 }{{0, 1}, {2, 0}} {
-			if !sample.Finite {
-				break
+	outsideTopK := false
+	for _, path := range []string{"task/metric_leaf_v3.json", "task/result_metric_v3.json"} {
+		for _, vector := range loadV3Vectors(t, path) {
+			if vector.Domain != DomainLeafV3 {
+				continue
 			}
-			moved := sample
-			moved.WorkerRank, moved.VerifierRank = wantRank.worker, wantRank.verifier
-			a, err := LeafHashV3(binding, moved)
-			if err != nil {
-				t.Fatal(err)
+			binding, sample, absDiff, rankDelta := parseLeafV3(t, vector)
+			if vector.Name == "metric_leaf_v3_worker_rank_outside_top_k" {
+				outsideTopK = true
+				if sample.WorkerRank != 0 || rankDelta != int64(sample.VerifierRank)-int64(binding.RequiredTopK+1) {
+					t.Fatalf("%s: worker rank %d, rank delta %d; want rank 0 counted as K+1", vector.Name, sample.WorkerRank, rankDelta)
+				}
 			}
-			b, _ := LeafHashV3(binding, sample)
-			if a == b {
-				t.Fatalf("%s: moving a rank out of the top-k did not change the leaf", vector.Name)
+			for _, wantRank := range []struct{ worker, verifier uint32 }{{0, 1}, {2, 0}} {
+				if !sample.Finite {
+					break
+				}
+				moved := sample
+				moved.WorkerRank, moved.VerifierRank = wantRank.worker, wantRank.verifier
+				a, err := LeafHashV3(binding, moved)
+				if err != nil {
+					t.Fatal(err)
+				}
+				b, _ := LeafHashV3(binding, sample)
+				if a == b {
+					t.Fatalf("%s: moving a rank out of the top-k did not change the leaf", vector.Name)
+				}
+			}
+			diff := sample.WorkerLogprobFP1e6 - sample.VerifierLogprobFP1e6
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff != absDiff || (sample.Finite && rankDelta != sample.rankDelta(binding.RequiredTopK)) {
+				t.Fatalf("%s publishes abs diff %d / rank delta %d that the inputs do not imply", vector.Name, absDiff, rankDelta)
 			}
 		}
-		diff := sample.WorkerLogprobFP1e6 - sample.VerifierLogprobFP1e6
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff != absDiff || (sample.Finite && rankDelta != int64(sample.VerifierRank)-int64(sample.WorkerRank)) {
-			t.Fatalf("%s publishes abs diff %d / rank delta %d that the inputs do not imply", vector.Name, absDiff, rankDelta)
-		}
+	}
+	if !outsideTopK {
+		t.Fatal("metric_leaf_v3_worker_rank_outside_top_k was not read")
 	}
 }
 

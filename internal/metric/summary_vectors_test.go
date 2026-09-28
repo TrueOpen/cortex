@@ -52,7 +52,12 @@ func (v summaryVector) summary(t *testing.T) nodewire.MetricSummaryV1 {
 		}
 		return nodewire.PresentUint32(f.Fields[0].Value)
 	}
+	seen := map[string]bool{}
 	for _, f := range v.Fields[0].Fields {
+		if seen[f.Name] {
+			t.Fatalf("%s: summary field %s is published twice", v.Name, f.Name)
+		}
+		seen[f.Name] = true
 		switch f.Name {
 		case "finite_count":
 			s.FiniteCount = f.Value
@@ -77,6 +82,9 @@ func (v summaryVector) summary(t *testing.T) nodewire.MetricSummaryV1 {
 		default:
 			t.Fatalf("%s: unexpected summary field %s", v.Name, f.Name)
 		}
+	}
+	if len(seen) != 10 {
+		t.Fatalf("%s publishes %d summary fields, want all 10", v.Name, len(seen))
 	}
 	return s
 }

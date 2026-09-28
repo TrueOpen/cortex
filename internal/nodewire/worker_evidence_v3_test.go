@@ -14,8 +14,8 @@ import (
 	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
 
-// The v0.3.0 vectors are not released yet; wirevectors serves them from the
-// pinned TrueOpen/wire#14 commit after checking that commit's manifest.
+// These vectors are read from internal/wirevectors, which checks them against
+// the pinned wire release's fixture manifest.
 
 type commitmentFileV3 struct {
 	Vectors []struct {

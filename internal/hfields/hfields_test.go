@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"os"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
+	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
-
-const goldenFixturePath = "testdata/hfields_v1.json"
 
 // testEnum stands in for a generated protobuf enum, which is always ~int32.
 type testEnum int32
@@ -325,210 +325,143 @@ func TestFramingMatchesCodecHashWithDomain(t *testing.T) {
 	}
 }
 
-// TestGoldenFixtureRecomputes recomputes every stamped vector. The node_parity
-// vectors are copied verbatim from the frozen Node fixture, so passing them
-// proves byte-for-byte agreement with the contract at the stamped commit.
-func TestGoldenFixtureRecomputes(t *testing.T) {
-	fixture := loadGoldenFixture(t)
-	if fixture.NodeSourceCommit != "3fe65982fd40462b4053d8e6757de3ec552e36be" {
-		t.Fatalf("fixture is stamped with commit %q", fixture.NodeSourceCommit)
-	}
-	if len(fixture.NodeSources) == 0 {
-		t.Fatal("fixture must stamp the exact Node source paths")
-	}
-	if len(fixture.Vectors) == 0 {
-		t.Fatal("fixture has no vectors")
-	}
-
-	parity := 0
-	for _, vector := range fixture.Vectors {
-		vector := vector
-		t.Run(vector.Name, func(t *testing.T) {
-			if vector.Framing != "" && vector.Framing != "H_FIELDS_V1" {
-				t.Fatalf("unexpected framing %q", vector.Framing)
-			}
-			fields := encodeFixtureFields(t, vector.Fields)
-
-			preimage, err := hfields.Preimage(vector.Domain, fields...)
-			if err != nil {
-				t.Fatalf("Preimage: %v", err)
-			}
-			if got := hex.EncodeToString(preimage); got != vector.PreimageHex {
-				t.Fatalf("preimage = %s, want %s", got, vector.PreimageHex)
-			}
-
-			digest, err := hfields.Digest(vector.Domain, fields...)
-			if err != nil {
-				t.Fatalf("Digest: %v", err)
-			}
-			if got := hex.EncodeToString(digest[:]); got != vector.DigestHex {
-				t.Fatalf("digest = %s, want %s", got, vector.DigestHex)
-			}
-			if len(vector.DigestHex) != 2*len(codec.Hash{}) {
-				t.Fatalf("digest_hex is %d chars", len(vector.DigestHex))
-			}
-		})
-		if vector.Kind == "node_parity" {
-			parity++
-		}
-	}
-	if parity == 0 {
-		t.Fatal("fixture must keep at least one verbatim Node parity vector")
-	}
+// framingFixture is the part of wire's shared/framing_v1.json this package
+// owns: H_FIELDS_V1 digests and the optional-value layout.
+type framingFixture struct {
+	HFields []struct {
+		Name         string         `json:"name"`
+		Domain       string         `json:"domain"`
+		Fields       []framingValue `json:"fields"`
+		IncludeFrame bool           `json:"include_frame"`
+		FrameHex     string         `json:"frame_hex"`
+		HashHex      string         `json:"hash_hex"`
+	} `json:"h_fields_v1"`
+	Optional []struct {
+		Name     string        `json:"name"`
+		Present  bool          `json:"present"`
+		Value    *framingValue `json:"value"`
+		FrameHex string        `json:"frame_hex"`
+	} `json:"optional_v1"`
 }
 
-// TestGoldenFixtureEncodesNoAddressField guards the deliberate omission: this
-// package exposes no address field constructor, because it is the framing
-// primitive and carries no Bech32 decoder. Callers resolve the address codec
-// bytes themselves and pass them as Bytes - internal/nodewire/address.go
-// CanonicalOperatorAddressBytes, used by internal/keepercontract/signing.go:44 -
-// so no vector here may pin an address encoding either.
-func TestGoldenFixtureEncodesNoAddressField(t *testing.T) {
-	fixture := loadGoldenFixture(t)
-	var walk func(fields []fixtureField)
-	walk = func(fields []fixtureField) {
-		for _, field := range fields {
-			if field.Type == "address" {
-				t.Fatalf("field %q pins an address encoding", field.Name)
-			}
-			walk(field.Fields)
-		}
-	}
-	for _, vector := range fixture.Vectors {
-		walk(vector.Fields)
-	}
-
-	// The parity vectors carry operator addresses only as opaque bytes copied
-	// from Node, which is what makes them safe to keep.
-	for _, vector := range fixture.Vectors {
-		for _, field := range vector.Fields {
-			if field.Name == "operator_address" && field.Type != "bytes" {
-				t.Fatalf("operator_address is framed as %q; only verbatim opaque bytes may be pinned", field.Type)
-			}
-		}
-	}
+// framingValue is one typed value in the fixture's encoding.
+type framingValue struct {
+	Type   string          `json:"type"`
+	Hex    string          `json:"hex"`
+	UTF8   string          `json:"utf8"`
+	Value  json.RawMessage `json:"value"`
+	Bool   *bool           `json:"bool"`
+	Count  int             `json:"count"`
+	Fields []framingValue  `json:"fields"`
 }
 
-type goldenFixture struct {
-	Schema           string          `json:"schema"`
-	NodeSourceCommit string          `json:"node_source_commit"`
-	NodeSources      []string        `json:"node_sources"`
-	Notes            []string        `json:"notes"`
-	Vectors          []fixtureVector `json:"vectors"`
-}
-
-type fixtureVector struct {
-	Name        string         `json:"name"`
-	Kind        string         `json:"kind"`
-	Domain      string         `json:"domain"`
-	Framing     string         `json:"framing"`
-	Fields      []fixtureField `json:"fields"`
-	PreimageHex string         `json:"preimage_hex"`
-	DigestHex   string         `json:"digest_hex"`
-}
-
-type fixtureField struct {
-	Name   string         `json:"name"`
-	Type   string         `json:"type"`
-	UTF8   *string        `json:"utf8"`
-	Hex    *string        `json:"hex"`
-	Value  *uint64        `json:"value"`
-	Bool   *bool          `json:"bool"`
-	Fields []fixtureField `json:"fields"`
-}
-
-func loadGoldenFixture(t *testing.T) goldenFixture {
+func loadFramingFixture(t *testing.T) framingFixture {
 	t.Helper()
-	raw, err := os.ReadFile(goldenFixturePath)
+	raw, err := wirevectors.File("shared/framing_v1.json")
 	if err != nil {
-		t.Fatalf("read %s: %v", goldenFixturePath, err)
+		t.Fatal(err)
 	}
-	// Strict decoding so a typo'd or silently dropped fixture key fails loudly
-	// instead of hashing fewer fields than the vector claims.
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var fixture goldenFixture
-	if err := decoder.Decode(&fixture); err != nil {
-		t.Fatalf("decode %s: %v", goldenFixturePath, err)
+	var fixture framingFixture
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.HFields) == 0 || len(fixture.Optional) == 0 {
+		t.Fatal("framing fixture publishes no h_fields_v1 or optional_v1 vectors")
 	}
 	return fixture
 }
 
-func encodeFixtureFields(t *testing.T, fields []fixtureField) []hfields.Field {
+func (v framingValue) field(t *testing.T) hfields.Field {
 	t.Helper()
-	encoded := make([]hfields.Field, 0, len(fields))
-	for _, field := range fields {
-		encoded = append(encoded, encodeFixtureField(t, field))
-	}
-	return encoded
-}
-
-func encodeFixtureField(t *testing.T, field fixtureField) hfields.Field {
-	t.Helper()
-	switch field.Type {
-	case "string":
-		if field.UTF8 == nil {
-			t.Fatalf("field %q requires utf8", field.Name)
-		}
-		return hfields.String(*field.UTF8)
+	switch v.Type {
 	case "bytes":
-		return hfields.Bytes(fixtureHex(t, field))
-	case "hash":
-		raw := fixtureHex(t, field)
-		if len(raw) != len(codec.Hash{}) {
-			t.Fatalf("field %q is %d bytes, want 32", field.Name, len(raw))
-		}
-		var hash codec.Hash
-		copy(hash[:], raw)
-		return hfields.Hash(hash)
+		return hfields.Bytes(mustHex(t, v.Hex))
+	case "string":
+		return hfields.String(v.UTF8)
+	case "repeat":
+		return hfields.Bytes(bytes.Repeat(mustHex(t, v.Hex), v.Count))
 	case "uint32":
-		value := fixtureValue(t, field)
-		if value > uint64(^uint32(0)) {
-			t.Fatalf("field %q overflows uint32", field.Name)
+		value, err := strconv.ParseUint(string(v.Value), 10, 32)
+		if err != nil {
+			t.Fatal(err)
 		}
 		return hfields.Uint32(uint32(value))
 	case "uint64":
-		return hfields.Uint64(fixtureValue(t, field))
+		value, err := strconv.ParseUint(string(v.Value), 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hfields.Uint64(value)
 	case "enum":
-		value := fixtureValue(t, field)
-		if value > uint64(^uint32(0)>>1) {
-			t.Fatalf("field %q overflows an int32 enum", field.Name)
+		value, err := strconv.ParseInt(string(v.Value), 10, 32)
+		if err != nil {
+			t.Fatal(err)
 		}
 		return hfields.Enum(testEnum(value))
 	case "bool":
-		if field.Bool == nil {
-			t.Fatalf("field %q requires bool", field.Name)
+		if v.Bool == nil {
+			t.Fatal("bool value without a bool")
 		}
-		return hfields.Bool(*field.Bool)
+		return hfields.Bool(*v.Bool)
 	case "frame":
-		return hfields.Frame(encodeFixtureFields(t, field.Fields)...)
+		fields := make([]hfields.Field, len(v.Fields))
+		for index, inner := range v.Fields {
+			fields[index] = inner.field(t)
+		}
+		return hfields.Frame(fields...)
 	default:
-		t.Fatalf("unknown fixture field type %q on field %q", field.Type, field.Name)
+		t.Fatalf("unknown fixture value type %q", v.Type)
 		return hfields.Field{}
 	}
 }
 
-func fixtureHex(t *testing.T, field fixtureField) []byte {
-	t.Helper()
-	if field.Hex == nil {
-		t.Fatalf("field %q requires hex", field.Name)
+// TestFramingVectorsFromWire recomputes every H_FIELDS_V1 vector wire
+// publishes, preimage and digest, with this package's encoders.
+func TestFramingVectorsFromWire(t *testing.T) {
+	fixture := loadFramingFixture(t)
+	for _, vector := range fixture.HFields {
+		t.Run(vector.Name, func(t *testing.T) {
+			fields := make([]hfields.Field, len(vector.Fields))
+			for index, value := range vector.Fields {
+				fields[index] = value.field(t)
+			}
+			preimage, err := hfields.Preimage(vector.Domain, fields...)
+			if err != nil {
+				t.Fatalf("Preimage: %v", err)
+			}
+			if vector.IncludeFrame && hex.EncodeToString(preimage) != vector.FrameHex {
+				t.Fatalf("preimage = %x, want %s", preimage, vector.FrameHex)
+			}
+			digest, err := hfields.Digest(vector.Domain, fields...)
+			if err != nil {
+				t.Fatalf("Digest: %v", err)
+			}
+			if digest.String() != vector.HashHex {
+				t.Fatalf("digest = %s, want %s", digest, vector.HashHex)
+			}
+		})
 	}
-	raw, err := hex.DecodeString(*field.Hex)
-	if err != nil {
-		t.Fatalf("field %q is not hex: %v", field.Name, err)
-	}
-	if hex.EncodeToString(raw) != *field.Hex {
-		t.Fatalf("field %q must be canonical lowercase hex", field.Name)
-	}
-	return raw
 }
 
-func fixtureValue(t *testing.T, field fixtureField) uint64 {
-	t.Helper()
-	if field.Value == nil {
-		t.Fatalf("field %q requires value", field.Name)
+// TestOptionalLayoutFromWire checks the published OPTIONAL_V1 layouts: absent
+// is 00, present is 01 || FRAME_V1(value).
+func TestOptionalLayoutFromWire(t *testing.T) {
+	for _, vector := range loadFramingFixture(t).Optional {
+		var field hfields.Field
+		if vector.Present {
+			if vector.Value == nil {
+				t.Fatalf("%s: present without a value", vector.Name)
+			}
+			field = hfields.Optional(true, vector.Value.field(t))
+		} else {
+			field = hfields.Optional(false, hfields.Field{})
+		}
+		layout := mustHex(t, vector.FrameHex)
+		want := hex.EncodeToString(concat(mustHex(t, fmt.Sprintf("%016x", len(layout))), layout))
+		if got := framedFieldHex(t, field); got != want {
+			t.Fatalf("%s: framed optional = %s, want %s", vector.Name, got, want)
+		}
 	}
-	return *field.Value
 }
 
 // framedFieldHex returns the framed bytes of exactly one field by stripping the

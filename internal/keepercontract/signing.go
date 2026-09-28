@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
@@ -16,7 +14,6 @@ import (
 const (
 	TaskEpochLengthBlocks          = uint64(100)
 	DomainDailySupportConfirmation = "TRUEOPEN_DAILY_SUPPORT_CONFIRMATION_V1"
-	DomainWorkerReveal             = "TRUEOPEN_WORKER_REVEAL_RECEIPT_V1"
 )
 
 func TaskEpoch(height uint64) uint64 {
@@ -89,20 +86,4 @@ func supportedModelFields(modelIDs []string) ([]hfields.Field, error) {
 		elements = append(elements, hfields.Bytes(raw))
 	}
 	return []hfields.Field{hfields.Uint32(uint32(len(modelIDs))), hfields.Frame(elements...)}, nil
-}
-
-func WorkerReveal(chainID, taskID string, verifyRound uint64, sampleSeed, sampledValueSetHash, evidenceSchemaVersion string) codec.Hash {
-	return hash(DomainWorkerReveal, chainID, taskID, decimal(verifyRound), sampleSeed, strings.TrimSpace(sampledValueSetHash), strings.TrimSpace(evidenceSchemaVersion))
-}
-
-func hash(domain string, fields ...string) codec.Hash {
-	encoded := make([][]byte, 0, len(fields))
-	for _, field := range fields {
-		encoded = append(encoded, []byte(field))
-	}
-	return codec.HashWithDomain(domain, encoded...)
-}
-
-func decimal(value uint64) string {
-	return strconv.FormatUint(value, 10)
 }

@@ -96,27 +96,6 @@ type VerifyDeadlineInput struct {
 	SweepKind        string
 }
 
-type WorkerRevealObservation struct {
-	TaskID         string
-	Legal          bool
-	Height         uint64
-	DeadlineHeight uint64
-	TxHash         string
-}
-
-type ReimbursementResult struct {
-	ReimbursementExpected bool
-	Amount                uint64
-	Reason                string
-}
-
-type WorkerRevealReimbursementState struct {
-	TaskID      string
-	TaskReserve uint64
-	seenTx      map[string]struct{}
-	reimbursed  bool
-}
-
 func NewSettlementManager(cfg SettlementConfig) *SettlementManager {
 	return &SettlementManager{cfg: cfg}
 }
@@ -409,30 +388,6 @@ func BuildSettlementEnvelope(input SettlementInput) (SettlementEnvelope, error) 
 	return SettlementEnvelope{
 		TaskID: input.Message.TaskID.Hex(), EvidenceRoot: input.LocalRoot, Payload: payload,
 	}, nil
-}
-
-func (s *WorkerRevealReimbursementState) Observe(obs WorkerRevealObservation) ReimbursementResult {
-	if s.seenTx == nil {
-		s.seenTx = make(map[string]struct{})
-	}
-	if obs.TaskID != s.TaskID {
-		return ReimbursementResult{Reason: "task_mismatch"}
-	}
-	if _, ok := s.seenTx[obs.TxHash]; ok {
-		return ReimbursementResult{Reason: "duplicate"}
-	}
-	s.seenTx[obs.TxHash] = struct{}{}
-	if s.reimbursed {
-		return ReimbursementResult{Reason: "already_reimbursed"}
-	}
-	if !obs.Legal {
-		return ReimbursementResult{Reason: "invalid"}
-	}
-	if obs.Height > obs.DeadlineHeight {
-		return ReimbursementResult{Reason: "late"}
-	}
-	s.reimbursed = true
-	return ReimbursementResult{ReimbursementExpected: true, Amount: s.TaskReserve}
 }
 
 // deadlineRiskTxKind maps a self-rescue deadline risk onto the frozen Msg that
