@@ -162,13 +162,13 @@ func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.Assign
 }
 
 // openOutputStream opens one stream per Task Builder and returns them as a
-// single fan-out stream, so every frame reaches every Builder (04-任务/02 §9.2).
+// single fan-out stream: the selected Worker must push every frame to every Builder.
 //
 // The request authorization is per Builder, not shared: SignRequest binds the
 // recipient's operator address, so each Builder gets a token naming itself. The
 // body digest and the replay frames are the same for all of them.
 //
-// A Builder that cannot be opened fails the whole open. §9.5 allows sending to
+// A Builder that cannot be opened fails the whole open. The protocol allows sending to
 // continue while at least one Builder receives, but acting on that needs the
 // per-Builder liveness tracking this change does not add yet; failing here keeps
 // the behaviour honest rather than silently streaming to a subset.

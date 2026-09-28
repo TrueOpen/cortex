@@ -8,8 +8,8 @@ import (
 )
 
 // fanOutOutputStream pushes every output frame to all of the task's Task
-// Builders, which is what 04-任务/02 §9.2 requires: 承担 selected Worker 职责的
-// Cortex Node 在生成过程中逐帧向全部 Task Builders 推送.
+// Builders, as the protocol requires: the Cortex Node acting as the selected
+// Worker pushes each frame to all Task Builders while it generates.
 //
 // Sending to one Builder made the task depend on it. The other Builders accept
 // Verifier handraises but can never become data-ready, so they can never send
@@ -23,9 +23,10 @@ import (
 // per Builder.
 //
 // Failure policy here is deliberately the pre-existing one: any Builder's
-// failure fails the send. §9.5 requires more than that -- 自身原因 and 外部原因
-// are told apart, one Builder dropping must not stop the others, and dropping to
-// zero Builders stops sending while generation continues and buffers -- but that
+// failure fails the send. The protocol requires more than that -- failures
+// caused by the Worker itself and by a Builder are told apart, one Builder
+// dropping must not stop the others, and dropping to zero Builders stops
+// sending while generation continues and buffers -- but that
 // is a per-Builder state machine and is tracked separately. Landing the fan-out
 // first with unchanged failure semantics keeps this change reviewable and makes
 // the Builder list available to the V7b remedy, which is blocked on the same
