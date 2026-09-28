@@ -666,9 +666,10 @@ func liveLikeProfileSnapshot(modelID, profileVersion string) chainclient.Current
 	manifestHash := testManifestHash()
 	snapshot := chainclient.CurrentProfileSnapshot{
 		ModelID: modelID,
-		// A chain-resolved profile is refused without a manifest that hashes to
-		// this, so every test installing a resolver must also install
-		// testManifestSource.
+		// Infer on a chain-resolved profile is refused without an
+		// output_decoding from a manifest that hashes to this, so a test that
+		// installs a resolver and calls Infer also installs
+		// testOutputDecodingSource.
 		ManifestHash:   chainclient.ProtoBytes32(manifestHash[:]),
 		ProfileVersion: chainclient.NewProfileVersion(uint32(version)),
 		RuntimeClass:   defaultLocalRuntimeClass,

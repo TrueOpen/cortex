@@ -239,7 +239,7 @@ func TestLocalServiceChatStopsAtMaxOutputDurationAsSuccess(t *testing.T) {
 func TestLocalServiceDoesNotCacheFailedProfileResolution(t *testing.T) {
 	srv, _ := newVLLMStubWithModels(t, genResponse(), verifyResponse(), []string{"Qwen/Qwen3-8B"})
 	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
-	svc.SetManifestSource(testManifestSource())
+	svc.SetOutputDecodingSource(testOutputDecodingSource())
 	svc.SetProfileResolver(&flakyProfileResolver{})
 	ctx := context.Background()
 	if _, err := svc.resolveLocalProfile(ctx, testQwenModelID(), "1"); err == nil {

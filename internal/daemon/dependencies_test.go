@@ -236,7 +236,6 @@ func TestBuildDependenciesRealModeUsesInjectedModelClient(t *testing.T) {
 func TestBuildDependenciesRealModeUsesLocalModelService(t *testing.T) {
 	cfg := realConfig()
 	cfg.ModelManagement.Transport = "local"
-	cfg.ModelManagement.ManifestDir = t.TempDir()
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 4
 	keeper := &daemonKeeperProfileResolverStub{

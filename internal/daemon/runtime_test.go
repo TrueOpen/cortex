@@ -386,7 +386,6 @@ func TestBuildRuntimeRealModeLocalModelServiceSkipsGRPCHealthProbe(t *testing.T)
 	cfg.ModelManagement.Transport = " LOCAL "
 	cfg.ModelManagement.Endpoint = ""
 	cfg.ModelManagement.MaxConcurrency = 4
-	cfg.ModelManagement.ManifestDir = t.TempDir()
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		NexusPublisher:  fakePublisher{},
@@ -1725,7 +1724,6 @@ func TestBuildRuntimeConstructsTheOutputConfirmerWithoutASharedPackageStore(t *t
 			cfg.ModelManagement.MaxConcurrency = 4
 			if transport == "local" {
 				cfg.ModelManagement.Endpoint = "http://127.0.0.1:8000"
-				cfg.ModelManagement.ManifestDir = t.TempDir()
 			}
 
 			rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{

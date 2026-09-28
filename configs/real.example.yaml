@@ -10,18 +10,6 @@ model_management:
   # Safe baseline for Cortex TaskRunner dispatch. Raise only after load testing,
   # and never above the model service's resource_snapshot.max_concurrency.
   max_concurrency: 1
-  # Required for transport local. One profile manifest per registered profile,
-  # named "<model_id>@<profile_version>.json". The manifest carries this
-  # profile's output_decoding, and output_decoding.eos_token_ids is what
-  # decides which generated tokens the committed output covers -- there is no
-  # default, because a wrong EOS set produces an output_hash no Verifier
-  # reproduces while the node itself sees nothing wrong.
-  #
-  # The files are not trusted for being local: each is checked against the
-  # manifest_hash the chain holds for that profile before any field is read, so
-  # a stale copy is refused rather than used.
-  # manifest_dir: /etc/cortex/manifests
-  #
   # Per-request timeout for /v1/completions (Infer and Verify). vLLM time
   # depends on model size, max_new_tokens, and queue depth. 0 falls back to
   # 60 seconds to preserve the previous hardcoded behaviour.

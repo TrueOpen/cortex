@@ -270,6 +270,39 @@ yourself are exempt. Verified manifests are cached in
 restart does not fetch them again; `model_manifest.mirrors` and
 `model_manifest.ipfs_gateway` configure the other sources.
 
+### Committed output and the trailing EOS
+
+The committed output of a generation, the bytes `output_hash` and the signed
+output stream cover, is built from the generated token ids T: each token's
+bytes in order, with special tokens rendered and no clean-up of tokenization
+spaces, leaving out exactly one trailing token if and only if it is in the
+profile manifest's `output_decoding.eos_token_ids`. An EOS token anywhere else
+stays, and so does a configured stop token that is not an EOS token. T itself,
+EOS included, stays in the evidence and in the generated token count.
+
+With `model_management.transport: local`, cortexd reads `output_decoding` from
+the profile manifest through the same cache, `manifest_uri` and mirrors as
+above, for your own profiles too, and accepts it only from bytes that hash to
+the chain's `manifest_hash`. Only that block has to be valid, so a manifest
+that fails the full check above still serves. If it cannot be obtained, every
+Infer on that profile is refused with the reason; you can place a copy in the
+cache as `<manifest_hash hex>.json`. Streamed output frames follow the same
+rule: the last token is held back until the next one arrives or the stream
+ends, so a trailing EOS is never signed or sent.
+
+The raw-text path (`/v1/completions`) gets no per-token bytes from vLLM, so it
+commits the engine's text, requested with `skip_special_tokens` and
+`spaces_between_special_tokens` false, and only when the token the engine left
+out of it is the one the rule leaves out. A generation that stopped on a stop
+token outside `eos_token_ids`, or that ended on an EOS token without stopping
+on it, is refused rather than committed with the wrong bytes.
+
+With `transport: grpc`, the model service builds the output artifact, and it
+must apply the same rule: the `output_ref` artifact is the committed output
+above, `token_ids_ref` carries all of T, and an `EOS_TOKEN` finish means the
+last token of T is in `eos_token_ids`. Workers and Verifiers on one network,
+and their model services, must run versions that agree on this rule.
+
 ### Upgrading to v0.3
 
 v0.3 changes the Worker evidence (two bundles of token ids and per-position
