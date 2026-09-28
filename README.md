@@ -297,6 +297,13 @@ out of it is the one the rule leaves out. A generation that stopped on a stop
 token outside `eos_token_ids`, or that ended on an EOS token without stopping
 on it, is refused rather than committed with the wrong bytes.
 
+vLLM reports a stop on the model's primary EOS with a null `stop_reason`, and
+a stop on any other EOS id from `generation_config.json`, or on an order's stop
+token, with that token id. On both paths, an id in `eos_token_ids` is an EOS
+finish and is stripped, even if the order also lists it as a stop token; an id
+only in the order's `stop_token_ids` is a stop-token finish and is kept; an id
+in neither set is refused.
+
 With `transport: grpc`, the model service builds the output artifact, and it
 must apply the same rule: the `output_ref` artifact is the committed output
 above, `token_ids_ref` carries all of T, and an `EOS_TOKEN` finish means the

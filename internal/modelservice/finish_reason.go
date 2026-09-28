@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -52,7 +53,14 @@ func finishReasonV1FromString(reason string, ambiguousStop bool) (nodewire.Finis
 	}
 }
 
-func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, stop json.RawMessage, count uint64) (nodewire.FinishReasonV1, error) {
+// decoding is the profile's output_decoding. A numeric stop_reason names the
+// token id the engine stopped on, and vLLM reports it that way not only for the
+// order's stop_token_ids but also for every EOS id it takes from the model's
+// generation_config beyond the primary one. An id in decoding.EOSTokenIDs is
+// therefore an EOS finish, with the same stripping and consistency rules as
+// any other; an id in the order's stop_token_ids only is STOP_TOKEN; an id in
+// neither set is refused.
+func localGenerationFinishReason(g *nodewire.GenerationContext, decoding modelmanifest.OutputDecoding, reason string, stop json.RawMessage, count uint64) (nodewire.FinishReasonV1, error) {
 	// This is the FIRST place an over-budget generation is caught -- it runs
 	// inside buildInferResultFromCompletion, before the token-id and
 	// position-value material is encoded, so it is what a live Worker hits and what a live log
@@ -80,12 +88,23 @@ func localGenerationFinishReason(g *nodewire.GenerationContext, reason string, s
 		if hasStop {
 			var sequence string
 			if err := json.Unmarshal(stop, &sequence); err != nil {
-				// A numeric stop_reason is the stop token that ended the
-				// generation. It is STOP_TOKEN only when the order lists it.
+				// A numeric stop_reason is the token that ended the generation.
 				var token uint32
-				if json.Unmarshal(stop, &token) != nil || strings.EqualFold(strings.TrimSpace(reason), "eos_token") ||
-					!slices.Contains(g.Params.DecodingParams.StopTokenIDs, token) {
+				if json.Unmarshal(stop, &token) != nil {
 					return 0, fmt.Errorf("stop_reason does not match a configured stop token")
+				}
+				// An EOS id is an EOS finish, even when the order also lists it
+				// in stop_token_ids: EOS wins, because the committed output is
+				// defined by eos_token_ids, and the trailing token is then
+				// stripped like any other EOS.
+				if decoding.IsEOS(int(token)) {
+					return nodewire.FinishReasonV1EosToken, nil
+				}
+				// Otherwise it is STOP_TOKEN only when the order lists it, and
+				// the stop token stays in the committed output.
+				if strings.EqualFold(strings.TrimSpace(reason), "eos_token") ||
+					!slices.Contains(g.Params.DecodingParams.StopTokenIDs, token) {
+					return 0, fmt.Errorf("stop_reason %d is neither a configured stop token nor in output_decoding.eos_token_ids", token)
 				}
 				return nodewire.FinishReasonV1StopToken, nil
 			}

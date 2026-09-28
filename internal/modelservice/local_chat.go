@@ -154,11 +154,15 @@ type chatRespUsage struct {
 }
 
 type chatResponseChoice struct {
-	Index        int               `json:"index"`
-	Message      chatRespMessage   `json:"message"`
-	FinishReason string            `json:"finish_reason"`
-	TokenIDs     []int             `json:"token_ids"`
-	Logprobs     *chatRespLogprobs `json:"logprobs"`
+	Index        int             `json:"index"`
+	Message      chatRespMessage `json:"message"`
+	FinishReason string          `json:"finish_reason"`
+	// StopReason is vLLM's stop_reason: null for the primary EOS, or the token
+	// id the engine stopped on, which on this path can only be one of the
+	// model's other EOS ids (chat sends no stop_token_ids).
+	StopReason json.RawMessage   `json:"stop_reason,omitempty"`
+	TokenIDs   []int             `json:"token_ids"`
+	Logprobs   *chatRespLogprobs `json:"logprobs"`
 }
 
 type chatRespMessage struct {
@@ -275,7 +279,7 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 	// chain-bound evidence contract (ValidateGenerationEvidence) for the chat path
 	// exactly as for inferV0. projectChatToCompletion already normalised the chat-only
 	// "tool_calls" finish to EOS, so the raw-text resolver applies unchanged.
-	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, completionFinishResolver(req))
+	return s.buildInferResultFromCompletion(ctx, req, profile, projected, nil, completionFinishResolver(req, profile.OutputDecoding))
 }
 
 // validateChatUsage fails closed when the engine's reported completion token count
@@ -464,13 +468,16 @@ func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmani
 		}
 	}
 
-	// StopReason is deliberately left unset: chat refuses any configured stop
-	// condition (rejectNonOpenAIChatGenerationParams), so a natural EOS is the only
-	// termination and localGenerationFinishReason resolves it from finishReason alone.
+	// StopReason is carried through: chat refuses any configured stop condition
+	// (rejectNonOpenAIChatGenerationParams), but vLLM still reports a stop on one
+	// of the model's secondary EOS ids as a numeric stop_reason, and
+	// localGenerationFinishReason maps an id in eos_token_ids to EOS and refuses
+	// any other.
 	return completionResponse{
 		Choices: []completionChoice{{
 			Text:           text,
 			FinishReason:   finishReason,
+			StopReason:     c.StopReason,
 			PromptTokenIDs: chatResp.PromptTokenIDs,
 			TokenIDs:       c.TokenIDs,
 			Logprobs:       logprobs,
@@ -582,6 +589,7 @@ type chatChunkChoice struct {
 	Index        int               `json:"index"`
 	Delta        chatChunkDelta    `json:"delta"`
 	FinishReason string            `json:"finish_reason"`
+	StopReason   json.RawMessage   `json:"stop_reason,omitempty"`
 	TokenIDs     []int             `json:"token_ids"`
 	Logprobs     *chatRespLogprobs `json:"logprobs"`
 }
@@ -707,6 +715,13 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 		if cc.FinishReason != "" {
 			dst.FinishReason = cc.FinishReason
 			finishReason = cc.FinishReason
+		}
+		// Only a non-null stop_reason is carried; intermediate frames send null.
+		if stop := bytes.TrimSpace(cc.StopReason); len(stop) != 0 && !bytes.Equal(stop, []byte("null")) {
+			if len(dst.StopReason) != 0 && !bytes.Equal(dst.StopReason, stop) {
+				return fmt.Errorf("modelservice local chat: conflicting stream stop_reason")
+			}
+			dst.StopReason = slices.Clone(stop)
 		}
 		if src := cc.Logprobs; src != nil {
 			if dst.Logprobs == nil {
