@@ -33,21 +33,6 @@ func TestHashWithDomainUsesLengthPrefixes(t *testing.T) {
 	}
 }
 
-func TestHashV1MatchesCanonicalSpecVector(t *testing.T) {
-	// github.com/TrueOpen/wire v0.2.0 shared/framing_v1.json, vector
-	// "four_byte_payload" under TRUEOPEN_TEST_PAYLOAD_V1. This is wire's own
-	// published digest, not a value recorded from what this function returned.
-	got := HashV1("TRUEOPEN_TEST_PAYLOAD_V1", []byte{0x00, 0x01, 0x02, 0x03})
-	want, err := hex.DecodeString("86a9d92752da8f9211bd31386566570fd28f82f1d57c0be223337879c5f51c1e")
-	if err != nil {
-		t.Fatalf("decode H_V1 spec digest: %v", err)
-	}
-
-	if !bytes.Equal(got[:], want) {
-		t.Fatalf("H_V1 hash mismatch\n got %x\nwant %x", got, want)
-	}
-}
-
 func TestHashV1IsNotHashWithDomain(t *testing.T) {
 	domain := "TRUEOPEN_TEST_PAYLOAD_V1"
 	payload := []byte{0x00, 0x01, 0x02, 0x03}

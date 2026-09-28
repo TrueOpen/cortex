@@ -3,11 +3,12 @@ package modelregistry
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
+	"github.com/TrueOpen/cortex/internal/modelmanifest"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
@@ -16,11 +17,14 @@ const CurrentManifestSchemaVersion = uint64(4)
 // CurrentManifestInput contains operator-facing metadata plus the exact
 // immutable projection signed and registered by the current Node contract.
 type CurrentManifestInput struct {
-	Version        string                                 `json:"version"`
-	Tokenizer      string                                 `json:"tokenizer"`
-	ModelServiceID string                                 `json:"model_service_id"`
-	Metadata       map[string]string                      `json:"metadata,omitempty"`
-	Profile        txclient.ModelProfileProjectionMessage `json:"profile"`
+	Version        string            `json:"version"`
+	Tokenizer      string            `json:"tokenizer"`
+	ModelServiceID string            `json:"model_service_id"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	// ManifestURI is where the registrant hosts the full model manifest. It
+	// is kept exactly as given; see modelmanifest.ValidateURI.
+	ManifestURI string                                 `json:"manifest_uri,omitempty"`
+	Profile     txclient.ModelProfileProjectionMessage `json:"profile"`
 }
 
 // CurrentManifest is lossless with respect to ModelProfileProjection. Hash is
@@ -118,7 +122,12 @@ func validateCurrentManifestFields(manifest CurrentManifest) error {
 	if manifest.ModelServiceID == "" || strings.TrimSpace(manifest.ModelServiceID) != manifest.ModelServiceID {
 		return fmt.Errorf("model_service_id is required without surrounding whitespace")
 	}
-	return txclient.ValidateModelProfileProjection(manifest.Profile)
+	if err := txclient.ValidateModelProfileProjection(manifest.Profile); err != nil {
+		return err
+	}
+	// The length cap is the chain parameter max_manifest_uri_bytes, which
+	// registration checks against the chain before submitting.
+	return modelmanifest.ValidateURI(manifest.Profile.ManifestURI, modelmanifest.NoLengthCap)
 }
 
 func canonicalCurrentManifest(manifest CurrentManifest) ([]byte, error) {
@@ -137,5 +146,5 @@ func canonicalCurrentManifest(manifest CurrentManifest) ([]byte, error) {
 		Metadata:              sortedMetadata(manifest.Metadata),
 		Profile:               manifest.Profile,
 	}
-	return json.Marshal(wire)
+	return codec.CanonicalJSON(wire)
 }

@@ -328,8 +328,8 @@ func currentStateForMessage(message RegisterModelProfileMessage, height uint64) 
 				CommitTimeoutBootstrapBlocks: uint32(p.TimeoutBootstrapProfile.CommitTimeoutBootstrapBlocks), BootstrapValidUntilEpoch: chainclient.NewUint64String(uint64(p.TimeoutBootstrapProfile.BootstrapValidUntilEpoch)),
 			},
 			SchemaHash: decode(p.SchemaHash), PreviousProfileVersion: chainclient.NewProfileVersion(uint32(p.PreviousProfileVersion)),
-			RegistrationFeePaid: chainclient.NewUint64String(uint64(p.RegistrationFee.Amount)),
-			ProposerAddress:     message.ProposerAddress, CreatedHeight: chainclient.NewUint64String(height),
+			RegistrationFeePaid: chainclient.NewUint64String(uint64(p.RegistrationFee.Amount)), ManifestURI: p.ManifestURI,
+			ProposerAddress: message.ProposerAddress, CreatedHeight: chainclient.NewUint64String(height),
 		},
 	}
 }

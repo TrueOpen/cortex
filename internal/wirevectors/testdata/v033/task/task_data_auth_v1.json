@@ -1,0 +1,622 @@
+{
+  "notes": [
+    "Each TaskDataObjectRefV1 frame has nine fields, including evidence_kind.",
+    "The five data-plane body domains are V2; the Cortex service request binds the updated upload digest.",
+    "Finalizing one Worker bundle authenticates its evidence_kind in the V2 body digest.",
+    "A mutation row with expect digest_changes publishes the digest the mutated input produces. A row with expect reject_before_hash has no digest: its change produces an input an implementation must refuse before hashing, and reason names the rule it breaks. The evidence_kind rows are rejects because each +1 lands on a kind that is illegal for that object or request."
+  ],
+  "schema": "trueopen.task.data_auth.v1",
+  "source": "Task data request and body wire contract",
+  "vectors": [
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "8476d08eda22ac87fa0c436c59f9ccfb18a92c834ae3154996bbef33f47acbd6",
+      "domain": "TRUEOPEN_TASK_DATA_UPLOAD_BODY_V2",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 3
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_VERIFIER",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 2
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "value",
+                  "type": "address"
+                }
+              ],
+              "name": "producer_operator",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "enum": "EVIDENCE_KIND_VERIFIER_VALUE_OPENING",
+              "name": "evidence_kind",
+              "type": "enum",
+              "value": 2
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        },
+        {
+          "name": "size_bytes",
+          "type": "uint64",
+          "value": 556
+        },
+        {
+          "name": "media_type",
+          "type": "string",
+          "utf8": "application/json"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c4b8c77a117c50da19d00ccd77e17539a2f5a8c0da2884a9ad015ef759418204",
+          "expect": "digest_changes",
+          "field_path": "size_bytes",
+          "name": "field.size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6c31d6101d301487da9da74b6c442828396ffa30475e0c02369723048632702c",
+          "expect": "digest_changes",
+          "field_path": "media_type",
+          "name": "field.media_type"
+        },
+        {
+          "change": "evidence_kind 2 -> 3 (EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING)",
+          "expect": "reject_before_hash",
+          "field_path": "object_ref.evidence_kind",
+          "name": "field.object_ref.evidence_kind",
+          "reason": "A Verifier-produced evidence object carries EVIDENCE_KIND_VERIFIER_VALUE_OPENING; the settlement root opening is not a data-plane evidence kind a Verifier produces, so the reference is rejected before any body digest is computed."
+        }
+      ],
+      "name": "task_data_upload_body_v2",
+      "preimage_hex": "0000000000000021545255454f50454e5f5441534b5f444154415f55504c4f41445f424f44595f563200000000000000f500000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000002000000000000000400000002000000000000001d010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d30000000000000004000000020000000000000008000000000000022c00000000000000106170706c69636174696f6e2f6a736f6e",
+      "preimage_size_bytes": 334,
+      "producer": "TaskDataUploadBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "18089ae9553e22289076c6d25a0668755e122e73c74a27e7959a6d922bbd5416",
+      "domain": "TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2",
+      "fields": [
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "infer_receipt_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5656565656565656565656565656565656565656565656565656565656565656",
+          "name": "infer_receipt_signature_digest",
+          "type": "bytes"
+        },
+        {
+          "enum": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
+          "name": "evidence_kind",
+          "type": "enum",
+          "value": 1
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2831810dfa508c3642cbbfa8540f34fc0617a803bb081238027ef713ea0458f1",
+          "expect": "digest_changes",
+          "field_path": "task_hash",
+          "name": "field.task_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c75927823f390c447b41491d936471b019e45c96ec5c39f588a051a8c467d204",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d4d2a02a3fa9f9b94bbdf689620671524a8bdbb65e3baab804aebff02d866757",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2a4a970d6d4d666b173f3bbf08f6fa01648eb94563a451d7a10f5fd814832c24",
+          "expect": "digest_changes",
+          "field_path": "infer_receipt_hash",
+          "name": "field.infer_receipt_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1021dc15e2dc9b01c4123876f731f3dfbbcb7548fe90f7bd23958638fd5a3e06",
+          "expect": "digest_changes",
+          "field_path": "infer_receipt_signature_digest",
+          "name": "field.infer_receipt_signature_digest"
+        },
+        {
+          "change": "evidence_kind 1 -> 2 (EVIDENCE_KIND_VERIFIER_VALUE_OPENING)",
+          "expect": "reject_before_hash",
+          "field_path": "evidence_kind",
+          "name": "field.evidence_kind",
+          "reason": "Finalizing a result selects exactly one Worker evidence bundle, EVIDENCE_KIND_WORKER_TOKEN_OPENING or EVIDENCE_KIND_WORKER_VALUE_OPENING; a Verifier evidence kind is rejected before the body digest is computed."
+        }
+      ],
+      "name": "task_data_finalize_result_body_v2",
+      "preimage_hex": "000000000000002a545255454f50454e5f5441534b5f444154415f46494e414c495a455f524553554c545f424f44595f56320000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000205656565656565656565656565656565656565656565656565656565656565656000000000000000400000001",
+      "preimage_size_bytes": 262,
+      "producer": "TaskDataFinalizeResultBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "51b90a1f7c3559d3b5c728084a8848d73572316f78369ea1f1469b5cd38977f2",
+      "domain": "TRUEOPEN_TASK_DATA_FINALIZE_VERIFIER_BODY_V2",
+      "fields": [
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+          "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "verifier_operator",
+          "type": "address"
+        },
+        {
+          "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+          "name": "result_receipt_signing_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "6767676767676767676767676767676767676767676767676767676767676767",
+          "name": "result_receipt_signature_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c1eaeb6f015d6ab9320202e19caf4b996aa9a2d0ce2d31032282682d24829ab3",
+          "expect": "digest_changes",
+          "field_path": "task_hash",
+          "name": "field.task_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "646078b07261db8ecdfaa7df03d7c2ee3ce45f5ac8d6c5c41705b466bb84e1dd",
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "34efc9d75f8d6e2c34e8e2761d1417b2afe2c511d6e526a7cf7d2988d73463e1",
+          "expect": "digest_changes",
+          "field_path": "task_id",
+          "name": "field.task_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "95371c4030319d125ebce97c66ef7ec109b5fda11fa1fbb5578106849e2861e2",
+          "expect": "digest_changes",
+          "field_path": "verify_round",
+          "name": "field.verify_round"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ad567a08b25a7219a2f3a8ffe8f495be2fd62ee8ee118d8a85cf998ac7632fac",
+          "expect": "digest_changes",
+          "field_path": "verifier_operator",
+          "name": "field.verifier_operator"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "9169a1a666535f74dadefa2a30b522ccee3b316f9cf2f06b7de231b4024f625b",
+          "expect": "digest_changes",
+          "field_path": "result_receipt_signing_digest",
+          "name": "field.result_receipt_signing_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "02af8f4ada3cfa5010a43189c7bb5edfae7966b39871fcd041bef69534ccf8ab",
+          "expect": "digest_changes",
+          "field_path": "result_receipt_signature_digest",
+          "name": "field.result_receipt_signature_digest"
+        }
+      ],
+      "name": "task_data_finalize_verifier_body_v2",
+      "preimage_hex": "000000000000002c545255454f50454e5f5441534b5f444154415f46494e414c495a455f56455249464945525f424f44595f56320000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000004000000020000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d30000000000000020666666666666666666666666666666666666666666666666666666666666666600000000000000206767676767676767676767676767676767676767676767676767676767676767",
+      "preimage_size_bytes": 292,
+      "producer": "TaskDataFinalizeVerifierBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "32aacf5c17bdb0d88902e6cc713c764c12f85f22850f512fd609a61dc879ffbf",
+      "domain": "TRUEOPEN_TASK_DATA_METADATA_BODY_V2",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_OUTPUT",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 2
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 0
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "producer_operator",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "enum": "EVIDENCE_KIND_UNSPECIFIED",
+              "name": "evidence_kind",
+              "type": "enum",
+              "value": 0
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "evidence_kind 0 -> 1 (EVIDENCE_KIND_WORKER_VALUE_OPENING) on an OUTPUT object",
+          "expect": "reject_before_hash",
+          "field_path": "object_ref.evidence_kind",
+          "name": "field.object_ref.evidence_kind",
+          "reason": "evidence_kind is EVIDENCE_KIND_UNSPECIFIED for INPUT and OUTPUT objects and required only for evidence objects, so an OUTPUT reference carrying an evidence kind is rejected before the body digest is computed."
+        }
+      ],
+      "name": "task_data_metadata_body_v2",
+      "preimage_hex": "0000000000000023545255454f50454e5f5441534b5f444154415f4d455441444154415f424f44595f563200000000000000d900000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000000000000000000000400000000000000000000000100000000000000000400000000",
+      "preimage_size_bytes": 268,
+      "producer": "TaskDataMetadataBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "970b34d606804ecad3696838a6f78cde4a8b558307b7bdafdb3764657ada797e",
+      "domain": "TRUEOPEN_TASK_DATA_FETCH_BODY_V2",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_OUTPUT",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 2
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 0
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "producer_operator",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "enum": "EVIDENCE_KIND_UNSPECIFIED",
+              "name": "evidence_kind",
+              "type": "enum",
+              "value": 0
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "fields": [
+                {
+                  "name": "offset",
+                  "type": "uint64",
+                  "value": 64
+                },
+                {
+                  "name": "length",
+                  "type": "uint64",
+                  "value": 128
+                }
+              ],
+              "name": "value",
+              "type": "frame"
+            }
+          ],
+          "name": "range",
+          "present": true,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1f76d57e3e28eef804e51e0a18106d5b31e1c9ccb6edceeecc22d1e17646eda5",
+          "expect": "digest_changes",
+          "field_path": "range",
+          "name": "field.range"
+        },
+        {
+          "change": "evidence_kind 0 -> 1 (EVIDENCE_KIND_WORKER_VALUE_OPENING) on an OUTPUT object",
+          "expect": "reject_before_hash",
+          "field_path": "object_ref.evidence_kind",
+          "name": "field.object_ref.evidence_kind",
+          "reason": "evidence_kind is EVIDENCE_KIND_UNSPECIFIED for INPUT and OUTPUT objects and required only for evidence objects, so an OUTPUT reference carrying an evidence kind is rejected before the body digest is computed."
+        }
+      ],
+      "name": "task_data_fetch_body_v2",
+      "preimage_hex": "0000000000000020545255454f50454e5f5441534b5f444154415f46455443485f424f44595f563200000000000000d90000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000004000000020000000000000020444444444444444444444444444444444444444444444444444444444444444400000000000000040000000000000000000000040000000000000000000000010000000000000000040000000000000000000000290100000000000000200000000000000008000000000000004000000000000000080000000000000080",
+      "preimage_size_bytes": 314,
+      "producer": "TaskDataFetchBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "4b3a66368863bb0940bd42dd04399f99e1ff7b3b01a11ee4e45fec56835f8291",
+      "domain": "TRUEOPEN_TASK_DATA_REQUEST_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "bech32": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+          "hex": "77d7bb07580b39fb949df09f7bb9f80a1d0641b8",
+          "name": "builder_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/nexus.v1.IngressAPI/UploadTaskResultObject"
+        },
+        {
+          "hex": "8476d08eda22ac87fa0c436c59f9ccfb18a92c834ae3154996bbef33f47acbd6",
+          "name": "body_digest",
+          "type": "bytes"
+        },
+        {
+          "enum": "TASK_DATA_REQUESTER_KIND_V1_CORTEX_SERVICE",
+          "name": "requester_kind",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+          "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+          "name": "requester_address",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+          "name": "request_nonce",
+          "type": "bytes"
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "45aa0df2c7c2b634a397d2ae107a71e4e78eeb11037d68ca05cfa7a25d14bd85",
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "76d3fafa598aede1f4a42f19398b1e2f65c7d6851f586c31640945117eb2fadf",
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "88f79303aab0a317ae3deaddc1b422b9a4fffb74c07e1b33554e76cadb2833a1",
+          "expect": "digest_changes",
+          "field_path": "builder_operator_address",
+          "name": "field.builder_operator_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a51e3cdbf306e9121e7492fb46ba1cf866df3acc60ed227e470c7a13f70a1b51",
+          "expect": "digest_changes",
+          "field_path": "rpc_method",
+          "name": "field.rpc_method"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "291b56b8eca4e87e801169cad903b6d3de2ac391fe9d1d266bc8b5e38cb22e44",
+          "expect": "digest_changes",
+          "field_path": "body_digest",
+          "name": "field.body_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cd2c023926ec2d529d61b228a9cc7a1300efde5f3b49a510077960556cf8ac9f",
+          "expect": "digest_changes",
+          "field_path": "requester_kind",
+          "name": "field.requester_kind"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "b633ca5b808a6cfc505021dec06b1ac822b757015079a8b36bd02a46ae94ca12",
+          "expect": "digest_changes",
+          "field_path": "requester_address",
+          "name": "field.requester_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "955eb11dfaf8c3375b614f95b48b5ac275b79d1da24a3e657eba9b9ac240947a",
+          "expect": "digest_changes",
+          "field_path": "service_authorization_nonce",
+          "name": "field.service_authorization_nonce"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "dbfc3ddf1b41b14544d83d1e631198d8e4500075b54790acd38c135c3874fb19",
+          "expect": "digest_changes",
+          "field_path": "request_nonce",
+          "name": "field.request_nonce"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a61e948938f4de548d3e8807affeba791453258370490afc1337021f4fe99066",
+          "expect": "digest_changes",
+          "field_path": "expiry_height",
+          "name": "field.expiry_height"
+        }
+      ],
+      "name": "task_data_request_v1_cortex_service",
+      "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f444154415f524551554553545f56310000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b8000000000000002b2f6e657875732e76312e496e67726573734150492f55706c6f61645461736b526573756c744f626a65637400000000000000208476d08eda22ac87fa0c436c59f9ccfb18a92c834ae3154996bbef33f47acbd60000000000000004000000020000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000800000000000000070000000000000020a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf000000000000000800000000000007d0",
+      "preimage_size_bytes": 305,
+      "producer": "CortexTaskDataRequestDigest"
+    }
+  ]
+}

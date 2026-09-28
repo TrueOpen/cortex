@@ -66,12 +66,15 @@ func TestValidateGenerationMaterialBindsValuesToGeneratedTokens(t *testing.T) {
 	}
 }
 
-// A /v1/completions top_logprobs object is read in the engine's own key order
-// and never re-sorted; a row that is not K (or K plus the appended emitted
-// token) distinct ids with non-increasing logprobs is refused.
-func TestCompletionTopKKeepsTheEngineOrder(t *testing.T) {
+// vLLM writes the sampled token first, not in rank order, so completionTopK
+// sorts the row by logprob (stable for ties) before it becomes evidence. A row
+// that is not K (or K plus the appended emitted token) distinct, non-NaN ids is
+// refused.
+func TestCompletionTopKSortsByLogprob(t *testing.T) {
+	// The sampled token 2 leads the object (as vLLM writes it) but is only the
+	// third most likely; sorting must move it to rank 3.
 	var row TopLogprobRow
-	if err := json.Unmarshal([]byte(`{"token_id:9":-0.5,"token_id:4":-0.5,"token_id:2":-1,"token_id:7":-3}`), &row); err != nil {
+	if err := json.Unmarshal([]byte(`{"token_id:2":-1,"token_id:9":-0.5,"token_id:4":-0.5,"token_id:7":-3}`), &row); err != nil {
 		t.Fatal(err)
 	}
 	topK, err := completionTopK(0, 2, row, 4)
@@ -82,25 +85,21 @@ func TestCompletionTopKKeepsTheEngineOrder(t *testing.T) {
 	for _, entry := range topK {
 		order = append(order, entry.TokenID)
 	}
+	// 9 and 4 tie at -0.5; the stable sort keeps the engine's order (9 before 4).
 	if !reflect.DeepEqual(order, []uint32{9, 4, 2, 7}) {
-		t.Fatalf("order = %v, want the engine's key order [9 4 2 7]", order)
+		t.Fatalf("order = %v, want logprob-sorted [9 4 2 7]", order)
 	}
 	if rankIn(2, topK) != 3 || rankIn(8, topK) != 0 {
-		t.Fatal("rankIn does not read the engine-ordered list")
-	}
-	encoded, err := json.Marshal(row)
-	if err != nil || string(encoded) != `{"token_id:9":-0.5,"token_id:4":-0.5,"token_id:2":-1,"token_id:7":-3}` {
-		t.Fatalf("row re-encodes as %s, %v", encoded, err)
+		t.Fatalf("emitted rank = %d, want 3 (its logprob rank, not its leading position)", rankIn(2, topK))
 	}
 	for name, bad := range map[string]TopLogprobRow{
-		"too few":      {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}},
-		"two extra":    {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}, {"token_id:6", -6}},
-		"duplicate":    {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:1", -3}, {"token_id:4", -4}},
-		"out of order": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -0.5}, {"token_id:4", -4}},
-		"nan":          {{"token_id:1", -1}, {"token_id:2", math.NaN()}, {"token_id:3", -3}, {"token_id:4", -4}},
-		"text key":     {{"hello", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}},
-		// K+1 entries are only legal when the extra one is the emitted token
-		// appended after a top-k that does not hold it.
+		"too few":   {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}},
+		"two extra": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}, {"token_id:6", -6}},
+		"duplicate": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:1", -3}, {"token_id:4", -4}},
+		"nan":       {{"token_id:1", -1}, {"token_id:2", math.NaN()}, {"token_id:3", -3}, {"token_id:4", -4}},
+		"text key":  {{"hello", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}},
+		// K+1 entries are only legal when the extra one is the emitted token that
+		// fell outside a top-k not holding it.
 		"extra is not the emitted token": {{"token_id:1", -1}, {"token_id:2", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:5", -5}},
 		"emitted both in and after":      {{"token_id:1", -1}, {"token_id:9", -2}, {"token_id:3", -3}, {"token_id:4", -4}, {"token_id:9", -2}},
 	} {
@@ -111,16 +110,18 @@ func TestCompletionTopKKeepsTheEngineOrder(t *testing.T) {
 }
 
 // With sampling on, the emitted token can fall outside the top-k; vLLM then
-// appends it as entry K+1. That entry is dropped, the first K are kept in the
-// engine's order, and the emitted token's leaf rank is 0.
+// includes it as entry K+1, written first. After sorting by logprob that entry
+// is the lowest, it is dropped, the K highest are kept, and the emitted token's
+// leaf rank is 0.
 func TestCompletionTopKDropsTheAppendedSampledToken(t *testing.T) {
-	row := TopLogprobRow{{"token_id:1", -0.1}, {"token_id:2", -0.9}, {"token_id:3", -1.5}, {"token_id:4", -2}, {"token_id:9", -4.2}}
+	// The sampled token 9 leads the row (vLLM's placement) but has the lowest logprob.
+	row := TopLogprobRow{{"token_id:9", -4.2}, {"token_id:1", -0.1}, {"token_id:2", -0.9}, {"token_id:3", -1.5}, {"token_id:4", -2}}
 	topK, err := completionTopK(3, 9, row, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(topK) != 4 || topK[3].TokenID != 4 || rankIn(9, topK) != 0 {
-		t.Fatalf("top-k = %+v, want the first four in engine order and the sampled token unranked", topK)
+		t.Fatalf("top-k = %+v, want the four highest logprobs and the sampled token unranked", topK)
 	}
 	leaves, err := metric.ValueLeaves([]metric.PositionValue{{TokenID: 9, Logprob: -4.2, Rank: rankIn(9, topK), TopK: topK}}, 4)
 	if err != nil {

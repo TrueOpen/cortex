@@ -33,12 +33,13 @@ func receivingBuilderRef(event chainclient.AssignmentFinalized) ReceivingBuilder
 // at. It is the single switch point for where per-task Builder authority is
 // read from; see ReceivingBuilderRef.
 //
-// Two methods because the two paths genuinely differ, not because one is a
-// leftover. Output frames go to every Task Builder (04-任务/02 §9.2: 逐帧向全部
-// Task Builders 推送), so a Builder that is down cannot strand the task and a
-// Verifier can obtain data from any of them. The receipt and evidence upload
-// still targets one Builder; widening that is a separate change with its own
-// finalization and storage-confirmation semantics.
+// Two methods because the two questions genuinely differ, not because one is a
+// leftover. Everything the task's material consists of -- output frames
+// (04-任务/02 §9.2: 逐帧向全部 Task Builders 推送), the evidence bundles and their
+// FinalizeTaskResult (§230, §257) -- goes to every Task Builder, so a Builder
+// that is down cannot strand the task and a Verifier can obtain data from any of
+// them. The single Builder remains for the one thing that is genuinely
+// once-per-task: relaying the signed receipt onward to the chain.
 type ReceivingBuilderProvider interface {
 	ResolveReceivingBuilder(ctx context.Context, task ReceivingBuilderRef) (BuilderEndpoint, error)
 	// ResolveReceivingBuilders returns every Task Builder of this task in the
@@ -53,6 +54,15 @@ type ReceivingBuilderProvider interface {
 // mismatches -> re-read the descriptor and retry once).
 type ReceivingBuilderRefresher interface {
 	RefreshReceivingBuilder(ctx context.Context, task ReceivingBuilderRef) (BuilderEndpoint, error)
+}
+
+// ReceivingBuildersRefresher is the list form of ReceivingBuilderRefresher, for
+// the same ADR-0015 reason. The single-Builder refresh can only name the
+// assigned Builder, and the evidence path now talks to Builders it cannot name;
+// without this, a certificate rotation on any of the others would be
+// unrecoverable for that Builder within the task.
+type ReceivingBuildersRefresher interface {
+	RefreshReceivingBuilders(ctx context.Context, task ReceivingBuilderRef) ([]BuilderEndpoint, error)
 }
 
 // ReceivingBuilderFunc adapts a plain function to ReceivingBuilderProvider, so a
@@ -132,6 +142,54 @@ func (w *Worker) receivingBuilders(ctx context.Context, ref ReceivingBuilderRef)
 		checked = append(checked, endpoint)
 	}
 	return checked, nil
+}
+
+// currentReceivingBuilder re-reads one Task Builder's identity so a storage
+// confirmation is verified against the service key and authorization nonce the
+// Builder holds now, not the ones cached when the upload began.
+func (w *Worker) currentReceivingBuilder(ctx context.Context, ref ReceivingBuilderRef, operator string) (BuilderEndpoint, error) {
+	builders, err := w.receivingBuilders(ctx, ref)
+	if err != nil {
+		return BuilderEndpoint{}, err
+	}
+	return builderByOperator(builders, operator)
+}
+
+// refreshReceivingBuilderFor re-reads one Task Builder's descriptor past the
+// cache. The single-Builder refresher is preferred when the wanted Builder is
+// the assigned one, because a provider may support that and nothing else.
+func (w *Worker) refreshReceivingBuilderFor(ctx context.Context, ref ReceivingBuilderRef, operator string) (BuilderEndpoint, error) {
+	if operator == ref.AssignedBuilderOperator {
+		if endpoint, err := w.refreshReceivingBuilder(ctx, ref); err == nil {
+			return endpoint, nil
+		}
+	}
+	refresher, ok := w.cfg.ReceivingBuilder.(ReceivingBuildersRefresher)
+	if !ok {
+		return BuilderEndpoint{}, fmt.Errorf("receiving Builder provider cannot re-read Task Builder descriptors")
+	}
+	builders, err := refresher.RefreshReceivingBuilders(ctx, ref)
+	if err != nil {
+		return BuilderEndpoint{}, err
+	}
+	endpoint, err := builderByOperator(builders, operator)
+	if err != nil {
+		return BuilderEndpoint{}, err
+	}
+	return w.checkReceivingBuilder(endpoint, nil)
+}
+
+// builderByOperator picks one member out of a resolved Task Builder list. A
+// miss is an error rather than a fallback: the list is the chain's frozen
+// selection, and an operator that is not in it is not a Builder this task's
+// material may be sent to.
+func builderByOperator(builders []BuilderEndpoint, operator string) (BuilderEndpoint, error) {
+	for _, builder := range builders {
+		if builder.OperatorAddress == operator {
+			return builder, nil
+		}
+	}
+	return BuilderEndpoint{}, fmt.Errorf("Task Builder %s is not in this task's frozen selection", operator)
 }
 
 // refreshReceivingBuilder re-reads past the cache; a provider without refresh support

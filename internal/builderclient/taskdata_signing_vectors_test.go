@@ -29,7 +29,32 @@ type v2Vector struct {
 	Mutations []struct {
 		FieldPath string `json:"field_path"`
 		DigestHex string `json:"digest_hex"`
+		Expect    string `json:"expect"`
+		Reason    string `json:"reason"`
 	} `json:"mutations"`
+}
+
+// assertEvidenceKindRejects checks that every evidence_kind mutation of the
+// vector is published as reject_before_hash, with a reason and no digest, and
+// that reject reports whether Cortex refuses that input before hashing.
+func assertEvidenceKindRejects(t *testing.T, v v2Vector, reject func() bool) {
+	t.Helper()
+	found := false
+	for _, m := range v.Mutations {
+		if m.FieldPath != "evidence_kind" && m.FieldPath != "object_ref.evidence_kind" {
+			continue
+		}
+		found = true
+		if m.Expect != "reject_before_hash" || m.DigestHex != "" || m.Reason == "" {
+			t.Fatalf("%s %s: published as %q with digest %q; want reject_before_hash with a reason", v.Name, m.FieldPath, m.Expect, m.DigestHex)
+		}
+		if !reject() {
+			t.Fatalf("%s %s: the mutated input was hashed instead of refused", v.Name, m.FieldPath)
+		}
+	}
+	if !found {
+		t.Fatalf("%s publishes no evidence_kind mutation", v.Name)
+	}
 }
 
 func v2Vectors(t *testing.T, path string) map[string]v2Vector {
@@ -122,27 +147,26 @@ func TestTaskDataBodiesV2ReproducePublishedVectors(t *testing.T) {
 	media := v2Field(t, upload.Fields, 2, "media_type").UTF8
 	uploadDigest, err := TaskDataUploadBodyDigest(key, size, media)
 	assertDigest(t, upload.Name, uploadDigest, err, upload.DigestHex)
-	for _, m := range upload.Mutations {
-		if m.FieldPath == "object_ref.evidence_kind" {
-			// The +1 mutation is not a legal kind for a Verifier bundle, so it
-			// is refused rather than hashed.
-			bad := key
-			bad.EvidenceKind = kind + 1
-			if _, err := TaskDataUploadBodyDigest(bad, size, media); err == nil {
-				t.Fatal("a Verifier bundle accepted a non-Verifier evidence kind")
-			}
-		}
-	}
+	// The published +1 lands on SETTLEMENT_ROOT_OPENING, not a kind a
+	// Verifier bundle carries.
+	assertEvidenceKindRejects(t, upload, func() bool {
+		bad := key
+		bad.EvidenceKind = kind + 1
+		_, err := TaskDataUploadBodyDigest(bad, size, media)
+		return err != nil
+	})
 
 	metadata := vectors["task_data_metadata_body_v2"]
 	key, _ = objectRef(t, v2Field(t, metadata.Fields, 0, "object_ref"))
 	got, err := TaskDataMetadataBodyDigest(key)
 	assertDigest(t, metadata.Name, got, err, metadata.DigestHex)
-	bad := key
-	bad.EvidenceKind = nodewire.EvidenceKindWorkerValueOpening
-	if _, err := TaskDataMetadataBodyDigest(bad); err == nil {
-		t.Fatal("an OUTPUT object accepted an evidence kind")
-	}
+	// An OUTPUT object carries no evidence kind.
+	assertEvidenceKindRejects(t, metadata, func() bool {
+		bad := key
+		bad.EvidenceKind = nodewire.EvidenceKindWorkerValueOpening
+		_, err := TaskDataMetadataBodyDigest(bad)
+		return err != nil
+	})
 
 	fetch := vectors["task_data_fetch_body_v2"]
 	key, _ = objectRef(t, v2Field(t, fetch.Fields, 0, "object_ref"))
@@ -151,6 +175,12 @@ func TestTaskDataBodiesV2ReproducePublishedVectors(t *testing.T) {
 		Offset: v2Field(t, bounds, 0, "offset").u64(t), Length: v2Field(t, bounds, 1, "length").u64(t),
 	})
 	assertDigest(t, fetch.Name, got, err, fetch.DigestHex)
+	assertEvidenceKindRejects(t, fetch, func() bool {
+		bad := key
+		bad.EvidenceKind = nodewire.EvidenceKindWorkerValueOpening
+		_, err := TaskDataFetchBodyDigest(bad, nil)
+		return err != nil
+	})
 
 	result := vectors["task_data_finalize_result_body_v2"]
 	f := result.Fields
@@ -161,14 +191,11 @@ func TestTaskDataBodiesV2ReproducePublishedVectors(t *testing.T) {
 	}
 	got, err = taskDataFinalizeResultDigest(scope, v2Field(t, f, 3, "infer_receipt_hash").digest(t), v2Field(t, f, 4, "infer_receipt_signature_digest").digest(t), resultKind)
 	assertDigest(t, result.Name, got, err, result.DigestHex)
-	for _, m := range result.Mutations {
-		if m.FieldPath == "evidence_kind" {
-			// kind 1 + 1 is VERIFIER_VALUE_OPENING, which a result finalize refuses.
-			if _, err := TaskDataFinalizeResultBodyDigest(FinalizeTaskResultRequest{EvidenceKind: resultKind + 1}); err == nil {
-				t.Fatal("a result finalize accepted a non-Worker evidence kind")
-			}
-		}
-	}
+	// kind 1 + 1 is VERIFIER_VALUE_OPENING, which a result finalize refuses.
+	assertEvidenceKindRejects(t, result, func() bool {
+		_, err := taskDataFinalizeResultDigest(scope, v2Field(t, f, 3, "infer_receipt_hash").digest(t), v2Field(t, f, 4, "infer_receipt_signature_digest").digest(t), resultKind+1)
+		return err != nil
+	})
 
 	verifier := vectors["task_data_finalize_verifier_body_v2"]
 	f = verifier.Fields

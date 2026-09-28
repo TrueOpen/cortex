@@ -255,9 +255,6 @@ func (confirmationKeeperReader) Profile(context.Context, string, string) (chainc
 	return chainclient.ProfileSnapshot{}, nil
 }
 
-func (confirmationKeeperReader) FullResultReveal(context.Context, string, string, uint64, string) (chainclient.FullResultRevealSnapshot, error) {
-	return chainclient.FullResultRevealSnapshot{}, nil
-}
 func (confirmationKeeperReader) Settlement(context.Context, string, string) (chainclient.TaskSettlementSnapshot, error) {
 	return chainclient.TaskSettlementSnapshot{}, nil
 }

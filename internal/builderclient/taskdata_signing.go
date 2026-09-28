@@ -180,9 +180,6 @@ func TaskDataFinalizeResultBodyDigest(request FinalizeTaskResultRequest) (codec.
 	if request.Receipt.TaskHash != request.TaskHash || request.Receipt.TaskID != request.TaskID {
 		return codec.Hash{}, fmt.Errorf("finalize receipt task identity mismatch")
 	}
-	if request.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening && request.EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
-		return codec.Hash{}, fmt.Errorf("a result finalize must name one Worker evidence kind")
-	}
 	if err := validateSignedInferReceipt(request.Receipt); err != nil {
 		return codec.Hash{}, err
 	}
@@ -196,8 +193,12 @@ func TaskDataFinalizeResultBodyDigest(request FinalizeTaskResultRequest) (codec.
 }
 
 // taskDataFinalizeResultDigest finalizes one Worker bundle, so the body
-// authenticates which of the two kinds it closes.
+// authenticates which of the two kinds it closes. Any other kind is refused
+// before hashing.
 func taskDataFinalizeResultDigest(scope []hfields.Field, receiptDigest, signatureDigest codec.Hash, kind nodewire.EvidenceKind) (codec.Hash, error) {
+	if kind != nodewire.EvidenceKindWorkerValueOpening && kind != nodewire.EvidenceKindWorkerTokenOpening {
+		return codec.Hash{}, fmt.Errorf("a result finalize must name one Worker evidence kind")
+	}
 	return hfields.Digest("TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2", append(scope, hfields.Hash(receiptDigest), hfields.Hash(signatureDigest), hfields.Uint32(uint32(kind)))...)
 }
 

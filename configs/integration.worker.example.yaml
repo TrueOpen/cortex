@@ -7,6 +7,11 @@ model_management:
 node:
   rpc_endpoint: http://127.0.0.1:26657
   rest_endpoint: http://127.0.0.1:1317
+  # With https:// endpoints to a node with a self-signed certificate, add one of
+  # (see configs/real.example.yaml):
+  # tls:
+  #   ca_file: /etc/cortex/node-ca.pem
+  #   pubkey_hash: "<64 lowercase hex>"
 keeper:
   poll_interval_ms: 1000
   max_lag_blocks: 20

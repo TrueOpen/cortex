@@ -145,6 +145,52 @@ func validCurrentManifestInput() CurrentManifestInput {
 			BatchVerification:       txclient.BatchVerificationMessage{},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
+			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000},
+			ManifestURI: "https://models.trueopen.example/manifests/org-model/v1.json"},
+	}
+}
+
+func TestCurrentManifestKeepsTheManifestURIVerbatim(t *testing.T) {
+	input := validCurrentManifestInput()
+	input.Profile.ManifestURI = "https://models.trueopen.example/m/golden.json?rev=3&sig=AbC"
+	manifest, err := GenerateCurrentManifest(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Canonical JSON writes & literally, never as \u0026.
+	if manifest.Profile.ManifestURI != input.Profile.ManifestURI || !strings.Contains(manifest.Canonical, `"manifest_uri":"https://models.trueopen.example/m/golden.json?rev=3&sig=AbC"`) {
+		t.Fatalf("manifest_uri not kept: %q in %s", manifest.Profile.ManifestURI, manifest.Canonical)
+	}
+	if err := ValidateCurrentManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Profile.ManifestURI = "https://models.trueopen.example/m/other.json"
+	if err := ValidateCurrentManifest(manifest); err == nil || !strings.Contains(err.Error(), "manifest_hash") {
+		t.Fatalf("changed manifest_uri was accepted: %v", err)
+	}
+}
+
+func TestCurrentManifestRequiresAValidManifestURI(t *testing.T) {
+	for _, uri := range []string{
+		"",
+		"http://models.trueopen.example/m.json",
+		" https://models.trueopen.example/m.json",
+		"https://models.trueopen.example/m.json#frag",
+		"https://Models.trueopen.example/m.json",
+		"ipfs://not-a-cid",
+	} {
+		input := validCurrentManifestInput()
+		input.Profile.ManifestURI = uri
+		if _, err := GenerateCurrentManifest(input); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
+			t.Errorf("%.60q: %v", uri, err)
+		}
+		manifest, err := GenerateCurrentManifest(validCurrentManifestInput())
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.Profile.ManifestURI = uri
+		if err := ValidateCurrentManifest(manifest); err == nil || !strings.Contains(err.Error(), "manifest_uri") {
+			t.Errorf("validate %.60q: %v", uri, err)
+		}
 	}
 }

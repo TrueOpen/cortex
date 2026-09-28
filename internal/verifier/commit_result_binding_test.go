@@ -2,17 +2,23 @@ package verifier
 
 // The commit-to-reveal binding, asserted across the two stages that produce it.
 //
-// keeper §10.6 accepts a commit WITHOUT recomputing commit_hash - it stores the
-// value it is handed. The recomputation happens at §10.11 rule 5, when a full
-// reveal re-derives commit_hash from the ResultReceiptState's
-// result_reveal_hash and aggregate_proof_hash and requires equality with
-// CommitState. So a commit derived by any other formula is accepted, written to
-// state, and counted toward StartRevealPhase, and only fails a whole task
-// lifecycle later.
+// The Keeper accepts a commit WITHOUT recomputing commit_hash - it stores the
+// value it is handed. The recomputation happens when a full reveal arrives: the
+// Keeper re-derives commit_hash from the ResultReceiptState's
+// verifier_value_root and salt and requires equality with CommitState. So a
+// commit derived by any other formula is accepted, written to state, and
+// counted toward StartRevealPhase, and only fails a whole task lifecycle later.
+//
+// Those two fields and no others: ResultCommitmentV3 binds the value root, the
+// salt and the task/round/verifier identity, and the v0.3.3 vector says so in
+// as many words ("The V3 commit binds only the Verifier value root and salt,
+// not the reveal payload hash"). Naming the reveal payload digests here instead
+// would promise a binding this test cannot check, because the commit does not
+// carry them.
 //
 // No single-stage test can see that. Every assertion here therefore spans both
 // stages: it takes the commit this node actually submitted and the credential
-// this node actually published, and performs the Keeper's own rule 5.
+// this node actually published, and performs the Keeper's own re-derivation.
 
 import (
 	"bytes"
@@ -24,14 +30,14 @@ import (
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
-// TestSubmittedCommitReDerivesFromThePublishedCredential is keeper §10.11 rule 5
-// executed against real output of both halves.
+// TestSubmittedCommitReDerivesFromThePublishedCredential re-derives the commit
+// hash the chain received from the credential the Verifier later publishes,
+// against real output of both halves: the chain accepts the reveal only if
+// that re-derivation matches.
 //
-// It is the check that would have caught the shipped formula: the old
-// commit_hash was H_FIELDS-with-different-framing over (task_id, verify_round,
-// verifier, sample_seed, points_hash, salt) under TRUEOPEN_RESULT_COMMIT_V1, which
-// shares neither its domain nor a single field with the frozen preimage, so this
-// re-derivation could never have matched.
+// It is the check that would have caught an earlier formula that hashed a
+// different field list under a different domain, which no re-derivation of
+// the frozen preimage could ever have matched.
 func TestSubmittedCommitReDerivesFromThePublishedCredential(t *testing.T) {
 	h := newHarness(t)
 	state := h.validTask()
@@ -42,7 +48,7 @@ func TestSubmittedCommitReDerivesFromThePublishedCredential(t *testing.T) {
 
 	// The commit as the chain received it, decoded from the submitted tx rather
 	// than read off the in-memory result: CommitState is written from these
-	// bytes, so these are the bytes rule 5 compares against.
+	// bytes, so these are the bytes the re-derivation is compared against.
 	requests := h.tx.Requests()
 	if len(requests) != 1 || requests[0].Kind != txclient.MsgSubmitVerifyCommit {
 		t.Fatalf("tx requests = %#v, want exactly one MsgSubmitVerifyCommit", requests)
@@ -68,7 +74,7 @@ func TestSubmittedCommitReDerivesFromThePublishedCredential(t *testing.T) {
 		t.Fatalf("re-derive commit_hash: %v", err)
 	}
 	if !bytes.Equal(reDerived[:], submittedCommitHash) {
-		t.Fatalf("keeper §10.11 rule 5 would reject this reveal:\n"+
+		t.Fatalf("the Keeper's reveal re-derivation would reject this reveal:\n"+
 			"  CommitState.commit_hash   = %x\n"+
 			"  re-derived from the receipt = %s\n"+
 			"The commit and the credential describe different material.", submittedCommitHash, reDerived)

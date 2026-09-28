@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -67,12 +68,16 @@ type Runtime struct {
 	signingClient               signer.Signer
 	trustInjectedSignerForTests bool
 	signerProofMu               sync.Mutex
-	signerProofDigest           codec.Hash
-	signerProofValidUntil       time.Time
-	signerProofValid            bool
-	workloadTxFactory           func(string) txclient.Client
-	nexusProbe                  ReadinessProbe
-	txProbe                     ReadinessProbe
+	// manifestGate keeps model_service red until every configured profile
+	// registered by another operator has a verified manifest. Nil outside
+	// real mode.
+	manifestGate          *manifestGate
+	signerProofDigest     codec.Hash
+	signerProofValidUntil time.Time
+	signerProofValid      bool
+	workloadTxFactory     func(string) txclient.Client
+	nexusProbe            ReadinessProbe
+	txProbe               ReadinessProbe
 	// natsIdentity is the on-chain identity binding this machine uses to join NATS
 	// (ADR-0016 decision three). It exists only when real mode configured
 	// nats_user_key_file and the runtime builds the NATS connection itself; on a node
@@ -286,9 +291,16 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		return nil, err
 	}
 
+	var nodeTransport http.RoundTripper
+	if cfg.UsesRealDependencies() {
+		nodeTransport, err = nodeHTTPTransport(cfg)
+		if err != nil {
+			return failRuntime(err)
+		}
+	}
 	keeperClient := opts.Keeper
 	if keeperClient == nil && cfg.UsesRealDependencies() {
-		keeperClient = chainclient.NewKeeperABCIClient(cfg.Node.RPCEndpoint)
+		keeperClient = chainclient.NewKeeperABCIClientWithTransport(cfg.Node.RPCEndpoint, nodeTransport)
 	}
 	txClient := opts.TxClient
 	// Build the signer once. A local key file would otherwise be decrypted on
@@ -432,8 +444,9 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 	keeperEvents := opts.KeeperEvents
 	if keeperEvents == nil && cfg.UsesRealDependencies() {
 		keeperEvents = chainclient.NewCometEventClient(chainclient.CometEventClientConfig{
-			RPCURL:  cfg.Node.RPCEndpoint,
-			ChainID: cfg.ChainID,
+			RPCURL:    cfg.Node.RPCEndpoint,
+			ChainID:   cfg.ChainID,
+			Transport: nodeTransport,
 		})
 	}
 	chainStatus := opts.ChainStatus
@@ -447,7 +460,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 				return txclient.NewBroadcaster(txclient.BroadcasterConfig{
 					ChainID: cfg.ChainID, GasPayer: gasPayer, MaxFeeAmount: cfg.Tx.MaxFeeAmount, FeeDenom: cfg.Tx.FeeDenom,
 					MaxAttempts: cfg.Tx.MaxAttempts, PollAttempts: cfg.Tx.PollAttempts, PollInterval: runtimePollInterval(cfg.Keeper.PollIntervalMS), GasLimit: cfg.Tx.GasLimit,
-					Signer: txSigner, RPC: txclient.NewCosmosHTTPClient(txclient.CosmosHTTPConfig{Endpoint: cfg.Node.RESTEndpoint}),
+					Signer: txSigner, RPC: txclient.NewCosmosHTTPClient(txclient.CosmosHTTPConfig{Endpoint: cfg.Node.RESTEndpoint, Transport: nodeTransport}),
 					Confirmer: txclient.NewKeeperConfirmer(confirmationReader),
 				})
 			}
@@ -731,6 +744,13 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		SelectedTaskBuilders:        selectedTaskBuildersReader(keeperClient),
 	}
 	envelopeRuntime = runtime
+	if cfg.UsesRealDependencies() {
+		gate, err := newManifestGate(cfg, keeperClient)
+		if err != nil {
+			return nil, err
+		}
+		runtime.manifestGate = gate
+	}
 	runtime.setDiagnosticsSnapshot(deps.Diagnostics)
 	// The outbound signer resolves its identity from the activated workload, so
 	// it can only be built once the runtime exists.

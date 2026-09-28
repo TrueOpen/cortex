@@ -1,10 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
@@ -159,4 +163,72 @@ func (r *TaskRunner) forgetChainWait(key string) {
 	r.waitMu.Lock()
 	defer r.waitMu.Unlock()
 	delete(r.chainWaits, key)
+}
+
+// revealDeadlineRecoveryInterval is how many waits pass between two re-reads of
+// a parked responsibility's reveal deadline. The first wait always re-reads,
+// because a responsibility that is already past its reveal phase has to be
+// released now and not in five seconds; after that the interval is what keeps a
+// normal wait -- which is most of them, since the reveal phase legitimately
+// opens some blocks after the commit -- from turning into one Keeper query per
+// second per responsibility.
+const revealDeadlineRecoveryInterval = 5
+
+// recoverRevealDeadline re-reads the reveal deadline of a committed verify
+// responsibility that has none, and records it.
+//
+// RevealDeadlineHeight has exactly one writer, ReconcilerEffectRevealReady, and
+// the event behind it is consumed once before the poll cursor moves past it for
+// good. That made a single missed delivery permanent: the responsibility parks
+// on awaitingRevealPhase holding a commit that is already on chain, does
+// nothing further, and the round closes INSUFFICIENT_VERIFIER having been told
+// exactly once what it needed to know (#44). The chain still holds the answer,
+// so a parked responsibility asks for it rather than waiting on a delivery that
+// has already happened.
+//
+// Zero is the ordinary answer here, not a failure: keeper §10.7 writes
+// reveal_deadline_height inside the StartRevealPhase transition, so before that
+// the assignment carries none. Zero, an unreadable Keeper, a snapshot for
+// another round and a refused merge all return 0 and leave the caller waiting,
+// because every one of them means this read is not the authority.
+func (r *TaskRunner) recoverRevealDeadline(ctx context.Context, hash codec.Hash, task store.VerifyTask) uint64 {
+	if r.cfg.TaskReader == nil || r.cfg.Store == nil {
+		return 0
+	}
+	if r.chainWaitCount(revealPhaseWaitKey(task.TaskID, task.VerifyRound))%revealDeadlineRecoveryInterval != 0 {
+		return 0
+	}
+	snapshot, err := r.cfg.TaskReader.Task(ctx, task.SessionID, task.TaskID)
+	if err != nil {
+		return 0
+	}
+	assignment := snapshot.VerifierAssignment
+	// The round is checked because the deadline is per round: round 2 opening
+	// its reveal phase says nothing about a round 1 responsibility, and writing
+	// one onto the other would hand internal/verifier an expiry_height that
+	// belongs to a different frozen preimage.
+	if assignment.VerifyRound.Uint64() != task.VerifyRound {
+		return 0
+	}
+	deadline := assignment.RevealDeadlineHeight.Uint64()
+	if deadline == 0 {
+		return 0
+	}
+	record, err := layout.GetVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(hash))
+	if err != nil || record.TaskID == "" {
+		return 0
+	}
+	record.RevealDeadlineHeight = deadline
+	if err := layout.MergeVerify(ctx, r.cfg.Store, layout.StoredHash(hash), record); err != nil {
+		// A conflict means another writer already deposited a different value.
+		// That one came from the authoritative effect and this read did not, so
+		// the merge losing is the correct outcome, not something to report.
+		return 0
+	}
+	r.forgetChainWait(revealPhaseWaitKey(task.TaskID, task.VerifyRound))
+	r.cfg.Trace.Event("verify_reveal_deadline_recovered",
+		tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", hash),
+		tasktrace.Uint("verify_round", task.VerifyRound),
+		tasktrace.Uint("reveal_deadline_height", deadline))
+	return deadline
 }

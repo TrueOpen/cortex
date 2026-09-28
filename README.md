@@ -173,6 +173,8 @@ the corresponding flag always has higher precedence.
 | `CORTEX_MODEL_MAX_CONCURRENCY` | `--model-max-concurrency` | `model_management.max_concurrency` |
 | `CORTEX_NODE_RPC` | `--node-rpc` | `node.rpc_endpoint` |
 | `CORTEX_NODE_REST` | `--node-rest` | `node.rest_endpoint` |
+| `CORTEX_NODE_TLS_CA_FILE` | `--node-tls-ca-file` | `node.tls.ca_file` |
+| `CORTEX_NODE_TLS_PUBKEY_HASH` | `--node-tls-pubkey-hash` | `node.tls.pubkey_hash` |
 | `CORTEX_KEEPER_API` | `--keeper-api` | deprecated compatibility setting; Keeper reads use `node.rpc_endpoint` |
 | `CORTEX_KEEPER_POLL_INTERVAL_MS` | `--keeper-poll-interval-ms` | `keeper.poll_interval_ms` |
 | `CORTEX_KEEPER_MAX_LAG_BLOCKS` | `--keeper-max-lag-blocks` | `keeper.max_lag_blocks` |
@@ -236,6 +238,37 @@ with one of these reasons:
 - `model <id> is registered for <repo>, but vLLM serves [...]`: the served
   model name differs from the chain `repo_id`;
 - a vLLM health or `/v1/models` error: vLLM is not answering.
+
+### Fetching a registered model's manifest
+
+The chain holds a profile's projection and the hash of its full manifest
+(`manifest_hash`); the manifest itself, with the artifact file list and output
+decoding rules, lives off chain. Fetch it for any registered profile, including
+one registered by another operator:
+
+```sh
+bin/cortexctl model manifest fetch <model_id> --rpc <keeper-rpc> --profile-version <n> \
+  --cache-dir ~/.cortex/manifests --mirror https://<mirror>/manifests
+```
+
+Sources are tried in order: `--cache-dir`, the profile's registered
+`manifest_uri`, then each `--mirror` (served at
+`<mirror>/<manifest_hash hex>`). Whatever the source, the bytes are accepted
+only if they hash to the chain's `manifest_hash`, parse strictly as a
+`manifest_version` 4 manifest, are exactly their own canonical encoding, and
+agree field by field with the chain profile; the chain wins any disagreement.
+Downloads are https only, never reach loopback, private, link-local or cloud
+metadata addresses, follow at most three redirects and stop at 4 MiB.
+`ipfs://` URIs are fetched only through `--ipfs-gateway`; there is no default
+public gateway.
+
+cortexd applies the same fetch and verification before it serves a profile
+that another operator registered: until that profile's manifest is verified,
+`model_service` readiness stays red with the reason. Profiles you registered
+yourself are exempt. Verified manifests are cached in
+`model_manifest.cache_dir` (default: `manifests` beside `store.path`), so a
+restart does not fetch them again; `model_manifest.mirrors` and
+`model_manifest.ipfs_gateway` configure the other sources.
 
 ### Upgrading to v0.3
 
@@ -449,7 +482,8 @@ Model registry:
 ```sh
 cp configs/model-profile.current.example.json profile.json
 bin/cortexctl model manifest generate --profile profile.json --version 1.0.0 \
-  --tokenizer tokenizer-v1 --model-service model-service-main --format json > model.json
+  --tokenizer tokenizer-v1 --model-service model-service-main \
+  --manifest-uri https://<your-host>/manifests/<model>.json --format json > model.json
 bin/cortexctl model manifest validate --manifest model.json
 bin/cortexctl model self-test --manifest model.json --format json
 bin/cortexctl model list
@@ -459,9 +493,20 @@ bin/cortexctl model support <model_id> --dry-run
 bin/cortexctl model daily-support <model_id> --dry-run
 ```
 
+Every profile needs a `manifest_uri`: where you host the full model manifest
+so other operators can fetch it. Put it in the profile file or pass
+`--manifest-uri`. It is part of the registered projection and its digests,
+kept exactly as given, and must be `https://` + a lowercase host (DNS name of
+at least two labels, or an IP literal) + optional `:port`, path and query, or
+`ipfs://` + a CIDv0 or lowercase base32 CIDv1 + optional path; printable ASCII
+only, no userinfo or fragment. Registration also checks its length against the
+chain parameter `max_manifest_uri_bytes`.
+
 Model/profile registration is an offline operator action and is intentionally
-not signed by cortexd. See [Model Registry Operations](docs/operations/model-registry.md)
-for the schema-v3 projection format and digest behavior.
+not signed by cortexd. The V3 projection format and its digests are
+implemented in `internal/keepercontract/model_registration.go` and checked
+byte for byte against wire's `hub/model_profile_canonical_v3.json` vector; see
+also [Fetching a registered model's manifest](#fetching-a-registered-models-manifest).
 Current Node registration is atomic through `MsgRegisterModelProfile`, the only
 model/profile creation message in the frozen `hub` contract.
 
@@ -496,9 +541,7 @@ treats assignment-finalized events as the authority for starting local
 inference, recomputes output hashes from fetched artifacts, and has validated
 receipt-only and WorkerRevealReceipt rescue handlers through `txclient`.
 Automatic deadline-driven invocation of those handlers is not yet wired and is
-tracked by issue #108. Worker reveal
-handling stores full `W_i` opening material in evidence while publishing or
-broadcasting only the sampled-value receipt payload.
+tracked by issue #108.
 
 Production task output uses the same runtime-owned task-data client and current
 service-key authenticator as input. After inference Cortex waits for the
@@ -633,6 +676,50 @@ Operator runbooks live in `docs/operations/`:
   tx, and admin socket issues.
 - `signer.md`: signer URI schemes, keystore v3 key directories, password
   sources, and which signing paths work in each mode.
+
+### Chain node TLS
+
+Every connection cortexd makes to the chain node (Keeper ABCI queries, CometBFT
+status and block results, and Cosmos REST for transaction broadcast) verifies
+the node against the system root CAs by default. For a node that serves a
+self-signed certificate, trust it directly with `node.tls` instead of setting
+`SSL_CERT_FILE`:
+
+```yaml
+node:
+  rpc_endpoint: https://62.84.178.46:26657
+  rest_endpoint: https://62.84.178.46:1317
+  tls:
+    pubkey_hash: "<64 lowercase hex>"
+    # or, instead of pubkey_hash:
+    # ca_file: /etc/cortex/node-ca.pem
+```
+
+- `pubkey_hash` is the sha256 of the node certificate's SubjectPublicKeyInfo
+  (DER), 64 lowercase hex characters, the same fingerprint used for
+  `model_management.tls.pubkey_hash` and the Builder `tls_pubkey_hash`. The node
+  is accepted when its certificate carries exactly that public key; issuer,
+  expiry and hostname are not checked. Compute it from the node's PEM
+  certificate:
+
+  ```sh
+  openssl x509 -in node.pem -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum | cut -d" " -f1
+  ```
+
+  Take `node.pem` from the node operator rather than from the connection you
+  are about to pin.
+- `ca_file` is the node certificate, or the CA that issued it, in PEM. The node
+  is verified as a normal certificate chain against this file only, so the
+  certificate must name the endpoint's host name or IP address.
+- Set one or the other, never both. `node.tls` applies to both
+  `node.rpc_endpoint` and `node.rest_endpoint`, and cortexd refuses to start if
+  it is set while either endpoint is not `https://`. Without `node.tls`, real
+  mode still requires `https://` for any node endpoint that is not loopback.
+- Environment: `CORTEX_NODE_TLS_CA_FILE`, `CORTEX_NODE_TLS_PUBKEY_HASH`; flags:
+  `--node-tls-ca-file`, `--node-tls-pubkey-hash`.
+
+`cortexctl` commands that read the chain directly (`--rpc`) do not read
+`node.tls`; point them at a node the system roots trust, or set `SSL_CERT_FILE`.
 
 Start troubleshooting with:
 

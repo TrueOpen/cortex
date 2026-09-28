@@ -1,0 +1,237 @@
+{
+  "schema": "trueopen-manifest-uri-v1",
+  "source": "ModelProfileProjection.manifest_uri syntax",
+  "max_manifest_uri_bytes": 2048,
+  "notes": [
+    "manifest_uri is hashed byte for byte inside the model projection, so the Keeper and every client apply exactly this syntax and never normalize the value. Where the rule leaves room, the strictest reading is taken and any form two implementations could normalize differently is rejected.",
+    "Scheme: exactly the lowercase prefixes https:// or ipfs://. No fragment anywhere; https takes no userinfo; ipfs takes no query.",
+    "https host: a DNS name of at least two lowercase labels (letters, digits, inner hyphens; 1-63 bytes each; no trailing dot; top-level label not all digits; internationalized names only in their xn-- ASCII form), a dotted-decimal IPv4 literal without leading zeros, or a bracketed IPv6 literal without a zone and in canonical lowercase compressed form. Port, when present, is decimal 1-65535 without leading zeros.",
+    "https path and query: RFC 3986 pchar plus / (and ? inside the query); percent-encoding must be %XX with uppercase hex. Characters outside that set, including space and the other unsafe characters, are rejected even though the whole string is printable ASCII.",
+    "ipfs CID: CIDv0 is Qm followed by base58btc, 46 characters, decoding to a 34-byte sha2-256 multihash; CIDv1 is the multibase prefix b followed by lowercase unpadded base32 that decodes to version 1, a codec varint and a multihash whose declared length matches its digest. Every varint in a CIDv1 (version, content codec, multihash function code, digest length) must be minimally encoded and at most 9 bytes, as the multiformats unsigned-varint rule requires; a padded form such as 0x81 0x00 for 1 is rejected. Other multibase prefixes and uppercase base32 are rejected. An optional /path follows the CID.",
+    "Syntax acceptance says nothing about reachability or safety: downloaders still refuse loopback, private, link-local and metadata addresses at connection time, so an accepted IP literal can still be unfetchable."
+  ],
+  "accepted": [
+    {
+      "uri": "https://models.trueopen.example/manifests/golden-model/v1.json",
+      "case": "domain and path"
+    },
+    {
+      "uri": "https://models.trueopen.example",
+      "case": "domain without path"
+    },
+    {
+      "uri": "https://cdn.trueopen.example:8443/m/golden.json?rev=3&sig=AbC-_.~",
+      "case": "port, path and query"
+    },
+    {
+      "uri": "https://models.trueopen.example/manifests/golden-model/v1.json?rev=3&sig=ab",
+      "case": "query with & (written literally in canonical JSON)"
+    },
+    {
+      "uri": "https://xn--bcher-kva.example/m.json",
+      "case": "internationalized name in xn-- form"
+    },
+    {
+      "uri": "https://93.184.216.34/m.json",
+      "case": "IPv4 literal"
+    },
+    {
+      "uri": "https://[2001:db8::1]/m.json",
+      "case": "canonical IPv6 literal"
+    },
+    {
+      "uri": "https://[2001:db8::1]:443/m.json",
+      "case": "IPv6 literal with port"
+    },
+    {
+      "uri": "https://models.trueopen.example/a%2Fb/%E2%9C%93.json",
+      "case": "uppercase percent-encoding"
+    },
+    {
+      "uri": "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
+      "case": "CIDv0"
+    },
+    {
+      "uri": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      "case": "CIDv1 lowercase base32"
+    },
+    {
+      "uri": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/manifests/golden.json",
+      "case": "CIDv1 with path"
+    },
+    {
+      "uri": "https://models.trueopen.example/m/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "case": "exactly max_manifest_uri_bytes"
+    }
+  ],
+  "rejected": [
+    {
+      "uri": "",
+      "reason": "empty"
+    },
+    {
+      "uri": "https://models.trueopen.example/m/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reason": "one byte over max_manifest_uri_bytes"
+    },
+    {
+      "uri": "http://models.trueopen.example/m.json",
+      "reason": "http is not an allowed scheme"
+    },
+    {
+      "uri": "HTTPS://models.trueopen.example/m.json",
+      "reason": "scheme must be lowercase"
+    },
+    {
+      "uri": "ftp://models.trueopen.example/m.json",
+      "reason": "unknown scheme"
+    },
+    {
+      "uri": "https://user:pass@models.trueopen.example/m.json",
+      "reason": "userinfo"
+    },
+    {
+      "uri": "https://models.trueopen.example/m.json#top",
+      "reason": "fragment"
+    },
+    {
+      "uri": "https://models.trueopen.example/m json",
+      "reason": "space"
+    },
+    {
+      "uri": "https://models.trueopen.example/m\tjson",
+      "reason": "control character"
+    },
+    {
+      "uri": "https://models.trueopen.example/m\u00e9.json",
+      "reason": "non-ASCII byte"
+    },
+    {
+      "uri": "https:///m.json",
+      "reason": "missing host"
+    },
+    {
+      "uri": "https://Models.TrueOpen.example/m.json",
+      "reason": "uppercase host"
+    },
+    {
+      "uri": "https://models.trueopen.example./m.json",
+      "reason": "trailing dot in host"
+    },
+    {
+      "uri": "https://localhost/m.json",
+      "reason": "single-label host"
+    },
+    {
+      "uri": "https://-bad.example/m.json",
+      "reason": "label starts with a hyphen"
+    },
+    {
+      "uri": "https://010.1.1.1/m.json",
+      "reason": "IPv4 octet with a leading zero"
+    },
+    {
+      "uri": "https://256.1.1.1/m.json",
+      "reason": "IPv4 octet out of range"
+    },
+    {
+      "uri": "https://1.2.3/m.json",
+      "reason": "IPv4 literal with three octets"
+    },
+    {
+      "uri": "https://[2001:DB8::1]/m.json",
+      "reason": "IPv6 literal not in canonical lowercase form"
+    },
+    {
+      "uri": "https://[2001:db8:0:0:0:0:0:1]/m.json",
+      "reason": "IPv6 literal not compressed"
+    },
+    {
+      "uri": "https://[fe80::1%25eth0]/m.json",
+      "reason": "IPv6 zone"
+    },
+    {
+      "uri": "https://[2001:db8::1]443/m.json",
+      "reason": "port after the IPv6 literal without a colon"
+    },
+    {
+      "uri": "https://[2001:db8::1]x/m.json",
+      "reason": "characters after the IPv6 literal that are not :port"
+    },
+    {
+      "uri": "https://[2001:db8::1]:/m.json",
+      "reason": "empty port after the IPv6 literal"
+    },
+    {
+      "uri": "https://[2001:db8::1]]/m.json",
+      "reason": "second closing bracket after the IPv6 literal"
+    },
+    {
+      "uri": "https://models.trueopen.example:0/m.json",
+      "reason": "port 0"
+    },
+    {
+      "uri": "https://models.trueopen.example:08443/m.json",
+      "reason": "port with a leading zero"
+    },
+    {
+      "uri": "https://models.trueopen.example:65536/m.json",
+      "reason": "port out of range"
+    },
+    {
+      "uri": "https://models.trueopen.example/a%2fb",
+      "reason": "lowercase percent-encoding"
+    },
+    {
+      "uri": "https://models.trueopen.example/a%2",
+      "reason": "truncated percent-encoding"
+    },
+    {
+      "uri": "https://models.trueopen.example/a<b>",
+      "reason": "character outside RFC 3986"
+    },
+    {
+      "uri": "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbd",
+      "reason": "CIDv0 of the wrong length"
+    },
+    {
+      "uri": "ipfs://Qm00000000000000000000000000000000000000000000",
+      "reason": "CIDv0 with non-base58 characters"
+    },
+    {
+      "uri": "ipfs://BAFYBEIGDYRZT5SFP7UDM7HU76UH7Y26NF3EFUYLQABF3OCLGTQY55FBZDI",
+      "reason": "uppercase CIDv1"
+    },
+    {
+      "uri": "ipfs://zafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      "reason": "multibase prefix other than b"
+    },
+    {
+      "uri": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55f",
+      "reason": "CIDv1 whose multihash length does not match its digest"
+    },
+    {
+      "uri": "ipfs://bqeahaeraypchgpwiv76qnt46t72q77dlzuxmqwtboaaexnyjm2oddxuuhena",
+      "reason": "CID version encoded as a non-minimal varint"
+    },
+    {
+      "uri": "ipfs://bahyaaeraypchgpwiv76qnt46t72q77dlzuxmqwtboaaexnyjm2oddxuuhena",
+      "reason": "content codec encoded as a non-minimal varint"
+    },
+    {
+      "uri": "ipfs://bafyjeabaypchgpwiv76qnt46t72q77dlzuxmqwtboaaexnyjm2oddxuuhena",
+      "reason": "multihash function code encoded as a non-minimal varint"
+    },
+    {
+      "uri": "ipfs://bafybfiaaypchgpwiv76qnt46t72q77dlzuxmqwtboaaexnyjm2oddxuuhena",
+      "reason": "multihash digest length encoded as a non-minimal varint"
+    },
+    {
+      "uri": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi?x=1",
+      "reason": "ipfs URI with a query"
+    },
+    {
+      "uri": "ipfs://",
+      "reason": "missing CID"
+    }
+  ]
+}

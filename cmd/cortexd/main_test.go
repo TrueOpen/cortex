@@ -1520,11 +1520,17 @@ func (*workerHandraiseWiringKeeper) VerifierCandidateMember(context.Context, str
 	}, nil
 }
 
+// daemonTestOperator is local_identity.operator_address in the real-mode test
+// configs. The fake profiles name it as their proposer: the node serves its
+// own registrations, which need no fetched manifest.
+const daemonTestOperator = "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k"
+
 func (*workerHandraiseWiringKeeper) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
 	return chainclient.CurrentModelProfileSnapshot{
 		Model: chainclient.CurrentModelSnapshot{ModelID: modelservice.FakeModelID, Status: "ACTIVE"},
 		Profile: chainclient.CurrentProfileSnapshot{
 			ModelID: modelservice.FakeModelID, ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
+			ProposerAddress: daemonTestOperator,
 		},
 	}, nil
 }
@@ -1580,11 +1586,17 @@ func (k *transitionKeeperClient) Params(context.Context) (chainclient.ParamsSnap
 	return chainclient.ParamsSnapshot{
 		ServiceUnbondingPeriodBlocks: 100,
 		DailySupportWindowBlocks:     30,
+		MaxManifestURIBytes:          2048,
 	}, nil
 }
 
-func (k *transitionKeeperClient) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
-	return chainclient.CurrentModelProfileSnapshot{}, chainclient.ErrNotFound
+func (k *transitionKeeperClient) CurrentModelProfile(_ context.Context, modelID, _ string) (chainclient.CurrentModelProfileSnapshot, error) {
+	if !k.isReady() {
+		return chainclient.CurrentModelProfileSnapshot{}, chainclient.ErrNotFound
+	}
+	return chainclient.CurrentModelProfileSnapshot{
+		Profile: chainclient.CurrentProfileSnapshot{ModelID: modelID, ProposerAddress: daemonTestOperator},
+	}, nil
 }
 
 func (k *transitionKeeperClient) CortexNode(ctx context.Context, nodeID string) (chainclient.CortexNodeSnapshot, error) {
@@ -1751,7 +1763,7 @@ func (k *recordingKeeperClient) ChainHeight(context.Context) (uint64, error) {
 }
 
 func (k *recordingKeeperClient) Params(context.Context) (chainclient.ParamsSnapshot, error) {
-	return chainclient.ParamsSnapshot{ServiceUnbondingPeriodBlocks: 100, DailySupportWindowBlocks: 30}, nil
+	return chainclient.ParamsSnapshot{ServiceUnbondingPeriodBlocks: 100, DailySupportWindowBlocks: 30, MaxManifestURIBytes: 2048}, nil
 }
 
 func (k *recordingKeeperClient) ChainStatus(context.Context) (uint64, string, error) {
@@ -2152,7 +2164,7 @@ func mustCurrentDaemonManifest(t *testing.T) modelregistry.CurrentManifest {
 				Metrics: txclient.MetricSpecMessage{CompareLogprobDiff: true, ComparedTopK: 20, NumericScale: "NUMERIC_SCALE_FP_1E6"}, CanonicalEncodingVersion: "CANONICAL_OUTPUT_TEXT_V1", EvidenceSchemaHash: hash, MetricAggregateProofVersion: "PREFILL_METRIC_AGGREGATE_PROOF_V1", EvidenceSchema: txclient.WorkerEvidenceSchemaV3(1<<30, 64<<20)},
 			PricingProfile:          txclient.PricingProfileMessage{InitialOutputPrice: 10, VerifyRatioBPS: 1_000, MinOrderValue: 1_000},
 			TimeoutBootstrapProfile: txclient.TimeoutBootstrapProfileMessage{InferTimeoutBootstrapBlocks: 100, VerifyTimeoutBootstrapBlocks: 50, CommitTimeoutBootstrapBlocks: 20, BootstrapValidUntilEpoch: 1_000},
-			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}},
+			SchemaHash:              hash, RegistrationFee: txclient.CoinMessage{Denom: "utrueopen", Amount: 10_000_000}, ManifestURI: "https://models.trueopen.example/manifests/org-model/v1.json"},
 	})
 	if err != nil {
 		t.Fatalf("GenerateCurrentManifest: %v", err)

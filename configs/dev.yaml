@@ -12,6 +12,11 @@ model_management:
   #   pubkey_hash: ""
 node:
   rpc_endpoint: http://127.0.0.1:26657   # use https:// once node enables TLS; real mode requires https for non-loopback
+  # For a node with a self-signed certificate, trust it directly (set one, not
+  # both; only valid with https:// endpoints). Empty = system root CAs.
+  # tls:
+  #   ca_file: ""       # node certificate or its CA, PEM; hostname/IP must match
+  #   pubkey_hash: ""   # sha256 of the certificate SubjectPublicKeyInfo DER, 64 lowercase hex
 artifacts:
   root: /tmp/cortex/evidence
 store:

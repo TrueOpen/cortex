@@ -1,6 +1,7 @@
 package keepercontract
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
@@ -23,6 +24,8 @@ type modelProfileCanonicalGolden struct {
 	EvidenceSchemaHash  string         `json:"evidence_schema_hash"`
 	ChainProjectionHash string         `json:"chain_projection_hash"`
 	RegistrationDigest  string         `json:"registration_digest"`
+	ProjectionBytes     int            `json:"canonical_projection_bytes"`
+	PayloadBytes        string         `json:"registration_payload_bytes"`
 }
 
 func loadModelProfileCanonicalGolden(t *testing.T) modelProfileCanonicalGolden {
@@ -104,9 +107,15 @@ func TestCanonicalModelProfileProjectionAgreesWithWireGolden(t *testing.T) {
 		t.FailNow()
 	}
 
-	expectedProjection, err := json.Marshal(golden.CanonicalProjection)
+	expectedProjection, err := codec.CanonicalJSON(golden.CanonicalProjection)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The golden manifest_uri carries '&'. Canonical JSON writes it as
+	// itself; an HTML-escaping encoder would write \u0026 and every digest
+	// would move.
+	if !bytes.Equal(projection, expectedProjection) || len(projection) != golden.ProjectionBytes || !bytes.Contains(projection, []byte("?rev=3&sig=ab")) {
+		t.Fatalf("projection bytes (%d) differ from the published %d-byte projection:\n%s", len(projection), golden.ProjectionBytes, projection)
 	}
 	projectionHash := codec.HashV1("TRUEOPEN_MODEL_CHAIN_PROJECTION_V3", expectedProjection)
 	if projectionHash.String() != strings.TrimPrefix(golden.ChainProjectionHash, "0x") {
@@ -115,10 +124,13 @@ func TestCanonicalModelProfileProjectionAgreesWithWireGolden(t *testing.T) {
 	if digest.String() != strings.TrimPrefix(golden.RegistrationDigest, "0x") {
 		t.Fatalf("registration digest %s, published %s", digest, golden.RegistrationDigest)
 	}
-	expectedPayload, err := json.Marshal(map[string]any{"chain_id": golden.ChainID, "chain_projection_hash": "0x" + hex.EncodeToString(projectionHash[:]),
+	expectedPayload, err := codec.CanonicalJSON(map[string]any{"chain_id": golden.ChainID, "chain_projection_hash": "0x" + hex.EncodeToString(projectionHash[:]),
 		"manifest_hash": golden.CanonicalProjection["manifest_hash"], "profile_version": golden.CanonicalProjection["profile_version"], "proposer_address": golden.ProposerAddress})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if string(expectedPayload) != golden.PayloadBytes {
+		t.Fatalf("registration payload %s, published %s", expectedPayload, golden.PayloadBytes)
 	}
 	if want := codec.HashV1("TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3", expectedPayload); digest != want {
 		t.Fatalf("registration digest %x, independent formula %x", digest, want)

@@ -2,16 +2,11 @@ package modelservice
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/tlstrust"
 	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 
 	"google.golang.org/grpc/status"
@@ -77,49 +73,9 @@ type GRPCTLS struct {
 	PubkeyHash string
 }
 
-var pubkeyHashHex = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
 // grpcTLSConfig turns GRPCTLS into a tls.Config; nil means dial in plaintext.
 func grpcTLSConfig(cfg GRPCTLS) (*tls.Config, error) {
-	ca, hash := strings.TrimSpace(cfg.CAFile), strings.TrimSpace(strings.ToLower(cfg.PubkeyHash))
-	switch {
-	case ca == "" && hash == "":
-		return nil, nil
-	case ca != "" && hash != "":
-		return nil, fmt.Errorf("model service tls: set ca_file or pubkey_hash, not both")
-	case hash != "":
-		if !pubkeyHashHex.MatchString(hash) {
-			return nil, fmt.Errorf("model service tls: pubkey_hash must be 64 lowercase hex")
-		}
-		return &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: true, //nolint:gosec // verification moves to VerifyPeerCertificate, against the public key fingerprint
-			VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-				if len(rawCerts) == 0 {
-					return fmt.Errorf("model service tls: peer presented no certificate (pubkey_hash check)")
-				}
-				leaf, err := x509.ParseCertificate(rawCerts[0])
-				if err != nil {
-					return fmt.Errorf("model service tls: parse peer certificate: %w", err)
-				}
-				sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
-				if got := hex.EncodeToString(sum[:]); got != hash {
-					return fmt.Errorf("model service tls: certificate pubkey_hash %s does not match configured %s", got, hash)
-				}
-				return nil
-			},
-		}, nil
-	default:
-		pemBytes, err := os.ReadFile(ca)
-		if err != nil {
-			return nil, fmt.Errorf("model service tls: read ca_file: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemBytes) {
-			return nil, fmt.Errorf("model service tls: ca_file %s contains no certificate", ca)
-		}
-		return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}, nil
-	}
+	return tlstrust.ClientConfig("model service tls", cfg.CAFile, cfg.PubkeyHash)
 }
 
 // NewGRPCTransportTLS dials according to tlsCfg: plaintext (the default) or TLS.

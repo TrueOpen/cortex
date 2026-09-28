@@ -90,7 +90,23 @@ func TestParseCanonicalGenerationParamsReadsThePublishedBytes(t *testing.T) {
 	}
 }
 
+// Each mutation must move the digest away from the published one; comparing
+// against any other value would pass even if a field were not bound.
 func TestGenerationContextDigestBindsEveryField(t *testing.T) {
+	raw, err := wirevectors.File("task/generation_params_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		DigestHex string `json:"digest_hex"`
+	}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	base := goldenGenerationContext()
+	if digest, err := base.Digest(); err != nil || digest.String() != vector.DigestHex {
+		t.Fatalf("golden context digest = %s (%v), published %s", digest, err, vector.DigestHex)
+	}
 	mutations := map[string]func(*GenerationContext){
 		"model":         func(g *GenerationContext) { g.ModelID = strings.Repeat("56", 32) },
 		"profile":       func(g *GenerationContext) { g.ProfileVersion++ },
@@ -114,7 +130,7 @@ func TestGenerationContextDigestBindsEveryField(t *testing.T) {
 			g := goldenGenerationContext()
 			mutate(&g)
 			digest, err := g.Digest()
-			if err != nil || digest.String() == "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e" {
+			if err != nil || digest.String() == vector.DigestHex {
 				t.Fatalf("mutation not bound: digest=%s err=%v", digest, err)
 			}
 		})

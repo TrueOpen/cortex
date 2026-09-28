@@ -202,24 +202,6 @@ func TestVerifyDeadlineSweepMapsOntoFrozenDeadlineKind(t *testing.T) {
 	}
 }
 
-func TestFirstLegalWorkerRevealSetsReimbursementOnlyOnce(t *testing.T) {
-	state := WorkerRevealReimbursementState{TaskID: "task-1", TaskReserve: 1000}
-	first := state.Observe(WorkerRevealObservation{TaskID: "task-1", Legal: true, Height: 10, DeadlineHeight: 20, TxHash: "tx-1"})
-	if !first.ReimbursementExpected || first.Amount != 1000 {
-		t.Fatalf("first = %#v", first)
-	}
-	if state.Observe(WorkerRevealObservation{TaskID: "task-1", Legal: true, Height: 11, DeadlineHeight: 20, TxHash: "tx-1"}).ReimbursementExpected {
-		t.Fatal("duplicate reimbursed")
-	}
-	if state.Observe(WorkerRevealObservation{TaskID: "task-1", Legal: false, Height: 12, DeadlineHeight: 20, TxHash: "tx-2"}).ReimbursementExpected {
-		t.Fatal("invalid reimbursed")
-	}
-	late := WorkerRevealReimbursementState{TaskID: "task-2", TaskReserve: 500}
-	if late.Observe(WorkerRevealObservation{TaskID: "task-2", Legal: true, Height: 21, DeadlineHeight: 20, TxHash: "tx-3"}).ReimbursementExpected {
-		t.Fatal("late reveal reimbursed")
-	}
-}
-
 const testTaskID = "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"
 
 func validCommitMessage() txclient.SubmitVerifyCommitMessage {

@@ -57,6 +57,14 @@ func (r staticKeeperIdentityReader) ModelSupport(_ context.Context, nodeID, mode
 }
 
 // ChainHeight answers the Keeper liveness probe only; it is never a query height.
+// CurrentModelProfile answers with a profile this node's operator registered,
+// so the manifest gate passes it without a download.
+func (r staticKeeperIdentityReader) CurrentModelProfile(_ context.Context, modelID, _ string) (chainclient.CurrentModelProfileSnapshot, error) {
+	return chainclient.CurrentModelProfileSnapshot{
+		Profile: chainclient.CurrentProfileSnapshot{ModelID: modelID, ProposerAddress: r.node.OperatorAddress},
+	}, nil
+}
+
 func (r staticKeeperIdentityReader) ChainHeight(context.Context) (uint64, error) {
 	return staticKeeperIdentityServedHeight, nil
 }

@@ -144,3 +144,129 @@ signer:
 		t.Fatalf("environment not applied: nexus=%+v model=%+v", cfg.Nexus, cfg.ModelManagement.TLS)
 	}
 }
+
+// node.tls names the chain node's self-signed certificate (ca_file) or public
+// key fingerprint (pubkey_hash), with the same shape and rules as
+// model_management.tls.
+func TestNodeTLSAcceptsEitherTrustAnchor(t *testing.T) {
+	for _, tls := range []NodeTLSConfig{
+		{},
+		{PubkeyHash: strings.Repeat("ab", 32)},
+		{CAFile: "/etc/cortex/node-ca.pem"},
+	} {
+		cfg := hardenedRealConfig()
+		cfg.Node.TLS = tls
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("node.tls %+v rejected: %v", tls, err)
+		}
+	}
+}
+
+func TestNodeTLSRefusesBadSettings(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"both ca and hash", func(c *Config) {
+			c.Node.TLS = NodeTLSConfig{CAFile: "/etc/cortex/node-ca.pem", PubkeyHash: strings.Repeat("ab", 32)}
+		}, "node.tls: set ca_file or pubkey_hash, not both"},
+		{"short hash", func(c *Config) { c.Node.TLS = NodeTLSConfig{PubkeyHash: "abcd"} }, "node.tls.pubkey_hash must be 64 lowercase hex"},
+		{"long hash", func(c *Config) { c.Node.TLS = NodeTLSConfig{PubkeyHash: strings.Repeat("ab", 33)} }, "node.tls.pubkey_hash must be 64 lowercase hex"},
+		{"uppercase hash", func(c *Config) { c.Node.TLS = NodeTLSConfig{PubkeyHash: strings.Repeat("AB", 32)} }, "node.tls.pubkey_hash must be 64 lowercase hex"},
+		{"http rpc endpoint", func(c *Config) {
+			c.Node.RPCEndpoint = "http://127.0.0.1:26657"
+			c.Node.TLS = NodeTLSConfig{PubkeyHash: strings.Repeat("ab", 32)}
+		}, `node.tls is set but node.rpc_endpoint "http://127.0.0.1:26657" is not https://`},
+		{"http rest endpoint", func(c *Config) {
+			c.Node.RESTEndpoint = "http://127.0.0.1:1317"
+			c.Node.TLS = NodeTLSConfig{CAFile: "/etc/cortex/node-ca.pem"}
+		}, `node.tls is set but node.rest_endpoint "http://127.0.0.1:1317" is not https://`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := hardenedRealConfig()
+			tc.mutate(&cfg)
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate = %v, want an error containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// The https rule for a configured node.tls holds outside real mode too: a
+// trust anchor that an http:// endpoint would silently ignore is a mistake in
+// every mode.
+func TestNodeTLSWithPlaintextEndpointIsRefusedInIntegrationMode(t *testing.T) {
+	cfg := validRealConfig()
+	cfg.Mode = ModeIntegration
+	cfg.Nexus.NATSURL = "nats://127.0.0.1:4222"
+	cfg.Nexus.AuthTokenFile = "/tmp/token"
+	cfg.Nexus.AllowInsecureDescriptor = true
+	cfg.Node.RPCEndpoint = "http://node.example:26657"
+	cfg.Node.TLS = NodeTLSConfig{PubkeyHash: strings.Repeat("ab", 32)}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "node.tls is set but node.rpc_endpoint") {
+		t.Fatalf("Validate = %v, want the node.tls https refusal", err)
+	}
+}
+
+// Without node.tls the existing rule is unchanged: a remote node endpoint must be
+// https:// in real mode, and loopback may be plaintext.
+func TestRealModeStillRequiresHTTPSForRemoteNodeWithoutNodeTLS(t *testing.T) {
+	cfg := hardenedRealConfig()
+	cfg.Node.RPCEndpoint = "http://node.example:26657"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must use https:// in real mode") {
+		t.Fatalf("Validate = %v, want the real-mode https rule", err)
+	}
+}
+
+func TestNodeTLSYAMLAndEnvironment(t *testing.T) {
+	path := writeConfig(t, `
+chain_id: trueopen-devnet-1
+admin:
+  uds_path: /tmp/cortexd.sock
+node:
+  rpc_endpoint: https://62.84.178.46:26657
+  tls:
+    pubkey_hash: "`+strings.Repeat("ab", 32)+`"
+artifacts:
+  root: /tmp/cortex/evidence
+store:
+  path: /tmp/cortex/store.kv
+signer:
+  uri: file:///tmp/cortex/signer.key
+`)
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if cfg.Node.TLS.PubkeyHash != strings.Repeat("ab", 32) || cfg.Node.TLS.CAFile != "" {
+		t.Fatalf("node.tls from YAML = %+v", cfg.Node.TLS)
+	}
+
+	t.Setenv("CORTEX_NODE_TLS_PUBKEY_HASH", strings.Repeat("cd", 32))
+	cfg, err = LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile with CORTEX_NODE_TLS_PUBKEY_HASH: %v", err)
+	}
+	if cfg.Node.TLS.PubkeyHash != strings.Repeat("cd", 32) {
+		t.Fatalf("CORTEX_NODE_TLS_PUBKEY_HASH not applied: %+v", cfg.Node.TLS)
+	}
+
+	// Setting the other field through the environment on top of a YAML pin is the
+	// "both set" mistake, reported as such.
+	t.Setenv("CORTEX_NODE_TLS_CA_FILE", "/etc/cortex/node-ca.pem")
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "node.tls: set ca_file or pubkey_hash, not both") {
+		t.Fatalf("LoadFile with both node.tls fields = %v, want the both-set refusal", err)
+	}
+
+	// Flags (cortexd --node-tls-*) win over the environment.
+	cfg, err = LoadFileWithOverrides(path, map[string]string{"node_tls_pubkey_hash": ""})
+	if err != nil {
+		t.Fatalf("LoadFileWithOverrides: %v", err)
+	}
+	if cfg.Node.TLS.CAFile != "/etc/cortex/node-ca.pem" || cfg.Node.TLS.PubkeyHash != "" {
+		t.Fatalf("node.tls after flag override = %+v", cfg.Node.TLS)
+	}
+}

@@ -1,0 +1,995 @@
+{
+  "notes": [
+    "Two vectors per paginated Query RPC: the TRUEOPEN_QUERY_RPC_V1 digest over the ASCII fully-qualified method literal, and the TRUEOPEN_QUERY_SELECTOR_V1 digest over chain_id, that RPC digest, and the RPC's own ordered selector fields.",
+    "Canonical selectors exclude the page field and encode the remaining request fields in ascending field-number order. Each vector's fields after rpc_method_digest match its request message without the page field.",
+    "rpc_method_digest is a derived column: it is TRUEOPEN_QUERY_RPC_V1 over the same rpc_method the paired RPC vector frames, so the two domains are chained rather than independently asserted. A cross-RPC replay row substitutes another registered RPC's digest with the same selector arity, so the digest change cannot be explained away by a length change.",
+    "Builders and Models publish an empty selector on purpose. The contract specifies that requests have no fields other than page, so the selector digest binds only chain_id and rpc_method_digest. No placeholder input may be added for an empty selector. The reject row on the Models vector executes that prohibition against the producer.",
+    "address fields frame the address codec bytes, never the Bech32 text. The bech32 column is a derived self-check so a non-Go implementation can validate its own decoder here instead of discovering a broken one as a digest mismatch.",
+    "Neither domain enters consensus state; both are page-token scope. They still need cross-language vectors because a token minted by one implementation is presented back to another."
+  ],
+  "schema": "trueopen-query-page-domains-v1",
+  "source": "Public QueryPageV1 token framing and paginated RPC selector projections",
+  "vectors": [
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "96a066da26a7ffc9fc9851f64bb57e726c52cec7181e198dd2ab22f5d58a5dd4",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/hub.v1.Query/Builders"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_hub_builders",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000162f6875622e76312e51756572792f4275696c64657273",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/hub.v1.Query/Builders",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "b9166fb254520afac62594496ec6adf5cb67d20556933b1552fa5d4c6fb53354",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "85eb68796c72100c57db1dc49f9aefddb526279bfbd36dbeda2b7575f046336e",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/hub.v1.Query/CandidatePoolMembers"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_hub_candidate_pool_members",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000222f6875622e76312e51756572792f43616e646964617465506f6f6c4d656d62657273",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/hub.v1.Query/CandidatePoolMembers",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "f9f855baf1c6593a2071c656f52b62f434567cc978fbc188b8e20a459c33978e",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "e2be1d98d6619599d0458fc0169bba65a625970128e6aabad802c1711b91956f",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/hub.v1.Query/EmergencyFreezeVotes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_hub_emergency_freeze_votes",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000222f6875622e76312e51756572792f456d657267656e6379467265657a65566f746573",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/hub.v1.Query/EmergencyFreezeVotes",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "1a7d81b9b8afd19e3f7c5c595a14bb04a1824a032712af8407537e62f71f81e8",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "7af31658708aec3f5aa42a19abc0fdbf29023ceba7ed01e5e8aa900a02ae5a8f",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/hub.v1.Query/FreezeSignals"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_hub_freeze_signals",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f5631000000000000001b2f6875622e76312e51756572792f467265657a655369676e616c73",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/hub.v1.Query/FreezeSignals",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "88c3f542d39cda0a1991f40ea5bba42c36a660e45489e4333b4353a793fc16ea",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "8089097d5dc5e138f5c071fe761be674dd38531e53ccb6b95b29a249c5f38543",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/hub.v1.Query/Models"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_hub_models",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000142f6875622e76312e51756572792f4d6f64656c73",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/hub.v1.Query/Models",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4d8a8f6c994796b5fe349d99814822ec855f3b339f68ef32efd53669e3c4af8c",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "8d4135919c2c5feae0f96dc269e9290aa6aad992a63d6f9e601a9cac21a22534",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/hub.v1.Query/ServiceUnbondings"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_hub_service_unbondings",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f5631000000000000001f2f6875622e76312e51756572792f53657276696365556e626f6e64696e6773",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/hub.v1.Query/ServiceUnbondings",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "fb6c3c7f897c4936ac51f259169abee07b29fbfdf435f27ec827ee31c9d7f7eb",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "b18a0901f429262f4f746ec4059acbb0baa739c3ae182613e4fcf517cef64c63",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/DataUnavailableReports"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_data_unavailable_reports",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000252f7461736b2e76312e51756572792f44617461556e617661696c61626c655265706f727473",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/DataUnavailableReports",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "8f551bec40e4fd3ccddb12fec16a9311ac06506d409fdfaa644640d769e17433",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "c0543f07de8b27ef90bccec69be4d6b8a5d0d9b45cc0c927c5facf0e28c1367d",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/TaskGasReimbursements"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_gas_reimbursements",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000242f7461736b2e76312e51756572792f5461736b4761735265696d62757273656d656e7473",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/TaskGasReimbursements",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "aab2dd78b5e4fa4c2095a8fcafa65e610c6d7fff4027d7c2684e77838e492cd4",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "793a971812ebd152e8d15c2d67cd14d46c1e9d63fba16d52807a7af4b925c5f6",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/RoleActiveTasks"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_role_active_tasks",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f5631000000000000001e2f7461736b2e76312e51756572792f526f6c654163746976655461736b73",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/RoleActiveTasks",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "eef8c82226a7bc86ddb817644bbb1322aafe6d52b92b0b23d917480dc88b1ab6",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "b779e3608910e01dc8143d63d109e4c5bca6365ef4cac18d9307ed7970c752e6",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/SessionsByOwner"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_sessions_by_owner",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f5631000000000000001e2f7461736b2e76312e51756572792f53657373696f6e7342794f776e6572",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/SessionsByOwner",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "ffb5fe6a615f6a3df5d8418e0da3380267fe15463a2ac3ec4e3b4b45a0b8298a",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "583e627c8714d74215381a62c88d533fd77fbf832aecec4659f61445617c4bf1",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "96a066da26a7ffc9fc9851f64bb57e726c52cec7181e198dd2ab22f5d58a5dd4",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_hub_builders",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d31000000000000002096a066da26a7ffc9fc9851f64bb57e726c52cec7181e198dd2ab22f5d58a5dd4",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "9f966a215ab0fb3f1f6a2ca734baa93c7be809e736667ba435c3aebf1b32c828",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "12efd707031cfa0eca395eb5d58e2867347831f44dfbf78ee050c8f224f9f776",
+          "field": 1,
+          "name": "cross_rpc_models",
+          "reason": "Models has the same empty selector, so only the RPC digest separates the two scopes",
+          "value": "/hub.v1.Query/Models"
+        }
+      ],
+      "rpc_method": "/hub.v1.Query/Builders",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "cb806a7ab88382ff9d26a1c6937987077753144c6b4bb8dd31e169ced6e8b656",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "f54de799cb3d1cbe1d0b75e72efbc643fc632f51660e4ccfe3d53afe54c63b19",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        }
+      ],
+      "variant": "/hub.v1.Query/Builders"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "922f9f6acc6fd9e5b88dc12d057a6c0f2852dcbc6de627fc2b56840698545b52",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "85eb68796c72100c57db1dc49f9aefddb526279bfbd36dbeda2b7575f046336e",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f",
+          "name": "snapshot_id",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_hub_candidate_pool_members",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d31000000000000002085eb68796c72100c57db1dc49f9aefddb526279bfbd36dbeda2b7575f046336e000000000000002000112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "61008e839e98f48637aaaeace1538c398cee617edfb1f6397ffc088d0212e9e9",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "a219381de71c02c78cee0d81c7f979731508872d937f501748da60453f0e3887",
+          "field": 1,
+          "name": "cross_rpc_emergency_freeze_votes",
+          "reason": "EmergencyFreezeVotes also takes one Hash32 selector, so only the RPC digest separates the two scopes",
+          "value": "/hub.v1.Query/EmergencyFreezeVotes"
+        }
+      ],
+      "rpc_method": "/hub.v1.Query/CandidatePoolMembers",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "1cb7e9f98675cc2e2c4979752c31ec46eb6122028a740c21395eb0fc1180c66b",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "d2bac8d50de16ae28982dc40bf30c443b09f2cd7662f5966488bce5623cbda4f",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 31,
+          "digest_hex": "ce118f2287745dc80df237f550dca2d438acdea03347634d58fff1034813c079",
+          "field": 2,
+          "name": "snapshot_id_last_byte"
+        }
+      ],
+      "variant": "/hub.v1.Query/CandidatePoolMembers"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "04d958efeb0fd43ce37c26464dd219ae66be3559cf466a374b885127a21623c9",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "e2be1d98d6619599d0458fc0169bba65a625970128e6aabad802c1711b91956f",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "0f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff1",
+          "name": "freeze_signal_id",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_hub_emergency_freeze_votes",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020e2be1d98d6619599d0458fc0169bba65a625970128e6aabad802c1711b91956f00000000000000200f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff1",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "35a41a05a06ce10795e1385091d8163fe7754e5fc5d307565e956357899e4ecc",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "75752d7e260fce9d22e700249f2c99efc53fe5f3aad09a01e54a1edde4964dae",
+          "field": 1,
+          "name": "cross_rpc_candidate_pool_members",
+          "reason": "CandidatePoolMembers also takes one Hash32 selector, so only the RPC digest separates the two scopes",
+          "value": "/hub.v1.Query/CandidatePoolMembers"
+        }
+      ],
+      "rpc_method": "/hub.v1.Query/EmergencyFreezeVotes",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4f4d32fafda61d7c515d5fed6582818b727dfc7ac1d52044099cc3c74e5cf952",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "6142d663da5691616219cc8507883324101b556bd36fb60e9ebfc13c882547ed",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 31,
+          "digest_hex": "513f14581bf6333c85cbd2a17a26bcea40842ac82308b988b6ab08389993f3d4",
+          "field": 2,
+          "name": "freeze_signal_id_last_byte"
+        }
+      ],
+      "variant": "/hub.v1.Query/EmergencyFreezeVotes"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "ce8121a4ec54e2f40d2cb2473836e0104cd8d20520e14545a8afe6c57fff36fb",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "7af31658708aec3f5aa42a19abc0fdbf29023ceba7ed01e5e8aa900a02ae5a8f",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 7
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "value": 2
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_hub_freeze_signals",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d3100000000000000207af31658708aec3f5aa42a19abc0fdbf29023ceba7ed01e5e8aa900a02ae5a8f00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000007000000000000000400000002",
+      "preimage_size_bytes": 168,
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "efcd3bed5280e0b3b9a48b7d5ca98389ed3e1f98bbaacaba9c6508a63ff81483",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        }
+      ],
+      "rpc_method": "/hub.v1.Query/FreezeSignals",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a0e79fa0f22ea8d2541fd4f253be08d843431de781ceec7d4c5f150fd02e5eb7",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4920c4dd181b749655e0b11b588e7729ca1ee65460fb83f447099cb6e2998db0",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a95303adb2be2644daeb3ea61207677086e331e9ff8b27d2dc037c15a8194612",
+          "field": 2,
+          "name": "model_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 3,
+          "digest_hex": "c3739a10761ed715367db6c2108ba13aedca63ce64e6e6c67cdeaaa66c755633",
+          "field": 3,
+          "name": "profile_version_low_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 3,
+          "digest_hex": "ac33413b248cc48d21e91a5aab47faa1cc05b8b11430299d2d1cc7f6aec62e6b",
+          "field": 4,
+          "name": "status_low_byte"
+        }
+      ],
+      "variant": "/hub.v1.Query/FreezeSignals"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "12efd707031cfa0eca395eb5d58e2867347831f44dfbf78ee050c8f224f9f776",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "8089097d5dc5e138f5c071fe761be674dd38531e53ccb6b95b29a249c5f38543",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_hub_models",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d3100000000000000208089097d5dc5e138f5c071fe761be674dd38531e53ccb6b95b29a249c5f38543",
+      "producer": "QueryPageDigestsV1",
+      "reject": [
+        {
+          "name": "placeholder_selector",
+          "reason": "The contract prohibits placeholder input for an empty selector. A padded selector would let a token minted for one scope verify under another, so the producer refuses the extra field rather than framing it.",
+          "rpc_method": "/hub.v1.Query/Models",
+          "selector_count": 1
+        }
+      ],
+      "replay": [
+        {
+          "digest_hex": "2ad0346e3f16e5bcd37010cef9ef2827d053453fd4270b49c05f51b3bde09c14",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "583e627c8714d74215381a62c88d533fd77fbf832aecec4659f61445617c4bf1",
+          "field": 1,
+          "name": "cross_rpc_builders",
+          "reason": "Builders has the same empty selector, so only the RPC digest separates the two scopes",
+          "value": "/hub.v1.Query/Builders"
+        }
+      ],
+      "rpc_method": "/hub.v1.Query/Models",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "930b88fa99ded708ba665d720d44e6e131fc991490082038312cd23c1b7ad1cd",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a6107491d361fd915e5acdfd8e622fd656faa97b0cba9409776b920713587b1b",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        }
+      ],
+      "variant": "/hub.v1.Query/Models"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "3deae8d7aac8e3fa5d2fa6843f7f424aae59582efeb469166cbb1c964d34ee1d",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "8d4135919c2c5feae0f96dc269e9290aa6aad992a63d6f9e601a9cac21a22534",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3",
+          "hex": "14131211100f0e0d0c0b0a090807060504030201",
+          "name": "operator_address",
+          "type": "address"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "value": 1
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_hub_service_unbondings",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d3100000000000000208d4135919c2c5feae0f96dc269e9290aa6aad992a63d6f9e601a9cac21a22534000000000000001414131211100f0e0d0c0b0a090807060504030201000000000000000400000001",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "a75c51b9cf6bb6e7ea73193c95550cc07f78f70099fdea198ccbd5786edb23a5",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "0b4c2810f971c169dc60fe5c76d1a249e210d3e4ac3162979e838dba6f2d989d",
+          "field": 1,
+          "name": "cross_rpc_role_active_tasks",
+          "reason": "RoleActiveTasks also takes an address and an enum, so only the RPC digest separates the two scopes",
+          "value": "/task.v1.Query/RoleActiveTasks"
+        }
+      ],
+      "rpc_method": "/hub.v1.Query/ServiceUnbondings",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "0d35e5b8d00159476f6ee12645bf8c20f854e03feced33991ae0c38706175562",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "13cb527d36a2da4249080d540a7f988fab190ab7a49e5868cdb9c35237ee0590",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 19,
+          "digest_hex": "8c05a2b2567d9a97691cca2041f5252649baedeba9cb147f28ac0186a60dabba",
+          "field": 2,
+          "name": "operator_address_last_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 3,
+          "digest_hex": "03217bd2a1c87458163ac72d8f6f482d22ce0a344a6b1ed33bb962779ee9271c",
+          "field": 3,
+          "name": "status_low_byte"
+        }
+      ],
+      "variant": "/hub.v1.Query/ServiceUnbondings"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "c579304e7e4322f360f5b509c277138dfa1e72395720aa5ccedb512d2af52d58",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "b18a0901f429262f4f746ec4059acbb0baa739c3ae182613e4fcf517cef64c63",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "1122334455667788990011223344556677889900112233445566778899001122",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 4
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_data_unavailable_reports",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020b18a0901f429262f4f746ec4059acbb0baa739c3ae182613e4fcf517cef64c6300000000000000201122334455667788990011223344556677889900112233445566778899001122000000000000000400000004",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "21f52e7e4eb81823a0508aea44c9bacbe5be3f99b4d58277602ff5e8b57d0dbd",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "6677704c3ab50e288eecb7f65686d33c9cbad590dc4b4adb4bf95ac3da7de7a0",
+          "field": 1,
+          "name": "cross_rpc_service_unbondings",
+          "reason": "ServiceUnbondings also takes two selector fields, so only the RPC digest separates the two scopes",
+          "value": "/hub.v1.Query/ServiceUnbondings"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/DataUnavailableReports",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "8ac7b9834cd19a8c0aa9ccf1ebf23bfcbce4573fd34244c32aa8f1fd459adea5",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "748a6320e36090f906c5cbac5575c1c2bd3524ced58051713c362a656b46924a",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 31,
+          "digest_hex": "1d8cfe690ea2ceb8498fcc298ec15d13188e8033934443f8759a9f9f2e0ee489",
+          "field": 2,
+          "name": "task_id_last_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 3,
+          "digest_hex": "267dc2385d6356a84ed84301bd6451a5a5d1c203b198acab6388d0640ada697b",
+          "field": 3,
+          "name": "verify_round_low_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/DataUnavailableReports"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "caf6cced7a56be63bcd564b30d4b2df363e318a4677150774de9e1c150b4acc5",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "c0543f07de8b27ef90bccec69be4d6b8a5d0d9b45cc0c927c5facf0e28c1367d",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "abababababababababababababababababababababababababababababababab",
+          "name": "task_id",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_gas_reimbursements",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020c0543f07de8b27ef90bccec69be4d6b8a5d0d9b45cc0c927c5facf0e28c1367d0000000000000020abababababababababababababababababababababababababababababababab",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "d0af4b64a058fc774cba25cde61b83962f5a84f45adf3cd612912eac6482bd07",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "63962ef84f807e603f9981d7a3010ee92ba763bede81c6aff094c9a41aa65241",
+          "field": 1,
+          "name": "cross_rpc_sessions_by_owner",
+          "reason": "SessionsByOwner also takes one selector field, so only the RPC digest separates the two scopes",
+          "value": "/task.v1.Query/SessionsByOwner"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/TaskGasReimbursements",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "31f73ec30b1c6166d006d82a58da6ed6bd9260758c9a4843569c6b0c2adcf257",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4bdc81340e28924ebea93f72a70183bf5eac5c6ef4a26acf1bdfc8ceeb4e7a83",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 31,
+          "digest_hex": "f0084a49e5eb75e4aa25bd25a23a9d2383bb75b3ab812ab466c21d52a4eda107",
+          "field": 2,
+          "name": "task_id_last_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/TaskGasReimbursements"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "bbe3bd537b27821a25e3b94684ff524b7afd6bb55753cd7888af41a796eeb12f",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "793a971812ebd152e8d15c2d67cd14d46c1e9d63fba16d52807a7af4b925c5f6",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen15zcu95ly75rqwxpf8f94cmt737g2rvkrn7hcql",
+          "hex": "a0b1c2d3e4f5060718293a4b5c6d7e8f90a1b2c3",
+          "name": "operator_address",
+          "type": "address"
+        },
+        {
+          "name": "duty",
+          "type": "enum",
+          "value": 2
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_role_active_tasks",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020793a971812ebd152e8d15c2d67cd14d46c1e9d63fba16d52807a7af4b925c5f60000000000000014a0b1c2d3e4f5060718293a4b5c6d7e8f90a1b2c3000000000000000400000002",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "723b9053c48e768be62f538de9a17765f53ed03671f09ff8e89eabefb549e982",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "12b501e10b4e5e2e087cd979d25118d11a680b3605fe720607faceeb569b3c0b",
+          "field": 1,
+          "name": "cross_rpc_data_unavailable_reports",
+          "reason": "DataUnavailableReports also takes two selector fields, so only the RPC digest separates the two scopes",
+          "value": "/task.v1.Query/DataUnavailableReports"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/RoleActiveTasks",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "d821293c1b65e7eb0cc2d09539b48870c39011f424d58e13e699e86f2a12995e",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "8004313d03691454622afecda030c54606aafaaf09ecbcb47a2e8784c5908d84",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 19,
+          "digest_hex": "5ae2af4d3081064dc44e18d2cf4f2574afd576807eb092da1b17a8e4cf99bfa5",
+          "field": 2,
+          "name": "operator_address_last_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 3,
+          "digest_hex": "2539d817373d60034e5a6c1e469990d264a4581f6a6131ed28ffe3876f33fb69",
+          "field": 3,
+          "name": "duty_low_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/RoleActiveTasks"
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "f65bdb081fdd6c7cbc7fe81517437055937a6ea9013a3130c1676c28502578c4",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "b779e3608910e01dc8143d63d109e4c5bca6365ef4cac18d9307ed7970c752e6",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8",
+          "hex": "0f0e0d0c0b0a09080706050403020100a1b2c3d4",
+          "name": "user_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_sessions_by_owner",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020b779e3608910e01dc8143d63d109e4c5bca6365ef4cac18d9307ed7970c752e600000000000000140f0e0d0c0b0a09080706050403020100a1b2c3d4",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "8cbe7e55288b4a3c223f12c57c42b8e00088a81f1e126aecbee6aa50df7571d9",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "a token minted on one chain must not verify on another",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "2f0f6553cc5befa8b0bbad158a0c1d07b9fab2d9d90241f1c803cf8ead6f322f",
+          "field": 1,
+          "name": "cross_rpc_task_gas_reimbursements",
+          "reason": "TaskGasReimbursements also takes one selector field, so only the RPC digest separates the two scopes",
+          "value": "/task.v1.Query/TaskGasReimbursements"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/SessionsByOwner",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "5937d71a26cebb2e825798d6f0b86f33ee08f2743108ec87ff59ef50dad4c42c",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "025c4bb3ee9e0ade769117513f5f2b66be4db9a851d4bb0511ef083d058b5260",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 7,
+          "byte": 19,
+          "digest_hex": "7e92a04ef4c2e7eafb8be5fc4104a1698b38c82c87edfb0b65ac42143d688876",
+          "field": 2,
+          "name": "user_address_last_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/SessionsByOwner"
+    }
+  ]
+}

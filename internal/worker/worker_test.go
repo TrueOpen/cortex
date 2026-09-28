@@ -954,85 +954,6 @@ func TestReceiptOnlySelfRescueUsesDirectTxClientWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestWorkerRevealTriggerPersistsFullOpeningButPublishesOnlyReceiptMaterial(t *testing.T) {
-	h := newHarness(t)
-	recorder := &recordingPersistence{}
-	h.worker.cfg.Persistence = recorder
-	trigger := WorkerRevealTrigger{
-		SessionID:                  "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b",
-		TaskID:                     "task-1",
-		VerifyRound:                2,
-		InferReceiptHash:           codec.HashWithDomain("TEST_RECEIPT", []byte("receipt")),
-		VerificationSampleSeed:     codec.HashWithDomain("TEST_SAMPLE_SEED", []byte("seed")),
-		SelectedPositions:          []uint64{9, 2, 5},
-		SampledValueSet:            [][]byte{[]byte("w2"), []byte("w5"), []byte("w9")},
-		OpeningMaterial:            []byte("full W_i opening with merkle path"),
-		SampleEncodingProfile:      "llm-text-topk-v1",
-		SourceRootKind:             "trace",
-		EvidenceSchemaVersion:      "worker-opening-v1",
-		WorkerRevealDeadlineHeight: 410,
-	}
-
-	result, err := h.worker.HandleWorkerRevealTrigger(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("handle worker reveal trigger: %v", err)
-	}
-
-	if result.Receipt.SampledValueSetHash == (codec.Hash{}) {
-		t.Fatalf("sampled value set hash is empty")
-	}
-	if len(recorder.evidence) != 1 {
-		t.Fatalf("evidence writes = %d, want full opening evidence", len(recorder.evidence))
-	}
-	if recorder.evidence[0].Kind != "worker-reveal-opening" || !bytes.Equal(recorder.evidence[0].Data, trigger.OpeningMaterial) {
-		t.Fatalf("evidence = %#v, want full opening material", recorder.evidence[0])
-	}
-	if len(h.builder.Published) != 1 {
-		t.Fatalf("published messages = %d, want worker reveal receipt", len(h.builder.Published))
-	}
-	if h.builder.Published[0].Subject != "trueopen.worker-reveal.task-1" {
-		t.Fatalf("publish subject = %q, want worker reveal subject", h.builder.Published[0].Subject)
-	}
-	if bytes.Contains(h.builder.Published[0].Payload, trigger.OpeningMaterial) {
-		t.Fatalf("published worker reveal payload leaked full opening material")
-	}
-	if !bytes.Contains(h.builder.Published[0].Payload, []byte("CORTEX_WORKER_REVEAL_RECEIPT_V1")) {
-		t.Fatalf("published payload missing worker reveal receipt marker")
-	}
-}
-
-func TestWorkerRevealNormalPathUsesBuilderEvenWhenTxConfigured(t *testing.T) {
-	h := newHarness(t)
-	tx := &recordingTxClient{obs: txclient.Observation{Accepted: true, TxHash: "0xworkerreveal"}}
-	h.worker.cfg.Tx = tx
-	trigger := WorkerRevealTrigger{
-		SessionID:                  "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b",
-		TaskID:                     "task-1",
-		VerifyRound:                2,
-		InferReceiptHash:           codec.HashWithDomain("TEST_RECEIPT", []byte("receipt")),
-		VerificationSampleSeed:     codec.HashWithDomain("TEST_SAMPLE_SEED", []byte("seed")),
-		SelectedPositions:          []uint64{1},
-		SampledValueSet:            [][]byte{[]byte("w1")},
-		OpeningMaterial:            []byte("full opening not for tx"),
-		SampleEncodingProfile:      "llm-text-topk-v1",
-		SourceRootKind:             "trace",
-		EvidenceSchemaVersion:      "worker-opening-v1",
-		WorkerRevealDeadlineHeight: 410,
-	}
-
-	_, err := h.worker.HandleWorkerRevealTrigger(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("handle worker reveal trigger: %v", err)
-	}
-
-	if len(tx.requests) != 0 {
-		t.Fatalf("normal worker reveal submitted direct tx: %#v", tx.requests)
-	}
-	if len(h.builder.Published) != 1 {
-		t.Fatalf("Builder publishes = %d, want one signed reveal item", len(h.builder.Published))
-	}
-}
-
 // testSubmitInferReceiptMessage builds the frozen task.v1.MsgSubmitInferReceipt
 // body. Every field the frozen InferReceiptV1 requires is present, including the
 // generation_params_digest and the required evidence commitment list that no
@@ -1056,66 +977,6 @@ func testSubmitInferReceiptMessage(taskID, submitter string) txclient.SubmitInfe
 			OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
 		},
 		SubmitterAddress: submitter,
-	}
-}
-
-func TestWorkerRevealNormalPathRequiresBuilder(t *testing.T) {
-	h := newHarness(t)
-	tx := &recordingTxClient{obs: txclient.Observation{Accepted: true, TxHash: "0xworkerreveal"}}
-	h.worker.cfg.Builder = nil
-	h.worker.cfg.Tx = tx
-	trigger := WorkerRevealTrigger{
-		SessionID:                  "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b",
-		TaskID:                     "task-1",
-		VerifyRound:                2,
-		InferReceiptHash:           codec.HashWithDomain("TEST_RECEIPT", []byte("receipt")),
-		VerificationSampleSeed:     codec.HashWithDomain("TEST_SAMPLE_SEED", []byte("seed")),
-		SelectedPositions:          []uint64{1},
-		SampledValueSet:            [][]byte{[]byte("w1")},
-		OpeningMaterial:            []byte("full opening not for tx"),
-		SampleEncodingProfile:      "llm-text-topk-v1",
-		SourceRootKind:             "trace",
-		EvidenceSchemaVersion:      "worker-opening-v1",
-		WorkerRevealDeadlineHeight: 410,
-	}
-
-	if _, err := h.worker.HandleWorkerRevealTrigger(context.Background(), trigger); err == nil || !strings.Contains(err.Error(), "Builder client is required") {
-		t.Fatalf("worker reveal without Builder error = %v", err)
-	}
-	if len(tx.requests) != 0 {
-		t.Fatalf("normal worker reveal submitted direct tx: %#v", tx.requests)
-	}
-}
-
-func TestWorkerRevealSampledValueHashCanonicalizesPositionValuePairs(t *testing.T) {
-	base := WorkerRevealTrigger{
-		SessionID:              "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b",
-		TaskID:                 "task-1",
-		VerifyRound:            2,
-		InferReceiptHash:       codec.HashWithDomain("TEST_RECEIPT", []byte("receipt")),
-		VerificationSampleSeed: codec.HashWithDomain("TEST_SAMPLE_SEED", []byte("seed")),
-		SampleEncodingProfile:  "llm-text-topk-v1",
-		SourceRootKind:         "trace",
-		EvidenceSchemaVersion:  "worker-opening-v1",
-	}
-	a := base
-	a.SelectedPositions = []uint64{9, 2, 5}
-	a.SampledValueSet = [][]byte{[]byte("w9"), []byte("w2"), []byte("w5")}
-	b := base
-	b.SelectedPositions = []uint64{2, 5, 9}
-	b.SampledValueSet = [][]byte{[]byte("w2"), []byte("w5"), []byte("w9")}
-
-	ah, err := canonicalSampledValueSetHash(a)
-	if err != nil {
-		t.Fatalf("canonical hash a: %v", err)
-	}
-	bh, err := canonicalSampledValueSetHash(b)
-	if err != nil {
-		t.Fatalf("canonical hash b: %v", err)
-	}
-
-	if ah != bh {
-		t.Fatalf("canonical sampled value hash differs for equivalent position/value pairs")
 	}
 }
 
@@ -1526,6 +1387,14 @@ type recordingTaskData struct {
 	mutateConfirmationBeforeSign func(*builderclient.StorageConfirmation)
 	// finalizeErrors fails the next finalize of a bundle kind once each.
 	finalizeErrors map[nodewire.EvidenceKind][]error
+	// finalizeEndpointErrors fails every finalize aimed at one Nexus endpoint,
+	// which is how a test stands one Task Builder down while the others answer.
+	finalizeEndpointErrors map[string]error
+	// builderKeys is the service key each Builder signs its storage
+	// confirmations with, by endpoint. Without it every Builder signs with
+	// builderPrivate, which would let a Worker that verified one Builder's
+	// confirmation against another's key pass.
+	builderKeys map[string]*secp256k1.PrivateKey
 	// finalizeCalls counts every finalize request per bundle kind, including
 	// ones the Builder answers idempotently.
 	finalizeCalls map[nodewire.EvidenceKind]int
@@ -1586,6 +1455,9 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 		c.finalizeCalls = map[nodewire.EvidenceKind]int{}
 	}
 	c.finalizeCalls[request.EvidenceKind]++
+	if err := c.finalizeEndpointErrors[endpoint]; err != nil {
+		return builderclient.FinalizeTaskResultResponse{}, err
+	}
 	if errs := c.finalizeErrors[request.EvidenceKind]; len(errs) > 0 {
 		c.finalizeErrors[request.EvidenceKind] = errs[1:]
 		return builderclient.FinalizeTaskResultResponse{}, errs[0]
@@ -1608,7 +1480,11 @@ func (c *recordingTaskData) FinalizeTaskResult(ctx context.Context, endpoint str
 		if err != nil {
 			return builderclient.FinalizeTaskResultResponse{}, err
 		}
-		confirmation.Signature = compactTestSignature(c.builderPrivate, digest)
+		signing := c.builderPrivate
+		if key, ok := c.builderKeys[endpoint]; ok {
+			signing = key
+		}
+		confirmation.Signature = compactTestSignature(signing, digest)
 		if c.mutateConfirmation != nil {
 			c.mutateConfirmation(confirmation)
 		}

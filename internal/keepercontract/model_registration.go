@@ -49,6 +49,7 @@ func CanonicalModelProfileProjection(profile txclient.ModelProfileProjectionMess
 		"challenge_open_window_blocks": uint64(profile.ChallengeOpenWindowBlocks),
 		"generation_type":              trimRegistrationEnum(profile.GenerationType, "GENERATION_TYPE_"),
 		"manifest_hash":                registrationHashHex(profile.ManifestHash.Hex()),
+		"manifest_uri":                 profile.ManifestURI,
 		"min_stake": map[string]any{
 			"amount": json.Number(strconv.FormatUint(uint64(profile.MinStake.Amount), 10)),
 			"denom":  profile.MinStake.Denom,
@@ -112,7 +113,7 @@ func CanonicalModelProfileProjection(profile txclient.ModelProfileProjectionMess
 		"tool_call_parser": canonicalRegistrationParser(profile.ToolCallParser),
 		"reasoning_parser": canonicalRegistrationParser(profile.ReasoningParser),
 	}
-	return json.Marshal(projection)
+	return codec.CanonicalJSON(projection)
 }
 
 func ModelRegistrationDigest(chainID, proposer string, profile txclient.ModelProfileProjectionMessage) (codec.Hash, []byte, error) {
@@ -124,7 +125,7 @@ func ModelRegistrationDigest(chainID, proposer string, profile txclient.ModelPro
 		return codec.Hash{}, nil, err
 	}
 	projectionHash := framedRegistrationHash(modelChainProjectionDomain, projection)
-	payload, err := json.Marshal(map[string]any{
+	payload, err := codec.CanonicalJSON(map[string]any{
 		"chain_id":              chainID,
 		"chain_projection_hash": "0x" + hex.EncodeToString(projectionHash[:]),
 		"manifest_hash":         registrationHashHex(profile.ManifestHash.Hex()),

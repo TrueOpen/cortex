@@ -188,6 +188,125 @@ func TestCommittedVerifyWaitsForTheRevealPhaseInsteadOfAttemptingIt(t *testing.T
 	}
 }
 
+// revealPhaseChainSnapshot is the Keeper view the runner re-reads when it finds
+// itself parked: the assignment for verifier-1's round, carrying whatever
+// reveal deadline the chain has written.
+func revealPhaseChainSnapshot(revealDeadline uint64) chainclient.TaskSnapshot {
+	hash := codec.HashBytes([]byte(revealPhaseTaskID))
+	snapshot := verifierAssignedTaskSnapshot("session-1", revealPhaseTaskID, hash, "verifier-1")
+	snapshot.VerifierAssignment.RevealDeadlineHeight = chainclient.NewUint64String(revealDeadline)
+	return snapshot
+}
+
+// TestCommittedVerifyRecoversTheRevealDeadlineFromTheChain is #44.
+//
+// RevealDeadlineHeight has exactly one writer -- the RevealReady effect -- and
+// EventRevealPhaseStarted is consumed once, after which the poll cursor moves
+// past it forever. Any reason that single delivery fails to land leaves a
+// committed responsibility parked on awaitingRevealPhase with nothing left to
+// wake it: the node holds a valid commit, does no further work, and the round
+// closes INSUFFICIENT_VERIFIER although it did everything asked of it.
+//
+// The chain is the authority and it can simply be asked. A parked
+// responsibility therefore re-reads its own round rather than waiting on a
+// delivery that already happened.
+func TestCommittedVerifyRecoversTheRevealDeadlineFromTheChain(t *testing.T) {
+	ctx := context.Background()
+	var seen []store.VerifyTask
+	trace := &collectTrace{}
+	runner, db, hash := revealPhaseRunner(t, layout.StageCommitted, 0, TaskRunnerConfig{
+		ChainStatus: fixedChainStatus{height: 700},
+		Trace:       trace.trace(),
+		TaskReader:  staticKeeperTaskReader{snapshot: revealPhaseChainSnapshot(900)},
+		VerifyExecutor: verifyExecutorFunc(func(_ context.Context, _ codec.Hash, task store.VerifyTask) (store.VerifyTask, bool, error) {
+			seen = append(seen, task)
+			return task, false, nil
+		}),
+	})
+	if err := runner.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("verify executor ran %d times, want the recovered deadline to release the reveal", len(seen))
+	}
+	if seen[0].RevealDeadlineHeight != 900 {
+		t.Fatalf("executor saw reveal deadline %d, want the 900 the chain reports", seen[0].RevealDeadlineHeight)
+	}
+	// Durable, not just in this tick's map: the next process must not have to
+	// rediscover it, and MergeVerify makes the field immutable once written.
+	rec, err := layout.GetVerifyRecord(ctx, db, layout.StoredHash(hash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.RevealDeadlineHeight != 900 {
+		t.Fatalf("stored reveal deadline = %d, want 900 persisted", rec.RevealDeadlineHeight)
+	}
+	line := trace.event(t, "verify_reveal_deadline_recovered")
+	for _, want := range []string{`task="` + revealPhaseTaskID + `"`, "verify_round=1", "reveal_deadline_height=900"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("verify_reveal_deadline_recovered = %q, want it to carry %s", line, want)
+		}
+	}
+}
+
+// The other half: a chain that reports zero is the reveal phase genuinely not
+// being open yet, which is the common case and must still park. Recovering must
+// not turn "not yet" into a reveal attempt the Keeper would refuse.
+func TestCommittedVerifyStillWaitsWhenTheChainHasNoRevealDeadlineEither(t *testing.T) {
+	ctx := context.Background()
+	var ran int
+	trace := &collectTrace{}
+	runner, db, hash := revealPhaseRunner(t, layout.StageCommitted, 0, TaskRunnerConfig{
+		ChainStatus: fixedChainStatus{height: 700},
+		Trace:       trace.trace(),
+		TaskReader:  staticKeeperTaskReader{snapshot: revealPhaseChainSnapshot(0)},
+		VerifyExecutor: verifyExecutorFunc(func(_ context.Context, _ codec.Hash, task store.VerifyTask) (store.VerifyTask, bool, error) {
+			ran++
+			return task, false, nil
+		}),
+	})
+	if err := runner.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ran != 0 {
+		t.Fatalf("verify executor ran %d times, want 0 while the chain reports no reveal deadline", ran)
+	}
+	rec, err := layout.GetVerifyRecord(ctx, db, layout.StoredHash(hash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Stage != layout.StageCommitted || rec.RevealDeadlineHeight != 0 {
+		t.Fatalf("record = %+v, want the responsibility left committed and still waiting", rec)
+	}
+	trace.event(t, "verify_reveal_awaiting_phase")
+}
+
+// A Keeper that cannot be read must leave the responsibility exactly as it was.
+// The re-read is a repair, and a repair that fails is a wait, never a failure:
+// marking the task failed here would throw away a live commit over an
+// unreachable endpoint.
+func TestCommittedVerifySurvivesAnUnreadableKeeperWhileWaiting(t *testing.T) {
+	ctx := context.Background()
+	runner, db, hash := revealPhaseRunner(t, layout.StageCommitted, 0, TaskRunnerConfig{
+		ChainStatus: fixedChainStatus{height: 700},
+		TaskReader:  staticKeeperTaskReader{err: errors.New("keeper unreachable")},
+		VerifyExecutor: verifyExecutorFunc(func(_ context.Context, _ codec.Hash, task store.VerifyTask) (store.VerifyTask, bool, error) {
+			t.Fatal("the verify executor must not run without a reveal deadline")
+			return task, false, nil
+		}),
+	})
+	if err := runner.RunOnce(ctx); err != nil {
+		t.Fatalf("an unreadable Keeper must not fail the tick: %v", err)
+	}
+	rec, err := layout.GetVerifyRecord(ctx, db, layout.StoredHash(hash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Stage != layout.StageCommitted || rec.RevealDeadlineHeight != 0 {
+		t.Fatalf("record = %+v, want it untouched by the failed re-read", rec)
+	}
+}
+
 // TestRevealPhaseEffectRecordsTheDeadlineAndEndsTheWait is AC1 at the runner
 // boundary: after the effect lands, reading the task's state shows a NON-ZERO
 // reveal deadline, which is the value internal/verifier's expiry_height gate

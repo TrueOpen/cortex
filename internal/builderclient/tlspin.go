@@ -24,23 +24,20 @@ package builderclient
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 	"sync"
+
+	"github.com/TrueOpen/cortex/internal/tlstrust"
 )
 
 // ErrTLSPubkeyMismatch reports a Builder that presented a certificate whose
 // public key is not the one its on-chain descriptor commits.
 var ErrTLSPubkeyMismatch = errors.New("nexus TLS certificate public key does not match the tls_pubkey_hash the descriptor commits")
-
-var tlsPubkeyHashHex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type tlsPubkeyHashKey struct{}
 
@@ -48,7 +45,7 @@ type tlsPubkeyHashKey struct{}
 // dial made under ctx. An empty or malformed value carries nothing, so a
 // caller that forgot to resolve the pin does not accidentally pin to garbage.
 func WithTLSPubkeyHash(ctx context.Context, hashHex string) context.Context {
-	if !tlsPubkeyHashHex.MatchString(hashHex) {
+	if !tlstrust.ValidPubkeyHash(hashHex) {
 		return ctx
 	}
 	return context.WithValue(ctx, tlsPubkeyHashKey{}, hashHex)
@@ -66,8 +63,7 @@ func TLSPubkeyHashFromContext(ctx context.Context) (string, bool) {
 // TLSPubkeyHash is hex(sha256(SubjectPublicKeyInfo DER)) of a certificate, the
 // value nexus publishes as tls_pubkey_hash.
 func TLSPubkeyHash(leaf *x509.Certificate) string {
-	sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
-	return hex.EncodeToString(sum[:])
+	return tlstrust.PubkeyHash(leaf)
 }
 
 // pinnedDialTLSContext returns a TLS dialer that verifies the presented leaf's

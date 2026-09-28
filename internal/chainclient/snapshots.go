@@ -12,6 +12,9 @@ import (
 type ParamsSnapshot struct {
 	ServiceUnbondingPeriodBlocks Uint64String `json:"service_unbonding_period_blocks"`
 	DailySupportWindowBlocks     Uint64String `json:"daily_support_window_blocks"`
+	// MaxManifestURIBytes is ModelParamsV1.max_manifest_uri_bytes, the cap on
+	// a registered profile's manifest_uri.
+	MaxManifestURIBytes uint32 `json:"max_manifest_uri_bytes"`
 }
 
 type CortexNodeSnapshot struct {
@@ -175,7 +178,6 @@ type ModelSnapshot struct {
 	TotalRegistrationFeePaid Uint64String `json:"total_registration_fee_paid"`
 	ConfirmedWorkerCount     Uint64String `json:"confirmed_worker_count"`
 	LastStatusChangeHeight   Uint64String `json:"last_status_change_height"`
-	ActiveProfileCount       Uint64String `json:"active_profile_count"`
 	StatusSource             string       `json:"status_source"`
 }
 
@@ -230,7 +232,6 @@ type CurrentModelSnapshot struct {
 	ModelID              string         `json:"model_id"`
 	ProposerAddress      string         `json:"proposer_address"`
 	Status               string         `json:"status"`
-	ActiveProfileCount   uint32         `json:"active_profile_count"`
 	LatestProfileVersion ProfileVersion `json:"latest_profile_version"`
 	StatusSource         string         `json:"status_source"`
 	RegistrationFeePaid  Uint64String   `json:"registration_fee_paid"`
@@ -372,6 +373,10 @@ type CurrentProfileSnapshot struct {
 	Source                    CurrentProfileSourceSnapshot           `json:"source"`
 	ToolCallParser            CurrentParserSnapshot                  `json:"tool_call_parser"`
 	ReasoningParser           CurrentParserSnapshot                  `json:"reasoning_parser"`
+	// ManifestURI is where the registrant hosts the manifest body. The chain
+	// checks only its syntax and length; content is authenticated by
+	// ManifestHash.
+	ManifestURI string `json:"manifest_uri"`
 }
 
 // CurrentProfileSourceSnapshot is ProfileSourceRefV1: the per-profile part of
@@ -674,41 +679,6 @@ func (s ResultReceiptSnapshot) Validate() error {
 	return nil
 }
 
-type FullResultRevealSnapshot struct {
-	SessionID       string       `json:"session_id"`
-	TaskID          string       `json:"task_id"`
-	VerifyRound     Uint64String `json:"verify_round"`
-	VerifierAddress string       `json:"verifier_address"`
-	ResultDigest    HexHash      `json:"result_digest"`
-	AcceptedHeight  Uint64String `json:"accepted_height"`
-	Source          string       `json:"source"`
-	Status          string       `json:"status"`
-}
-
-func (s FullResultRevealSnapshot) Validate() error {
-	if s.SessionID == "" || s.TaskID == "" || s.VerifyRound.Uint64() == 0 || s.VerifierAddress == "" || s.ResultDigest.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Source == "" || s.Status == "" {
-		return fmt.Errorf("Keeper full result reveal is incomplete")
-	}
-	return nil
-}
-
-type WorkerRevealReceiptSnapshot struct {
-	TaskID                string       `json:"task_id"`
-	VerifyRound           Uint64String `json:"verify_round"`
-	WorkerAddress         string       `json:"worker_address"`
-	SampledValueSetHash   HexHash      `json:"sampled_value_set_hash"`
-	EvidenceSchemaVersion string       `json:"evidence_schema_version"`
-	AcceptedHeight        Uint64String `json:"accepted_height"`
-	Status                string       `json:"status"`
-}
-
-func (s WorkerRevealReceiptSnapshot) Validate() error {
-	if s.TaskID == "" || s.VerifyRound.Uint64() == 0 || s.WorkerAddress == "" || s.SampledValueSetHash.IsZero() || s.EvidenceSchemaVersion == "" || s.AcceptedHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper worker reveal receipt is incomplete")
-	}
-	return nil
-}
-
 type TaskSettlementSnapshot struct {
 	SessionID          string       `json:"session_id"`
 	TaskID             string       `json:"task_id"`
@@ -855,13 +825,6 @@ func (s ChallengeAssignmentSnapshot) Validate() error {
 		}
 	default:
 		return fmt.Errorf("Keeper challenge sample seed status %q is unsupported", s.ChallengeSampleSeedStatus)
-	}
-	return nil
-}
-
-func (s ChallengeFullResultRevealSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.VerifierAddress == "" || s.ResultDigest.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Source == "" || s.Status == "" {
-		return fmt.Errorf("Keeper challenge full result reveal is incomplete")
 	}
 	return nil
 }

@@ -1,8 +1,7 @@
 // Package hfields implements the frozen H_FIELDS_V1 hashing framing that every
 // wire signing preimage is expressed in.
 //
-// Framing (frozen upstream; exact source paths and commit are stamped in
-// testdata/hfields_v1.json):
+// Framing (checked against wire's shared/framing_v1.json vectors):
 //
 //	preimage = u64_be(len(domain)) || domain ||
 //	           for each field: u64_be(len(field)) || field
@@ -16,10 +15,9 @@
 // previous Node vector and cannot express the frozen framing.
 //
 // One thing is deliberately absent: there is no address field constructor.
-// Node's own frozen fixture records an unresolved drift between canonical
-// Bech32 text bytes and address-codec bytes for operator addresses, so no
-// encoding may be guessed here (TrueOpen/node#95, CLOSED). Callers that must
-// frame an address resolve the bytes themselves and pass Bytes - see
+// An operator address is framed as its address-codec bytes, not its Bech32
+// text, and this package carries no Bech32 decoder. Callers that must frame an
+// address resolve the bytes themselves and pass Bytes - see
 // internal/nodewire/address.go CanonicalOperatorAddressBytes.
 //
 // Concrete message preimages live in the packages that own their field order,
