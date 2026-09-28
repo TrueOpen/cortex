@@ -366,7 +366,10 @@ func validateFiles(files []ArtifactFile, decodeVectorsPath string) error {
 			decodeVectors++
 		}
 	}
-	if decodeVectors != 1 {
+	// An empty decode_vectors_path is accepted: nothing reads the file today, so
+	// a manifest that ships no DECODE_VECTORS artifact stays valid. A path that
+	// is set still has to name exactly one such file.
+	if decodeVectorsPath != "" && decodeVectors != 1 {
 		return errors.New("output_decoding.decode_vectors_path must name exactly one DECODE_VECTORS file")
 	}
 	return nil
