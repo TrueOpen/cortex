@@ -1320,7 +1320,7 @@ func resultReceiptUnsourced(receipt nodewire.ResultReceiptV3) []string {
 	if isZeroHash32(receipt.MetricRoot) {
 		unsourced = append(unsourced, "metric_root")
 	}
-	if receipt.MetricSummary == (nodewire.MetricSummaryV1{}) {
+	if !metricSummarySourced(receipt) {
 		unsourced = append(unsourced, "metric_summary")
 	}
 	if isZeroHash32(receipt.AggregateProofHash) {
@@ -1336,6 +1336,32 @@ func resultReceiptUnsourced(receipt nodewire.ResultReceiptV3) []string {
 		unsourced = append(unsourced, "verifier_value_root")
 	}
 	return unsourced
+}
+
+// metricSummarySourced reports whether the receipt's summary can have come
+// from a verify run over its metric_leaf_count leaves.
+//
+// A result with no metric leaves (a legal zero-token output) summarises to all
+// counts and numbers 0, with each optional ratio present(0) only when the
+// profile enables it. With both ratios disabled that is the zero value, so the
+// zero value alone cannot mean "missing": it is sourced when the rest of the
+// metric material is (the zero-leaf metric_root is the non-zero empty Merkle
+// root). With at least one leaf every legal summary is non-zero, because a
+// finite leaf raises finite_count and a missing Worker value raises
+// missing_compared_count.
+func metricSummarySourced(receipt nodewire.ResultReceiptV3) bool {
+	summary := receipt.MetricSummary
+	if receipt.MetricLeafCount > 0 {
+		return summary != (nodewire.MetricSummaryV1{})
+	}
+	if isZeroHash32(receipt.MetricRoot) {
+		return false
+	}
+	return summary.FiniteCount == 0 && summary.MissingComparedCount == 0 &&
+		summary.MeanAbsLogprobDiffFP1e6 == 0 && summary.AbsLogprobDiffP95FP1e6 == 0 &&
+		summary.AbsLogprobDiffP99FP1e6 == 0 && summary.RankDeltaNonzeroRateFP1e6 == 0 &&
+		summary.TopkJaccardMeanFP1e6.Value == 0 && summary.UnionJSP99FP1e6.Value == 0 &&
+		summary.ComparedTopkCount == 0 && summary.ComparedRankCount == 0
 }
 
 // isZeroHash32 treats an unset Hash32 and an all-zero one as the same condition,
