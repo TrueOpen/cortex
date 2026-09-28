@@ -2,7 +2,8 @@
   "notes": [
     "Each TaskDataObjectRefV1 frame has nine fields, including evidence_kind.",
     "The five data-plane body domains are V2; the Cortex service request binds the updated upload digest.",
-    "Finalizing one Worker bundle authenticates its evidence_kind in the V2 body digest."
+    "Finalizing one Worker bundle authenticates its evidence_kind in the V2 body digest.",
+    "A mutation row with expect digest_changes publishes the digest the mutated input produces. A row with expect reject_before_hash has no digest: its change produces an input an implementation must refuse before hashing, and reason names the rule it breaks. The evidence_kind rows are rejects because each +1 lands on a kind that is illegal for that object or request."
   ],
   "schema": "trueopen.task.data_auth.v1",
   "source": "Task data request and body wire contract",
@@ -102,11 +103,11 @@
           "name": "field.media_type"
         },
         {
-          "change": "one encoded leaf changed",
-          "digest_hex": "8067e021c0a7bd4a522958812956dc311fecefaa560fcae834f1cf00e0e57abc",
-          "expect": "digest_changes",
+          "change": "evidence_kind 2 -> 3 (EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING)",
+          "expect": "reject_before_hash",
           "field_path": "object_ref.evidence_kind",
-          "name": "field.object_ref.evidence_kind"
+          "name": "field.object_ref.evidence_kind",
+          "reason": "A Verifier-produced evidence object carries EVIDENCE_KIND_VERIFIER_VALUE_OPENING; the settlement root opening is not a data-plane evidence kind a Verifier produces, so the reference is rejected before any body digest is computed."
         }
       ],
       "name": "task_data_upload_body_v2",
@@ -189,11 +190,11 @@
           "name": "field.infer_receipt_signature_digest"
         },
         {
-          "change": "one encoded leaf changed",
-          "digest_hex": "4f21a8186dce2c0345d39ad52d22b03141c9261b5d93a98819d33cb54bdd1019",
-          "expect": "digest_changes",
+          "change": "evidence_kind 1 -> 2 (EVIDENCE_KIND_VERIFIER_VALUE_OPENING)",
+          "expect": "reject_before_hash",
           "field_path": "evidence_kind",
-          "name": "field.evidence_kind"
+          "name": "field.evidence_kind",
+          "reason": "Finalizing a result selects exactly one Worker evidence bundle, EVIDENCE_KIND_WORKER_TOKEN_OPENING or EVIDENCE_KIND_WORKER_VALUE_OPENING; a Verifier evidence kind is rejected before the body digest is computed."
         }
       ],
       "name": "task_data_finalize_result_body_v2",
@@ -363,11 +364,11 @@
       "framing": "H_FIELDS_V1",
       "mutations": [
         {
-          "change": "one encoded leaf changed",
-          "digest_hex": "2904907c69449f90e56e3683dd5bbdc1b9b2765e1e46c39864adbdacde22cae8",
-          "expect": "digest_changes",
+          "change": "evidence_kind 0 -> 1 (EVIDENCE_KIND_WORKER_VALUE_OPENING) on an OUTPUT object",
+          "expect": "reject_before_hash",
           "field_path": "object_ref.evidence_kind",
-          "name": "field.object_ref.evidence_kind"
+          "name": "field.object_ref.evidence_kind",
+          "reason": "evidence_kind is EVIDENCE_KIND_UNSPECIFIED for INPUT and OUTPUT objects and required only for evidence objects, so an OUTPUT reference carrying an evidence kind is rejected before the body digest is computed."
         }
       ],
       "name": "task_data_metadata_body_v2",
@@ -468,11 +469,11 @@
           "name": "field.range"
         },
         {
-          "change": "one encoded leaf changed",
-          "digest_hex": "a1b68ce3ac4de1e5da8299b7734c41c023e790357a72a168c146aa2924ad7ba7",
-          "expect": "digest_changes",
+          "change": "evidence_kind 0 -> 1 (EVIDENCE_KIND_WORKER_VALUE_OPENING) on an OUTPUT object",
+          "expect": "reject_before_hash",
           "field_path": "object_ref.evidence_kind",
-          "name": "field.object_ref.evidence_kind"
+          "name": "field.object_ref.evidence_kind",
+          "reason": "evidence_kind is EVIDENCE_KIND_UNSPECIFIED for INPUT and OUTPUT objects and required only for evidence objects, so an OUTPUT reference carrying an evidence kind is rejected before the body digest is computed."
         }
       ],
       "name": "task_data_fetch_body_v2",

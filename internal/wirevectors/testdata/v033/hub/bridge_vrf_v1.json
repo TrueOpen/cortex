@@ -2,7 +2,7 @@
   "notes": [
     "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage).",
     "usdc_route_v1 pins the eleven fields that are frozen forever once historical state or a minted voucher references the route id. The three origin EVM addresses are raw20; local_mailbox_id, local_warp_token_id and local_ism_id are pinned Hyperlane HexAddress raw32 values.",
-    "vrf_key_pop_v1's vrf_pubkey is the RFC 8032 this contract TEST 1 Ed25519 public key. The proof itself is one ECVRF prove over this digest rather than a signature, because what has to be proven is that the key can execute Prove. effective_from_epoch is deliberately outside the preimage: the Keeper derives it as current_epoch + 1, so signing it would invalidate any delayed transaction.",
+    "vrf_key_pop_v1's vrf_pubkey is the RFC 8032 section 7.1 TEST 1 Ed25519 public key. The proof itself is one ECVRF prove over this digest rather than a signature, because what has to be proven is that the key can execute Prove. effective_from_epoch is deliberately outside the preimage: the Keeper derives it as current_epoch + 1, so signing it would invalidate any delayed transaction.",
     "Each vector carries mutations[]: one per encodable leaf plus the semantic cases this contract names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here."
   ],
   "schema": "trueopen.hub.bridge_vrf.v1",

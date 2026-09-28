@@ -113,7 +113,7 @@
     "The peak list is determined by leaf_count alone: one peak per set bit of its binary form, highest on the left. peaks[] below is left to right, so an implementation can compare shape before it compares the root.",
     "Folding is right to left: acc = rightmost peak, then acc = MmrNodeV1(domain, peak, acc) over the remaining peaks from right to left. leaf_count 1 roots to the leaf itself with no extra node layer.",
     "leaf_count 0 roots to MmrEmptyV1(domain), never 32 zero bytes. A business protocol may exclude the empty list from its legal values, but it must not redefine this root.",
-    "root_hex at leaf_count 2 equals the height-1 peak at leaf_count 3: the minimal case of this contract rule 6, where the peaks of a k-leaf prefix are still nodes of the final tree. root_hex at leaf_count 3 is not in the 7-leaf tree, which is why a prefix proof verifies the peaks and recomputes the prefix root instead of searching for it.",
+    "root_hex at leaf_count 2 equals the height-1 peak at leaf_count 3: the minimal case of the rule that the peaks of a k-leaf prefix are still nodes of the final tree. root_hex at leaf_count 3 is not in the 7-leaf tree, which is why a prefix proof verifies the peaks and recomputes the prefix root instead of searching for it.",
     "negative left_to_right_fold is the only case that separates the two fold directions: leaf counts 1 through 6 agree byte for byte and 7 is the first that does not. An implementation that folds the other way passes every positive vector above, then diverges at any leaf count whose popcount is 3 or more."
   ],
   "schema": "trueopen.shared.mmr_primitive.v1",

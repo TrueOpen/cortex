@@ -1,7 +1,7 @@
 {
   "notes": [
     "H_V1 preimage is ascii(\"TRUEOPEN_FRAME_V1\") || u32_be(len(domain)) || domain || u64_be(len(payload)) || payload, then SHA256.",
-    "payload_utf8 is the exact transmitted bytes, not a re-serialisation. Canonical JSON here means: no BOM, no whitespace, no trailing newline, object keys ascending by UTF-8 bytes, uint64 as a decimal string without leading zeros, and Hash32 as 64 lowercase hex.",
+    "payload_utf8 is the exact transmitted bytes, not a re-serialisation. Canonical JSON here means: no BOM, no whitespace, no trailing newline, object keys ascending by UTF-8 bytes, uint64 as a decimal string without leading zeros, and Hash32 as 64 lowercase hex without a 0x prefix. The one exception is GenerationParamsV1.model_id, which the generation-parameter payload writes as 0x followed by 64 lowercase hex (task_generation_params_v1 here and testdata/v1/task/generation_params_v1.json).",
     "payload_bytes is asserted against the length the contract states, so an accidental whitespace edit fails at fixture generation rather than in a consumer.",
     "Each vector carries mutations[]: one per encodable leaf plus the semantic cases this contract names. A mutation only asserts the digest moves or the input is rejected; it never introduces a domain. digest_hex is the value the mutated input produces, so an implementation that ignores a field will reproduce the positive digest and fail here."
   ],

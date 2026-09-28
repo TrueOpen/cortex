@@ -13,7 +13,7 @@
       "name": "batch_result_v1_model_support",
       "domain": "TRUEOPEN_BATCH_RESULT_V1",
       "framing": "H_FIELDS_V1",
-      "contract_section": "Public wire fixture testdata/v1/shared/shared_domains_v1.json",
+      "contract_section": "Public wire domain TRUEOPEN_BATCH_RESULT_V1",
       "producer": "BatchResultDigestV1",
       "fields": [
         {

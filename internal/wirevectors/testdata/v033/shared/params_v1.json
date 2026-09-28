@@ -2,7 +2,8 @@
   "notes": [
     "HubParamsV2 includes the ModelParamsV1 parser allowlists and hard caps.",
     "TaskParamsV1 reserves encryption and Verifier value-evidence limits while enforcing a 256-byte output frame minimum.",
-    "The H_FIELDS parameter commitments include every nested field and retain cross-chain and version replay separation."
+    "The H_FIELDS parameter commitments include every nested field and retain cross-chain and version replay separation.",
+    "leaf_accounting counts the params message tree, the vector's params frame: a non-frame field is a scalar; a frame whose first child is element_count is one repeated field, and that element_count is not a scalar; any other frame below the root is a submessage."
   ],
   "schema": "trueopen-params-domains-v1",
   "source": "Hub and Task parameter commitment wire contract",
@@ -954,8 +955,8 @@
       "framing": "H_FIELDS_V1",
       "leaf_accounting": {
         "repeated": 4,
-        "scalars": 138,
-        "submessages": 34
+        "scalars": 137,
+        "submessages": 32
       },
       "name": "hub_params_v2",
       "params_version": 7,

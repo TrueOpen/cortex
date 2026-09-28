@@ -4,6 +4,7 @@
     "The V3 result signature binds the Verifier value root, metric leaf count and zero plaintext encryption commitment.",
     "The V2 reveal payload retains a separate integrity digest and includes the InferReceiptV3 digest.",
     "metric_summary_v1_zero_leaves is a result with no metric leaves (a legal zero-token output): every numeric field is 0, each enabled optional ratio is present(0) and every count is 0; the sample is judged PASS with count 0.",
+    "metric_summary_v1_zero_leaves_optional_ratios_disabled is the same zero-leaf result with the top-K Jaccard and union JS comparisons disabled: every count and number is 0, both optional ratios are absent (a disabled comparison is never present(0)), and the sample is judged PASS with count 0.",
     "metric_summary_v1_worker_values_missing has three leaves whose Worker values are all missing: no comparison may read as agreement, so each enabled comparison takes its worst value (abs logprob diff mean/p95/p99 4294967295, rank-delta rate 1000000, top-K Jaccard present(0), union JS present(1000000)) and both compared counts are 0; the sample is rejected against the Worker.",
     "When there are no comparable leaves and a position has a finite Worker value but a missing or non-finite Verifier value, the Verifier cannot attribute the empty sample and publishes no summary (a Verifier execution failure, treated as a missed reveal), so that case has no vector. With at least one comparable leaf, missing positions count in missing_compared_count."
   ],
@@ -475,6 +476,81 @@
       "preimage_hex": "000000000000001a545255454f50454e5f4d45545249435f53554d4d4152595f5631000000000000008a0000000000000004000000000000000000000004000000030000000000000004ffffffff0000000000000004ffffffff0000000000000004ffffffff0000000000000004000f4240000000000000000d01000000000000000400000000000000000000000d010000000000000004000f4240000000000000000400000000000000000000000400000000",
       "digest_hex": "156f8589f7d8e518a5a030ed043d6dd041bd40a9b3bec1c488de4d0042b3ad7e",
       "preimage_size_bytes": 180
+    },
+    {
+      "contract_section": "Public ResultReceiptV3 metric and signing projection",
+      "domain": "TRUEOPEN_METRIC_SUMMARY_V1",
+      "fields": [
+        {
+          "fields": [
+            {
+              "name": "finite_count",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "missing_compared_count",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "mean_abs_logprob_diff_fp_1e6",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "abs_logprob_diff_p95_fp_1e6",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "abs_logprob_diff_p99_fp_1e6",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "rank_delta_nonzero_rate_fp_1e6",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "topk_jaccard_mean_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "union_js_p99_fp_1e6",
+              "present": false,
+              "type": "optional"
+            },
+            {
+              "name": "compared_topk_count",
+              "type": "uint32",
+              "value": 0
+            },
+            {
+              "name": "compared_rank_count",
+              "type": "uint32",
+              "value": 0
+            }
+          ],
+          "name": "metric_summary",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "inputs": {
+        "compare_logprob_diff": true,
+        "compare_rank_delta": true,
+        "compare_topk_jaccard": false,
+        "compare_union_js": false,
+        "leaves": []
+      },
+      "name": "metric_summary_v1_zero_leaves_optional_ratios_disabled",
+      "producer": "MetricSummaryHash",
+      "preimage_hex": "000000000000001a545255454f50454e5f4d45545249435f53554d4d4152595f56310000000000000072000000000000000400000000000000000000000400000000000000000000000400000000000000000000000400000000000000000000000400000000000000000000000400000000000000000000000100000000000000000100000000000000000400000000000000000000000400000000",
+      "digest_hex": "5fe81797a8e997192a16dfe804f1206b8c57defae9b4284f7a5ffe5ffeffdb0e",
+      "preimage_size_bytes": 156
     }
   ]
 }

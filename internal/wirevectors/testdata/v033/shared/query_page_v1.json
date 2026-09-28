@@ -501,7 +501,7 @@
       "producer": "QueryPageDigestsV1",
       "replay": [
         {
-          "digest_hex": "163429a0fbf13980537d0401ef1dfcdd0565191dfcda9c968941f7868dda024b",
+          "digest_hex": "efcd3bed5280e0b3b9a48b7d5ca98389ed3e1f98bbaacaba9c6508a63ff81483",
           "field": 0,
           "name": "cross_chain",
           "reason": "a token minted on one chain must not verify on another",

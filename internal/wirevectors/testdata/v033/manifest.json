@@ -20,15 +20,15 @@
       "path": "bus/nats_user_binding_v1_vectors.json",
       "origin": "wire",
       "contract_section": "Public wire conformance vectors for bus/nats_user_binding_v1_vectors.json",
-      "bytes": 5351,
-      "sha256": "e40774f8dcc99c76c9ca083dede082f2a735504e9c6b4ac15b75c8073561ec4a"
+      "bytes": 5303,
+      "sha256": "0da5ba4021166e4638789974a888ec2c9b810aa1af1393ab61859626e5f4ab8c"
     },
     {
       "path": "hub/bridge_vrf_v1.json",
       "origin": "wire",
       "contract_section": "Public wire conformance vectors for hub/bridge_vrf_v1.json",
-      "bytes": 39985,
-      "sha256": "02acdc27962c4a04144072f9109fa1b422e8ad7e4b70849ed57816d54884e292"
+      "bytes": 39983,
+      "sha256": "5e5cced8732106972a241207e3246e710ab90019396bc23eb82546d73eebdc98"
     },
     {
         "path": "hub/candidate_pool_v1.json",
@@ -89,35 +89,35 @@
     {
       "path": "shared/framing_v1.json",
       "source_path": "x/shared/types/testdata/framing_v1.json",
-      "bytes": 32691,
-      "sha256": "b6ebeccd2e79556a193061372f90165bcc56d9a8cc01f5e6b88a85829c73d947"
+      "bytes": 32522,
+      "sha256": "7974904500e9ec69c6e6648dd13ada4c812e209bee929f1ab07b98732d0caf71"
     },
     {
       "path": "shared/mmr_primitive_v1.json",
       "origin": "wire",
       "contract_section": "Public wire conformance vectors for shared/mmr_primitive_v1.json",
-      "bytes": 6007,
-      "sha256": "d9b3fcc63bb62a0c438e11c56c1b13a1d54311c3869abcc3405f368978c10ad4"
+      "bytes": 5993,
+      "sha256": "be29ecd4ac20ca56264e126e38dbaceb1db5a37a41e4917d4665e212bbb6d352"
     },
     {
       "path": "shared/params_v1.json",
       "origin": "wire",
       "contract_section": "Hub and Task parameter commitments and replay separation",
-      "bytes": 58428,
-      "sha256": "a215565784e915b7304ec5292fb8ad28bf22680196a99a339e85e2cafd2c83bc"
+      "bytes": 58695,
+      "sha256": "bfe9ee9599814b777f82dcae6a959ae6f74aa978d6abbc4085d863e8fc7d3fcf"
     },
     {
         "path": "shared/query_page_v1.json",
         "origin": "wire",
         "contract_section": "Raw Hash32 query selector and pagination commitments",
         "bytes": 38796,
-        "sha256": "002674c12de4efcd5ee6e5568166398988c0c9c2f6a5a73c9a4a38d7d998e47e"
+        "sha256": "f7c22a66aced6c386407a6fbe2778dbc437d2f206ba480268e5f25861945e69e"
     },
     {
       "path": "shared/shared_domains_v1.json",
       "source_path": "x/shared/types/testdata/shared_domains_v1.json",
-      "bytes": 3576,
-      "sha256": "54b862c79b18d0c44ae5ae8d0597b6821f167856c101bde6f84d0b0558fede9a"
+      "bytes": 3558,
+      "sha256": "fe1bcc330aa5b2b0aec04172cdf6854b329526ea7be461e6031985c0d6adac9b"
     },
     {
       "path": "task/builder_confirmation_v1.json",
@@ -130,8 +130,8 @@
       "path": "task/canonical_json_v1.json",
       "origin": "wire",
       "contract_section": "Canonical JSON evidence and generation-parameter digests",
-      "bytes": 11285,
-      "sha256": "26c521f2557492af8407d80b4fea3597343bbd6bf4976b1e9011631e4ee59fd1"
+      "bytes": 11517,
+      "sha256": "68a5c14659ba04c39bea24f6ceae16efd0332faf48a01108f470f09289607fc2"
     },
     {
       "path": "task/generation_params_v1.json",
@@ -179,15 +179,15 @@
         "path": "task/result_metric_v3.json",
       "origin": "wire",
       "contract_section": "Integrated three-position metric root",
-      "bytes": 22695,
-      "sha256": "e4dc92467c020bf0246d2ef6b1fa8509acc44c0aa00da5f3e66d929f05fc376c"
+      "bytes": 22728,
+      "sha256": "47a5219f313c5f1c6d53040eccb045d9e7f1e0e2978ebe37f54c79e1acada35d"
     },
     {
         "path": "task/result_receipt_v3.json",
         "origin": "wire",
         "contract_section": "Result commitment V3, receipt V3 and reveal payload V2",
-        "bytes": 19996,
-        "sha256": "b56aa7e710eb6c0a453d139876403c8615d45448f7731770d8bf2b6aad59024b"
+        "bytes": 22740,
+        "sha256": "060465dcdce686a3577bf5513552b0e7310e6dd8a8c067f7341c67b58d797bc7"
     },
     {
       "path": "task/round_settlement_v1.json",
@@ -206,8 +206,8 @@
       "path": "task/task_data_auth_v1.json",
       "origin": "wire",
       "contract_section": "Nexus V2 body and service request signing digests",
-      "bytes": 24933,
-      "sha256": "2364236ba36fcb9c0f8648d68d15f60f261ded6b39efe489dca583fe51d53952"
+      "bytes": 26082,
+      "sha256": "9e4f9a57fd79f33c83623795f22fbe713f80dfea33128fed2de41a5daee8eeaf"
     },
     {
       "path": "task/task_data_plane_v1_golden.json",
@@ -226,8 +226,8 @@
       "path": "task/task_keeper_domains_v1.json",
       "origin": "wire",
       "contract_section": "Task Keeper and epoch summary raw Hash32 commitments",
-      "bytes": 95072,
-      "sha256": "4527e35645f283dad9e0928b06b5c5d2faf6828273efb9157a19d713bd4be259"
+      "bytes": 95052,
+      "sha256": "ae1526ada5dd4103ae6a78a5fc6b81b8eded0974eb529a02dfaae385301589b6"
     },
     {
       "path": "task/task_order_v3.json",
@@ -247,8 +247,8 @@
       "path": "task/verifier_value_leaf_v1.json",
       "origin": "wire",
       "contract_section": "Verifier top-K, value leaves and Merkle root",
-      "bytes": 13584,
-      "sha256": "f373186aa41603211c212652cddf79550d84e1d309a23f0fa5cf78f3e55e5583"
+      "bytes": 13650,
+      "sha256": "b59ee30e8287fc3d3de1260e62ff75ce574c7aae75be2050ebce8fdb45049ba5"
     },
     {
       "path": "task/worker_token_commitment_v1.json",
@@ -268,8 +268,8 @@
       "path": "task/worker_value_leaf_v1.json",
       "origin": "wire",
       "contract_section": "Worker value leaves and Merkle root",
-      "bytes": 11754,
-      "sha256": "d07287666ac8883eba91511d14e464ae3229b2ef16a4e8e46e82a94c79e9ccbd"
+      "bytes": 11787,
+      "sha256": "4d98003fe3cee9bae3ca49dda1550821b45a2b7d6aaf4562b9ecfcf6bfbdcfaa"
     }
   ]
 }

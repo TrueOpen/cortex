@@ -211,7 +211,7 @@ func (ProfileStatusSource) EnumDescriptor() ([]byte, []int) {
 	return file_hub_v1_model_profile_state_proto_rawDescGZIP(), []int{2}
 }
 
-// ModelState is one registered model primary row (wire storage model 6.3).
+// ModelState is one registered model primary row.
 type ModelState struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ModelId         []byte                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
