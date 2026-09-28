@@ -64,43 +64,24 @@ func TestSummaryV3ReproducesThePublishedReceiptSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	var file struct {
-		Vectors []struct {
-			Name   string `json:"name"`
-			Fields []struct {
-				Fields []struct {
-					Name    string `json:"name"`
-					Value   uint32 `json:"value"`
-					Present *bool  `json:"present"`
-				} `json:"fields"`
-			} `json:"fields"`
-		} `json:"vectors"`
+		Vectors []summaryVector `json:"vectors"`
 	}
 	if err := json.Unmarshal(data, &file); err != nil {
 		t.Fatal(err)
 	}
-	published := map[string]uint32{}
+	found := false
 	for _, v := range file.Vectors {
 		if v.Name != "metric_summary_v1" {
 			continue
 		}
-		for _, f := range v.Fields[0].Fields {
-			if f.Present == nil || *f.Present {
-				published[f.Name] = f.Value
-			}
+		found = true
+		// All ten fields, the two optional ones included.
+		if want := v.summary(t); got != want {
+			t.Fatalf("summary = %+v, the chain vector publishes %+v", got, want)
 		}
 	}
-	if len(published) == 0 {
+	if !found {
 		t.Fatal("result_receipt_v3.json publishes no metric_summary_v1")
-	}
-	for name, value := range map[string]uint32{
-		"finite_count": got.FiniteCount, "missing_compared_count": got.MissingComparedCount,
-		"mean_abs_logprob_diff_fp_1e6": got.MeanAbsLogprobDiffFP1e6, "abs_logprob_diff_p95_fp_1e6": got.AbsLogprobDiffP95FP1e6,
-		"abs_logprob_diff_p99_fp_1e6": got.AbsLogprobDiffP99FP1e6, "rank_delta_nonzero_rate_fp_1e6": got.RankDeltaNonzeroRateFP1e6,
-		"compared_topk_count": got.ComparedTopkCount, "compared_rank_count": got.ComparedRankCount,
-	} {
-		if published[name] != value {
-			t.Fatalf("%s = %d, the chain vector publishes %d", name, value, published[name])
-		}
 	}
 }
 

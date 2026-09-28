@@ -70,7 +70,7 @@ func TestLoadOrCreateUserKeyRefusesEmptyPath(t *testing.T) {
 }
 
 func TestLoadOrCreateUserKeyFromWireVectorSeed(t *testing.T) {
-	// The wire v0.4.2 vector's test-only seed: an all-zero raw seed. Once loaded, the
+	// The wire vector's test-only seed: an all-zero raw seed. Once loaded, the
 	// public key must equal the vector's nats_user_pubkey.
 	path := filepath.Join(t.TempDir(), "nats-user.nk")
 	if err := os.WriteFile(path, []byte("SUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEQ\n"), 0o600); err != nil {

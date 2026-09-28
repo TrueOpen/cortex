@@ -1,7 +1,7 @@
 // Package nodewire implements the canonical signing and commitment contracts
-// consumed by Cortex from wire v0.4.1. Typed field framing is shared with
-// internal/hfields. Published fixture inconsistencies are recorded explicitly
-// in conformance tests, with current schema formulas checked independently.
+// Cortex consumes from wire (the version pinned in go.mod). Typed field
+// framing is shared with internal/hfields. Each contract is checked against
+// the published wire vectors.
 package nodewire
 
 // Frozen H_FIELDS_V1 domain separators. Changing any literal is a breaking

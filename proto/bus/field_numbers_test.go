@@ -10,7 +10,7 @@ import (
 	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-// Pin the active task-control field numbers from wire v0.4.0.
+// Pin the active task-control field numbers of the pinned wire release.
 func TestMirrorFieldNumbersAreFrozen(t *testing.T) {
 	assert := func(m proto.Message, want map[string]int32) {
 		t.Helper()

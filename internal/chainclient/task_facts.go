@@ -47,7 +47,7 @@ type TaskReceiptFactsAnswer struct {
 }
 
 // TaskReceiptFacts reads the authoritative core and assignment commitments at
-// one committed height using the wire v0.4.1 QueryTask and QueryTaskAssignment.
+// one committed height using the wire QueryTask and QueryTaskAssignment.
 func (c *KeeperABCIClient) TaskReceiptFacts(ctx context.Context, taskID string) (TaskReceiptFactsAnswer, error) {
 	canonical, key, err := canonicalTaskKey(taskID)
 	if err != nil {

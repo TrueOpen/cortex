@@ -1,6 +1,9 @@
 package wirevectors
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEmbeddedHubVectorsAreWireVerbatim(t *testing.T) {
 	if err := VerifyProvenance(); err != nil {
@@ -62,5 +65,18 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	}
 	if _, err := File("task/infer_receipt_v2.json"); err == nil {
 		t.Fatal("File() error = nil for a file wire v0.3.3 does not publish")
+	}
+}
+
+// The fixture manifest is served only when it matches its pinned checksum,
+// like every file it lists.
+func TestManifestIsServedOnlyWithItsPinnedChecksum(t *testing.T) {
+	if _, err := releasedSet.file("manifest.json"); err != nil {
+		t.Fatalf("pinned manifest: %v", err)
+	}
+	tampered := releasedSet
+	tampered.manifestSum = strings.Repeat("0", 64)
+	if _, err := tampered.file("manifest.json"); err == nil {
+		t.Fatal("a manifest that does not match its pinned checksum was served")
 	}
 }

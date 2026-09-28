@@ -62,11 +62,12 @@ func (set vectorSet) file(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if path == "manifest.json" {
-		return manifestBytes, nil
-	}
+	// The manifest itself is served only once its pinned checksum matches.
 	if sum := sha256.Sum256(manifestBytes); hex.EncodeToString(sum[:]) != set.manifestSum {
 		return nil, fmt.Errorf("wire %s fixture manifest checksum mismatch", set.version)
+	}
+	if path == "manifest.json" {
+		return manifestBytes, nil
 	}
 	var manifest releaseManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {

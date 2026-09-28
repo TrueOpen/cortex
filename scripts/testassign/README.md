@@ -1,7 +1,7 @@
 # testassign
 
 Publish one diagnostic `WorkerAssignmentNotifyV1` on the devnet Nexus bus using
-the wire v0.4.0 payload and bus envelope. The envelope is unsigned, so the
+the payload and bus envelope of the pinned wire release. The envelope is unsigned, so the
 receiving node must use `nexus.envelope_auth_mode: trusted_nats_dev`.
 
 ```sh
