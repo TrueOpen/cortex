@@ -62,6 +62,26 @@
     {
       "uri": "https://models.trueopen.example/m/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "case": "exactly max_manifest_uri_bytes"
+    },
+    {
+      "uri": "https://[2001:0:0:1::1]/m.json",
+      "case": "IPv6: the longest zero run is the one compressed"
+    },
+    {
+      "uri": "https://[2001:db8::1:0:0:1]/m.json",
+      "case": "IPv6: of two equal zero runs the first is compressed"
+    },
+    {
+      "uri": "https://[::]/m.json",
+      "case": "IPv6 unspecified address (refused at connection time, not by syntax)"
+    },
+    {
+      "uri": "https://[::1]/m.json",
+      "case": "IPv6 loopback literal (refused at connection time, not by syntax)"
+    },
+    {
+      "uri": "https://10.0.0.1/m.json",
+      "case": "private IPv4 literal (refused at connection time, not by syntax)"
     }
   ],
   "rejected": [
@@ -232,6 +252,54 @@
     {
       "uri": "ipfs://",
       "reason": "missing CID"
+    },
+    {
+      "uri": "https://[::ffff:1.2.3.4]/m.json",
+      "reason": "IPv4-mapped IPv6 literal; its canonical text is the dotted IPv4 form, so use the IPv4 literal"
+    },
+    {
+      "uri": "https://[::ffff:102:304]/m.json",
+      "reason": "IPv4-mapped IPv6 literal in hex groups; its canonical text is the dotted IPv4 form"
+    },
+    {
+      "uri": "https://[::ffff:0:1.2.3.4]/m.json",
+      "reason": "IPv6 literal with a dotted IPv4 tail; canonical form uses hex groups"
+    },
+    {
+      "uri": "https://[::1.2.3.4]/m.json",
+      "reason": "IPv4-compatible IPv6 literal with a dotted IPv4 tail; canonical form uses hex groups"
+    },
+    {
+      "uri": "https://[2001::1:0:0:0:1]/m.json",
+      "reason": "IPv6: a shorter zero run compressed instead of the longest"
+    },
+    {
+      "uri": "https://[2001:db8:0:0:1::1]/m.json",
+      "reason": "IPv6: of two equal zero runs the second is compressed"
+    },
+    {
+      "uri": "https://[2001:db8::1:1:1:1:1]/m.json",
+      "reason": "IPv6: a single zero group compressed to ::"
+    },
+    {
+      "uri": "https://[2001:0db8::1]/m.json",
+      "reason": "IPv6 group with a leading zero"
+    },
+    {
+      "uri": "https://models.123/m.json",
+      "reason": "all-digit top-level label"
+    },
+    {
+      "uri": "https://bad-.example/m.json",
+      "reason": "label ends with a hyphen"
+    },
+    {
+      "uri": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example/m.json",
+      "reason": "64-byte label"
+    },
+    {
+      "uri": "https://a.example:443x/m.json",
+      "reason": "non-digit after the port"
     }
   ]
 }

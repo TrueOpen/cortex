@@ -1,0 +1,110 @@
+{
+  "schema": "trueopen-model-registration-chain-v1",
+  "contract": "Model manifest to projection to registration digest",
+  "notes": [
+    "Each vector chains the three model digests: manifest_hash = H_V1(TRUEOPEN_MODEL_MANIFEST_V4, manifest bytes), chain_projection_hash = H_V1(TRUEOPEN_MODEL_CHAIN_PROJECTION_V3, canonical projection), and registration_digest = H_V1(TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3, canonical JSON of chain_id, chain_projection_hash, manifest_hash, profile_version, proposer_address).",
+    "chain_id and proposer_address are those of model_profile_canonical_v3.json. The projection and registration digests are derived by the Node implementation (ModelRegistrationDigest). Node treats manifest_hash as opaque, so the manifest digest is the one model_manifest_v4.json publishes, re-derived here with the same H_V1 framing.",
+    "manifest_projection lists which manifest member each projection field equals in the golden vectors. It is descriptive: the Keeper never reads a manifest, and a client that rebuilds the projection from a fetched manifest follows this correspondence.",
+    "ParserRefV1 is written as {} when absent (the zero value) and as {\"name\": ..., \"version\": ...} when present; the projection keys are tool_call_parser and reasoning_parser. The parser names here are placeholders. Which parser specification a name and version select, and how a non-empty parser is written inside a V4 manifest (its tool_calling and reasoning_parsing blocks), are not defined by this contract yet; the parser vectors therefore pin the projection encoding only and are not linked to a manifest."
+  ],
+  "chain_id": "trueopen-golden-1",
+  "proposer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+  "manifest_projection": {
+    "batch_verification": "batch_verification",
+    "challenge_open_window_blocks": "profile_spec.challenge_open_window_blocks",
+    "generation_type": "profile_spec.generation_type",
+    "manifest_hash": "(the manifest digest)",
+    "manifest_uri": "(ProfileState.manifest_uri; not in the manifest)",
+    "min_stake": "profile_spec.min_stake",
+    "model_id": "identity.model_id",
+    "previous_profile_version": "identity.previous_profile_version",
+    "pricing_profile": "pricing_profile",
+    "profile_version": "identity.profile_version",
+    "reasoning_parser": "reasoning_parsing",
+    "registration_fee": "(the registration fee paid; not in the manifest)",
+    "required_top_k": "runtime_requirements.required_top_k",
+    "resource_tier": "profile_spec.resource_tier",
+    "runtime_class": "runtime_requirements.runtime_class",
+    "schema_hash": "profile_spec.schema_hash",
+    "source": "source",
+    "task_types": "profile_spec.task_types",
+    "timeout_bootstrap_profile": "timeout_bootstrap_profile",
+    "tokenizer_hash": "artifacts.tokenizer_hash",
+    "tool_call_parser": "tool_calling",
+    "verification_profile": "verification_profile",
+    "verification_thresholds": "verification_thresholds"
+  },
+  "vectors": [
+    {
+      "name": "linked_manifest_v4_golden",
+      "manifest": {
+        "vector": "hub/model_manifest_v4.json#model_manifest_v4",
+        "domain": "TRUEOPEN_MODEL_MANIFEST_V4",
+        "digest_hex": "6f083a958dbbc828b48b5de8c4524f591fc420e9d3fada1d953fe92336ce65dd"
+      },
+      "note": "The golden projection with manifest_hash set to the TRUEOPEN_MODEL_MANIFEST_V4 digest of the golden manifest. Every other projection field equals its manifest counterpart (manifest_projection below); manifest_uri and registration_fee come from outside the manifest.",
+      "manifest_hash": "6f083a958dbbc828b48b5de8c4524f591fc420e9d3fada1d953fe92336ce65dd",
+      "tool_call_parser": {},
+      "reasoning_parser": {},
+      "projection": {
+        "domain": "TRUEOPEN_MODEL_CHAIN_PROJECTION_V3",
+        "framing": "H_V1",
+        "payload_utf8": "{\"batch_verification\":{\"enabled\":false,\"min_sample_count\":0,\"min_valid_sample_count\":0,\"pass_min_sample_pass_ratio_bps\":0,\"reject_min_sample_reject_ratio_bps\":0},\"challenge_open_window_blocks\":100,\"generation_type\":\"SAMPLED\",\"manifest_hash\":\"0x6f083a958dbbc828b48b5de8c4524f591fc420e9d3fada1d953fe92336ce65dd\",\"manifest_uri\":\"https://models.trueopen.example/manifests/golden-model/v1.json?rev=3&sig=ab\",\"min_stake\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"model_id\":\"0xc65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f\",\"previous_profile_version\":0,\"pricing_profile\":{\"initial_output_price\":10,\"min_order_value\":1000,\"verify_ratio_bps\":1000},\"profile_version\":1,\"reasoning_parser\":{},\"registration_fee\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"required_top_k\":20,\"resource_tier\":2,\"runtime_class\":\"CAUSAL_LM_PREFILL_LOGPROBS_V1\",\"schema_hash\":\"0x9999999999999999999999999999999999999999999999999999999999999999\",\"source\":{\"provider\":\"HUGGINGFACE\",\"repo_id\":\"trueopen/golden-model\",\"repo_type\":\"model\",\"resolver_version\":\"HF_RESOLVER_V1\",\"revision\":\"0123456789abcdef0123456789abcdef01234567\",\"source_uri\":\"hf://trueopen/golden-model@0123456789abcdef0123456789abcdef01234567\"},\"task_types\":[\"TEXT_GENERATION\",\"CHAT\"],\"timeout_bootstrap_profile\":{\"bootstrap_valid_until_epoch\":1000,\"commit_timeout_bootstrap_blocks\":20,\"infer_timeout_bootstrap_blocks\":100,\"verify_timeout_bootstrap_blocks\":50},\"tokenizer_hash\":\"0x4444444444444444444444444444444444444444444444444444444444444444\",\"tool_call_parser\":{},\"verification_profile\":{\"canonical_encoding_version\":\"CANONICAL_OUTPUT_TEXT_V1\",\"evidence_schema\":{\"required_infer_evidence\":[{\"commitment_schema_version\":3,\"evidence_kind\":\"WORKER_VALUE_OPENING\",\"max_encoded_size_bytes\":1073741824},{\"commitment_schema_version\":1,\"evidence_kind\":\"WORKER_TOKEN_OPENING\",\"max_encoded_size_bytes\":67108864}],\"schema_version\":1},\"evidence_schema_hash\":\"0x32bde2e9a69fef898b82cc23f0be211c17f06cb01cec111494d4ed5fcf35ffe0\",\"include_generated_special_tokens\":true,\"include_padding_tokens\":false,\"include_prompt_tokens\":false,\"judgment_function_version\":\"PREFILL_GENERATED_TOKEN_METRICS_V1\",\"metric_aggregate_proof_version\":\"PREFILL_METRIC_AGGREGATE_PROOF_V1\",\"metrics\":{\"compare_logprob_diff\":true,\"compare_rank_delta\":true,\"compare_topk_jaccard\":true,\"compare_union_js\":true,\"compared_top_k\":20,\"numeric_scale\":\"FP_1E6\"},\"require_finish_reason\":true,\"require_output_token_ids\":true,\"token_scope\":\"ALL_GENERATED_OUTPUT_TOKENS\",\"verification_mode\":\"SINGLE_SAMPLE\",\"verification_profile_id\":1},\"verification_thresholds\":{\"pass_abs_logprob_diff_p95_max\":100000,\"pass_abs_logprob_diff_p99_max\":200000,\"pass_max_missing_compared_count\":0,\"pass_mean_abs_logprob_diff_max\":50000,\"pass_min_finite_count\":16,\"pass_rank_delta_nonzero_rate_max\":50000,\"pass_topk_jaccard_mean_min\":900000,\"pass_union_js_p99_max\":50000,\"reject_abs_logprob_diff_p95_min\":500000,\"reject_abs_logprob_diff_p99_min\":800000,\"reject_mean_abs_logprob_diff_min\":300000,\"reject_rank_delta_nonzero_rate_min\":300000,\"reject_topk_jaccard_mean_max\":600000,\"reject_union_js_p99_min\":200000}}",
+        "digest_hex": "de28e6ae9dd5545557904b03bec8c163eb972a711cb462529f0e796162688734"
+      },
+      "registration": {
+        "domain": "TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3",
+        "framing": "H_V1",
+        "payload_utf8": "{\"chain_id\":\"trueopen-golden-1\",\"chain_projection_hash\":\"0xde28e6ae9dd5545557904b03bec8c163eb972a711cb462529f0e796162688734\",\"manifest_hash\":\"0x6f083a958dbbc828b48b5de8c4524f591fc420e9d3fada1d953fe92336ce65dd\",\"profile_version\":1,\"proposer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}",
+        "digest_hex": "a34d9547aa539dc994dc8bb82ac2eb68fb8f2c0e2e917fcf148e329109014c7a"
+      }
+    },
+    {
+      "name": "parser_refs_tool_call_only",
+      "note": "Encoding vector: the golden projection, with its opaque manifest_hash, and non-empty parser references. There is no manifest counterpart; see the notes.",
+      "manifest_hash": "9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031",
+      "tool_call_parser": {
+        "name": "golden-tool-parser",
+        "version": 1
+      },
+      "reasoning_parser": {},
+      "projection": {
+        "domain": "TRUEOPEN_MODEL_CHAIN_PROJECTION_V3",
+        "framing": "H_V1",
+        "payload_utf8": "{\"batch_verification\":{\"enabled\":false,\"min_sample_count\":0,\"min_valid_sample_count\":0,\"pass_min_sample_pass_ratio_bps\":0,\"reject_min_sample_reject_ratio_bps\":0},\"challenge_open_window_blocks\":100,\"generation_type\":\"SAMPLED\",\"manifest_hash\":\"0x9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031\",\"manifest_uri\":\"https://models.trueopen.example/manifests/golden-model/v1.json?rev=3&sig=ab\",\"min_stake\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"model_id\":\"0xc65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f\",\"previous_profile_version\":0,\"pricing_profile\":{\"initial_output_price\":10,\"min_order_value\":1000,\"verify_ratio_bps\":1000},\"profile_version\":1,\"reasoning_parser\":{},\"registration_fee\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"required_top_k\":20,\"resource_tier\":2,\"runtime_class\":\"CAUSAL_LM_PREFILL_LOGPROBS_V1\",\"schema_hash\":\"0x9999999999999999999999999999999999999999999999999999999999999999\",\"source\":{\"provider\":\"HUGGINGFACE\",\"repo_id\":\"trueopen/golden-model\",\"repo_type\":\"model\",\"resolver_version\":\"HF_RESOLVER_V1\",\"revision\":\"0123456789abcdef0123456789abcdef01234567\",\"source_uri\":\"hf://trueopen/golden-model@0123456789abcdef0123456789abcdef01234567\"},\"task_types\":[\"TEXT_GENERATION\",\"CHAT\"],\"timeout_bootstrap_profile\":{\"bootstrap_valid_until_epoch\":1000,\"commit_timeout_bootstrap_blocks\":20,\"infer_timeout_bootstrap_blocks\":100,\"verify_timeout_bootstrap_blocks\":50},\"tokenizer_hash\":\"0x4444444444444444444444444444444444444444444444444444444444444444\",\"tool_call_parser\":{\"name\":\"golden-tool-parser\",\"version\":1},\"verification_profile\":{\"canonical_encoding_version\":\"CANONICAL_OUTPUT_TEXT_V1\",\"evidence_schema\":{\"required_infer_evidence\":[{\"commitment_schema_version\":3,\"evidence_kind\":\"WORKER_VALUE_OPENING\",\"max_encoded_size_bytes\":1073741824},{\"commitment_schema_version\":1,\"evidence_kind\":\"WORKER_TOKEN_OPENING\",\"max_encoded_size_bytes\":67108864}],\"schema_version\":1},\"evidence_schema_hash\":\"0x32bde2e9a69fef898b82cc23f0be211c17f06cb01cec111494d4ed5fcf35ffe0\",\"include_generated_special_tokens\":true,\"include_padding_tokens\":false,\"include_prompt_tokens\":false,\"judgment_function_version\":\"PREFILL_GENERATED_TOKEN_METRICS_V1\",\"metric_aggregate_proof_version\":\"PREFILL_METRIC_AGGREGATE_PROOF_V1\",\"metrics\":{\"compare_logprob_diff\":true,\"compare_rank_delta\":true,\"compare_topk_jaccard\":true,\"compare_union_js\":true,\"compared_top_k\":20,\"numeric_scale\":\"FP_1E6\"},\"require_finish_reason\":true,\"require_output_token_ids\":true,\"token_scope\":\"ALL_GENERATED_OUTPUT_TOKENS\",\"verification_mode\":\"SINGLE_SAMPLE\",\"verification_profile_id\":1},\"verification_thresholds\":{\"pass_abs_logprob_diff_p95_max\":100000,\"pass_abs_logprob_diff_p99_max\":200000,\"pass_max_missing_compared_count\":0,\"pass_mean_abs_logprob_diff_max\":50000,\"pass_min_finite_count\":16,\"pass_rank_delta_nonzero_rate_max\":50000,\"pass_topk_jaccard_mean_min\":900000,\"pass_union_js_p99_max\":50000,\"reject_abs_logprob_diff_p95_min\":500000,\"reject_abs_logprob_diff_p99_min\":800000,\"reject_mean_abs_logprob_diff_min\":300000,\"reject_rank_delta_nonzero_rate_min\":300000,\"reject_topk_jaccard_mean_max\":600000,\"reject_union_js_p99_min\":200000}}",
+        "digest_hex": "0403b28f72ae615c4bea54d4a1efceb1e56612933ddb78b7e8707bc8270ebd8d"
+      },
+      "registration": {
+        "domain": "TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3",
+        "framing": "H_V1",
+        "payload_utf8": "{\"chain_id\":\"trueopen-golden-1\",\"chain_projection_hash\":\"0x0403b28f72ae615c4bea54d4a1efceb1e56612933ddb78b7e8707bc8270ebd8d\",\"manifest_hash\":\"0x9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031\",\"profile_version\":1,\"proposer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}",
+        "digest_hex": "340a44926dc2d05b105d750d44ab615a3f64a0b59d2018e400859db2ec5d9626"
+      }
+    },
+    {
+      "name": "parser_refs_both",
+      "note": "Encoding vector: the golden projection, with its opaque manifest_hash, and non-empty parser references. There is no manifest counterpart; see the notes.",
+      "manifest_hash": "9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031",
+      "tool_call_parser": {
+        "name": "golden-tool-parser",
+        "version": 1
+      },
+      "reasoning_parser": {
+        "name": "golden-reasoning-parser",
+        "version": 2
+      },
+      "projection": {
+        "domain": "TRUEOPEN_MODEL_CHAIN_PROJECTION_V3",
+        "framing": "H_V1",
+        "payload_utf8": "{\"batch_verification\":{\"enabled\":false,\"min_sample_count\":0,\"min_valid_sample_count\":0,\"pass_min_sample_pass_ratio_bps\":0,\"reject_min_sample_reject_ratio_bps\":0},\"challenge_open_window_blocks\":100,\"generation_type\":\"SAMPLED\",\"manifest_hash\":\"0x9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031\",\"manifest_uri\":\"https://models.trueopen.example/manifests/golden-model/v1.json?rev=3&sig=ab\",\"min_stake\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"model_id\":\"0xc65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f\",\"previous_profile_version\":0,\"pricing_profile\":{\"initial_output_price\":10,\"min_order_value\":1000,\"verify_ratio_bps\":1000},\"profile_version\":1,\"reasoning_parser\":{\"name\":\"golden-reasoning-parser\",\"version\":2},\"registration_fee\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"required_top_k\":20,\"resource_tier\":2,\"runtime_class\":\"CAUSAL_LM_PREFILL_LOGPROBS_V1\",\"schema_hash\":\"0x9999999999999999999999999999999999999999999999999999999999999999\",\"source\":{\"provider\":\"HUGGINGFACE\",\"repo_id\":\"trueopen/golden-model\",\"repo_type\":\"model\",\"resolver_version\":\"HF_RESOLVER_V1\",\"revision\":\"0123456789abcdef0123456789abcdef01234567\",\"source_uri\":\"hf://trueopen/golden-model@0123456789abcdef0123456789abcdef01234567\"},\"task_types\":[\"TEXT_GENERATION\",\"CHAT\"],\"timeout_bootstrap_profile\":{\"bootstrap_valid_until_epoch\":1000,\"commit_timeout_bootstrap_blocks\":20,\"infer_timeout_bootstrap_blocks\":100,\"verify_timeout_bootstrap_blocks\":50},\"tokenizer_hash\":\"0x4444444444444444444444444444444444444444444444444444444444444444\",\"tool_call_parser\":{\"name\":\"golden-tool-parser\",\"version\":1},\"verification_profile\":{\"canonical_encoding_version\":\"CANONICAL_OUTPUT_TEXT_V1\",\"evidence_schema\":{\"required_infer_evidence\":[{\"commitment_schema_version\":3,\"evidence_kind\":\"WORKER_VALUE_OPENING\",\"max_encoded_size_bytes\":1073741824},{\"commitment_schema_version\":1,\"evidence_kind\":\"WORKER_TOKEN_OPENING\",\"max_encoded_size_bytes\":67108864}],\"schema_version\":1},\"evidence_schema_hash\":\"0x32bde2e9a69fef898b82cc23f0be211c17f06cb01cec111494d4ed5fcf35ffe0\",\"include_generated_special_tokens\":true,\"include_padding_tokens\":false,\"include_prompt_tokens\":false,\"judgment_function_version\":\"PREFILL_GENERATED_TOKEN_METRICS_V1\",\"metric_aggregate_proof_version\":\"PREFILL_METRIC_AGGREGATE_PROOF_V1\",\"metrics\":{\"compare_logprob_diff\":true,\"compare_rank_delta\":true,\"compare_topk_jaccard\":true,\"compare_union_js\":true,\"compared_top_k\":20,\"numeric_scale\":\"FP_1E6\"},\"require_finish_reason\":true,\"require_output_token_ids\":true,\"token_scope\":\"ALL_GENERATED_OUTPUT_TOKENS\",\"verification_mode\":\"SINGLE_SAMPLE\",\"verification_profile_id\":1},\"verification_thresholds\":{\"pass_abs_logprob_diff_p95_max\":100000,\"pass_abs_logprob_diff_p99_max\":200000,\"pass_max_missing_compared_count\":0,\"pass_mean_abs_logprob_diff_max\":50000,\"pass_min_finite_count\":16,\"pass_rank_delta_nonzero_rate_max\":50000,\"pass_topk_jaccard_mean_min\":900000,\"pass_union_js_p99_max\":50000,\"reject_abs_logprob_diff_p95_min\":500000,\"reject_abs_logprob_diff_p99_min\":800000,\"reject_mean_abs_logprob_diff_min\":300000,\"reject_rank_delta_nonzero_rate_min\":300000,\"reject_topk_jaccard_mean_max\":600000,\"reject_union_js_p99_min\":200000}}",
+        "digest_hex": "87792c1b5694441e31325e74c568b8ce4c2f21ad7d4c71063c035977fe3ff66c"
+      },
+      "registration": {
+        "domain": "TRUEOPEN_MODEL_REGISTRATION_DIGEST_V3",
+        "framing": "H_V1",
+        "payload_utf8": "{\"chain_id\":\"trueopen-golden-1\",\"chain_projection_hash\":\"0x87792c1b5694441e31325e74c568b8ce4c2f21ad7d4c71063c035977fe3ff66c\",\"manifest_hash\":\"0x9b0148865efde2dbf366305733ee5275dc247e3b9af8def770955d3758b52031\",\"profile_version\":1,\"proposer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}",
+        "digest_hex": "d8cb90350d0dd8f6680725ad356f171f26de674481a39b605c64d69c798284ce"
+      }
+    }
+  ]
+}

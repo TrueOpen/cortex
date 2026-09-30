@@ -93,7 +93,7 @@ const (
 type IngressAPIClient interface {
 	// OpenTask executes the OpenTask operation.
 	OpenTask(context.Context) *connect.ClientStreamForClient[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	// ConfirmOpenTask executes the ConfirmOpenTask operation.
+	// ConfirmOpenTask is not callable in V1: FailedPrecondition, NEXUS_INGRESS_CONTRACT_NOT_FROZEN.
 	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
 	// SubscribeOutput executes the SubscribeOutput operation.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest]) (*connect.ServerStreamForClient[v1.SubscribeOutputResponse], error)
@@ -124,14 +124,23 @@ type IngressAPIClient interface {
 	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
 	// SubmitOrder executes the SubmitOrder operation.
+	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
+	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+	// verifying any signature. No body domain is defined for it.
 	//
 	// Deprecated: do not use.
 	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
 	// FetchOutputRef executes the FetchOutputRef operation.
+	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
+	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+	// verifying any signature. No body domain is defined for it.
 	//
 	// Deprecated: do not use.
 	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
 	// RefreshCredential executes the RefreshCredential operation.
+	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
+	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+	// verifying any signature. No body domain is defined for it.
 	//
 	// Deprecated: do not use.
 	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)
@@ -393,7 +402,7 @@ func (c *ingressAPIClient) RefreshCredential(ctx context.Context, req *connect.R
 type IngressAPIHandler interface {
 	// OpenTask executes the OpenTask operation.
 	OpenTask(context.Context, *connect.ClientStream[v1.OpenTaskRequest]) (*connect.Response[v1.OpenTaskResponse], error)
-	// ConfirmOpenTask executes the ConfirmOpenTask operation.
+	// ConfirmOpenTask is not callable in V1: FailedPrecondition, NEXUS_INGRESS_CONTRACT_NOT_FROZEN.
 	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
 	// SubscribeOutput executes the SubscribeOutput operation.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest], *connect.ServerStream[v1.SubscribeOutputResponse]) error
@@ -424,14 +433,23 @@ type IngressAPIHandler interface {
 	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
 	// SubmitOrder executes the SubmitOrder operation.
+	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
+	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+	// verifying any signature. No body domain is defined for it.
 	//
 	// Deprecated: do not use.
 	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
 	// FetchOutputRef executes the FetchOutputRef operation.
+	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
+	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+	// verifying any signature. No body domain is defined for it.
 	//
 	// Deprecated: do not use.
 	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
 	// RefreshCredential executes the RefreshCredential operation.
+	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
+	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
+	// verifying any signature. No body domain is defined for it.
 	//
 	// Deprecated: do not use.
 	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)

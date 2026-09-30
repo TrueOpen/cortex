@@ -1,0 +1,386 @@
+{
+  "schema": "trueopen-task-generation-params-ranges-v1",
+  "contract": "DecodingParamsV1 value ranges",
+  "notes": [
+    "Ranges are inclusive: temperature_milli 0..2000, top_p_ppm 1..1000000, presence_penalty_milli and frequency_penalty_milli -2000..2000, repetition_penalty_ppm 100000..2000000, and top_k 0..generation.top_k_max of task.v1 Params (0 disables top-k). Every case changes one field of the generation_params_v1.json base and is reproduced by the Node implementation.",
+    "Two producers check the ranges. The TaskOrderV3 projection (TRUEOPEN_TASK_ORDER_V3, so task_hash and the signed order) rejects every out-of-range value except top_k, which it does not bound. The generation parameter payload (TRUEOPEN_TASK_GENERATION_PARAMS_V1, derived by the Keeper at admission) rejects all of them, top_k against the registered limit. A top_k above the limit therefore yields a valid task_hash for an order the Keeper still refuses.",
+    "An accepted case publishes the canonical payload and its digest; the base is model_id, profile_version, task_type and output_budget_bucket of generation_params_v1.json. The limits are the default task.v1 Params generation limits, listed below.",
+    "min-1 of an unsigned field whose minimum is 0 is not encodable and has no case. The chain fills no default for any of these fields; a client that offers defaults must show them to the signer, because every value enters task_hash.",
+    "reason is the Node error text at the time the vector was produced. It is informative: match on expect, not on the text."
+  ],
+  "base_vector": "task/generation_params_v1.json",
+  "limits": {
+    "max_output_tokens": 131072,
+    "stop_sequence_max_bytes_each": 128,
+    "stop_sequence_max_items": 16,
+    "stop_sequence_max_total_bytes": 1024,
+    "stop_token_max_items": 64,
+    "top_k_max": 1000
+  },
+  "ranges": {
+    "temperature_milli": {
+      "min": 0,
+      "max": 2000,
+      "unit": "1/1000; 1000 means 1.0"
+    },
+    "top_p_ppm": {
+      "min": 1,
+      "max": 1000000,
+      "unit": "1/1000000; 1000000 means 1.0"
+    },
+    "top_k": {
+      "min": 0,
+      "max_param": "task.v1 Params generation.top_k_max",
+      "default_max": 1000,
+      "note": "0 disables top-k"
+    },
+    "presence_penalty_milli": {
+      "min": -2000,
+      "max": 2000,
+      "unit": "1/1000; 0 is neutral"
+    },
+    "frequency_penalty_milli": {
+      "min": -2000,
+      "max": 2000,
+      "unit": "1/1000; 0 is neutral"
+    },
+    "repetition_penalty_ppm": {
+      "min": 100000,
+      "max": 2000000,
+      "unit": "1/1000000; 1000000 means 1.0"
+    }
+  },
+  "cases": [
+    {
+      "name": "temperature_milli_min",
+      "field": "decoding_params.temperature_milli",
+      "value": 0,
+      "boundary": "min",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":0,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "d9d4d05480bf60256741e3c1f74a01a0b25931566bc1460d2e92673a5c306ce8"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "temperature_milli_max",
+      "field": "decoding_params.temperature_milli",
+      "value": 2000,
+      "boundary": "max",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":2000,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "d5436fc7aac163635e5c9ad605944a0fbc0a51b0efe15025158a4c127b8620d6"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "temperature_milli_max+1",
+      "field": "decoding_params.temperature_milli",
+      "value": 2001,
+      "boundary": "max+1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "temperature_milli exceeds 2000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "temperature_milli exceeds 2000"
+      }
+    },
+    {
+      "name": "top_p_ppm_min",
+      "field": "decoding_params.top_p_ppm",
+      "value": 1,
+      "boundary": "min",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":1},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "0b15f45c4cbd2663af396c413029e854e9be906c7e03e19a2e6b8bf4e72912e4"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "top_p_ppm_max",
+      "field": "decoding_params.top_p_ppm",
+      "value": 1000000,
+      "boundary": "max",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":1000000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "c6f077980f3bd595ec6b6546523a3c7befe1fdcd1eb993449a447fa18e614e66"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "top_p_ppm_min-1",
+      "field": "decoding_params.top_p_ppm",
+      "value": 0,
+      "boundary": "min-1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "top_p_ppm must be in 1..1000000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "top_p_ppm must be in 1..1000000"
+      }
+    },
+    {
+      "name": "top_p_ppm_max+1",
+      "field": "decoding_params.top_p_ppm",
+      "value": 1000001,
+      "boundary": "max+1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "top_p_ppm must be in 1..1000000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "top_p_ppm must be in 1..1000000"
+      }
+    },
+    {
+      "name": "top_k_min",
+      "field": "decoding_params.top_k",
+      "value": 0,
+      "boundary": "min",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":0,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "15f196f8d3b828798f90c31fc8d4566d0375ec4db8a8d4687b6699dba4a45e9b"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "top_k_max",
+      "field": "decoding_params.top_k",
+      "value": 1000,
+      "boundary": "max",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":1000,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "660c47211e801d5119b536fe2fb566de5f4014bbb6c9a48d92525f8d4e676c41"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "top_k_max+1",
+      "field": "decoding_params.top_k",
+      "value": 1001,
+      "boundary": "max+1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "top_k exceeds registered limit 1000"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "presence_penalty_milli_min",
+      "field": "decoding_params.presence_penalty_milli",
+      "value": -2000,
+      "boundary": "min",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-2000,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "3719f03a47974a3729fc6090aa1e14f96b9470b964538b85f1b6cb4097ba95cb"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "presence_penalty_milli_max",
+      "field": "decoding_params.presence_penalty_milli",
+      "value": 2000,
+      "boundary": "max",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":2000,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "fa2224d3ff75b9e3579755b62872a382a446014e1a9950c0a4768d23dc3d67d4"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "presence_penalty_milli_min-1",
+      "field": "decoding_params.presence_penalty_milli",
+      "value": -2001,
+      "boundary": "min-1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      }
+    },
+    {
+      "name": "presence_penalty_milli_max+1",
+      "field": "decoding_params.presence_penalty_milli",
+      "value": 2001,
+      "boundary": "max+1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      }
+    },
+    {
+      "name": "frequency_penalty_milli_min",
+      "field": "decoding_params.frequency_penalty_milli",
+      "value": -2000,
+      "boundary": "min",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":-2000,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "fa7555aba900b333a0c7f2caff764c3b7f91f0dacc8a2fa55ba5d6ec4563af09"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "frequency_penalty_milli_max",
+      "field": "decoding_params.frequency_penalty_milli",
+      "value": 2000,
+      "boundary": "max",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":2000,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":1100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "1974f8e5d635fd611624ec71674d066a5e2b6cbff17a7dd270b38817ddba727f"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "frequency_penalty_milli_min-1",
+      "field": "decoding_params.frequency_penalty_milli",
+      "value": -2001,
+      "boundary": "min-1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      }
+    },
+    {
+      "name": "frequency_penalty_milli_max+1",
+      "field": "decoding_params.frequency_penalty_milli",
+      "value": 2001,
+      "boundary": "max+1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "presence and frequency penalties must be in -2000..2000"
+      }
+    },
+    {
+      "name": "repetition_penalty_ppm_min",
+      "field": "decoding_params.repetition_penalty_ppm",
+      "value": 100000,
+      "boundary": "min",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":100000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "3581a1dc8987eea3e39bd7bf82f65cf771cf3644ab61dfd91c04886305a01a31"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "repetition_penalty_ppm_max",
+      "field": "decoding_params.repetition_penalty_ppm",
+      "value": 2000000,
+      "boundary": "max",
+      "generation_params": {
+        "expect": "accept",
+        "domain": "TRUEOPEN_TASK_GENERATION_PARAMS_V1",
+        "framing": "H_V1",
+        "payload_utf8": "{\"decoding_params\":{\"frequency_penalty_milli\":200,\"presence_penalty_milli\":-100,\"repetition_penalty_ppm\":2000000,\"sampling_enabled\":true,\"seed\":42,\"stop_sequences\":[\"\\n\\n\",\"</s>\"],\"stop_token_ids\":[2,128001],\"temperature_milli\":800,\"top_k\":40,\"top_p_ppm\":950000},\"generation_params_schema_version\":1,\"max_output_duration\":30000,\"max_output_tokens\":256,\"model_id\":\"0x5555555555555555555555555555555555555555555555555555555555555555\",\"output_budget_bucket\":4,\"profile_version\":1,\"task_type\":\"CHAT\"}",
+        "digest_hex": "7acf269662a82b93e6532804d54bc728ef37bcb07a3dfbdaa8c0f7b0b63d7b45"
+      },
+      "task_order_v3": {
+        "expect": "accept"
+      }
+    },
+    {
+      "name": "repetition_penalty_ppm_min-1",
+      "field": "decoding_params.repetition_penalty_ppm",
+      "value": 99999,
+      "boundary": "min-1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "repetition_penalty_ppm must be in 100000..2000000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "repetition_penalty_ppm must be in 100000..2000000"
+      }
+    },
+    {
+      "name": "repetition_penalty_ppm_max+1",
+      "field": "decoding_params.repetition_penalty_ppm",
+      "value": 2000001,
+      "boundary": "max+1",
+      "generation_params": {
+        "expect": "reject",
+        "reason": "repetition_penalty_ppm must be in 100000..2000000"
+      },
+      "task_order_v3": {
+        "expect": "reject",
+        "reason": "repetition_penalty_ppm must be in 100000..2000000"
+      }
+    }
+  ]
+}

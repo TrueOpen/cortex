@@ -1,0 +1,241 @@
+{
+  "schema": "trueopen-task-order-economics-v1",
+  "contract": "TaskOrderV3 order_value derivation",
+  "notes": [
+    "worker_max = floor(max_output_tokens * price_bid / 1000000); verify_max = floor(worker_max * verify_ratio_bps / 10000); order_value = worker_max + verify_max. Each product uses a 128-bit intermediate and one floor; every result must fit in u64.",
+    "verify_ratio_bps is the model profile PricingProfile.verify_ratio_bps (1..10000 on a registered profile). max_output_tokens is TaskOrderV3.generation_params.max_output_tokens. All amounts are canonical unsigned decimal strings: no sign, no leading zero, at most u64.",
+    "The order is rejected when price_bid is not canonical or is zero, when either step overflows u64, when order_value is zero, or when order_value + tx_fee_reserve overflows u64 or exceeds max_fee. After this derivation the Keeper also rejects an order_value below the profile PricingProfile.min_order_value; that check needs profile state and is not part of these cases.",
+    "max_output_tokens and every amount are written as decimal strings because several cases exceed 2^53. All amounts are in the chain business_denom (hub.v1 Params phase0.business_denom); the order carries no denomination.",
+    "reason is the Node error text at the time the vector was produced. It is informative: match on expect, not on the text."
+  ],
+  "cases": [
+    {
+      "name": "golden_core_order",
+      "note": "The task_order_v3_core amounts with the golden profile ratio of 1000 bps.",
+      "inputs": {
+        "max_output_tokens": "256",
+        "price_bid": "4000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "150000",
+        "tx_fee_reserve": "250"
+      },
+      "expect": "accept",
+      "worker_max": "1024",
+      "verify_max": "102",
+      "order_value": "1126"
+    },
+    {
+      "name": "exact_division",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1100",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "accept",
+      "worker_max": "1000",
+      "verify_max": "100",
+      "order_value": "1100"
+    },
+    {
+      "name": "max_fee_exactly_covers_value_plus_reserve",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1150",
+        "tx_fee_reserve": "50"
+      },
+      "expect": "accept",
+      "worker_max": "1000",
+      "verify_max": "100",
+      "order_value": "1100"
+    },
+    {
+      "name": "max_fee_one_below_value_plus_reserve",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1149",
+        "tx_fee_reserve": "50"
+      },
+      "expect": "reject",
+      "reason": "order_value plus tx_fee_reserve exceeds max_fee"
+    },
+    {
+      "name": "worker_floor_drops_fraction",
+      "note": "999 x 1001 / 1e6 = 0.999999; with 1000 tokens the product is 1.001 and floors to 1.",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "1001",
+        "verify_ratio_bps": 1000,
+        "max_fee": "10",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "accept",
+      "worker_max": "1",
+      "verify_max": "0",
+      "order_value": "1"
+    },
+    {
+      "name": "verify_floor_to_zero",
+      "note": "worker_max 9 x 1000 bps = 0.9, floored to 0; order_value equals worker_max.",
+      "inputs": {
+        "max_output_tokens": "9",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "9",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "accept",
+      "worker_max": "9",
+      "verify_max": "0",
+      "order_value": "9"
+    },
+    {
+      "name": "verify_floor_just_reaches_one",
+      "inputs": {
+        "max_output_tokens": "10",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "11",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "accept",
+      "worker_max": "10",
+      "verify_max": "1",
+      "order_value": "11"
+    },
+    {
+      "name": "verify_ratio_full",
+      "inputs": {
+        "max_output_tokens": "7",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 10000,
+        "max_fee": "14",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "accept",
+      "worker_max": "7",
+      "verify_max": "7",
+      "order_value": "14"
+    },
+    {
+      "name": "worker_below_one_rejected",
+      "note": "999 x 1000 / 1e6 floors to 0, so order_value is 0.",
+      "inputs": {
+        "max_output_tokens": "999",
+        "price_bid": "1000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1000000",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "reject",
+      "reason": "order_value is zero or overflows uint64"
+    },
+    {
+      "name": "price_bid_zero_rejected",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "0",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1000000",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "reject",
+      "reason": "price_bid must be canonical and positive"
+    },
+    {
+      "name": "price_bid_leading_zero_rejected",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "01000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1000000",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "reject",
+      "reason": "price_bid must be canonical and positive"
+    },
+    {
+      "name": "price_bid_above_u64_rejected",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "18446744073709551616",
+        "verify_ratio_bps": 1000,
+        "max_fee": "18446744073709551615",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "reject",
+      "reason": "price_bid must be canonical and positive"
+    },
+    {
+      "name": "wide_product_fits",
+      "note": "tokens x price exceeds 2^64 but the 128-bit intermediate divided by 1e6 fits in u64.",
+      "inputs": {
+        "max_output_tokens": "1000000",
+        "price_bid": "18446744073709551615",
+        "verify_ratio_bps": 0,
+        "max_fee": "18446744073709551615",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "accept",
+      "worker_max": "18446744073709551615",
+      "verify_max": "0",
+      "order_value": "18446744073709551615"
+    },
+    {
+      "name": "worker_max_overflow_rejected",
+      "note": "floor(tokens x price / 1e6) exceeds u64.",
+      "inputs": {
+        "max_output_tokens": "1000001",
+        "price_bid": "18446744073709551615",
+        "verify_ratio_bps": 0,
+        "max_fee": "18446744073709551615",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "reject",
+      "reason": "worker_max overflows uint64"
+    },
+    {
+      "name": "order_value_sum_overflow_rejected",
+      "note": "worker_max = u64 max; adding verify_max overflows.",
+      "inputs": {
+        "max_output_tokens": "1000000",
+        "price_bid": "18446744073709551615",
+        "verify_ratio_bps": 1,
+        "max_fee": "18446744073709551615",
+        "tx_fee_reserve": "0"
+      },
+      "expect": "reject",
+      "reason": "order_value is zero or overflows uint64"
+    },
+    {
+      "name": "reserve_sum_overflow_rejected",
+      "note": "order_value + tx_fee_reserve overflows u64.",
+      "inputs": {
+        "max_output_tokens": "1000000",
+        "price_bid": "18446744073709551614",
+        "verify_ratio_bps": 0,
+        "max_fee": "18446744073709551615",
+        "tx_fee_reserve": "2"
+      },
+      "expect": "reject",
+      "reason": "order_value plus tx_fee_reserve exceeds max_fee"
+    },
+    {
+      "name": "tx_fee_reserve_not_canonical_rejected",
+      "inputs": {
+        "max_output_tokens": "1000",
+        "price_bid": "1000000",
+        "verify_ratio_bps": 1000,
+        "max_fee": "1100",
+        "tx_fee_reserve": ""
+      },
+      "expect": "reject",
+      "reason": "tx_fee_reserve: amount atomic_units is required"
+    }
+  ]
+}
