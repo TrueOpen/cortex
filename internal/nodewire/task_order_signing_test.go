@@ -64,6 +64,73 @@ func TestTaskOrderEIP712PublishedDigest(t *testing.T) {
 	}
 }
 
+// wire v0.4.0 links each accepted task_order_v3.json order to its EIP-712
+// signing digest. The account_signing_v1.json vector above signs an opaque
+// taskHash; these rows are the ones whose taskHash is a real
+// TRUEOPEN_TASK_ORDER_V3 digest, so they bind the whole chain the user signs.
+func TestTaskOrderEIP712VectorsMatchEveryPublishedDigest(t *testing.T) {
+	raw, err := wirevectors.File("task/task_order_eip712_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Domain struct {
+			ChainID string `json:"chain_id"`
+		} `json:"domain"`
+		FeeDenom string `json:"fee_denom"`
+		Vectors  []struct {
+			Name          string            `json:"name"`
+			TaskHash      string            `json:"task_hash"`
+			Message       map[string]string `json:"message"`
+			SigningDigest string            `json:"signing_digest"`
+		} `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Vectors) == 0 {
+		t.Fatal("wire publishes no task-order EIP-712 vectors")
+	}
+	chainID, err := strconv.ParseUint(fixture.Domain.ChainID, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, vector := range fixture.Vectors {
+		t.Run(vector.Name, func(t *testing.T) {
+			m := vector.Message
+			u := func(k string) uint64 {
+				v, err := strconv.ParseUint(m[k], 10, 64)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			}
+			b := func(k string) []byte {
+				v, err := hex.DecodeString(m[k])
+				if err != nil {
+					t.Fatal(err)
+				}
+				return v
+			}
+			if m["feeDenom"] != fixture.FeeDenom {
+				t.Fatalf("message feeDenom %q, want the file's %q", m["feeDenom"], fixture.FeeDenom)
+			}
+			if m["taskHash"] != vector.TaskHash {
+				t.Fatalf("message taskHash %s, want the row's %s", m["taskHash"], vector.TaskHash)
+			}
+			order := taskOrderV3{ChainID: m["chainId"], UserAddress: m["user"], SessionID: b("sessionId"), OrderSequence: taskOrderUint64(u("orderSequence")),
+				ModelID: b("modelId"), ProfileVersion: uint32(u("profileVersion")), MaxFee: taskOrderAmount{AtomicUnits: m["maxFee"]},
+				EarliestSubmitHeight: taskOrderUint64(u("earliestSubmitHeight")), OrderExpireHeight: taskOrderUint64(u("orderExpireHeight"))}
+			var taskHash codec.Hash
+			copy(taskHash[:], b("taskHash"))
+			digest := taskOrderTypedDigest(order, taskHash, chainID, fixture.FeeDenom)
+			if hex.EncodeToString(digest[:]) != vector.SigningDigest {
+				t.Fatalf("EIP-712 digest %x, want %s", digest, vector.SigningDigest)
+			}
+		})
+	}
+}
+
 func TestSignedOrderVerifiesAddressAndEverySignedScope(t *testing.T) {
 	var order taskv1.TaskOrderV3
 	if err := protojson.Unmarshal(goldenTaskOrderJSON(t), &order); err != nil {
