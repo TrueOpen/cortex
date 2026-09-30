@@ -1,0 +1,820 @@
+{
+  "schema": "trueopen-rest-json-shapes-v1",
+  "contract": "Node REST gateway JSON rendering",
+  "notes": [
+    "Bodies are rendered by the Node REST gateway: the Cosmos API server gateway marshaler (gogoproto JSONPb with OrigName and EmitDefaults) followed by the Node response encoder that applies shared.v1.rest_bytes_encoding. They are shapes, not chain data: populated bodies use placeholders (string \"s\", integer 1, the first declared non-zero enum value, and 32 bytes of ab for every bytes field).",
+    "Field names are the proto field names (snake_case), never lowerCamelCase. Every field is emitted, including zero values, except an absent Hash32 (see below).",
+    "bytes: a field annotated REST_BYTES_ENCODING_HASH32_LOWER_HEX is 64 lowercase hex characters with no 0x prefix; an unset one is omitted from the object. A field annotated REST_BYTES_ENCODING_PROTOJSON_BASE64 is standard padded Base64; an unset one is \"\".",
+    "Integers: int64, uint64 and fixed64 fields are JSON strings of decimal digits; int32 and uint32 fields are JSON numbers. shared.v1.Amount.atomic_units is a string field and so is always a string.",
+    "Enums are their full value names (for example TASK_TYPE_CHAT). An unset message field is null. A oneof renders only its set member (active or terminal for QueryTask).",
+    "A value that uses repeated message fields renders one placeholder element in populated bodies."
+  ],
+  "responses": [
+    {
+      "name": "task_v1_querytaskresponse_active",
+      "route": "GET /TrueOpen/task/v1/task/{task_id}",
+      "message": "task.v1.QueryTaskResponse",
+      "variant": "active",
+      "note": "Every field populated with a placeholder.",
+      "body": {
+        "task": {
+          "active": {
+            "assignment": {
+              "assign_accept_height": "1",
+              "assignment_candidate_set_hash": "abababababababababababababababababababababababababababababababab",
+              "assignment_randomness_height": "1",
+              "assignment_status": "ASSIGNMENT_STATUS_NONE",
+              "candidate_pool_hash": "abababababababababababababababababababababababababababababababab",
+              "candidate_pool_snapshot_id": "abababababababababababababababababababababababababababababababab",
+              "canonical_encoding_version": "s",
+              "evidence_schema_hash": "abababababababababababababababababababababababababababababababab",
+              "generation_params_digest": "abababababababababababababababababababababababababababababababab",
+              "judgment_function_version": "s",
+              "metric_aggregate_proof_version": "s",
+              "min_stake_snapshot": {
+                "atomic_units": "s"
+              },
+              "profile_execution_snapshot_hash": "abababababababababababababababababababababababababababababababab",
+              "result_reveal_missing_slash_bps": 1,
+              "task_id": "abababababababababababababababababababababababababababababababab",
+              "worker_infer_timeout_slash_bps": 1
+            },
+            "core": {
+              "accepted_input_hash": "abababababababababababababababababababababababababababababababab",
+              "accepted_order_opening_hash": "abababababababababababababababababababababababababababababababab",
+              "accepted_payload_mode": "PAYLOAD_MODE_V1_PLAINTEXT",
+              "accepted_task_hash": "abababababababababababababababababababababababababababababababab",
+              "assignment_status": "ASSIGNMENT_STATUS_NONE",
+              "created_height": "1",
+              "effective_verify_round": 1,
+              "evidence_retention_blocks_snapshot": "1",
+              "finality_status": "TASK_FINALITY_STATUS_V1_PENDING",
+              "model_id": "abababababababababababababababababababababababababababababababab",
+              "objective_forgery_slash_bps_snapshot": 1,
+              "order_sequence": "1",
+              "order_value": {
+                "atomic_units": "s"
+              },
+              "profile_version": 1,
+              "receipt_status": "RECEIPT_STATUS_NONE",
+              "session_id": "abababababababababababababababababababababababababababababababab",
+              "settlement_status": "SETTLEMENT_STATUS_NONE",
+              "task_id": "abababababababababababababababababababababababababababababababab",
+              "task_phase": "TASK_PHASE_WORKER_ASSIGNMENT_PENDING",
+              "task_type": "TASK_TYPE_TEXT_GENERATION",
+              "updated_height": "1",
+              "user_address": "s",
+              "verification_status": "VERIFICATION_STATUS_NONE"
+            },
+            "round1_verifier_assignment": {
+              "commit_deadline_height": "1",
+              "open_verify_height": "1",
+              "reveal_deadline_height": "1",
+              "selected_verifier_count": 1,
+              "selected_verifiers": [
+                {
+                  "operator_address": "s",
+                  "slot": 1,
+                  "slot_version": "1"
+                }
+              ],
+              "selected_verifiers_hash": "abababababababababababababababababababababababababababababababab",
+              "selection_randomness_beacon": "abababababababababababababababababababababababababababababababab",
+              "selection_randomness_height": "1",
+              "task_id": "abababababababababababababababababababababababababababababababab",
+              "verifier_candidate_window_hash": "abababababababababababababababababababababababababababababababab",
+              "verifier_handraise_count": 1,
+              "verifier_legal_set_hash": "abababababababababababababababababababababababababababababababab",
+              "verify_deadline_height": "1",
+              "verify_round": 1
+            },
+            "round2_verifier_assignment": {
+              "commit_deadline_height": "1",
+              "open_verify_height": "1",
+              "reveal_deadline_height": "1",
+              "selected_verifier_count": 1,
+              "selected_verifiers": [
+                {
+                  "operator_address": "s",
+                  "slot": 1,
+                  "slot_version": "1"
+                }
+              ],
+              "selected_verifiers_hash": "abababababababababababababababababababababababababababababababab",
+              "selection_randomness_beacon": "abababababababababababababababababababababababababababababababab",
+              "selection_randomness_height": "1",
+              "task_id": "abababababababababababababababababababababababababababababababab",
+              "verifier_candidate_window_hash": "abababababababababababababababababababababababababababababababab",
+              "verifier_handraise_count": 1,
+              "verifier_legal_set_hash": "abababababababababababababababababababababababababababababababab",
+              "verify_deadline_height": "1",
+              "verify_round": 1
+            },
+            "round_summary": {
+              "effective_verify_round": 1,
+              "max_closed_round": 1,
+              "open_round_count": 1,
+              "round1_facts_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+              "round2_effect_root_or_zero32": "abababababababababababababababababababababababababababababababab",
+              "round2_facts_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+              "task_id": "abababababababababababababababababababababababababababababababab"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "task_v1_querytaskresponse_terminal",
+      "route": "GET /TrueOpen/task/v1/task/{task_id}",
+      "message": "task.v1.QueryTaskResponse",
+      "variant": "terminal",
+      "note": "Every field populated with a placeholder.",
+      "body": {
+        "task": {
+          "terminal": {
+            "assignment_candidate_set_hash": "abababababababababababababababababababababababababababababababab",
+            "builder_set_hash": "abababababababababababababababababababababababababababababababab",
+            "builder_set_id": "s",
+            "builder_set_version": "1",
+            "candidate_pool_hash": "abababababababababababababababababababababababababababababababab",
+            "candidate_pool_ref_released": true,
+            "candidate_pool_snapshot_id": "abababababababababababababababababababababababababababababababab",
+            "compacted_height": "1",
+            "created_height": "1",
+            "effective_verify_round": 1,
+            "failure_class": "TASK_FAILURE_CLASS_NONE",
+            "fault_summary_hash": "abababababababababababababababababababababababababababababababab",
+            "finality_status": "TASK_FINALITY_STATUS_V1_PENDING",
+            "generated_token_count": "1",
+            "generation_params_digest": "abababababababababababababababababababababababababababababababab",
+            "infer_receipt_ref_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "model_id": "abababababababababababababababababababababababababababababababab",
+            "order_sequence": "1",
+            "profile_execution_snapshot_hash": "abababababababababababababababababababababababababababababababab",
+            "profile_version": 1,
+            "round1_facts_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "round1_selected_verifiers_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "round2_facts_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "round2_funding_resolution_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "round2_selected_verifiers_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "round_effect_root": "abababababababababababababababababababababababababababababababab",
+            "selected_task_builders_hash": "abababababababababababababababababababababababababababababababab",
+            "session_id": "abababababababababababababababababababababababababababababababab",
+            "settlement_bill_hash_or_zero32": "abababababababababababababababababababababababababababababababab",
+            "settlement_facts_cutoff_height": "1",
+            "settlement_facts_hash": "abababababababababababababababababababababababababababababababab",
+            "settlement_height": "1",
+            "settlement_id": "abababababababababababababababababababababababababababababababab",
+            "settlement_plan_hash": "abababababababababababababababababababababababababababababababab",
+            "settlement_status": "SETTLEMENT_STATUS_NONE",
+            "summary_hash": "abababababababababababababababababababababababababababababababab",
+            "task_finality_height": "1",
+            "task_hash": "abababababababababababababababababababababababababababababababab",
+            "task_id": "abababababababababababababababababababababababababababababababab",
+            "task_round_summary_hash": "abababababababababababababababababababababababababababababababab",
+            "task_type": "TASK_TYPE_TEXT_GENERATION",
+            "terminal_phase": "TASK_PHASE_WORKER_ASSIGNMENT_PENDING",
+            "verdict": "TASK_VERDICT_PASS"
+          }
+        }
+      }
+    },
+    {
+      "name": "task_v1_querytaskresponse_active_zero",
+      "route": "GET /TrueOpen/task/v1/task/{task_id}",
+      "message": "task.v1.QueryTaskResponse",
+      "variant": "active",
+      "note": "Zero-valued core and unset optional sub-states: absent Hash32 fields are omitted, unset messages are null.",
+      "body": {
+        "task": {
+          "active": {
+            "assignment": null,
+            "core": {
+              "accepted_payload_mode": "PAYLOAD_MODE_V1_UNSPECIFIED",
+              "assignment_status": "ASSIGNMENT_STATUS_UNSPECIFIED",
+              "created_height": "0",
+              "effective_verify_round": 0,
+              "evidence_retention_blocks_snapshot": "0",
+              "finality_status": "TASK_FINALITY_STATUS_V1_UNSPECIFIED",
+              "objective_forgery_slash_bps_snapshot": 0,
+              "order_sequence": "0",
+              "order_value": {
+                "atomic_units": ""
+              },
+              "profile_version": 0,
+              "receipt_status": "RECEIPT_STATUS_UNSPECIFIED",
+              "settlement_status": "SETTLEMENT_STATUS_UNSPECIFIED",
+              "task_phase": "TASK_PHASE_UNSPECIFIED",
+              "task_type": "TASK_TYPE_UNSPECIFIED",
+              "updated_height": "0",
+              "user_address": "",
+              "verification_status": "VERIFICATION_STATUS_UNSPECIFIED"
+            },
+            "round1_verifier_assignment": null,
+            "round2_verifier_assignment": null,
+            "round_summary": null
+          }
+        }
+      }
+    },
+    {
+      "name": "hub_v1_queryprofileresponse",
+      "route": "GET /TrueOpen/hub/v1/profile/{model_id}/{profile_version}",
+      "message": "hub.v1.QueryProfileResponse",
+      "note": "Every field populated with a placeholder.",
+      "body": {
+        "profile": {
+          "batch_verification": {
+            "enabled": true,
+            "min_sample_count": 1,
+            "min_valid_sample_count": 1,
+            "pass_min_sample_pass_ratio_bps": 1,
+            "reject_min_sample_reject_ratio_bps": 1
+          },
+          "challenge_open_window_blocks": "1",
+          "created_height": "1",
+          "generation_type": "GENERATION_TYPE_DETERMINISTIC",
+          "manifest_hash": "abababababababababababababababababababababababababababababababab",
+          "manifest_uri": "s",
+          "min_stake": "1",
+          "model_id": "abababababababababababababababababababababababababababababababab",
+          "previous_profile_version": 1,
+          "pricing_profile": {
+            "initial_output_price": "1",
+            "min_order_value": "1",
+            "verify_ratio_bps": 1
+          },
+          "profile_version": 1,
+          "proposer_address": "s",
+          "reasoning_parser": {
+            "name": "s",
+            "version": 1
+          },
+          "ref_price": "1",
+          "registration_digest": "abababababababababababababababababababababababababababababababab",
+          "registration_fee_paid": "1",
+          "required_top_k": 1,
+          "resource_tier": 1,
+          "runtime_class": "s",
+          "schema_hash": "abababababababababababababababababababababababababababababababab",
+          "source": {
+            "repo_type": "s",
+            "resolver_version": "s",
+            "revision": "s",
+            "source_uri": "s"
+          },
+          "status": "MODEL_PROFILE_STATUS_REGISTERED",
+          "status_source": "PROFILE_STATUS_SOURCE_GOVERNANCE",
+          "task_types": [
+            "TASK_TYPE_TEXT_GENERATION"
+          ],
+          "timeout_bootstrap_profile": {
+            "bootstrap_valid_until_epoch": "1",
+            "commit_timeout_bootstrap_blocks": 1,
+            "infer_timeout_bootstrap_blocks": 1,
+            "verify_timeout_bootstrap_blocks": 1
+          },
+          "tokenizer_hash": "abababababababababababababababababababababababababababababababab",
+          "tool_call_parser": {
+            "name": "s",
+            "version": 1
+          },
+          "updated_height": "1",
+          "verification_profile": {
+            "canonical_encoding_version": "s",
+            "evidence_schema": {
+              "required_infer_evidence": [
+                {
+                  "commitment_schema_version": 1,
+                  "evidence_kind": "EVIDENCE_KIND_WORKER_VALUE_OPENING",
+                  "max_encoded_size_bytes": "1"
+                }
+              ],
+              "schema_version": 1
+            },
+            "evidence_schema_hash": "abababababababababababababababababababababababababababababababab",
+            "include_generated_special_tokens": true,
+            "include_padding_tokens": true,
+            "include_prompt_tokens": true,
+            "judgment_function_version": "s",
+            "metric_aggregate_proof_version": "s",
+            "metrics": {
+              "compare_logprob_diff": true,
+              "compare_rank_delta": true,
+              "compare_topk_jaccard": true,
+              "compare_union_js": true,
+              "compared_top_k": 1,
+              "numeric_scale": "NUMERIC_SCALE_FP_1E6"
+            },
+            "require_finish_reason": true,
+            "require_output_token_ids": true,
+            "token_scope": "TOKEN_SCOPE_ALL_GENERATED_OUTPUT_TOKENS",
+            "verification_mode": "VERIFICATION_MODE_SINGLE_SAMPLE",
+            "verification_profile_id": 1
+          },
+          "verification_thresholds": {
+            "pass_abs_logprob_diff_p95_max": 1,
+            "pass_abs_logprob_diff_p99_max": 1,
+            "pass_max_missing_compared_count": 1,
+            "pass_mean_abs_logprob_diff_max": 1,
+            "pass_min_finite_count": 1,
+            "pass_rank_delta_nonzero_rate_max": 1,
+            "pass_topk_jaccard_mean_min": 1,
+            "pass_union_js_p99_max": 1,
+            "reject_abs_logprob_diff_p95_min": 1,
+            "reject_abs_logprob_diff_p99_min": 1,
+            "reject_mean_abs_logprob_diff_min": 1,
+            "reject_rank_delta_nonzero_rate_min": 1,
+            "reject_topk_jaccard_mean_max": 1,
+            "reject_union_js_p99_min": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "hub_v1_queryprofileresponse_zero",
+      "route": "GET /TrueOpen/hub/v1/profile/{model_id}/{profile_version}",
+      "message": "hub.v1.QueryProfileResponse",
+      "note": "Zero-valued profile: absent Hash32 fields are omitted, 64-bit zeros are \"0\".",
+      "body": {
+        "profile": {
+          "batch_verification": {
+            "enabled": false,
+            "min_sample_count": 0,
+            "min_valid_sample_count": 0,
+            "pass_min_sample_pass_ratio_bps": 0,
+            "reject_min_sample_reject_ratio_bps": 0
+          },
+          "challenge_open_window_blocks": "0",
+          "created_height": "0",
+          "generation_type": "GENERATION_TYPE_UNSPECIFIED",
+          "manifest_uri": "",
+          "min_stake": "0",
+          "previous_profile_version": 0,
+          "pricing_profile": {
+            "initial_output_price": "0",
+            "min_order_value": "0",
+            "verify_ratio_bps": 0
+          },
+          "profile_version": 0,
+          "proposer_address": "",
+          "reasoning_parser": {
+            "name": "",
+            "version": 0
+          },
+          "ref_price": "0",
+          "registration_fee_paid": "0",
+          "required_top_k": 0,
+          "resource_tier": 0,
+          "runtime_class": "",
+          "source": {
+            "repo_type": "",
+            "resolver_version": "",
+            "revision": "",
+            "source_uri": ""
+          },
+          "status": "MODEL_PROFILE_STATUS_UNSPECIFIED",
+          "status_source": "PROFILE_STATUS_SOURCE_UNSPECIFIED",
+          "task_types": [],
+          "timeout_bootstrap_profile": {
+            "bootstrap_valid_until_epoch": "0",
+            "commit_timeout_bootstrap_blocks": 0,
+            "infer_timeout_bootstrap_blocks": 0,
+            "verify_timeout_bootstrap_blocks": 0
+          },
+          "tool_call_parser": {
+            "name": "",
+            "version": 0
+          },
+          "updated_height": "0",
+          "verification_profile": {
+            "canonical_encoding_version": "",
+            "evidence_schema": {
+              "required_infer_evidence": [],
+              "schema_version": 0
+            },
+            "include_generated_special_tokens": false,
+            "include_padding_tokens": false,
+            "include_prompt_tokens": false,
+            "judgment_function_version": "",
+            "metric_aggregate_proof_version": "",
+            "metrics": {
+              "compare_logprob_diff": false,
+              "compare_rank_delta": false,
+              "compare_topk_jaccard": false,
+              "compare_union_js": false,
+              "compared_top_k": 0,
+              "numeric_scale": "NUMERIC_SCALE_UNSPECIFIED"
+            },
+            "require_finish_reason": false,
+            "require_output_token_ids": false,
+            "token_scope": "TOKEN_SCOPE_UNSPECIFIED",
+            "verification_mode": "VERIFICATION_MODE_UNSPECIFIED",
+            "verification_profile_id": 0
+          },
+          "verification_thresholds": {
+            "pass_abs_logprob_diff_p95_max": 0,
+            "pass_abs_logprob_diff_p99_max": 0,
+            "pass_max_missing_compared_count": 0,
+            "pass_mean_abs_logprob_diff_max": 0,
+            "pass_min_finite_count": 0,
+            "pass_rank_delta_nonzero_rate_max": 0,
+            "pass_topk_jaccard_mean_min": 0,
+            "pass_union_js_p99_max": 0,
+            "reject_abs_logprob_diff_p95_min": 0,
+            "reject_abs_logprob_diff_p99_min": 0,
+            "reject_mean_abs_logprob_diff_min": 0,
+            "reject_rank_delta_nonzero_rate_min": 0,
+            "reject_topk_jaccard_mean_max": 0,
+            "reject_union_js_p99_min": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "hub_v1_queryhubparamsresponse_default",
+      "route": "GET /TrueOpen/hub/v1/params",
+      "message": "hub.v1.QueryHubParamsResponse",
+      "note": "The default hub parameters.",
+      "body": {
+        "meta": {
+          "params_version": "0",
+          "updated_height": "0"
+        },
+        "params": {
+          "beacon": {
+            "beacon_checkpoint_interval_blocks": "1024",
+            "beacon_retention_blocks": "60480",
+            "max_beacon_carrier_bytes": 1024,
+            "max_beacon_prune_items_per_block": 256,
+            "max_vrf_key_history_epochs": 30,
+            "vrf_required_from_height": "0"
+          },
+          "bridge": {
+            "bridge_bootstrap_max_gas": "10000000",
+            "bridge_limit_hard_max": {
+              "atomic_units": "1000000000000"
+            },
+            "bridge_usage_retention_epochs": 30,
+            "initial_inbound_limit_per_epoch": {
+              "atomic_units": "1000000000"
+            },
+            "initial_outbound_limit_per_epoch": {
+              "atomic_units": "1000000000"
+            },
+            "max_bridge_cutover_inflight_messages": 10000,
+            "max_bridge_usage_prune_items_per_block": 256
+          },
+          "bucket": {
+            "max_parameter_bucket_entries": 1024,
+            "max_parameter_bucket_prune_items_per_block": 32,
+            "max_parameter_bucket_update_bytes": "1048576",
+            "parameter_bucket_version_retention_blocks": "60480"
+          },
+          "builder": {
+            "assignment_builder_proposal_window_blocks": "100",
+            "builder_fault_retention_blocks": "604800",
+            "builder_set_cap": 15,
+            "builder_set_header_retention_epochs": 30,
+            "builder_set_retention_epochs": 30,
+            "builder_set_update_lead_blocks": "100",
+            "builders_per_task": 3,
+            "max_builder_fault_prune_items_per_block": 256,
+            "max_builder_set_id_bytes": 128,
+            "max_builder_set_prune_items_per_block": 32,
+            "open_verify_builder_proposal_window_blocks": "100",
+            "settlement_builder_grace_blocks": "2"
+          },
+          "candidate_pool": {
+            "candidate_bitmap_segment_bytes": 512,
+            "candidate_pool_build_lead_blocks": "100",
+            "candidate_pool_header_retention_epochs": 30,
+            "candidate_pool_query_default_limit": 100,
+            "candidate_pool_query_hard_limit": 1000,
+            "candidate_slot_binding_retention_epochs": 30,
+            "candidate_slot_hard_capacity": 4096,
+            "max_candidate_pool_build_members_per_block": 1024,
+            "max_candidate_pool_prune_items_per_block": 32,
+            "max_candidate_slot_binding_prune_items_per_block": 32
+          },
+          "epoch": {
+            "delta_m_blocks": "100",
+            "delta_w_blocks": "100",
+            "epoch_length_blocks": "60480"
+          },
+          "freeze": {
+            "freeze_failure_index_retention_blocks": "604800",
+            "freeze_risk_window_blocks": "100",
+            "freeze_signal_detail_retention_blocks": "60480",
+            "freeze_signal_summary_retention_blocks": "60480",
+            "freeze_signal_vote_window_blocks": "100",
+            "max_freeze_failure_index_prune_items_per_block": 1024,
+            "max_freeze_signal_build_items_per_block": 1024,
+            "max_freeze_signal_build_items_per_tx": 32,
+            "max_freeze_signal_prune_items_per_block": 1024,
+            "max_freeze_signal_schedule_items_per_block": 1024,
+            "min_freeze_signal_failure_count": 1
+          },
+          "model": {
+            "max_manifest_uri_bytes": 2048,
+            "max_parser_name_bytes": 64,
+            "max_provider_bytes": 32,
+            "max_repo_id_bytes": 255,
+            "max_repo_type_bytes": 32,
+            "max_resolver_version_bytes": 64,
+            "max_revision_bytes": 128,
+            "max_source_uri_bytes": 2048,
+            "max_supported_reasoning_parsers": 128,
+            "max_supported_tool_call_parsers": 128,
+            "supported_reasoning_parsers": [],
+            "supported_tool_call_parsers": []
+          },
+          "phase0": {
+            "business_denom": "uusdc",
+            "consensus_bond_denom": "ubond",
+            "epoch_block_reward": {
+              "atomic_units": "0"
+            },
+            "evm_chain_id": "31337",
+            "fee_bypass_type_urls": [],
+            "fee_policy_version": "1",
+            "max_bypass_gas_per_block": "10000000",
+            "min_fee_per_gas_denominator": "1",
+            "min_fee_per_gas_numerator": "1",
+            "native_token_enabled": false,
+            "validator_bond_unit": "1000000"
+          },
+          "price": {
+            "price_floor_bps": 1000,
+            "price_hard_max": "18446744073709551615",
+            "price_hard_min": "1",
+            "price_max_steps_per_block": 10,
+            "price_step_ppm": 10000
+          },
+          "query_event": {
+            "max_endblock_visited_items_total": 10000,
+            "max_protocol_event_payload_bytes": 65536,
+            "max_query_page_limit": 1000,
+            "max_query_page_token_bytes": 1024,
+            "max_query_response_bytes": "4194304"
+          },
+          "reward": {
+            "max_order_value_histogram_buckets": 256,
+            "max_reward_epoch_items_per_block": 1024,
+            "min_claim_amount": {
+              "atomic_units": "1"
+            },
+            "min_epoch_sample": 30,
+            "order_value_bucket_boundaries": [
+              {
+                "atomic_units": "1"
+              }
+            ],
+            "p30_bootstrap_order_value_floor": {
+              "atomic_units": "1"
+            },
+            "reward_audit_retention_epochs": 30
+          },
+          "schema_version": 2,
+          "service": {
+            "jail_clear_normal_action_count": 1000,
+            "max_open_unbonding_entries_per_operator": 16,
+            "max_role_fault_prune_items_per_block": 256,
+            "max_service_bond_effective_items_per_block": 1024,
+            "max_service_descriptor_bytes": "16384",
+            "max_service_descriptor_endpoints": 16,
+            "max_service_endpoint_protocol_version_bytes": 64,
+            "max_service_endpoint_uri_bytes": 512,
+            "max_service_material_expiry_blocks": "604800",
+            "max_unbonding_maturity_items_per_block": 1024,
+            "max_unbonding_receipt_prune_items_per_block": 32,
+            "max_unbonding_withdraw_items_per_tx": 16,
+            "min_stake_grace_period_blocks": "100",
+            "min_task_liability": {
+              "atomic_units": "15000"
+            },
+            "objective_forgery_slash_bps": 300,
+            "record_retention_blocks": "604800",
+            "service_bond_min_initial": {
+              "atomic_units": "1000000"
+            },
+            "service_unbonding_period_blocks": "302400",
+            "task_liability_order_coverage_bps": 10000,
+            "tombstone_jail_count_threshold": 3,
+            "unbonding_receipt_retention_blocks": "60480",
+            "unbonding_slash_safety_margin_blocks": "100"
+          },
+          "support": {
+            "active_support_stake_cap_multiplier": 3,
+            "active_support_stake_multiple": 2,
+            "active_supporter_min_count": 2,
+            "daily_support_retention_epochs": 30,
+            "max_daily_support_batch_bytes": "1048576",
+            "max_daily_support_confirmations_per_batch": 256,
+            "max_daily_support_items_per_batch": 256,
+            "max_model_support_deactivate_items_per_block": 32,
+            "max_model_support_prune_items_per_block": 32,
+            "max_model_support_recheck_items_per_block": 32,
+            "max_support_expiry_items_per_block": 32,
+            "max_supported_models_per_operator": 64,
+            "model_support_row_retention_epochs": 30,
+            "support_window_epochs": 2
+          },
+          "treasury": {
+            "governance_action_replay_window_blocks": "60480",
+            "max_treasury_spend_receipt_prune_items_per_block": 32,
+            "model_profile_registration_fee": {
+              "atomic_units": "1000000"
+            },
+            "profile_version_update_fee": {
+              "atomic_units": "1000000"
+            },
+            "treasury_spend_limit_per_epoch": {
+              "atomic_units": "1000000000"
+            },
+            "treasury_spend_limit_per_proposal": {
+              "atomic_units": "1000000000"
+            },
+            "treasury_spend_limit_per_recipient": {
+              "atomic_units": "1000000000"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "task_v1_querytaskparamsresponse_default",
+      "route": "GET /TrueOpen/task/v1/params",
+      "message": "task.v1.QueryTaskParamsResponse",
+      "note": "The default task parameters.",
+      "body": {
+        "meta": {
+          "params_version": "0",
+          "updated_height": "0"
+        },
+        "params": {
+          "batch": {
+            "max_batch_commit_bytes": "524288",
+            "max_batch_commit_items": 512,
+            "max_batch_result_bytes": "524288",
+            "max_batch_result_items": 512
+          },
+          "challenge": {
+            "assignment_delay_blocks": "1",
+            "candidate_window_delay_blocks": "1",
+            "challenge_fault_slash_bps": 0,
+            "challenge_inconclusive_bond_slash_bps": 0,
+            "challenge_open_bond": {
+              "atomic_units": "0"
+            },
+            "challenge_verifier_count": 3,
+            "commit_window_blocks": "20",
+            "handraise_window_blocks": "1",
+            "max_open_round_per_task": 1,
+            "max_round_effect_items_per_block": 1024,
+            "max_verify_round": 2,
+            "reveal_window_blocks": "10"
+          },
+          "cleanup": {
+            "max_epoch_task_summary_bytes": "65536",
+            "max_epoch_task_summary_items_per_block": 256,
+            "max_epoch_task_summary_support_candidates": 64,
+            "max_task_cleanup_items_per_block": 1024,
+            "max_task_failure_class_prune_items_per_block": 256,
+            "max_task_terminal_summary_prune_items_per_block": 256,
+            "task_terminal_summary_retention_blocks": "60480"
+          },
+          "deadlines": {
+            "collection_window_blocks": "40",
+            "commit_window_blocks": "20",
+            "max_deadline_sweep_per_block": 1024,
+            "reveal_window_blocks": "10",
+            "self_rescue_margin_blocks": "10",
+            "settle_margin_blocks": "10",
+            "verify_open_deadline_blocks": "400"
+          },
+          "evidence": {
+            "encryption_activation_height": "0",
+            "evidence_schema_version_supported": [],
+            "leaf_ordering_version_supported": [],
+            "max_evidence_retention_blocks": "1000",
+            "max_infer_evidence_commitments_per_receipt": 32,
+            "max_infer_receipt_commitment_bytes": "8192",
+            "max_output_mmr_leaves": "65536",
+            "max_supported_evidence_schema_versions": 16,
+            "max_supported_leaf_ordering_versions": 16,
+            "max_verifier_value_evidence_bytes": "0",
+            "max_verifier_value_evidence_positions": 0,
+            "max_worker_evidence_bytes_v1": "1048576",
+            "min_output_stream_frame_bytes": 256,
+            "verifier_value_evidence_window_blocks": "0"
+          },
+          "fee": {
+            "fee_policy_version": "1",
+            "fee_rule_version": "2",
+            "maintenance_rate_bps": 0,
+            "max_reimbursable_fee_per_gas_denominator": "1",
+            "max_reimbursable_fee_per_gas_numerator": "0",
+            "max_reimbursement_per_task": {
+              "atomic_units": "0"
+            },
+            "max_reimbursement_per_tx": {
+              "atomic_units": "0"
+            }
+          },
+          "generation": {
+            "max_output_tokens": "131072",
+            "stop_sequence_max_bytes_each": 128,
+            "stop_sequence_max_items": 16,
+            "stop_sequence_max_total_bytes": 1024,
+            "stop_token_max_items": 64,
+            "top_k_max": 1000
+          },
+          "proposals": {
+            "max_candidate_accepted_proposals_per_stage": 16,
+            "max_candidate_handraises_per_proposal": 210,
+            "max_candidate_proposal_bytes": "524288",
+            "max_candidate_stage_finalize_members_per_block": 4096,
+            "max_candidate_stage_finalize_tasks_per_block": 16,
+            "max_candidate_union_members_per_stage": 4096
+          },
+          "schema_version": 1,
+          "session": {
+            "anchor_freshness_window_blocks": "10000",
+            "cancel_order_min_gas": "50000",
+            "max_order_sequences_per_active_session": 4096,
+            "max_session_history_prune_items_per_block": 256,
+            "max_session_sweep_per_block": 1024,
+            "max_session_terminal_summary_prune_items_per_block": 256,
+            "session_close_ttl_blocks": "60480",
+            "session_idle_ttl_blocks": "100",
+            "session_order_retention_blocks": "60480",
+            "session_terminal_summary_retention_blocks": "60480"
+          },
+          "verification": {
+            "builder_fault_slash_bps": 0,
+            "result_reveal_missing_slash_bps": 0,
+            "worker_infer_timeout_slash_bps": 0
+          },
+          "weights": {
+            "candidate_weight_ppm_max": 1000000,
+            "k_stake": 3,
+            "max_weighted_draw_attempts_per_selection": 64,
+            "selected_verifier_count": 3,
+            "verifier_candidate_ratio_ppm": 100000,
+            "verifier_candidate_window_max": 21,
+            "verifier_candidate_window_min": 4,
+            "verifier_performance_weight_ppm": 800000,
+            "verifier_stake_weight_ppm": 200000,
+            "worker_performance_weight_ppm": 700000,
+            "worker_stake_weight_ppm": 300000
+          }
+        }
+      }
+    },
+    {
+      "name": "hub_v1_querycortexnoderesponse",
+      "route": "GET /TrueOpen/hub/v1/cortex_node/{operator_address}",
+      "message": "hub.v1.QueryCortexNodeResponse",
+      "note": "Every field populated with a placeholder; current_service_pubkey is a Base64 bytes field.",
+      "body": {
+        "node": {
+          "active_task_liability_count": 1,
+          "current_descriptor_version": "1",
+          "current_service_address": "s",
+          "current_service_pubkey": "q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=",
+          "operator_address": "s",
+          "pending_evidence_submission_count": 1,
+          "pending_stage_duty_count": 1,
+          "registered_height": "1",
+          "schema_version": 1,
+          "service_authorization_nonce": "1",
+          "service_key_status": "SERVICE_KEY_STATUS_ACTIVE",
+          "updated_height": "1"
+        }
+      }
+    },
+    {
+      "name": "hub_v1_querycortexnoderesponse_zero",
+      "route": "GET /TrueOpen/hub/v1/cortex_node/{operator_address}",
+      "message": "hub.v1.QueryCortexNodeResponse",
+      "note": "Zero-valued node: an unset Base64 bytes field is \"\".",
+      "body": {
+        "node": {
+          "active_task_liability_count": 0,
+          "current_descriptor_version": "0",
+          "current_service_address": "",
+          "current_service_pubkey": "",
+          "operator_address": "",
+          "pending_evidence_submission_count": 0,
+          "pending_stage_duty_count": 0,
+          "registered_height": "0",
+          "schema_version": 0,
+          "service_authorization_nonce": "0",
+          "service_key_status": "SERVICE_KEY_STATUS_UNSPECIFIED",
+          "updated_height": "0"
+        }
+      }
+    }
+  ]
+}

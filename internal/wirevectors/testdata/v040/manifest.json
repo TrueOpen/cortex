@@ -6,7 +6,8 @@
   "notes": [
     "source_commit pins only unchanged origin:node byte copies and source_path identifies their original file.",
     "origin:wire entries are authored and reviewed in this public repository; contract_section describes the behavior each pins.",
-    "Every listed fixture is a release asset whose size and SHA-256 can be verified independently."
+    "Every listed fixture is a release asset whose size and SHA-256 can be verified independently.",
+    "Three fixtures carry u64 max as a bare JSON number above 2^53; decode with an exact integer type. testdata/README.md lists them."
   ],
   "files": [
     {
@@ -55,8 +56,8 @@
       "path": "hub/manifest_uri_v1.json",
       "origin": "wire",
       "contract_section": "Public manifest_uri syntax conformance forms",
-      "bytes": 12538,
-      "sha256": "1112c546447762c93c09a7dcd198c2f39f74f6125d1cc1f969ee302774ad0208"
+      "bytes": 14800,
+      "sha256": "53515a65a288ac33643a265f8c8a2bb9f0b63e8affaa4c0717d3ecec520fbe88"
     },
     {
       "path": "hub/model_id_v1.json",
@@ -80,11 +81,18 @@
       "sha256": "dcdb9fe304022ad5878e44e12058dbb88368889cf7afea0139ff3fee7fe31a9d"
     },
     {
+      "path": "hub/model_registration_chain_v1.json",
+      "origin": "wire",
+      "contract_section": "Model manifest to projection to registration digest chain",
+      "bytes": 17072,
+      "sha256": "578cc089816fa9f9bb89e2e15997529264e52f231310a87764154e6657ac6fa5"
+    },
+    {
       "path": "shared/account_signing_v1.json",
       "origin": "wire",
-      "contract_section": "Account, TaskOrderV3 and TaskDataRequest EIP-712 signatures",
-      "bytes": 7799,
-      "sha256": "90ed55a830a1b6ef56dd89f2e5b417ec967ac8e8db0a18aa20d8a42eaf902a74"
+      "contract_section": "Account, TaskOrderV3, SDK request, session grant and TaskDataRequest EIP-712 signatures",
+      "bytes": 51217,
+      "sha256": "0736b6263ba1645b9b0d6884af4e77b787c2b89adb782b54a43e5813d7cd0cdc"
     },
     {
       "path": "shared/framing_v1.json",
@@ -114,6 +122,13 @@
         "sha256": "f7c22a66aced6c386407a6fbe2778dbc437d2f206ba480268e5f25861945e69e"
     },
     {
+      "path": "shared/rest_json_shapes_v1.json",
+      "origin": "wire",
+      "contract_section": "Node REST gateway JSON rendering of query responses",
+      "bytes": 36874,
+      "sha256": "120feb21c94bd41b7b90bd9fe8736eb2d6570cee145d7341547ed3dd39260025"
+    },
+    {
       "path": "shared/shared_domains_v1.json",
       "source_path": "x/shared/types/testdata/shared_domains_v1.json",
       "bytes": 3558,
@@ -132,6 +147,13 @@
       "contract_section": "Canonical JSON evidence and generation-parameter digests",
       "bytes": 11517,
       "sha256": "68a5c14659ba04c39bea24f6ceae16efd0332faf48a01108f470f09289607fc2"
+    },
+    {
+      "path": "task/generation_params_ranges_v1.json",
+      "origin": "wire",
+      "contract_section": "DecodingParamsV1 value range boundaries",
+      "bytes": 18884,
+      "sha256": "ac6e0efc009f05ec0d61692fc384abb327b0e65ceff121c6997f063c28a6381c"
     },
     {
       "path": "task/generation_params_v1.json",
@@ -153,6 +175,13 @@
       "contract_section": "Metric leaf and root V3 conformance",
       "bytes": 19572,
       "sha256": "f856e5c223303adf1babbe240ee9dfbd83309293bedfd2de05011b171f5beb4c"
+    },
+    {
+      "path": "task/order_economics_v1.json",
+      "origin": "wire",
+      "contract_section": "TaskOrderV3 order_value derivation",
+      "bytes": 7966,
+      "sha256": "9d07af445a928ac4e523b24c07f7a4cafbf87cc55b500409b3fde3e5628aa9dc"
     },
     {
       "path": "task/output_chunk_equivocation_v1.json",
@@ -197,6 +226,13 @@
       "sha256": "7e3d4ec85762c1cfa4f56f3af282394626d34d5d2d1c54ed7a184b251b392675"
     },
     {
+      "path": "task/sdk_request_body_v1.json",
+      "origin": "wire",
+      "contract_section": "User Ingress request body digests: the five TRUEOPEN_SDK_BODY_*_V1 domains",
+      "bytes": 22557,
+      "sha256": "05029710793e7de0275b232bfa0ada22ff320ec254e4bcc8af4eda86d624e086"
+    },
+    {
       "path": "task/task_builder_rank_v1.json",
       "source_path": "x/task/types/testdata/task_builder_rank_v1.json",
       "bytes": 5232,
@@ -230,11 +266,18 @@
       "sha256": "ae1526ada5dd4103ae6a78a5fc6b81b8eded0974eb529a02dfaae385301589b6"
     },
     {
+      "path": "task/task_order_eip712_v1.json",
+      "origin": "wire",
+      "contract_section": "TaskOrderV3 to order-domain EIP-712 digest",
+      "bytes": 3810,
+      "sha256": "81f21547fb952477fb6ad5852473530477cb68c9a6d2e34cc2235043d6701e42"
+    },
+    {
       "path": "task/task_order_v3.json",
       "origin": "wire",
       "contract_section": "TaskOrderV3 and order-opening commitments",
-      "bytes": 83915,
-      "sha256": "d543b6718836af8a35ffc176aee65650e15c9dd22fc7c9c98ac1f144038c662e"
+      "bytes": 120504,
+      "sha256": "6ece307eb4885bc8de212f46976a01272ac99074e42f9c89542f5fd56ff0a2a2"
     },
     {
       "path": "task/token_ids_v1.json",
