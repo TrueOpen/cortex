@@ -89,7 +89,7 @@ func parseOutputDecoding(body []byte) (OutputDecoding, error) {
 	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return OutputDecoding{}, errors.New("manifest has no output_decoding block")
 	}
-	if err := requireFields(raw, "clean_up_tokenization_spaces", "decode_vectors_path", "decoder", "eos_token_ids", "render_special_tokens", "strip_trailing_eos"); err != nil {
+	if err := requireFields(raw, "output_decoding", "clean_up_tokenization_spaces", "decode_vectors_path", "decoder", "eos_token_ids", "render_special_tokens", "strip_trailing_eos"); err != nil {
 		return OutputDecoding{}, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -109,35 +109,36 @@ func parseOutputDecoding(body []byte) (OutputDecoding, error) {
 
 // requireFields refuses a block that omits one of the fields, repeats one, or
 // sets one to null. encoding/json would otherwise read a missing boolean as
-// false and a repeated field as its last value.
-func requireFields(raw json.RawMessage, names ...string) error {
+// false and a repeated field as its last value. context names the block in
+// error messages.
+func requireFields(raw json.RawMessage, context string, names ...string) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.Token()
 	if err != nil || token != json.Delim('{') {
-		return errors.New("output_decoding must be a JSON object")
+		return fmt.Errorf("%s must be a JSON object", context)
 	}
 	seen := map[string]bool{}
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
-			return fmt.Errorf("parse output_decoding: %w", err)
+			return fmt.Errorf("parse %s: %w", context, err)
 		}
 		key, _ := token.(string)
 		if seen[key] {
-			return fmt.Errorf("output_decoding.%s is repeated", key)
+			return fmt.Errorf("%s.%s is repeated", context, key)
 		}
 		seen[key] = true
 		var value json.RawMessage
 		if err := decoder.Decode(&value); err != nil {
-			return fmt.Errorf("parse output_decoding.%s: %w", key, err)
+			return fmt.Errorf("parse %s.%s: %w", context, key, err)
 		}
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return fmt.Errorf("output_decoding.%s must not be null", key)
+			return fmt.Errorf("%s.%s must not be null", context, key)
 		}
 	}
 	for _, name := range names {
 		if !seen[name] {
-			return fmt.Errorf("output_decoding.%s is required", name)
+			return fmt.Errorf("%s.%s is required", context, name)
 		}
 	}
 	return nil

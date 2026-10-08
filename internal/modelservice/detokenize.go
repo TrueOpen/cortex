@@ -30,10 +30,11 @@ import (
 // trusted, a cleanup-sensitive probe is round-tripped through /tokenize and
 // /detokenize. A tokenizer whose config enables cleanup mangles the probe, and
 // every decode-dependent check then refuses loudly instead of comparing
-// against bytes the manifest never declared. wire's DECODE_VECTORS artifact
-// will settle the same question per profile once published
-// (output_decoding.decode_vectors_path is empty on the current testnet
-// manifest); the probe is the deployment-local stand-in until then.
+// against bytes the manifest never declared. A manifest that declares
+// DECODE_VECTORS settles the same question authoritatively per profile
+// (ensureDecodeVectorsPass); the probe stays as the first line for every
+// engine and the only one for manifests that declare none, like the current
+// testnet manifest with its empty decode_vectors_path.
 type detokenizeRequest struct {
 	Model  string `json:"model"`
 	Tokens []int  `json:"tokens"`
@@ -152,6 +153,9 @@ func (s *LocalService) DetokenizeCommitted(ctx context.Context, modelID, profile
 	if len(profile.OutputDecoding.EOSTokenIDs) == 0 {
 		return nil, fmt.Errorf("%w: profile %s@%s", ErrNoOutputDecoding, modelID, profileVersion)
 	}
+	if err := s.ensureDecodeVectorsPass(ctx, profile); err != nil {
+		return nil, err
+	}
 	ids := make([]int, len(generated))
 	for i, id := range generated {
 		ids[i] = int(id)
@@ -189,6 +193,9 @@ func (s *LocalService) corroborateOutputDecodes(ctx context.Context, profile loc
 	if !enabled || len(profile.OutputDecoding.EOSTokenIDs) == 0 {
 		// Off, or an unregistered dev profile with no declared decoding.
 		return nil
+	}
+	if err := s.ensureDecodeVectorsPass(ctx, profile); err != nil {
+		return err
 	}
 	committed := tokenIDs[:profile.OutputDecoding.CommittedTokenCount(tokenIDs)]
 	canonical := CanonicalUTF8(output)

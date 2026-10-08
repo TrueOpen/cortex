@@ -2,6 +2,7 @@ package modelmanifest
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -90,6 +91,79 @@ func (f *Fetcher) OutputDecoding(ctx context.Context, profile chainclient.Curren
 		return OutputDecoding{}, err
 	}
 	return decoding, nil
+}
+
+// DecodeVectors returns the DECODE_VECTORS conformance cases of a registered
+// profile's manifest, or nil when the manifest declares none
+// (decode_vectors_path ""). The manifest is obtained like OutputDecoding --
+// hash-authenticated, through the shared cache and sources -- and names the
+// vectors file and its sha256. The file's bytes are then read from the cache
+// as <sha256 hex>.decode_vectors.json (where an operator may also place them
+// by hand, like their own manifests) or fetched from each mirror at
+// <mirror>/<sha256 hex>, and accepted only when they hash to that digest.
+func (f *Fetcher) DecodeVectors(ctx context.Context, profile chainclient.CurrentProfileSnapshot) ([]DecodeVector, error) {
+	var ref DecodeVectorsRef
+	if _, err := f.fetch(ctx, profile, func(body []byte) (*Manifest, error) {
+		var err error
+		ref, err = VerifyDecodeVectorsRef(body, profile.ManifestHash)
+		return nil, err
+	}); err != nil {
+		return nil, err
+	}
+	if !ref.IsDeclared() {
+		return nil, nil
+	}
+	digestHex := hex.EncodeToString(ref.SHA256[:])
+	var failures []string
+	// try mirrors fetch's source handling: a source whose bytes do not hash to
+	// the committed digest is skipped, committed bytes that do not parse end
+	// the search, since every copy of them is equally invalid.
+	try := func(source string, body []byte, err error) ([]DecodeVector, bool, error) {
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", source, err))
+			return nil, false, nil
+		}
+		vectors, err := ref.Verify(body)
+		if errors.Is(err, ErrInvalid) {
+			return nil, true, fmt.Errorf("decode vectors sha256:%s from %s: %w", digestHex, source, err)
+		}
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", source, err))
+			return nil, false, nil
+		}
+		return vectors, true, nil
+	}
+	cachePath := ""
+	if f.cfg.CacheDir != "" {
+		cachePath = filepath.Join(f.cfg.CacheDir, digestHex+".decode_vectors.json")
+		body, err := readCacheFile(cachePath)
+		if errors.Is(err, os.ErrNotExist) {
+			failures = append(failures, fmt.Sprintf("cache: no %s.decode_vectors.json", digestHex))
+		} else {
+			vectors, done, verifyErr := try("cache", body, err)
+			if done {
+				return vectors, verifyErr
+			}
+			// A cached copy that no longer verifies is dropped.
+			_ = os.Remove(cachePath)
+		}
+	}
+	for _, mirror := range f.cfg.Mirrors {
+		location := mirror + "/" + digestHex
+		body, err := f.downloader.Get(ctx, location)
+		vectors, done, verifyErr := try("mirror "+location, body, err)
+		if done {
+			if verifyErr == nil && cachePath != "" {
+				// A cache write failure does not fail the fetch.
+				_ = writeCacheFile(f.cfg.CacheDir, cachePath, body)
+			}
+			return vectors, verifyErr
+		}
+	}
+	if len(failures) == 0 {
+		return nil, fmt.Errorf("decode vectors sha256:%s: no cache or mirror is configured", digestHex)
+	}
+	return nil, fmt.Errorf("decode vectors sha256:%s not obtained: %s", digestHex, strings.Join(failures, "; "))
 }
 
 // fetch runs the source search for one profile. verify must return an error

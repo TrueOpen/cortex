@@ -58,6 +58,14 @@ type LocalService struct {
 	// profile is refused without it; see outputDecodingFor.
 	outputDecodingSource OutputDecodingSource
 
+	// decodeVectorsSource supplies the DECODE_VECTORS conformance cases a
+	// chain-registered profile's manifest may declare. When set, every decode
+	// this node would commit to -- the Worker's corroboration and the
+	// Verifier's committed-output comparison -- is preceded by a one-time
+	// proof that this engine reproduces every declared vector; see
+	// ensureDecodeVectorsPass.
+	decodeVectorsSource DecodeVectorsSource
+
 	// inferStreamObserver, when set, receives the per-frame delta of each SSE
 	// chunk during a streaming Infer. It is a best-effort delivery hook (nil by
 	// default) reserved for a future user-facing SubscribeOutput forwarder; it
@@ -96,6 +104,12 @@ type LocalService struct {
 	// its decodes may be compared against committed outputs. See
 	// calibrateDetokenize.
 	detokenizeCalibrated map[string]bool
+	// decodeVectorsPassed remembers, per "<manifest_hash hex>|<served model>",
+	// that this engine reproduced every DECODE_VECTORS case the manifest
+	// declares (or that it declares none). A registered manifest never
+	// changes and the served tokenizer cannot change under a running engine,
+	// so one pass holds for the life of the process.
+	decodeVectorsPassed map[string]bool
 	// models binds each chain model id this node serves to the repository vLLM
 	// serves it under. The binding comes from the chain (ModelState provider and
 	// repo_id), set by BindModel at startup: a model id is a hash over the
