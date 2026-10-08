@@ -225,6 +225,10 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 		if resolver := newKeeperLocalProfileResolver(deps.Keeper); resolver != nil {
 			local.SetProfileResolver(resolver)
 		}
+		// A production Worker must not commit an output the Verifiers' decode
+		// comparison would fault: corroborate every committed output against
+		// the engine's own decode of its token ids before publishing.
+		local.SetDetokenizeCorroboration(true)
 		deps.Model = local
 	case isFakeModelTransport(cfg):
 		fake, err := modelservice.NewSharedFakeService(cfg.LocalIdentity.ModelServiceID, cfg.TaskExecution.FixtureRoot, configuredModelIDs(cfg)...)

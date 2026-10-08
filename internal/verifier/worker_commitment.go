@@ -1,12 +1,15 @@
 package verifier
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -76,7 +79,43 @@ func (v *Verifier) validateAcceptedWorkerEvidence(ctx context.Context, state Tas
 	if state.ConfirmedFinishReason != nodewire.FinishReasonV1Unspecified && reason != state.ConfirmedFinishReason {
 		return fmt.Errorf("Worker evidence finish reason differs from typed commitment")
 	}
-	return nil
+	// Last, with every commitment re-established: the output bytes must be the
+	// decode of the token ids this verifier is about to score (issue #35).
+	// Until here the text was bound to output_hash and the tokens to the
+	// A-level commitment, but nothing tied the two to each other.
+	return v.checkOutputDecodesFromTokens(ctx, state, generated, output)
+}
+
+// checkOutputDecodesFromTokens refuses to score a Worker whose MMR-confirmed
+// output is not the decode of its committed generated token ids: decode(T
+// minus one trailing EOS) under the profile manifest's output_decoding,
+// compared byte for byte after folding ill-formed sequences to U+FFFD on both
+// sides (CanonicalUTF8 -- the decode side already arrives folded, so the fold
+// only ever touches a raw output whose generation was cut mid-character).
+//
+// The decode comes from the local model service's calibrated /detokenize
+// (modelservice.OutputDetokenizer). A model service without that capability --
+// the cortex.v1 gRPC client, until wire grows a Detokenize RPC -- skips the
+// check, as does a profile with no declared output_decoding; a mismatch under
+// a declared decoding is a Worker evidence fault and stops the round before
+// any scoring.
+func (v *Verifier) checkOutputDecodesFromTokens(ctx context.Context, state TaskState, generated []uint32, output []byte) error {
+	detok, ok := v.cfg.Model.(modelservice.OutputDetokenizer)
+	if !ok {
+		return nil
+	}
+	decoded, err := detok.DetokenizeCommitted(ctx, state.ModelID, fmt.Sprintf("%d", state.ProfileVersion), generated)
+	if err != nil {
+		if errors.Is(err, modelservice.ErrNoOutputDecoding) {
+			return nil
+		}
+		return fmt.Errorf("decode the Worker's committed token ids: %w", err)
+	}
+	if bytes.Equal(decoded, modelservice.CanonicalUTF8(output)) {
+		return nil
+	}
+	return fmt.Errorf("verifier evidence rejected: WORKER_EVIDENCE_FAULT: the confirmed output (%d bytes) is not the decode of the %d committed generated token ids (%d bytes)",
+		len(output), len(generated), len(decoded))
 }
 
 func receiptCommitments(items []builderclient.EvidenceCommitment) []nodewire.EvidenceCommitmentV1 {
