@@ -102,6 +102,7 @@ type daemonFlags struct {
 	modelEndpoint                string
 	modelTransport               string
 	modelMaxConcurrency          string
+	modelManifestDir             string
 	nodeRPC                      string
 	nodeREST                     string
 	keeperAPI                    string
@@ -160,6 +161,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 				"mode": "mode", "chain-id": "chain_id", "admin-socket": "admin_socket",
 				"model-endpoint": "model_endpoint", "model-transport": "model_transport",
 				"model-max-concurrency": "model_max_concurrency",
+				"model-manifest-dir":    "model_manifest_dir",
 				"node-rpc":              "node_rpc", "node-rest": "node_rest", "keeper-api": "keeper_api",
 				"keeper-poll-interval-ms": "keeper_poll_interval_ms", "keeper-max-lag-blocks": "keeper_max_lag_blocks",
 				"task-retry-delay-ms":     "task_retry_delay_ms",
@@ -215,6 +217,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.modelEndpoint, "model-endpoint", "", "model service endpoint")
 	flags.StringVar(&values.modelTransport, "model-transport", "", "model transport: fake, local, or grpc")
 	flags.StringVar(&values.modelMaxConcurrency, "model-max-concurrency", "", "concurrent inference requests the model service can hold (required for transport local)")
+	flags.StringVar(&values.modelManifestDir, "model-manifest-dir", "", "directory of per-profile model manifests, named <model_id>@<profile_version>.json (required for transport local)")
 	flags.StringVar(&values.nodeRPC, "node-rpc", "", "CometBFT RPC endpoint")
 	flags.StringVar(&values.nodeREST, "node-rest", "", "Cosmos REST endpoint")
 	flags.StringVar(&values.keeperAPI, "keeper-api", "", "deprecated Keeper REST endpoint (ignored for reads)")

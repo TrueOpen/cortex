@@ -715,3 +715,119 @@ func chatChunksFullTopK(chunks []chatCompletionChunk) []chatCompletionChunk {
 	}
 	return out
 }
+
+// eosBytes is the UTF-8 the engine renders for token 151645, which the test
+// manifest lists in output_decoding.eos_token_ids. The bytes are deliberately
+// non-empty and recognisable: vLLM returns them on the logprob entry even
+// though it drops the token from message.content, so before the committed
+// output was decoded against the manifest they were concatenated straight into
+// output_hash.
+var eosBytes = []int{60, 124, 105, 109, 95, 101, 110, 100, 124, 62} // "<|im_end|>"
+
+// chatGenResponseEndingIn returns the two-token "hello world" generation with
+// one more token appended, so a caller can end it on an EOS or on anything else.
+func chatGenResponseEndingIn(tokenID int, tokenBytes []int) chatCompletionResponse {
+	resp := chatGenResponse()
+	choice := &resp.Choices[0]
+	choice.TokenIDs = append(choice.TokenIDs, tokenID)
+	choice.Logprobs.Content = append(choice.Logprobs.Content, chatRespLogprobContent{
+		Token: fmt.Sprintf("token_id:%d", tokenID), Logprob: -0.3, Bytes: tokenBytes,
+		TopLogprobs: []chatRespTopLogprob{{Token: fmt.Sprintf("token_id:%d", tokenID), Logprob: -0.3}},
+	})
+	resp.Usage.CompletionTokens = len(choice.TokenIDs)
+	resp.Usage.TotalTokens = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
+	return resp
+}
+
+// The committed output is decode(T minus the trailing EOS). Cortex builds it by
+// concatenating each token's raw bytes -- deliberately, so it matches the token
+// ids the Verifier scores rather than the engine's message.content -- and that
+// concatenation used to include the EOS token's bytes, putting a token in
+// output_hash that the contract says is not part of the committed output.
+//
+// The generated token ids keep the EOS either way: only the committed output
+// drops it, so the receipt's token count is unchanged.
+func TestChatCommittedOutputDropsTheTrailingEOS(t *testing.T) {
+	const eosTokenID = 151645
+
+	tests := []struct {
+		name     string
+		lastID   int
+		lastByte []int
+		want     string
+		wantErr  bool
+	}{
+		{name: "natural stop drops the eos", lastID: eosTokenID, lastByte: eosBytes, want: "hello world"},
+		{name: "a non-eos final token is kept", lastID: 12, lastByte: []int{33}, want: "hello world!"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, streaming := range []bool{false, true} {
+				name := "buffered"
+				if streaming {
+					name = "streamed"
+				}
+				t.Run(name, func(t *testing.T) {
+					modelID := testQwenModelID()
+					srv, _ := newChatVLLMStub(t, chatGenResponseEndingIn(test.lastID, test.lastByte), []string{"Qwen/Qwen3-8B"})
+					svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+					svc.SetStreamInference(streaming)
+					svc.SetManifestSource(testManifestSource())
+					// defaultTopK, not the live profile's 20: the stub pads
+					// top_logprobs to defaultTopK, and the profile's
+					// required_top_k is checked against what arrives.
+					svc.SetProfileResolver(staticLocalProfileResolver{profile: liveLikeProfileSnapshotWithTopK(defaultTopK)(modelID, "1")})
+
+					resp, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
+						RequestID:  "chat-eos",
+						ModelID:    modelID,
+						Capability: CapabilityLLMTextV1,
+						Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+					}))
+					if err != nil {
+						t.Fatalf("Infer() error = %v", err)
+					}
+					output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
+					if err != nil {
+						t.Fatalf("FetchArtifact(output) error = %v", err)
+					}
+					if string(output.Data) != test.want {
+						t.Fatalf("committed output = %q, want %q", output.Data, test.want)
+					}
+					// The EOS leaves the committed output and nothing else. It
+					// stays in the generated token ids, because that is the
+					// sequence the Verifier prefills.
+					if resp.GeneratedTokenCount != 3 {
+						t.Fatalf("generated_token_count = %d, want 3: the EOS is still a generated token", resp.GeneratedTokenCount)
+					}
+				})
+			}
+		})
+	}
+}
+
+// Without a chain profile there is no manifest and no EOS authority, so nothing
+// is stripped. This pins that the stripping is driven by the manifest rather
+// than by a hardcoded id list that would fire on the dev path too.
+func TestChatWithoutAResolvedProfileKeepsEveryToken(t *testing.T) {
+	srv, _ := newChatVLLMStub(t, chatGenResponseEndingIn(151645, eosBytes), []string{"Qwen/Qwen3-8B"})
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+	svc.SetStreamInference(false)
+
+	resp, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
+		RequestID:  "chat-no-profile",
+		ModelID:    testQwenModelID(),
+		Capability: CapabilityLLMTextV1,
+		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+	}))
+	if err != nil {
+		t.Fatalf("Infer() error = %v", err)
+	}
+	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
+	if err != nil {
+		t.Fatalf("FetchArtifact(output) error = %v", err)
+	}
+	if got := string(output.Data); got != "hello world<|im_end|>" {
+		t.Fatalf("committed output = %q, want the unstripped text on the no-profile path", got)
+	}
+}

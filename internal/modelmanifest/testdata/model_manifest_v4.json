@@ -1,0 +1,210 @@
+{
+  "canonical_manifest_bytes": 5129,
+  "manifest": {
+    "artifacts": {
+      "chat_template_hash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "file_manifest_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "files": [
+        {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "config.json",
+          "role": "MODEL_CONFIG",
+          "size_bytes": 12345
+        },
+        {
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "model.safetensors",
+          "role": "WEIGHT_SHARD",
+          "size_bytes": 123456
+        },
+        {
+          "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "path": "tokenizer.json",
+          "role": "TOKENIZER",
+          "size_bytes": 23456
+        },
+        {
+          "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "path": "trueopen/decode_vectors.json",
+          "role": "DECODE_VECTORS",
+          "size_bytes": 3456
+        }
+      ],
+      "generation_config_hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "model_config_hash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "model_weight_digest": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quant_config_hash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "tokenizer_config_hash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "tokenizer_hash": "0x4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "batch_verification": {
+      "enabled": false,
+      "min_sample_count": 0,
+      "min_valid_sample_count": 0,
+      "pass_min_sample_pass_ratio_bps": 0,
+      "reject_min_sample_reject_ratio_bps": 0
+    },
+    "identity": {
+      "display_name": "Golden Model",
+      "model_id": "0xc65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f",
+      "previous_profile_version": 0,
+      "profile_version": 1
+    },
+    "manifest_version": 4,
+    "metadata": {
+      "display_tag_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "license_ref": "apache-2.0",
+      "metadata_uri": ""
+    },
+    "model_config_summary": {
+      "active_params": 8000000000,
+      "architecture": "causal_lm",
+      "context_length": 32768,
+      "modality": [
+        "TEXT"
+      ],
+      "model_type": "golden",
+      "moe": {
+        "enabled": false,
+        "num_experts": 0,
+        "num_experts_per_tok": 0
+      },
+      "quantization": {
+        "bits": 16,
+        "method": "BF16"
+      },
+      "total_params": 8000000000
+    },
+    "output_decoding": {
+      "clean_up_tokenization_spaces": false,
+      "decode_vectors_path": "trueopen/decode_vectors.json",
+      "decoder": "HF_TOKENIZERS_V1",
+      "eos_token_ids": [
+        151643,
+        151645
+      ],
+      "render_special_tokens": true,
+      "strip_trailing_eos": true
+    },
+    "pricing_profile": {
+      "initial_output_price": 10,
+      "min_order_value": 1000,
+      "verify_ratio_bps": 1000
+    },
+    "profile_spec": {
+      "challenge_open_window_blocks": 100,
+      "generation_type": "SAMPLED",
+      "min_stake": {
+        "amount": 1000000,
+        "denom": "uusdc"
+      },
+      "require_encrypted": false,
+      "resource_tier": 2,
+      "schema_hash": "0x9999999999999999999999999999999999999999999999999999999999999999",
+      "task_types": [
+        "TEXT_GENERATION",
+        "CHAT"
+      ]
+    },
+    "reasoning_parsing": {},
+    "runtime_requirements": {
+      "recommended_engine": "vllm",
+      "recommended_engine_version": "0.8.x",
+      "required_capabilities": [
+        "LOAD_HF_CAUSAL_LM",
+        "RETURN_GENERATED_TOKEN_IDS",
+        "PREFILL_LOGPROBS_FOR_GIVEN_TOKEN_IDS",
+        "RETURN_TOPK_LOGPROBS",
+        "RAW_SPECIAL_TOKENS_SUPPORTED"
+      ],
+      "required_top_k": 20,
+      "runtime_class": "CAUSAL_LM_PREFILL_LOGPROBS_V1"
+    },
+    "source": {
+      "provider": "HUGGINGFACE",
+      "repo_id": "trueopen/golden-model",
+      "repo_type": "model",
+      "resolver_version": "HF_RESOLVER_V1",
+      "revision": "0123456789abcdef0123456789abcdef01234567",
+      "source_uri": "hf://trueopen/golden-model@0123456789abcdef0123456789abcdef01234567"
+    },
+    "timeout_bootstrap_profile": {
+      "bootstrap_valid_until_epoch": 1000,
+      "commit_timeout_bootstrap_blocks": 20,
+      "infer_timeout_bootstrap_blocks": 100,
+      "verify_timeout_bootstrap_blocks": 50
+    },
+    "tool_calling": {},
+    "verification_profile": {
+      "canonical_encoding_version": "CANONICAL_OUTPUT_TEXT_V1",
+      "evidence_schema": {
+        "required_infer_evidence": [
+          {
+            "commitment_schema_version": 3,
+            "evidence_kind": "WORKER_VALUE_OPENING",
+            "max_encoded_size_bytes": 1073741824
+          },
+          {
+            "commitment_schema_version": 1,
+            "evidence_kind": "WORKER_TOKEN_OPENING",
+            "max_encoded_size_bytes": 67108864
+          }
+        ],
+        "schema_version": 1
+      },
+      "evidence_schema_hash": "0x32bde2e9a69fef898b82cc23f0be211c17f06cb01cec111494d4ed5fcf35ffe0",
+      "include_generated_special_tokens": true,
+      "include_padding_tokens": false,
+      "include_prompt_tokens": false,
+      "judgment_function_version": "PREFILL_GENERATED_TOKEN_METRICS_V1",
+      "metric_aggregate_proof_version": "PREFILL_METRIC_AGGREGATE_PROOF_V1",
+      "metrics": {
+        "compare_logprob_diff": true,
+        "compare_rank_delta": true,
+        "compare_topk_jaccard": true,
+        "compare_union_js": true,
+        "compared_top_k": 20,
+        "numeric_scale": "FP_1E6"
+      },
+      "require_finish_reason": true,
+      "require_output_token_ids": true,
+      "token_scope": "ALL_GENERATED_OUTPUT_TOKENS",
+      "verification_mode": "SINGLE_SAMPLE",
+      "verification_profile_id": 1
+    },
+    "verification_thresholds": {
+      "pass_abs_logprob_diff_p95_max": 100000,
+      "pass_abs_logprob_diff_p99_max": 200000,
+      "pass_max_missing_compared_count": 0,
+      "pass_mean_abs_logprob_diff_max": 50000,
+      "pass_min_finite_count": 16,
+      "pass_rank_delta_nonzero_rate_max": 50000,
+      "pass_topk_jaccard_mean_min": 900000,
+      "pass_union_js_p99_max": 50000,
+      "reject_abs_logprob_diff_p95_min": 500000,
+      "reject_abs_logprob_diff_p99_min": 800000,
+      "reject_mean_abs_logprob_diff_min": 300000,
+      "reject_rank_delta_nonzero_rate_min": 300000,
+      "reject_topk_jaccard_mean_max": 600000,
+      "reject_union_js_p99_min": 200000
+    }
+  },
+  "notes": [
+    "The complete V4 manifest includes structured source, empty parser blocks and the two-kind evidence schema.",
+    "The plaintext profile has require_encrypted false.",
+    "This independent manifest framing vector does not reuse the projection fixture's opaque manifest_hash input."
+  ],
+  "schema": "trueopen.hub.model_manifest.v4",
+  "source": "Model manifest V4 wire contract",
+  "vectors": [
+    {
+      "digest_hex": "6f083a958dbbc828b48b5de8c4524f591fc420e9d3fada1d953fe92336ce65dd",
+      "domain": "TRUEOPEN_MODEL_MANIFEST_V4",
+      "framing": "H_V1",
+      "name": "model_manifest_v4",
+      "payload_utf8": "{\"artifacts\":{\"chat_template_hash\":\"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"file_manifest_hash\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"files\":[{\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"path\":\"config.json\",\"role\":\"MODEL_CONFIG\",\"size_bytes\":12345},{\"digest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"path\":\"model.safetensors\",\"role\":\"WEIGHT_SHARD\",\"size_bytes\":123456},{\"digest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"path\":\"tokenizer.json\",\"role\":\"TOKENIZER\",\"size_bytes\":23456},{\"digest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"path\":\"trueopen/decode_vectors.json\",\"role\":\"DECODE_VECTORS\",\"size_bytes\":3456}],\"generation_config_hash\":\"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"model_config_hash\":\"0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"model_weight_digest\":\"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"quant_config_hash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\",\"tokenizer_config_hash\":\"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"tokenizer_hash\":\"0x4444444444444444444444444444444444444444444444444444444444444444\"},\"batch_verification\":{\"enabled\":false,\"min_sample_count\":0,\"min_valid_sample_count\":0,\"pass_min_sample_pass_ratio_bps\":0,\"reject_min_sample_reject_ratio_bps\":0},\"identity\":{\"display_name\":\"Golden Model\",\"model_id\":\"0xc65241d19b257f935ddea99ea59a19175b4b29751e259853d403fe59f04f4e4f\",\"previous_profile_version\":0,\"profile_version\":1},\"manifest_version\":4,\"metadata\":{\"display_tag_hash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"license_ref\":\"apache-2.0\",\"metadata_uri\":\"\"},\"model_config_summary\":{\"active_params\":8000000000,\"architecture\":\"causal_lm\",\"context_length\":32768,\"modality\":[\"TEXT\"],\"model_type\":\"golden\",\"moe\":{\"enabled\":false,\"num_experts\":0,\"num_experts_per_tok\":0},\"quantization\":{\"bits\":16,\"method\":\"BF16\"},\"total_params\":8000000000},\"output_decoding\":{\"clean_up_tokenization_spaces\":false,\"decode_vectors_path\":\"trueopen/decode_vectors.json\",\"decoder\":\"HF_TOKENIZERS_V1\",\"eos_token_ids\":[151643,151645],\"render_special_tokens\":true,\"strip_trailing_eos\":true},\"pricing_profile\":{\"initial_output_price\":10,\"min_order_value\":1000,\"verify_ratio_bps\":1000},\"profile_spec\":{\"challenge_open_window_blocks\":100,\"generation_type\":\"SAMPLED\",\"min_stake\":{\"amount\":1000000,\"denom\":\"uusdc\"},\"require_encrypted\":false,\"resource_tier\":2,\"schema_hash\":\"0x9999999999999999999999999999999999999999999999999999999999999999\",\"task_types\":[\"TEXT_GENERATION\",\"CHAT\"]},\"reasoning_parsing\":{},\"runtime_requirements\":{\"recommended_engine\":\"vllm\",\"recommended_engine_version\":\"0.8.x\",\"required_capabilities\":[\"LOAD_HF_CAUSAL_LM\",\"RETURN_GENERATED_TOKEN_IDS\",\"PREFILL_LOGPROBS_FOR_GIVEN_TOKEN_IDS\",\"RETURN_TOPK_LOGPROBS\",\"RAW_SPECIAL_TOKENS_SUPPORTED\"],\"required_top_k\":20,\"runtime_class\":\"CAUSAL_LM_PREFILL_LOGPROBS_V1\"},\"source\":{\"provider\":\"HUGGINGFACE\",\"repo_id\":\"trueopen/golden-model\",\"repo_type\":\"model\",\"resolver_version\":\"HF_RESOLVER_V1\",\"revision\":\"0123456789abcdef0123456789abcdef01234567\",\"source_uri\":\"hf://trueopen/golden-model@0123456789abcdef0123456789abcdef01234567\"},\"timeout_bootstrap_profile\":{\"bootstrap_valid_until_epoch\":1000,\"commit_timeout_bootstrap_blocks\":20,\"infer_timeout_bootstrap_blocks\":100,\"verify_timeout_bootstrap_blocks\":50},\"tool_calling\":{},\"verification_profile\":{\"canonical_encoding_version\":\"CANONICAL_OUTPUT_TEXT_V1\",\"evidence_schema\":{\"required_infer_evidence\":[{\"commitment_schema_version\":3,\"evidence_kind\":\"WORKER_VALUE_OPENING\",\"max_encoded_size_bytes\":1073741824},{\"commitment_schema_version\":1,\"evidence_kind\":\"WORKER_TOKEN_OPENING\",\"max_encoded_size_bytes\":67108864}],\"schema_version\":1},\"evidence_schema_hash\":\"0x32bde2e9a69fef898b82cc23f0be211c17f06cb01cec111494d4ed5fcf35ffe0\",\"include_generated_special_tokens\":true,\"include_padding_tokens\":false,\"include_prompt_tokens\":false,\"judgment_function_version\":\"PREFILL_GENERATED_TOKEN_METRICS_V1\",\"metric_aggregate_proof_version\":\"PREFILL_METRIC_AGGREGATE_PROOF_V1\",\"metrics\":{\"compare_logprob_diff\":true,\"compare_rank_delta\":true,\"compare_topk_jaccard\":true,\"compare_union_js\":true,\"compared_top_k\":20,\"numeric_scale\":\"FP_1E6\"},\"require_finish_reason\":true,\"require_output_token_ids\":true,\"token_scope\":\"ALL_GENERATED_OUTPUT_TOKENS\",\"verification_mode\":\"SINGLE_SAMPLE\",\"verification_profile_id\":1},\"verification_thresholds\":{\"pass_abs_logprob_diff_p95_max\":100000,\"pass_abs_logprob_diff_p99_max\":200000,\"pass_max_missing_compared_count\":0,\"pass_mean_abs_logprob_diff_max\":50000,\"pass_min_finite_count\":16,\"pass_rank_delta_nonzero_rate_max\":50000,\"pass_topk_jaccard_mean_min\":900000,\"pass_union_js_p99_max\":50000,\"reject_abs_logprob_diff_p95_min\":500000,\"reject_abs_logprob_diff_p99_min\":800000,\"reject_mean_abs_logprob_diff_min\":300000,\"reject_rank_delta_nonzero_rate_min\":300000,\"reject_topk_jaccard_mean_max\":600000,\"reject_union_js_p99_min\":200000}}",
+      "preimage_hex": "545255454f50454e5f4652414d455f56310000001a545255454f50454e5f4d4f44454c5f4d414e49464553545f563400000000000014097b22617274696661637473223a7b22636861745f74656d706c6174655f68617368223a22307866666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666222c2266696c655f6d616e69666573745f68617368223a22307861616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2266696c6573223a5b7b22646967657374223a227368613235363a61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2270617468223a22636f6e6669672e6a736f6e222c22726f6c65223a224d4f44454c5f434f4e464947222c2273697a655f6279746573223a31323334357d2c7b22646967657374223a227368613235363a62626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c2270617468223a226d6f64656c2e7361666574656e736f7273222c22726f6c65223a225745494748545f5348415244222c2273697a655f6279746573223a3132333435367d2c7b22646967657374223a227368613235363a63636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363222c2270617468223a22746f6b656e697a65722e6a736f6e222c22726f6c65223a22544f4b454e495a4552222c2273697a655f6279746573223a32333435367d2c7b22646967657374223a227368613235363a64646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464222c2270617468223a22747275656f70656e2f6465636f64655f766563746f72732e6a736f6e222c22726f6c65223a224445434f44455f564543544f5253222c2273697a655f6279746573223a333435367d5d2c2267656e65726174696f6e5f636f6e6669675f68617368223a22307864646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464222c226d6f64656c5f636f6e6669675f68617368223a22307863636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363222c226d6f64656c5f7765696768745f646967657374223a22307862626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c227175616e745f636f6e6669675f68617368223a22307831313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131222c22746f6b656e697a65725f636f6e6669675f68617368223a22307865656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565222c22746f6b656e697a65725f68617368223a22307834343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434227d2c2262617463685f766572696669636174696f6e223a7b22656e61626c6564223a66616c73652c226d696e5f73616d706c655f636f756e74223a302c226d696e5f76616c69645f73616d706c655f636f756e74223a302c22706173735f6d696e5f73616d706c655f706173735f726174696f5f627073223a302c2272656a6563745f6d696e5f73616d706c655f72656a6563745f726174696f5f627073223a307d2c226964656e74697479223a7b22646973706c61795f6e616d65223a22476f6c64656e204d6f64656c222c226d6f64656c5f6964223a22307863363532343164313962323537663933356464656139396561353961313931373562346232393735316532353938353364343033666535396630346634653466222c2270726576696f75735f70726f66696c655f76657273696f6e223a302c2270726f66696c655f76657273696f6e223a317d2c226d616e69666573745f76657273696f6e223a342c226d65746164617461223a7b22646973706c61795f7461675f68617368223a22307830303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030222c226c6963656e73655f726566223a226170616368652d322e30222c226d657461646174615f757269223a22227d2c226d6f64656c5f636f6e6669675f73756d6d617279223a7b226163746976655f706172616d73223a383030303030303030302c22617263686974656374757265223a2263617573616c5f6c6d222c22636f6e746578745f6c656e677468223a33323736382c226d6f64616c697479223a5b2254455854225d2c226d6f64656c5f74797065223a22676f6c64656e222c226d6f65223a7b22656e61626c6564223a66616c73652c226e756d5f65787065727473223a302c226e756d5f657870657274735f7065725f746f6b223a307d2c227175616e74697a6174696f6e223a7b2262697473223a31362c226d6574686f64223a2242463136227d2c22746f74616c5f706172616d73223a383030303030303030307d2c226f75747075745f6465636f64696e67223a7b22636c65616e5f75705f746f6b656e697a6174696f6e5f737061636573223a66616c73652c226465636f64655f766563746f72735f70617468223a22747275656f70656e2f6465636f64655f766563746f72732e6a736f6e222c226465636f646572223a2248465f544f4b454e495a4552535f5631222c22656f735f746f6b656e5f696473223a5b3135313634332c3135313634355d2c2272656e6465725f7370656369616c5f746f6b656e73223a747275652c2273747269705f747261696c696e675f656f73223a747275657d2c2270726963696e675f70726f66696c65223a7b22696e697469616c5f6f75747075745f7072696365223a31302c226d696e5f6f726465725f76616c7565223a313030302c227665726966795f726174696f5f627073223a313030307d2c2270726f66696c655f73706563223a7b226368616c6c656e67655f6f70656e5f77696e646f775f626c6f636b73223a3130302c2267656e65726174696f6e5f74797065223a2253414d504c4544222c226d696e5f7374616b65223a7b22616d6f756e74223a313030303030302c2264656e6f6d223a227575736463227d2c22726571756972655f656e63727970746564223a66616c73652c227265736f757263655f74696572223a322c22736368656d615f68617368223a22307839393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939393939222c227461736b5f7479706573223a5b22544558545f47454e45524154494f4e222c2243484154225d7d2c22726561736f6e696e675f70617273696e67223a7b7d2c2272756e74696d655f726571756972656d656e7473223a7b227265636f6d6d656e6465645f656e67696e65223a22766c6c6d222c227265636f6d6d656e6465645f656e67696e655f76657273696f6e223a22302e382e78222c2272657175697265645f6361706162696c6974696573223a5b224c4f41445f48465f43415553414c5f4c4d222c2252455455524e5f47454e4552415445445f544f4b454e5f494453222c2250524546494c4c5f4c4f4750524f42535f464f525f474956454e5f544f4b454e5f494453222c2252455455524e5f544f504b5f4c4f4750524f4253222c225241575f5350454349414c5f544f4b454e535f535550504f52544544225d2c2272657175697265645f746f705f6b223a32302c2272756e74696d655f636c617373223a2243415553414c5f4c4d5f50524546494c4c5f4c4f4750524f42535f5631227d2c22736f75726365223a7b2270726f7669646572223a2248554747494e4746414345222c227265706f5f6964223a22747275656f70656e2f676f6c64656e2d6d6f64656c222c227265706f5f74797065223a226d6f64656c222c227265736f6c7665725f76657273696f6e223a2248465f5245534f4c5645525f5631222c227265766973696f6e223a2230313233343536373839616263646566303132333435363738396162636465663031323334353637222c22736f757263655f757269223a2268663a2f2f747275656f70656e2f676f6c64656e2d6d6f64656c4030313233343536373839616263646566303132333435363738396162636465663031323334353637227d2c2274696d656f75745f626f6f7473747261705f70726f66696c65223a7b22626f6f7473747261705f76616c69645f756e74696c5f65706f6368223a313030302c22636f6d6d69745f74696d656f75745f626f6f7473747261705f626c6f636b73223a32302c22696e6665725f74696d656f75745f626f6f7473747261705f626c6f636b73223a3130302c227665726966795f74696d656f75745f626f6f7473747261705f626c6f636b73223a35307d2c22746f6f6c5f63616c6c696e67223a7b7d2c22766572696669636174696f6e5f70726f66696c65223a7b2263616e6f6e6963616c5f656e636f64696e675f76657273696f6e223a2243414e4f4e4943414c5f4f55545055545f544558545f5631222c2265766964656e63655f736368656d61223a7b2272657175697265645f696e6665725f65766964656e6365223a5b7b22636f6d6d69746d656e745f736368656d615f76657273696f6e223a332c2265766964656e63655f6b696e64223a22574f524b45525f56414c55455f4f50454e494e47222c226d61785f656e636f6465645f73697a655f6279746573223a313037333734313832347d2c7b22636f6d6d69746d656e745f736368656d615f76657273696f6e223a312c2265766964656e63655f6b696e64223a22574f524b45525f544f4b454e5f4f50454e494e47222c226d61785f656e636f6465645f73697a655f6279746573223a36373130383836347d5d2c22736368656d615f76657273696f6e223a317d2c2265766964656e63655f736368656d615f68617368223a22307833326264653265396136396665663839386238326363323366306265323131633137663036636230316365633131313439346434656435666366333566666530222c22696e636c7564655f67656e6572617465645f7370656369616c5f746f6b656e73223a747275652c22696e636c7564655f70616464696e675f746f6b656e73223a66616c73652c22696e636c7564655f70726f6d70745f746f6b656e73223a66616c73652c226a7564676d656e745f66756e6374696f6e5f76657273696f6e223a2250524546494c4c5f47454e4552415445445f544f4b454e5f4d4554524943535f5631222c226d65747269635f6167677265676174655f70726f6f665f76657273696f6e223a2250524546494c4c5f4d45545249435f4147475245474154455f50524f4f465f5631222c226d657472696373223a7b22636f6d706172655f6c6f6770726f625f64696666223a747275652c22636f6d706172655f72616e6b5f64656c7461223a747275652c22636f6d706172655f746f706b5f6a616363617264223a747275652c22636f6d706172655f756e696f6e5f6a73223a747275652c22636f6d70617265645f746f705f6b223a32302c226e756d657269635f7363616c65223a2246505f314536227d2c22726571756972655f66696e6973685f726561736f6e223a747275652c22726571756972655f6f75747075745f746f6b656e5f696473223a747275652c22746f6b656e5f73636f7065223a22414c4c5f47454e4552415445445f4f55545055545f544f4b454e53222c22766572696669636174696f6e5f6d6f6465223a2253494e474c455f53414d504c45222c22766572696669636174696f6e5f70726f66696c655f6964223a317d2c22766572696669636174696f6e5f7468726573686f6c6473223a7b22706173735f6162735f6c6f6770726f625f646966665f7039355f6d6178223a3130303030302c22706173735f6162735f6c6f6770726f625f646966665f7039395f6d6178223a3230303030302c22706173735f6d61785f6d697373696e675f636f6d70617265645f636f756e74223a302c22706173735f6d65616e5f6162735f6c6f6770726f625f646966665f6d6178223a35303030302c22706173735f6d696e5f66696e6974655f636f756e74223a31362c22706173735f72616e6b5f64656c74615f6e6f6e7a65726f5f726174655f6d6178223a35303030302c22706173735f746f706b5f6a6163636172645f6d65616e5f6d696e223a3930303030302c22706173735f756e696f6e5f6a735f7039395f6d6178223a35303030302c2272656a6563745f6162735f6c6f6770726f625f646966665f7039355f6d696e223a3530303030302c2272656a6563745f6162735f6c6f6770726f625f646966665f7039395f6d696e223a3830303030302c2272656a6563745f6d65616e5f6162735f6c6f6770726f625f646966665f6d696e223a3330303030302c2272656a6563745f72616e6b5f64656c74615f6e6f6e7a65726f5f726174655f6d696e223a3330303030302c2272656a6563745f746f706b5f6a6163636172645f6d65616e5f6d6178223a3630303030302c2272656a6563745f756e696f6e5f6a735f7039395f6d696e223a3230303030307d7d",
+      "preimage_size_bytes": 5184
+    }
+  ]
+}
