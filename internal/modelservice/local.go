@@ -83,8 +83,19 @@ type LocalService struct {
 	// always non-streaming.
 	streamInference bool
 
+	// detokenizeCorroboration, when true, makes Infer refuse to commit an
+	// output whose bytes do not equal the engine's own decode of the committed
+	// token ids (corroborateOutputDecodes). Off by default; the daemon enables
+	// it on the production path.
+	detokenizeCorroboration bool
+
 	mu        sync.RWMutex
 	artifacts map[string][]byte
+	// detokenizeCalibrated remembers, per served model, that /detokenize
+	// round-tripped the cleanup-sensitive calibration probe byte-exactly, so
+	// its decodes may be compared against committed outputs. See
+	// calibrateDetokenize.
+	detokenizeCalibrated map[string]bool
 	// models binds each chain model id this node serves to the repository vLLM
 	// serves it under. The binding comes from the chain (ModelState provider and
 	// repo_id), set by BindModel at startup: a model id is a hash over the
@@ -1135,6 +1146,9 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	if outputBytes == nil {
 		outputBytes = []byte(choice.Text)
 	}
+	if err := s.corroborateOutputDecodes(ctx, profile, choice.TokenIDs, outputBytes); err != nil {
+		return InferResponse{}, err
+	}
 	outputRef := s.putArtifact(outputBytes)
 	tokenIDsRef := s.putArtifact(tokenIDsBytes)
 	positionValuesRef := s.putArtifact(positionValuesBytes)
@@ -1187,15 +1201,12 @@ func checkEOSFinish(finish nodewire.FinishReasonV1, tokenIDs []int, decoding mod
 // values: comparing the two, and everything derived from the comparison, is
 // Cortex's job.
 //
-// One check the Verifier's evidence rules call for is NOT here yet: that the
-// committed output equals the decode of the token IDs without their trailing
-// EOS. The EOS set is known on the Worker side (localModelProfile.OutputDecoding,
-// from the profile manifest checked against the on-chain manifest_hash); what
-// is missing is a byte-exact decode. This path makes no tokenizer call, and
-// vLLM's /detokenize does not expose the render_special_tokens and
-// clean_up_tokenization_spaces settings output_decoding fixes, so the
-// comparison cannot be made exact yet. Verify therefore does not need the
-// manifest at all, and does not read it.
+// One evidence rule is deliberately NOT here: that the committed output equals
+// the decode of the token IDs without their trailing EOS. Verify never sees
+// the output bytes, so it cannot be. Cortex's verifier runs that comparison
+// before scoring (internal/verifier.validateAcceptedWorkerEvidence) through
+// DetokenizeCommitted, which is also where the manifest's output_decoding is
+// read; Verify itself still does not need the manifest, and does not read it.
 func (s *LocalService) Verify(ctx context.Context, req VerifyRequest) (VerifyResponse, error) {
 	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {
 		return VerifyResponse{}, err
