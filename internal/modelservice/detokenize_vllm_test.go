@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -45,12 +46,14 @@ func TestRealVLLMOutputDecodeFullFlow(t *testing.T) {
 		rawEOS = "151645,151643"
 	}
 	var eosIDs []string
+	var eosTokenIDs []uint32
 	for field := range strings.SplitSeq(rawEOS, ",") {
 		id, err := strconv.ParseUint(strings.TrimSpace(field), 10, 32)
 		if err != nil {
 			t.Fatalf("%s entry %q: %v", envTestVLLMEOSTokenIDs, field, err)
 		}
 		eosIDs = append(eosIDs, strconv.FormatUint(id, 10))
+		eosTokenIDs = append(eosTokenIDs, uint32(id))
 	}
 	topK := uint32(20)
 	if raw := strings.TrimSpace(os.Getenv(envTestVLLMTopK)); raw != "" {
@@ -69,16 +72,66 @@ func TestRealVLLMOutputDecodeFullFlow(t *testing.T) {
 	manifestHash := modelmanifest.Hash(manifest)
 	snapshot.ManifestHash = chainclient.ProtoBytes32(manifestHash[:])
 
-	svc := NewLocalService(url, "real-vllm-decode", 4, 10*time.Minute, time.Minute)
-	if err := svc.BindModel(testQwenModelID(), LocalModelProvider, served); err != nil {
-		t.Fatal(err)
+	newService := func() *LocalService {
+		svc := NewLocalService(url, "real-vllm-decode", 4, 10*time.Minute, time.Minute)
+		if err := svc.BindModel(testQwenModelID(), LocalModelProvider, served); err != nil {
+			t.Fatal(err)
+		}
+		svc.SetProfileResolver(staticLocalProfileResolver{profile: snapshot})
+		svc.SetOutputDecodingSource(outputDecodingSourceFunc(func(_ context.Context, profile chainclient.CurrentProfileSnapshot) (modelmanifest.OutputDecoding, error) {
+			return modelmanifest.VerifyOutputDecoding(manifest, profile.ManifestHash)
+		}))
+		svc.SetDetokenizeCorroboration(true)
+		return svc
 	}
-	svc.SetProfileResolver(staticLocalProfileResolver{profile: snapshot})
-	svc.SetOutputDecodingSource(outputDecodingSourceFunc(func(_ context.Context, profile chainclient.CurrentProfileSnapshot) (modelmanifest.OutputDecoding, error) {
-		return modelmanifest.VerifyOutputDecoding(manifest, profile.ManifestHash)
-	}))
-	svc.SetDetokenizeCorroboration(true)
+	svc := newService()
 	ctx := context.Background()
+
+	// DECODE_VECTORS over the real engine. The expected bytes come from the
+	// engine's own round trip (what the offline generator derives from the HF
+	// tokenizer directly), so this exercises the gate's plumbing, the
+	// trailing-EOS strip and the mid-character truncation against a live
+	// tokenizer rather than its independent authorship.
+	tokenize := func(text string) []uint32 {
+		var resp tokenizeResponse
+		if err := svc.post(ctx, "/tokenize", tokenizeRequest{Model: served, Prompt: text}, &resp); err != nil {
+			t.Fatalf("tokenize %q: %v", text, err)
+		}
+		ids := make([]uint32, len(resp.Tokens))
+		for i, id := range resp.Tokens {
+			ids[i] = uint32(id)
+		}
+		return ids
+	}
+	decodeReal := func(ids []uint32) []byte {
+		ints := make([]int, len(ids))
+		for i, id := range ids {
+			ints[i] = int(id)
+		}
+		decoded, err := svc.detokenizeIDs(ctx, served, ints)
+		if err != nil {
+			t.Fatalf("detokenize %v: %v", ids, err)
+		}
+		return decoded
+	}
+	sentence := tokenize("Hello 世界, decode vectors bind this engine.")
+	vectors := []modelmanifest.DecodeVector{
+		{TokenIDs: sentence, ExpectedBytes: decodeReal(sentence)},
+		// One trailing EOS strips; the expected bytes stay the sentence's.
+		{TokenIDs: append(slices.Clone(sentence), eosTokenIDs[0]), ExpectedBytes: decodeReal(sentence)},
+		// Nothing but an EOS commits the empty output.
+		{TokenIDs: []uint32{eosTokenIDs[0]}, ExpectedBytes: []byte{}},
+	}
+	if emoji := tokenize("\U0001F30D"); len(emoji) >= 2 {
+		truncated := emoji[:len(emoji)-1]
+		expected := decodeReal(truncated)
+		if !strings.Contains(string(expected), "�") {
+			t.Fatalf("mid-character truncation %v decoded to %q without U+FFFD", truncated, expected)
+		}
+		vectors = append(vectors, modelmanifest.DecodeVector{TokenIDs: truncated, ExpectedBytes: expected})
+	}
+	svc.SetDecodeVectorsSource(&countingVectorsSource{vectors: vectors})
+	t.Logf("gating the flow on %d decode vectors", len(vectors))
 
 	// Worker side: infer and commit. Corroboration runs inside Infer, so a
 	// committed output already survived the engine's own decode once.
@@ -116,6 +169,16 @@ func TestRealVLLMOutputDecodeFullFlow(t *testing.T) {
 	tampered := append([]byte("TAMPERED:"), output.Data...)
 	if string(decoded) == string(CanonicalUTF8(tampered)) {
 		t.Fatal("decode(T) matched a tampered output")
+	}
+
+	// A node whose engine cannot reproduce a declared vector refuses to decode
+	// at all, before any comparison or commitment.
+	gated := newService()
+	gated.SetDecodeVectorsSource(&countingVectorsSource{vectors: []modelmanifest.DecodeVector{
+		{TokenIDs: sentence, ExpectedBytes: append([]byte("NOT THE DECODE "), decodeReal(sentence)...)},
+	}})
+	if _, err := gated.DetokenizeCommitted(ctx, testQwenModelID(), "1", ids.Generated); err == nil || !strings.Contains(err.Error(), "DECODE_VECTORS[0]") {
+		t.Fatalf("DetokenizeCommitted() with a failing vector = %v, want the vector refusal", err)
 	}
 
 	// Verifier side, scoring: teacher-force the committed token ids and get a

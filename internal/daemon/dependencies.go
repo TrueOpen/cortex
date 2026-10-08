@@ -222,6 +222,12 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 			return Dependencies{}, fmt.Errorf("model_manifest: %w", err)
 		}
 		local.SetOutputDecodingSource(manifests)
+		// A manifest that declares DECODE_VECTORS makes this engine prove,
+		// before any decode is committed or compared, that it reproduces every
+		// declared case. The vectors file is read from the manifest cache as
+		// <sha256 hex>.decode_vectors.json or from the mirrors, and only bytes
+		// hashing to the manifest's committed digest are accepted.
+		local.SetDecodeVectorsSource(manifests)
 		if resolver := newKeeperLocalProfileResolver(deps.Keeper); resolver != nil {
 			local.SetProfileResolver(resolver)
 		}
