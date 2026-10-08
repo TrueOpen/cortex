@@ -71,18 +71,43 @@ type Fetched struct {
 // verification end the search, since every copy of those bytes is equally
 // invalid.
 func (f *Fetcher) Fetch(ctx context.Context, chain chainclient.CurrentModelProfileSnapshot) (Fetched, error) {
-	manifestURI := chain.Profile.ManifestURI
-	if !chain.Profile.ManifestHash.IsSet() {
+	return f.fetch(ctx, chain.Profile, func(body []byte) (*Manifest, error) { return Verify(body, chain) })
+}
+
+// OutputDecoding returns the output_decoding block of a registered profile's
+// manifest. It searches the same sources in the same order as Fetch and
+// shares its cache, but accepts any bytes that hash to the chain's
+// manifest_hash and carry a valid output_decoding block (VerifyOutputDecoding):
+// the rest of the manifest does not have to pass the full schema.
+func (f *Fetcher) OutputDecoding(ctx context.Context, profile chainclient.CurrentProfileSnapshot) (OutputDecoding, error) {
+	var decoding OutputDecoding
+	_, err := f.fetch(ctx, profile, func(body []byte) (*Manifest, error) {
+		var err error
+		decoding, err = VerifyOutputDecoding(body, profile.ManifestHash)
+		return nil, err
+	})
+	if err != nil {
+		return OutputDecoding{}, err
+	}
+	return decoding, nil
+}
+
+// fetch runs the source search for one profile. verify must return an error
+// wrapping ErrHashMismatch for bytes that are not the committed manifest, and
+// one wrapping ErrInvalid for committed bytes that cannot be used.
+func (f *Fetcher) fetch(ctx context.Context, profile chainclient.CurrentProfileSnapshot, verify func([]byte) (*Manifest, error)) (Fetched, error) {
+	manifestURI := profile.ManifestURI
+	if !profile.ManifestHash.IsSet() {
 		return Fetched{}, errors.New("chain profile has no manifest_hash")
 	}
-	hashHex := chain.Profile.ManifestHash.Hex()
+	hashHex := profile.ManifestHash.Hex()
 	var failures []string
 	try := func(source string, body []byte, err error) (Fetched, bool, error) {
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", source, err))
 			return Fetched{}, false, nil
 		}
-		manifest, err := Verify(body, chain)
+		manifest, err := verify(body)
 		if errors.Is(err, ErrInvalid) {
 			return Fetched{}, true, fmt.Errorf("manifest %s from %s: %w", hashHex, source, err)
 		}

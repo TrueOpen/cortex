@@ -49,6 +49,14 @@ func (c *RemoteClient) Estimate(ctx context.Context, req EstimateRequest) (Estim
 	return resp, c.invoke(ctx, "Estimate", req, &resp)
 }
 
+// Infer forwards the generation to the remote model service. That service,
+// not Cortex, builds the committed output, so it must apply the same rule as
+// LocalService: the output artifact is the UTF-8 of the generated token ids
+// with special tokens rendered and no clean-up, leaving out exactly one
+// trailing token if and only if it is in the profile manifest's
+// output_decoding.eos_token_ids; the token id artifact keeps every generated
+// token, EOS included; and an EOS_TOKEN finish means the last generated token
+// is in that set. Streamed output, if any, must carry exactly those bytes.
 func (c *RemoteClient) Infer(ctx context.Context, req InferRequest) (InferResponse, error) {
 	var resp InferResponse
 	if err := ValidateGenerationContext(req.Generation, req.GenerationParamsDigest, req.ModelID, req.ProfileVersion); err != nil {

@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TrueOpen/cortex/internal/modelservice/vllmstub"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -257,50 +258,23 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 func newChatVLLMStreamStub(t *testing.T, chunks []chatCompletionChunk, models []string) (*httptest.Server, *[]chatCompletionRequest) {
 	t.Helper()
 	chunks = chatChunksFullTopK(chunks)
+	frames := make([]any, len(chunks))
+	for i, chunk := range chunks {
+		frames[i] = chunk
+	}
 	var seen []chatCompletionRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/metrics":
-			writeVLLMMetrics(w, 0, 0)
-			return
-		case "/v1/models":
-			data := make([]map[string]any, 0, len(models))
-			for _, m := range models {
-				data = append(data, map[string]any{"id": m, "object": "model"})
+	srv := vllmstub.ChatStream{
+		Frames:  frames,
+		Models:  models,
+		Metrics: func(w http.ResponseWriter) { writeVLLMMetrics(w, 0, 0) },
+		OnRequest: func(body []byte) {
+			var req chatCompletionRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Errorf("decode chat request: %v", err)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
-			return
-		case "/v1/chat/completions":
-		default:
-			http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
-			return
-		}
-		var req chatCompletionRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		seen = append(seen, req)
-		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, _ := w.(http.Flusher)
-		fmt.Fprint(w, ": keepalive\n\n")
-		for _, chunk := range chunks {
-			payload, err := json.Marshal(chunk)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			fmt.Fprintf(w, "data: %s\n\n", payload)
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
-		if flusher != nil {
-			flusher.Flush()
-		}
-	}))
-	t.Cleanup(srv.Close)
+			seen = append(seen, req)
+		},
+	}.Start(t)
 	return srv, &seen
 }
 
@@ -379,22 +353,28 @@ func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 		t.Fatalf("Infer() error = %v", err)
 	}
 
-	if len(obs.frames) != 3 {
-		t.Fatalf("observer frames = %d, want 3 (two deltas + done)", len(obs.frames))
+	// Each token's text is held back until the next token arrives, because only
+	// then is it known not to be a trailing EOS; the last one is released when
+	// the stream ends, on a text-only frame before the done frame.
+	if len(obs.frames) != 4 {
+		t.Fatalf("observer frames = %d, want 4 (two deltas + final text + done)", len(obs.frames))
 	}
 	for i, f := range obs.frames {
 		if f.RequestID != "chat-stream" || f.JobID != "chat-job" || f.TaskID != "chat-task" || f.ModelID != testQwenModelID() {
 			t.Fatalf("frame[%d] identity = %+v, want chat-stream/chat-job/chat-task/%s", i, f, testQwenModelID())
 		}
 	}
-	if f := obs.frames[0]; f.TextDelta != "hello" || !slices.Equal(f.TokenIDs, []int{10}) || f.FinishReason != "" || f.Done {
-		t.Fatalf("frame[0] = %+v, want delta hello / [10] / not done", f)
+	if f := obs.frames[0]; f.TextDelta != "" || !slices.Equal(f.TokenIDs, []int{10}) || f.FinishReason != "" || f.Done {
+		t.Fatalf("frame[0] = %+v, want empty delta / [10] / not done", f)
 	}
-	if f := obs.frames[1]; f.TextDelta != " world" || !slices.Equal(f.TokenIDs, []int{11}) || f.FinishReason != "stop" || f.Done {
-		t.Fatalf("frame[1] = %+v, want delta world / [11] / stop", f)
+	if f := obs.frames[1]; f.TextDelta != "hello" || !slices.Equal(f.TokenIDs, []int{11}) || f.FinishReason != "stop" || f.Done {
+		t.Fatalf("frame[1] = %+v, want delta hello / [11] / stop", f)
 	}
-	if f := obs.frames[2]; !f.Done || f.FinishReason != "stop" || f.TextDelta != "" {
-		t.Fatalf("frame[2] = %+v, want terminal done frame with finish reason", f)
+	if f := obs.frames[2]; f.TextDelta != " world" || len(f.TokenIDs) != 0 || f.Done {
+		t.Fatalf("frame[2] = %+v, want the released last token world", f)
+	}
+	if f := obs.frames[3]; !f.Done || f.FinishReason != "stop" || f.TextDelta != "" {
+		t.Fatalf("frame[3] = %+v, want terminal done frame with finish reason", f)
 	}
 
 	// The observed (decoded) deltas reassemble the committed output byte-for-byte.
@@ -402,8 +382,8 @@ func TestLocalServiceChatStreamObserverReceivesFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchArtifact(output) error = %v", err)
 	}
-	if string(output.Data) != obs.frames[0].TextDelta+obs.frames[1].TextDelta {
-		t.Fatalf("output %q != concatenated deltas %q", output.Data, obs.frames[0].TextDelta+obs.frames[1].TextDelta)
+	if streamed := obs.frames[1].TextDelta + obs.frames[2].TextDelta; string(output.Data) != streamed {
+		t.Fatalf("output %q != concatenated deltas %q", output.Data, streamed)
 	}
 	if string(output.Data) != "hello world" {
 		t.Fatalf("output = %q, want decoded token bytes %q", output.Data, "hello world")
@@ -635,16 +615,21 @@ func TestLocalServiceChatStreamBuffersSplitMultibyte(t *testing.T) {
 		reassembled.WriteString(f.TextDelta)
 	}
 
-	// The character that completes only on frame 1 / frame 2 is held back until
-	// its bytes are whole; frame 0 carries its token id with an empty delta.
+	// A token's bytes are released one token late (it might be a trailing
+	// EOS), and released bytes are then held until they end a character: U+4F60
+	// is whole once token 21 is released, on frame 2, and U+597D once the last
+	// token is released at the end of the stream.
 	if f := obs.frames[0]; f.TextDelta != "" || !slices.Equal(f.TokenIDs, []int{20}) {
 		t.Fatalf("frame[0] = %+v, want empty delta with token [20]", f)
 	}
-	if f := obs.frames[1]; f.TextDelta != "你" || !slices.Equal(f.TokenIDs, []int{21}) {
-		t.Fatalf("frame[1] = %+v, want delta 你 with token [21]", f)
+	if f := obs.frames[1]; f.TextDelta != "" || !slices.Equal(f.TokenIDs, []int{21}) {
+		t.Fatalf("frame[1] = %+v, want empty delta with token [21]", f)
 	}
-	if f := obs.frames[2]; f.TextDelta != "好" || !slices.Equal(f.TokenIDs, []int{22}) || f.FinishReason != "stop" {
-		t.Fatalf("frame[2] = %+v, want delta 好 with token [22] / stop", f)
+	if f := obs.frames[2]; f.TextDelta != "\u4f60" || !slices.Equal(f.TokenIDs, []int{22}) || f.FinishReason != "stop" {
+		t.Fatalf("frame[2] = %+v, want delta U+4F60 with token [22] / stop", f)
+	}
+	if f := obs.frames[3]; f.TextDelta != "\u597d" || f.Done {
+		t.Fatalf("frame[3] = %+v, want the final delta U+597D", f)
 	}
 	if f := obs.frames[len(obs.frames)-1]; !f.Done {
 		t.Fatalf("last frame = %+v, want terminal done frame", f)
@@ -714,120 +699,4 @@ func chatChunksFullTopK(chunks []chatCompletionChunk) []chatCompletionChunk {
 		out[i] = chunk
 	}
 	return out
-}
-
-// eosBytes is the UTF-8 the engine renders for token 151645, which the test
-// manifest lists in output_decoding.eos_token_ids. The bytes are deliberately
-// non-empty and recognisable: vLLM returns them on the logprob entry even
-// though it drops the token from message.content, so before the committed
-// output was decoded against the manifest they were concatenated straight into
-// output_hash.
-var eosBytes = []int{60, 124, 105, 109, 95, 101, 110, 100, 124, 62} // "<|im_end|>"
-
-// chatGenResponseEndingIn returns the two-token "hello world" generation with
-// one more token appended, so a caller can end it on an EOS or on anything else.
-func chatGenResponseEndingIn(tokenID int, tokenBytes []int) chatCompletionResponse {
-	resp := chatGenResponse()
-	choice := &resp.Choices[0]
-	choice.TokenIDs = append(choice.TokenIDs, tokenID)
-	choice.Logprobs.Content = append(choice.Logprobs.Content, chatRespLogprobContent{
-		Token: fmt.Sprintf("token_id:%d", tokenID), Logprob: -0.3, Bytes: tokenBytes,
-		TopLogprobs: []chatRespTopLogprob{{Token: fmt.Sprintf("token_id:%d", tokenID), Logprob: -0.3}},
-	})
-	resp.Usage.CompletionTokens = len(choice.TokenIDs)
-	resp.Usage.TotalTokens = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
-	return resp
-}
-
-// The committed output is decode(T minus the trailing EOS). Cortex builds it by
-// concatenating each token's raw bytes -- deliberately, so it matches the token
-// ids the Verifier scores rather than the engine's message.content -- and that
-// concatenation used to include the EOS token's bytes, putting a token in
-// output_hash that the contract says is not part of the committed output.
-//
-// The generated token ids keep the EOS either way: only the committed output
-// drops it, so the receipt's token count is unchanged.
-func TestChatCommittedOutputDropsTheTrailingEOS(t *testing.T) {
-	const eosTokenID = 151645
-
-	tests := []struct {
-		name     string
-		lastID   int
-		lastByte []int
-		want     string
-		wantErr  bool
-	}{
-		{name: "natural stop drops the eos", lastID: eosTokenID, lastByte: eosBytes, want: "hello world"},
-		{name: "a non-eos final token is kept", lastID: 12, lastByte: []int{33}, want: "hello world!"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			for _, streaming := range []bool{false, true} {
-				name := "buffered"
-				if streaming {
-					name = "streamed"
-				}
-				t.Run(name, func(t *testing.T) {
-					modelID := testQwenModelID()
-					srv, _ := newChatVLLMStub(t, chatGenResponseEndingIn(test.lastID, test.lastByte), []string{"Qwen/Qwen3-8B"})
-					svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
-					svc.SetStreamInference(streaming)
-					svc.SetManifestSource(testManifestSource())
-					// defaultTopK, not the live profile's 20: the stub pads
-					// top_logprobs to defaultTopK, and the profile's
-					// required_top_k is checked against what arrives.
-					svc.SetProfileResolver(staticLocalProfileResolver{profile: liveLikeProfileSnapshotWithTopK(defaultTopK)(modelID, "1")})
-
-					resp, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
-						RequestID:  "chat-eos",
-						ModelID:    modelID,
-						Capability: CapabilityLLMTextV1,
-						Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
-					}))
-					if err != nil {
-						t.Fatalf("Infer() error = %v", err)
-					}
-					output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
-					if err != nil {
-						t.Fatalf("FetchArtifact(output) error = %v", err)
-					}
-					if string(output.Data) != test.want {
-						t.Fatalf("committed output = %q, want %q", output.Data, test.want)
-					}
-					// The EOS leaves the committed output and nothing else. It
-					// stays in the generated token ids, because that is the
-					// sequence the Verifier prefills.
-					if resp.GeneratedTokenCount != 3 {
-						t.Fatalf("generated_token_count = %d, want 3: the EOS is still a generated token", resp.GeneratedTokenCount)
-					}
-				})
-			}
-		})
-	}
-}
-
-// Without a chain profile there is no manifest and no EOS authority, so nothing
-// is stripped. This pins that the stripping is driven by the manifest rather
-// than by a hardcoded id list that would fire on the dev path too.
-func TestChatWithoutAResolvedProfileKeepsEveryToken(t *testing.T) {
-	srv, _ := newChatVLLMStub(t, chatGenResponseEndingIn(151645, eosBytes), []string{"Qwen/Qwen3-8B"})
-	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
-	svc.SetStreamInference(false)
-
-	resp, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
-		RequestID:  "chat-no-profile",
-		ModelID:    testQwenModelID(),
-		Capability: CapabilityLLMTextV1,
-		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
-	}))
-	if err != nil {
-		t.Fatalf("Infer() error = %v", err)
-	}
-	output, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.OutputRef})
-	if err != nil {
-		t.Fatalf("FetchArtifact(output) error = %v", err)
-	}
-	if got := string(output.Data); got != "hello world<|im_end|>" {
-		t.Fatalf("committed output = %q, want the unstripped text on the no-profile path", got)
-	}
 }

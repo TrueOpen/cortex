@@ -291,7 +291,6 @@ func TestBuildRuntimeRealModeVerifiesTheBuilderDescriptor(t *testing.T) {
 			cfg := realConfig()
 			cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
 			cfg.ModelManagement.Transport = "local"
-			cfg.ModelManagement.ManifestDir = t.TempDir()
 			cfg.ModelManagement.Endpoint = ""
 			cfg.ModelManagement.MaxConcurrency = 1
 			cfg.Nexus.IngressURL = testCase.ingress

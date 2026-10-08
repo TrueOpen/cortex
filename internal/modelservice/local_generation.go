@@ -83,7 +83,7 @@ func localGenerationRequest(req InferRequest, profile localModelProfile, streami
 	if err != nil {
 		return completionRequest{}, 0, err
 	}
-	seed, topK, skipSpecial := p.seed, profile.Sampling.Logprobs, profile.Sampling.SkipSpecialTokens
+	seed, topK, skipSpecial, spacesBetweenSpecial := p.seed, profile.Sampling.Logprobs, profile.Sampling.SkipSpecialTokens, false
 	return completionRequest{
 		Model: profile.ServedModel, Prompt: string(req.Input), MaxTokens: p.maxTokens,
 		Temperature: p.temperature, TopP: p.topP, TopK: p.topK, Seed: &seed,
@@ -94,5 +94,6 @@ func localGenerationRequest(req InferRequest, profile localModelProfile, streami
 		// and a text key cannot.
 		Logprobs: &topK, Stream: streaming, ReturnTokenIDs: true,
 		ReturnTokensAsTokenIDs: true, SkipSpecialTokens: &skipSpecial,
+		SpacesBetweenSpecialTokens: &spacesBetweenSpecial,
 	}, duration, nil
 }

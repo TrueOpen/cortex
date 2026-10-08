@@ -194,6 +194,9 @@ func ValidateFinishReason(g *nodewire.GenerationContext, generated []uint32, rea
 			return fail("MAX_OUTPUT_DURATION with %d generated tokens reaches max_output_tokens %d", count, limit)
 		}
 	case nodewire.FinishReasonV1StopToken:
+		// The model service resolves a stop on an id in eos_token_ids to
+		// EOS_TOKEN even when the order also lists it (EOS wins), so a
+		// STOP_TOKEN here names a stop token that stays in the output.
 		if !slices.Contains(g.Params.DecodingParams.StopTokenIDs, generated[count-1]) {
 			return fail("STOP_TOKEN, but the last generated token %d is not a stop token id", generated[count-1])
 		}

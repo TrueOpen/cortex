@@ -139,13 +139,13 @@ func TestLocalSampledInferMarksPositionsWithoutValuesMissing(t *testing.T) {
 	const k = 4
 	// vLLM writes each object in rank order; a Go map would not, so the
 	// response body is written by hand.
-	body := `{"choices":[{"text":"abcd","finish_reason":"stop","prompt_token_ids":[1,2,3],"token_ids":[10,11,12,13],` +
-		`"logprobs":{"tokens":["token_id:10","token_id:11","token_id:12","token_id:13"],"token_logprobs":[-0.1,null,-0.3,-3.5],` +
+	body := `{"choices":[{"text":"abcd","finish_reason":"stop","prompt_token_ids":[1,2,3],"token_ids":[10,11,12,151645],` +
+		`"logprobs":{"tokens":["token_id:10","token_id:11","token_id:12","token_id:151645"],"token_logprobs":[-0.1,null,-0.3,-3.5],` +
 		`"top_logprobs":[` +
 		`{"token_id:10":-0.1,"token_id:20":-0.2,"token_id:21":-0.3,"token_id:22":-0.4},` +
 		`{"token_id:11":-0.1,"token_id:20":-0.2,"token_id:21":-0.3,"token_id:22":-0.4},` +
 		`null,` +
-		`{"token_id:30":-0.1,"token_id:31":-0.2,"token_id:32":-0.3,"token_id:33":-0.4,"token_id:13":-3.5}]}}]}`
+		`{"token_id:30":-0.1,"token_id:31":-0.2,"token_id:32":-0.3,"token_id:33":-0.4,"token_id:151645":-3.5}]}}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "Qwen/Qwen3-8B"}}})
@@ -162,7 +162,7 @@ func TestLocalSampledInferMarksPositionsWithoutValuesMissing(t *testing.T) {
 	defer srv.Close()
 	svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
 	svc.SetStreamInference(false)
-	svc.SetManifestSource(testManifestSource())
+	svc.SetOutputDecodingSource(testOutputDecodingSource())
 	svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(k)})
 	g := localTestGeneration(testQwenModelID(), 1)
 	g.Params.DecodingParams = nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 900, TopPPPM: 950000, TopK: 40, Seed: 11, RepetitionPenaltyPPM: 1000000}
@@ -304,7 +304,7 @@ func TestLocalVerifyMarksUnscoredPositionsMissing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			srv, seen := newVLLMStub(t, genResponse(), verify)
 			svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
-			svc.SetManifestSource(testManifestSource())
+			svc.SetOutputDecodingSource(testOutputDecodingSource())
 			svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(7)})
 			resp, err := svc.Verify(context.Background(), boundLocalVerifyFixture(t, VerifyRequest{
 				RequestID: "verify-missing", ModelID: testQwenModelID(), Capability: CapabilityLLMTextV1,
