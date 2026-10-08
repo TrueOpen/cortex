@@ -52,6 +52,86 @@ func TestGenerationContextDigestMatchesPublishedVector(t *testing.T) {
 	}
 }
 
+// wire v0.4.0 publishes min, max, min-1 and max+1 for every bounded
+// DecodingParams field. Cortex implements the TaskOrderV3 projection rule set,
+// so each case's task_order_v3 expectation decides whether canonicalJSON
+// accepts here: the projection does not bound top_k (only the Keeper's
+// generation-parameter payload does, against the registered limit), which is
+// why top_k_max+1 is order-accepted while its generation_params row rejects.
+func TestGenerationParamRangesMatchThePublishedVectors(t *testing.T) {
+	raw, err := wirevectors.File("task/generation_params_ranges_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name             string `json:"name"`
+			Field            string `json:"field"`
+			Value            int64  `json:"value"`
+			GenerationParams struct {
+				Expect      string `json:"expect"`
+				PayloadUTF8 string `json:"payload_utf8"`
+				DigestHex   string `json:"digest_hex"`
+			} `json:"generation_params"`
+			TaskOrder struct {
+				Expect string `json:"expect"`
+			} `json:"task_order_v3"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases) == 0 {
+		t.Fatal("wire publishes no generation-parameter range cases")
+	}
+	for _, c := range fixture.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			g := goldenGenerationContext()
+			d := &g.Params.DecodingParams
+			switch c.Field {
+			case "decoding_params.temperature_milli":
+				d.TemperatureMilli = uint32(c.Value)
+			case "decoding_params.top_p_ppm":
+				d.TopPPPM = uint32(c.Value)
+			case "decoding_params.top_k":
+				d.TopK = uint32(c.Value)
+			case "decoding_params.presence_penalty_milli":
+				d.PresencePenaltyMilli = int32(c.Value)
+			case "decoding_params.frequency_penalty_milli":
+				d.FrequencyPenaltyMilli = int32(c.Value)
+			case "decoding_params.repetition_penalty_ppm":
+				d.RepetitionPenaltyPPM = uint32(c.Value)
+			default:
+				t.Fatalf("wire published a range case for %q, which this projection does not know", c.Field)
+			}
+			payload, err := g.CanonicalJSON()
+			if c.TaskOrder.Expect == "reject" {
+				if err == nil {
+					t.Fatalf("%s = %d is outside its frozen range and must be refused", c.Field, c.Value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CanonicalJSON: %v", err)
+			}
+			if c.GenerationParams.Expect != "accept" {
+				// top_k above the chain limit: a valid order projection whose
+				// Keeper payload row publishes no bytes. Nothing left to bind.
+				return
+			}
+			if string(payload) != c.GenerationParams.PayloadUTF8 {
+				t.Fatalf("canonical payload = %s\nwant %s", payload, c.GenerationParams.PayloadUTF8)
+			}
+			if got := GenerationParamsDigest(payload).String(); got != c.GenerationParams.DigestHex {
+				t.Fatalf("generation digest = %s, want %s", got, c.GenerationParams.DigestHex)
+			}
+			if _, err := ParseCanonicalGenerationParams(payload); err != nil {
+				t.Fatalf("ParseCanonicalGenerationParams: %v", err)
+			}
+		})
+	}
+}
+
 // The published generation_params bytes parse back to the same context, their
 // raw-bytes digest is the published digest, and a non-canonical or foreign
 // encoding is refused.

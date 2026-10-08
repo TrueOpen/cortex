@@ -1,0 +1,552 @@
+{
+  "notes": [
+    "Every vector is H_FIELDS_V1: preimage = u64_be(len(domain)) || domain || for each field u64_be(len(field)) || field; digest = SHA256(preimage). The digest is SDKRequestEnvelopeV2.body_digest and the bodyDigest of the EIP-712 SDKRequest the user or the session key signs (shared/account_signing_v1.json sdk_request and sdk_request_session).",
+    "Field encoding: Hash32 is exactly 32 raw bytes (transport lowercase hex is decoded first), uint64 is 8-byte big-endian, string is UTF-8, type address frames the 20 address bytes decoded from the canonical Bech32 text (both columns are published), and type optional is OPTIONAL_V1: 00 for absent, 01 || FRAME_V1(value) for present.",
+    "Projection: SubscribeOutput resume_after_seq follows transport presence, so unset is absent and a set 0 is present 0. GetTaskEvents from_cursor is decimal text on the transport: empty is absent, and otherwise it must be unsigned decimal without leading zeros, at most 2^64-1, and is present (\"0\" is valid); anything else is rejected before hashing. PrepareChallenge local_evidence_digest is bytes: empty is absent, exactly 32 bytes is present, any other length is rejected. The deprecated AckOutputRequest.output_id does not enter the body.",
+    "OpenTask: task_hash is recomputed by the verifier from the SignedOrderV2 in OpenTaskHeader.order_envelope (TRUEOPEN_TASK_ORDER_V3) and never taken from the caller, and the order_envelope bytes do not enter the body. payload_ref is not framed either: it must equal \"nexus://sha256/\" || lowercase_hex(input_hash), a transport check shown in the vector's transport column. OpenTaskHeader.signature and signature_scheme must be empty and are not in the body. The base vector opens the order of shared/account_signing_v1.json task_order: task_hash, session_id and order_sequence are that order's taskHash, sessionId and orderSequence, and task_id in the other vectors is TRUEOPEN_TASK_ID_V1(session_id, order_sequence).",
+    "tamper: XOR one bit of one framed field. \"byte\" indexes the framed field bytes and may be negative to count from the end; \"bit\" is the bit position inside that byte, 0 being least significant.",
+    "replay: \"overrides\" replaces the listed top-level fields with fully typed fields; \"domain\" hashes the unchanged fields under another body domain. SubscribeOutput and GetTaskEvents encode identical field shapes, so their cross-domain rows reproduce each other's base digest: only the domain separates the two methods.",
+    "These bodies carry no chain_id. A body is bound to one chain by the EIP-712 SDKRequest that signs it (the chainId typed field and the domain chainId), so cross-chain replay is covered by shared/account_signing_v1.json request_auth_negative_cases, not here. OpenTask is additionally bound through task_hash, whose order commits to chain_id.",
+    "The five domains authenticate off-chain requests only: they are not persisted on chain, emit no event and serve no query, and are bound only into the Builder replay record of the request."
+  ],
+  "schema": "trueopen.task.sdk_request_body.v1",
+  "source": "Public wire conformance vectors in testdata/v1/task/sdk_request_body_v1.json",
+  "vectors": [
+    {
+      "contract_section": "Public wire domain TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
+      "digest_hex": "8bfc9e506af5acd6aef1ffe4a55180f4f828c716eb3b9988bf79900becb02140",
+      "domain": "TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
+      "fields": [
+        {
+          "hex": "58c2b8fdfa6e5dac474ff4d4fd2089bac2cea26756daf0b40973bff15bb221b7",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_media_type",
+          "type": "string",
+          "utf8": "application/json"
+        },
+        {
+          "name": "idempotency_key",
+          "type": "string",
+          "utf8": "golden-open-task-1"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "sdk_body_open_task_v1",
+      "preimage_hex": "000000000000001e545255454f50454e5f53444b5f424f44595f4f50454e5f5441534b5f5631000000000000002058c2b8fdfa6e5dac474ff4d4fd2089bac2cea26756daf0b40973bff15bb221b7000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000008000000000000000700000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000010000000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000106170706c69636174696f6e2f6a736f6e0000000000000012676f6c64656e2d6f70656e2d7461736b2d31",
+      "preimage_size_bytes": 268,
+      "producer": "User SDK; recomputed by the Builder Ingress from OpenTaskHeader and the order it carries",
+      "replay": [
+        {
+          "digest_hex": "1d6d4f297755a931a3dcd87e388a2a8486356f642147a9176244290d00f1ce35",
+          "name": "cross_user",
+          "overrides": [
+            {
+              "field": 3,
+              "value": {
+                "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+                "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+                "name": "user_address",
+                "type": "address"
+              }
+            }
+          ],
+          "reason": "another user replays the same order body"
+        },
+        {
+          "digest_hex": "ea083fc265c2df9a92fc3bf9c9b03e8353fcec590cb803bbcf34d1f7fe6172bb",
+          "name": "next_order_sequence",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "name": "order_sequence",
+                "type": "uint64",
+                "value": 8
+              }
+            }
+          ],
+          "reason": "the body of the next order in the session"
+        },
+        {
+          "digest_hex": "ab83b3fec9212afc7c6d675ccd8978ea19de55392354ab16b6df03fe20339a3f",
+          "name": "replacement_idempotency_key",
+          "overrides": [
+            {
+              "field": 7,
+              "value": {
+                "name": "idempotency_key",
+                "type": "string",
+                "utf8": "golden-open-task-2"
+              }
+            }
+          ],
+          "reason": "a replacement version must carry a new idempotency key and so a new body"
+        },
+        {
+          "digest_hex": "9e291dd0e937bd981cb9864f334772ecbc6890884fb2dc6feef32c1d48ee8b0d",
+          "name": "input_size_off_by_one",
+          "overrides": [
+            {
+              "field": 4,
+              "value": {
+                "name": "input_size_bytes",
+                "type": "uint64",
+                "value": 4097
+              }
+            }
+          ],
+          "reason": "the declared input size is bound, not only the input hash"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "0f4c7d62bc89f5bc516d2fd586be0b0fce866f1c81c5c3844f33aa4ea269b741",
+          "field": 0,
+          "name": "task_hash_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": -1,
+          "digest_hex": "b6cbaa7a75ce8a062ffd92a37d80941c3854c9cfc752d81963e4c8fd9a760701",
+          "field": 3,
+          "name": "user_address_last_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "c2f72c35d90ce33d88adc38d789094afb1c281749cf02cc6aeaac8d4fb5db9d4",
+          "field": 5,
+          "name": "input_hash_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "1d390965771d808f96053ca1c36989f299e3bf0c41ef18c54e06391991f2fc71",
+          "field": 7,
+          "name": "idempotency_key_first_bit"
+        }
+      ],
+      "transport": {
+        "payload_ref": "nexus://sha256/2222222222222222222222222222222222222222222222222222222222222222",
+        "payload_ref_rule": "OpenTaskHeader.payload_ref must equal \"nexus://sha256/\" || lowercase_hex(input_hash); it is derived from the signed input_hash, checked on the transport and never framed"
+      }
+    },
+    {
+      "contract_section": "Public wire domain TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1",
+      "digest_hex": "e319c6b85eeacab31efcaa60691628f0fbf232d6be43191b253d93c94e1d868a",
+      "domain": "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1",
+      "fields": [
+        {
+          "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "resume_after_seq",
+          "present": false,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "sdk_body_subscribe_output_v1",
+      "preimage_hex": "0000000000000025545255454f50454e5f53444b5f424f44595f5355425343524942455f4f55545055545f5631000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000020bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0000000000000000100",
+      "preimage_size_bytes": 134,
+      "producer": "User SDK or its session key; recomputed by the Builder Ingress from SubscribeOutputRequest",
+      "replay": [
+        {
+          "digest_hex": "f7db6ef20ec81ad2498eb5cba7e91c1310f1f749abbcfdc7896b060782b9a9be",
+          "name": "resume_present_zero",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "fields": [
+                  {
+                    "name": "resume_after_seq",
+                    "type": "uint64",
+                    "value": 0
+                  }
+                ],
+                "name": "resume_after_seq",
+                "present": true,
+                "type": "optional"
+              }
+            }
+          ],
+          "reason": "a set resume_after_seq of 0 is present 0, never absent"
+        },
+        {
+          "digest_hex": "7b230a93c7f5fc5cb6360eb6177c072c75c4e16c7c1070d94b8a0107271ca128",
+          "name": "resume_present_17",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "fields": [
+                  {
+                    "name": "resume_after_seq",
+                    "type": "uint64",
+                    "value": 17
+                  }
+                ],
+                "name": "resume_after_seq",
+                "present": true,
+                "type": "optional"
+              }
+            }
+          ],
+          "reason": "resuming after a delivered sequence"
+        },
+        {
+          "digest_hex": "3a0a9300306e25e227a41b49a55dc1530c023f70e1a4cdf1882133755d73f1bc",
+          "name": "cross_task",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+                "name": "task_id",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "the same subscription for another task"
+        },
+        {
+          "digest_hex": "2fd7bcf6e3f290484b0dc8b81c8d0614f6d5c63d67af639fd9b7c394e29c0bc1",
+          "domain": "TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1",
+          "name": "cross_domain_get_task_events",
+          "reason": "the same three encoded fields under the GetTaskEvents domain; only the domain keeps a subscription from authorizing an event read"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "d5629e12bc676ef4731b3f45d08d30e4fe5c3c38431e7df021751e56f750f674",
+          "field": 0,
+          "name": "session_id_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": -1,
+          "digest_hex": "70196e6fdd07ae4ae62799478dcea8c8f23ec7ad64b182bfd8613b9dac4b73e1",
+          "field": 1,
+          "name": "task_id_last_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "c1ae1b05fed81c81a6ec5a8d29452caed9ec6d77890c64999a5258558ac677af",
+          "field": 2,
+          "name": "resume_presence_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire domain TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1",
+      "digest_hex": "219f5f4df140e7bb3de73f7c09277c7b75cda76186ddd5cdd691cefa370e11fa",
+      "domain": "TRUEOPEN_SDK_BODY_ACK_OUTPUT_V1",
+      "fields": [
+        {
+          "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "last_seq",
+          "type": "uint64",
+          "value": 17
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "sdk_body_ack_output_v1",
+      "preimage_hex": "000000000000001f545255454f50454e5f53444b5f424f44595f41434b5f4f55545055545f5631000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000020bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b000000000000000080000000000000011",
+      "preimage_size_bytes": 135,
+      "producer": "User SDK or its session key; recomputed by the Builder Ingress from AckOutputRequest",
+      "replay": [
+        {
+          "digest_hex": "410c1902127e1c9db271d22163c9063d47d0dba2e80379ec45eb65d88391a014",
+          "name": "stale_last_seq",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "name": "last_seq",
+                "type": "uint64",
+                "value": 16
+              }
+            }
+          ],
+          "reason": "an older acknowledgement"
+        },
+        {
+          "digest_hex": "551abc846a38d923bb7458f8beb602e6c67df80917adbea105897279feec513b",
+          "name": "cross_task",
+          "overrides": [
+            {
+              "field": 1,
+              "value": {
+                "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+                "name": "task_id",
+                "type": "bytes"
+              }
+            }
+          ],
+          "reason": "the same acknowledgement for another task"
+        },
+        {
+          "digest_hex": "cb65d724bab19f9495b90eb84a32f6a0c3c2a5864d62f64272abb5331b4b76a7",
+          "domain": "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1",
+          "name": "cross_domain_subscribe_output",
+          "reason": "the acknowledgement fields under the SubscribeOutput domain"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "157e0f731e591bc459fb1575727b8782cfabbf9a71f6c23e9b3141b9348e0cd7",
+          "field": 0,
+          "name": "session_id_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": -1,
+          "digest_hex": "410c1902127e1c9db271d22163c9063d47d0dba2e80379ec45eb65d88391a014",
+          "field": 2,
+          "name": "last_seq_last_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire domain TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1",
+      "digest_hex": "2fd7bcf6e3f290484b0dc8b81c8d0614f6d5c63d67af639fd9b7c394e29c0bc1",
+      "domain": "TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1",
+      "fields": [
+        {
+          "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "from_cursor",
+          "present": false,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "sdk_body_get_task_events_v1",
+      "preimage_hex": "0000000000000024545255454f50454e5f53444b5f424f44595f4745545f5441534b5f4556454e54535f5631000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000020bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0000000000000000100",
+      "preimage_size_bytes": 133,
+      "producer": "User SDK or its session key; recomputed by the Builder Ingress from GetTaskEventsRequest",
+      "replay": [
+        {
+          "digest_hex": "50bd257f833b7e61b2d1a5d36bca49c4c7f4b6e6e7899aef83ca213b6ac779b1",
+          "name": "cursor_present_zero",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "fields": [
+                  {
+                    "name": "from_cursor",
+                    "type": "uint64",
+                    "value": 0
+                  }
+                ],
+                "name": "from_cursor",
+                "present": true,
+                "type": "optional"
+              }
+            }
+          ],
+          "reason": "from_cursor \"0\" is present 0; only the empty string is absent"
+        },
+        {
+          "digest_hex": "508b01f226f6eb039409c3d6ee689d4d6e5eb24328ca6ea9cc43022dd87a1347",
+          "name": "cursor_present_42",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "fields": [
+                  {
+                    "name": "from_cursor",
+                    "type": "uint64",
+                    "value": 42
+                  }
+                ],
+                "name": "from_cursor",
+                "present": true,
+                "type": "optional"
+              }
+            }
+          ],
+          "reason": "from_cursor \"42\""
+        },
+        {
+          "digest_hex": "e319c6b85eeacab31efcaa60691628f0fbf232d6be43191b253d93c94e1d868a",
+          "domain": "TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1",
+          "name": "cross_domain_subscribe_output",
+          "reason": "the same three encoded fields under the SubscribeOutput domain; equals the digest of sdk_body_subscribe_output_v1"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "27a1807dafaf064de023aa2a083780ebda7ceaba86fbb94e3fc50cd4cb322053",
+          "field": 1,
+          "name": "task_id_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4cdb75ecaff28de5e96903b8cddff82057c9ff7d5b440da8d8f6212f7a134344",
+          "field": 2,
+          "name": "cursor_presence_bit"
+        }
+      ]
+    },
+    {
+      "contract_section": "Public wire domain TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1",
+      "digest_hex": "0a0495f67bf1ca40f83d34ad2fe2a538095f31580ba3c592c4e270b66d1eaa7c",
+      "domain": "TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1",
+      "fields": [
+        {
+          "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "challenge_kind",
+          "type": "string",
+          "utf8": "USER_DISPUTE"
+        },
+        {
+          "fields": [
+            {
+              "hex": "7777777777777777777777777777777777777777777777777777777777777777",
+              "name": "local_evidence_digest",
+              "type": "bytes"
+            }
+          ],
+          "name": "local_evidence_digest",
+          "present": true,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "sdk_body_prepare_challenge_v1",
+      "preimage_hex": "0000000000000026545255454f50454e5f53444b5f424f44595f505245504152455f4348414c4c454e47455f5631000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000020bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0000000000000000c555345525f4449535055544500000000000000290100000000000000207777777777777777777777777777777777777777777777777777777777777777",
+      "preimage_size_bytes": 195,
+      "producer": "User SDK or its session key; recomputed by the Builder Ingress from PrepareChallengeRequest",
+      "replay": [
+        {
+          "digest_hex": "adee9051324e1a59e769ef0c0fb62319710a735f294eae99c80e95b84cafba87",
+          "name": "local_evidence_absent",
+          "overrides": [
+            {
+              "field": 3,
+              "value": {
+                "name": "local_evidence_digest",
+                "present": false,
+                "type": "optional"
+              }
+            }
+          ],
+          "reason": "an empty local_evidence_digest is absent"
+        },
+        {
+          "digest_hex": "4fa48d69521af4b0860ed608756a9edcb1ce95949499caea5c31eb2c2299b036",
+          "name": "other_challenge_kind",
+          "overrides": [
+            {
+              "field": 2,
+              "value": {
+                "name": "challenge_kind",
+                "type": "string",
+                "utf8": "USER_DISPUTE_2"
+              }
+            }
+          ],
+          "reason": "challenge_kind is bound although V1 does not act on it"
+        },
+        {
+          "digest_hex": "74763ffe462fe4d19a03c664b820978d277f7b74ac068ad8826aecc3a0ca0e32",
+          "domain": "TRUEOPEN_SDK_BODY_GET_TASK_EVENTS_V1",
+          "name": "cross_domain_get_task_events",
+          "reason": "the challenge fields under the GetTaskEvents domain"
+        }
+      ],
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "963dca123091031a3c0c9ae42ce8778462d194ca4a04673e68f28f5047bb3d28",
+          "field": 2,
+          "name": "challenge_kind_first_bit"
+        },
+        {
+          "bit": 0,
+          "byte": -1,
+          "digest_hex": "355277ed6677876eaa8f3a37e4fae2bff3a27972b4fd3c99e0054b6b479889a7",
+          "field": 3,
+          "name": "local_evidence_digest_last_bit"
+        }
+      ]
+    }
+  ]
+}

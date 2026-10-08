@@ -1,0 +1,752 @@
+{
+  "account": {
+    "account_bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+    "address_0x": "0x1a642f0E3c3aF545E7AcBD38b07251B3990914F1",
+    "address_bytes": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "keccak256_pub_uncompressed_xy": "b8a0722ae6cb48cde0b4ae1f1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "operator_bech32": "trueopenvaloper1rfjz7r3u8t65teavh5utquj3kwvsj983lh0k88",
+    "private_key": "0101010101010101010101010101010101010101010101010101010101010101",
+    "pub_compressed": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "pub_uncompressed_xy": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1"
+  },
+  "contract": "the account and signature protocol",
+  "direct_sign_mode_transaction": {
+    "account_number": "7",
+    "auth_info_bytes_hex": "0a5a0a500a292f636f736d6f732e65766d2e63727970746f2e76312e657468736563703235366b312e5075624b657912230a21031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f12040a020801180912140a0e0a0575757364631205313233343510c09a0c",
+    "body_bytes_hex": "0a4e0a192f7461736b2e76312e4d736743726561746553657373696f6e12310a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a",
+    "chain_id": "trueopen-golden-1",
+    "fee_amount": "12345",
+    "fee_denom": "uusdc",
+    "gas": "200000",
+    "keccak256_sign_doc": "3f0c08f695962cf6d72cea05641387a0d341827e0ae2301817a4f853e061df0f",
+    "msg_type_url": "/task.v1.MsgCreateSession",
+    "negative_cases": [
+      "signature over sha256(sign_doc_bytes)",
+      "65-byte R||S||V signature",
+      "high-S signature",
+      "public key other than eth_secp256k1 or not the stored account key",
+      "wrong chain_id or account_number in the SignDoc",
+      "any extension option other than one Web3 option (which selects the EIP-712 path)"
+    ],
+    "note": "SIGN_MODE_DIRECT with an eth_secp256k1 account key. sign_doc_bytes is the protobuf SignDoc {body_bytes, auth_info_bytes, chain_id, account_number}; the signature covers keccak256(sign_doc_bytes), not SHA-256, and is exactly 64 bytes R||S with low S. The 65-byte form some Ethereum signers return is rejected on this path. The transaction carries no extension option; a Web3 extension option selects the EIP-712 path of msg_create_session_transaction instead. The public key is the account key of this file, packed as an Any of pubkey_type_url, and must be the compressed 33-byte point stored on the account. Derived from the Node signature path and the cosmos/evm key type.",
+    "pubkey_any_value_hex": "0a21031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "pubkey_type_url": "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey",
+    "sequence": "9",
+    "sign_doc_bytes_hex": "0a500a4e0a192f7461736b2e76312e4d736743726561746553657373696f6e12310a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a12720a5a0a500a292f636f736d6f732e65766d2e63727970746f2e76312e657468736563703235366b312e5075624b657912230a21031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f12040a020801180912140a0e0a0575757364631205313233343510c09a0c1a11747275656f70656e2d676f6c64656e2d312007",
+    "signature_64": "950659af11385de58445f407144f5be0f27f5d8c2affc454467cb6bf5bb63fc619ffd364b1adb3f96dcbae609eec4792d7ce9f80d616a1849903b3805bcb2e70",
+    "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+    "tx_raw_hex": "0a500a4e0a192f7461736b2e76312e4d736743726561746553657373696f6e12310a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a12720a5a0a500a292f636f736d6f732e65766d2e63727970746f2e76312e657468736563703235366b312e5075624b657912230a21031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f12040a020801180912140a0e0a0575757364631205313233343510c09a0c1a40950659af11385de58445f407144f5be0f27f5d8c2affc454467cb6bf5bb63fc619ffd364b1adb3f96dcbae609eec4792d7ce9f80d616a1849903b3805bcb2e70"
+  },
+  "msg_create_session_transaction": {
+    "account_number": "7",
+    "amino_name": "trueopen/x/task/MsgCreateSession",
+    "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgCreateSession\",\"value\":{\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+    "cosmos_chain_id": "trueopen-golden-1",
+    "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgCreateSession msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgCreateSession(TypeValue value,string type)TypeValue(string signer_address)",
+    "evm_chain_id": "424242",
+    "fee_amount": "12345",
+    "fee_denom": "uusdc",
+    "fee_denom_source": "The fee Coin denom must be the chain business_denom (hub.v1 Params phase0.business_denom); \"uusdc\" is its default.",
+    "gas": "200000",
+    "hash_struct": "0ad5af5bc47571a077af5391c9d17c116252b42d1bb137e1ca53cd38dc27b114",
+    "memo": "",
+    "sequence": "9",
+    "signature_65": "3e1901ea91de16009f64c2de8309eb9ff2ed8685b8a15d26ee8e7b6f33652d2a1f613ff71450f2fd16fa6dab6c613c19a90df79edb804057d0ab5bd49e2315fc1c",
+    "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+    "signing_digest": "4bd4a8e961d9bb127782c1a7c518ec653c4f2aa316d3e2ff4caf253d16557e44",
+    "timeout_height": "0",
+    "type_graph": [
+      "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgCreateSession msg0)",
+      "Fee(Coin[] amount,string gas)",
+      "Coin(string denom,string amount)",
+      "TypeMsgCreateSession(TypeValue value,string type)",
+      "TypeValue(string signer_address)"
+    ],
+    "type_hash": "e848e9290ee4903553832df1b0fb404da6ac476208fe3503f09770dd3f9f6142"
+  },
+  "negative_cases": [
+    "wrong cosmos chain_id",
+    "wrong EIP-712 chainId",
+    "unknown or mismatched amino.name",
+    "missing, renamed, or reordered msg0",
+    "non-zero timeout_height",
+    "multiple messages or signers",
+    "fee delegation fields present",
+    "high-S, DER, raw64, or V outside 27/28",
+    "personal_sign or double-hashed digest"
+  ],
+  "request_auth_negative_cases": [
+    {
+      "base": "sdk_request",
+      "change": "the verifier is on chain trueopen-golden-2, so it rebuilds chainId as trueopen-golden-2",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_other_chain_id",
+      "reason": "the chainId typed field binds the cosmos chain-id; the original signature recovers to another address",
+      "recovered_address": "8a3b5f513af6e34814e24758fae8944cf2bb2c5e",
+      "signing_digest": "d16a7029abb53ac262c74f33f7768096a9b7591043aed9b94078b3470f2c8061",
+      "verified": {
+        "message": {
+          "chainId": "trueopen-golden-2"
+        }
+      }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the verifier rebuilds the domain with chainId 424243",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_other_evm_chain_id",
+      "reason": "the domain chainId binds evm_chain_id; the domain separator changes and the original signature recovers to another address",
+      "recovered_address": "6fc514cfce83740739b011107c378a5b56818a80",
+      "signing_digest": "378d56c2fa63c24111d25c5aed2cdd6477a4aff51013dccf9c000a0e43f2628b",
+      "verified": {
+        "domain": {
+          "chain_id": "424243"
+        }
+      }
+    },
+    {
+      "base": "task_data_request",
+      "change": "the verifier rebuilds the Task Data Request domain with chainId 424243",
+      "error": "DATA_ACCESS_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "task_data_request_other_evm_chain_id",
+      "reason": "the chainId string and the domain chainId must both match the current chain",
+      "recovered_address": "c9e52a8591d4d4d5b8055fcfe672a754d4d75124",
+      "signing_digest": "7a02a7580051163a1dd90ef4acec954b3438d627d0d630f88096aa824fb79144",
+      "verified": {
+        "domain": {
+          "chain_id": "424243"
+        }
+      }
+    },
+    {
+      "base": "task_data_request",
+      "change": "the verifier rebuilds the domain with version 1",
+      "error": "DATA_ACCESS_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "task_data_request_domain_version_1",
+      "reason": "version 1 has no route; a version 2 signature never verifies under it, and task_data_request_v1_obsolete is rejected outright",
+      "recovered_address": "8ffd08524c0d1940525c90a9f7e074f81d04e3b2",
+      "signing_digest": "990b49bfdd738b8fd56176fc10fdf703694e31ff2ccc0cebfbfb0bce551c02cf",
+      "verified": {
+        "domain": {
+          "version": "1"
+        }
+      }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the request is signed by wrong_key instead of the account key",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_signed_by_wrong_key",
+      "reason": "the recovered address is not signer_address",
+      "recovered_address": "c48b812bb43401392c037381aca934f4069c0517",
+      "signature_65": "5d0ef055583729a52e70202bb52e55924867f90c65f347ebe638068e660f0c3d3c7a7ca265d1ad8e6a307c1986b6b9d11fcc572fb03717f518a58c2e0f9a36381c",
+      "signed": {
+        "signer": "wrong_key"
+      },
+      "signing_digest": "976cb36e5c4941908259c020607b9082bdca3fa66efbc240734616715990e2ff"
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the session request is signed by wrong_key instead of the session key",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_session_signed_by_wrong_key",
+      "reason": "the request signature does not recover to the grant sessionKey",
+      "recovered_address": "c48b812bb43401392c037381aca934f4069c0517",
+      "signature_65": "ee70942f822682f4f3e0a0ff04d443f4bfd1257ccecff7f63bc2b220cc1263874f216162cb7bd49d9ade336099cfa194f87a330db0e8f244a3fe89775bbff5411c",
+      "signed": {
+        "signer": "wrong_key"
+      },
+      "signing_digest": "d8eebff290536870935f2659e8e3efc319ca0bb2de28f4c3a55083dd5d629a0d"
+    },
+    {
+      "base": "session_grant",
+      "change": "the grant is signed by wrong_key instead of the user wallet",
+      "error": "SDK_AUTH_SESSION_GRANT_INVALID",
+      "expect": "reject",
+      "name": "session_grant_signed_by_wrong_key",
+      "reason": "user_signature does not recover to user",
+      "recovered_address": "c48b812bb43401392c037381aca934f4069c0517",
+      "signature_65": "2c92de6ff419228dd187e811b0f59ee1ec4d11a5ee43f30213a300ffb5e52db21a18ef85e052054261e042c4b09c74b0ef0d3fdc2e6a6d503c7d263d0f23ac631b",
+      "signed": {
+        "signer": "wrong_key"
+      },
+      "signing_digest": "e8a2c3e7c95d5e3d78248dbcd74eccda7dd6a68bea96ff5de30aa693c49c0fbc"
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the session key signs sessionGrantHash = 32 zero bytes, and the envelope still carries the grant",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_session_signed_without_grant_hash",
+      "reason": "the verifier derives sessionGrantHash from the attached grant, so the rebuilt digest differs from the signed one",
+      "recovered_address": "80ab62ff4c60a7b13abd62cc66c0c6c5eee8ad0c",
+      "signature_65": "113f4e93c92131e15b07d078a03bc3fb9050b4da50f6b8aeb2192c0bd9d0c5ee07d7d062bc1d833f4fc44c26634f3e87f5b2cc381f66a94c255fae7edbad67f21c",
+      "signed": {
+        "message": {
+          "sessionGrantHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "signer": "session_key"
+      },
+      "signing_digest": "d8eebff290536870935f2659e8e3efc319ca0bb2de28f4c3a55083dd5d629a0d"
+    },
+    {
+      "base": "sdk_request",
+      "change": "the wallet signs sessionGrantHash = the grant hash_struct, and the envelope carries no grant",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_grant_hash_without_grant",
+      "reason": "without a grant the verifier derives 32 zero bytes, so the rebuilt digest differs from the signed one",
+      "recovered_address": "27594ae0516ba432155439c21b5c1c9384e9cf8b",
+      "signature_65": "ea28a09e3e3e0ba774cfb055588c8ffe29b597c735b6e0210eddeec8d59bc91c5141ee0a48728b731a1bd2045f2b9f619f88e0f108473a0d87d5170b384312df1c",
+      "signed": {
+        "message": {
+          "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "976cb36e5c4941908259c020607b9082bdca3fa66efbc240734616715990e2ff"
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the verifier recomputes a body digest that differs in the last bit (the body was changed in transit)",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_session_tampered_body_digest",
+      "reason": "bodyDigest is signed; any body change moves the digest and the original signature recovers to another address",
+      "recovered_address": "45fb04e053064b18b33c9768363681815aab7e3c",
+      "signing_digest": "455bbfefd862968a56348e270facb71bcebf5fa9af3a9b53d4fd308ede015bf9",
+      "verified": {
+        "message": {
+          "bodyDigest": "e319c6b85eeacab31efcaa60691628f0fbf232d6be43191b253d93c94e1d868b"
+        }
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "current_height is 1501, above expiryHeight 1500",
+      "error": "SDK_AUTH_SESSION_GRANT_EXPIRED",
+      "expect": "reject",
+      "name": "session_grant_expired",
+      "reason": "current_height <= expiryHeight fails",
+      "verification_context": {
+        "current_height": "1501",
+        "max_session_grant_blocks": "400"
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "current_height is 1099, so expiryHeight 1500 exceeds current_height + max_session_grant_blocks = 1499",
+      "error": "SDK_AUTH_SESSION_GRANT_EXPIRED",
+      "expect": "reject",
+      "name": "session_grant_expiry_beyond_window",
+      "reason": "a grant may not outlive the maximum window",
+      "verification_context": {
+        "current_height": "1099",
+        "max_session_grant_blocks": "400"
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "current_height is 1100, so expiryHeight 1500 equals current_height + max_session_grant_blocks",
+      "expect": "accept",
+      "name": "session_grant_window_upper_edge",
+      "reason": "both bounds are inclusive",
+      "verification_context": {
+        "current_height": "1100",
+        "max_session_grant_blocks": "400"
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "current_height is 1500, equal to expiryHeight",
+      "expect": "accept",
+      "name": "session_grant_window_lower_edge",
+      "reason": "both bounds are inclusive",
+      "verification_context": {
+        "current_height": "1500",
+        "max_session_grant_blocks": "400"
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "the user signs a grant for chainId trueopen-golden-2 and attaches it to a trueopen-golden-1 request",
+      "error": "SDK_AUTH_SESSION_GRANT_INVALID",
+      "expect": "reject",
+      "name": "session_grant_other_chain",
+      "reason": "the signature is valid, but the grant chainId must equal the request chain_id and the current chain",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "37a0580157a174ceda8884a10da04a7371355f041ea198c0d67f44fcc2f7467672decbfeb0dde1d756b4d5735711a460e0395a8da6baf196676e360692c579031b",
+      "signed": {
+        "message": {
+          "chainId": "trueopen-golden-2"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "a891e3f9d1c8e6175b7bff8c546bc8c5dcc8177a1cdf634645da50efc1388da5",
+      "verified": {
+        "message": {
+          "chainId": "trueopen-golden-2"
+        }
+      }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the session key signs the OpenTask request with the grant attached",
+      "error": "SDK_AUTH_SESSION_METHOD_NOT_ALLOWED",
+      "expect": "reject",
+      "name": "open_task_with_session_grant",
+      "reason": "the signature recovers to the sessionKey, but OpenTask is outside the session-allowed set and must be signed by the wallet",
+      "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "signature_65": "b65324c0d8d4fc8a4204601c999f1e89afe8714c6e537dc3bbda6efdb53de0f15ea3093db3c485bf91e6418ff52b2820b719083ddf8d66a1f4b285449457f1571c",
+      "signed": {
+        "message": {
+          "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf"
+        },
+        "signer": "session_key"
+      },
+      "signing_digest": "247a10a975670610fbaba4ab5ceb1fa8ca1e4841a43fb436076fc8e6bac42a15",
+      "verified": {
+        "message": {
+          "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf"
+        }
+      }
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "any ConfirmOpenTask request, wallet or session signed",
+      "error": "NEXUS_INGRESS_CONTRACT_NOT_FROZEN",
+      "expect": "reject",
+      "name": "confirm_open_task_not_callable",
+      "reason": "ConfirmOpenTask is not callable in V1: its body domain is not frozen, so no body digest is defined and the Builder returns FailedPrecondition before authentication",
+      "status": "FailedPrecondition"
+    },
+    {
+      "base": "task_data_request_session",
+      "change": "the session key signs UploadTaskResultObject with the upload body and the grant attached",
+      "error": "DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED",
+      "expect": "reject",
+      "name": "task_data_upload_with_session_grant",
+      "reason": "the signature recovers to the sessionKey, but only GetTaskDataMetadata and FetchTaskData of an OUTPUT object accept a grant",
+      "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "signature_65": "24e515395ccb5fb9c65d88c30b5a85094a4f885d7aa4182cf9703cd68eef3c922b6b90911f5272249c6643f7dde452c076836932f6ba585f8e1ffe98588d53111c",
+      "signed": {
+        "message": {
+          "bodyDigest": "8476d08eda22ac87fa0c436c59f9ccfb18a92c834ae3154996bbef33f47acbd6",
+          "rpcMethod": "/nexus.v1.IngressAPI/UploadTaskResultObject"
+        },
+        "signer": "session_key"
+      },
+      "signing_digest": "ac6552bbfb42b94d686a1810f9c8fbba3550b8252aabc06182fa8ca513686b91",
+      "verified": {
+        "message": {
+          "bodyDigest": "8476d08eda22ac87fa0c436c59f9ccfb18a92c834ae3154996bbef33f47acbd6",
+          "rpcMethod": "/nexus.v1.IngressAPI/UploadTaskResultObject"
+        }
+      }
+    },
+    {
+      "base": "task_data_request_session",
+      "change": "a session-key GetTaskDataMetadata or FetchTaskData request whose object reference has object_kind INPUT or an evidence kind",
+      "error": "DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED",
+      "expect": "reject",
+      "name": "task_data_input_object_with_session_grant",
+      "reason": "the grant path requires object_kind OUTPUT in the object reference the body digest commits to; the check reads the request body, not a typed field, so no digest is published"
+    },
+    {
+      "base": "sdk_request",
+      "change": "the wallet signs expiryHeightOrTime = 0",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "sdk_request_expiry_zero",
+      "reason": "the signature is valid, but expiryHeightOrTime must be above zero",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "100c32b192293cb41f652821444f2a6c1848855c73dbde8ef8631c86cd61c465058e49104a8fdad6071e02bae7e91306174a05020883cdd25c8c52981b6ebbd31b",
+      "signed": {
+        "message": {
+          "expiryHeightOrTime": "0"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "bae8a0be6e0101abeb5bcb2f5919fa74d95e9281e37ced5310549e3982fcbdf2",
+      "verified": {
+        "message": {
+          "expiryHeightOrTime": "0"
+        }
+      }
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the session key signs method SubscribeOutput with endpoint /nexus.v1.IngressAPI/AckOutput",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "sdk_request_session_method_endpoint_mismatch",
+      "reason": "the signature is valid, but the <Method> of endpoint must equal method",
+      "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "signature_65": "6f9d876f003058cb0f74f08ff00ac542eb42fc08fa33a9f4c39d082eedbe84a04c26f9e0d2716d477951335c0adf534fbffae99aefb1f85a5ac507c2360f57391b",
+      "signed": {
+        "message": {
+          "endpoint": "/nexus.v1.IngressAPI/AckOutput"
+        },
+        "signer": "session_key"
+      },
+      "signing_digest": "594c7332cbbe11749eab82d2c85512c50dfc9bff844935b5d9de65596fccef76",
+      "verified": {
+        "message": {
+          "endpoint": "/nexus.v1.IngressAPI/AckOutput"
+        }
+      }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the wallet signs an OpenTask whose taskId is not TRUEOPEN_TASK_ID_V1(session_id, order_sequence)",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "open_task_task_id_not_derived",
+      "reason": "the signature is valid, but an OpenTask task_id must be derived from the order session_id and order_sequence",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "ae8687c91837ef95b1c87a5fdf8e21689863d3fe09fe29e59a465b11906b686c56be02a0015ac69c8c791216f12b23291e48834f64d8d5fae6cdd5598d6b46231b",
+      "signed": {
+        "message": {
+          "taskId": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "95eb74912f33bd3f7e956fe2441c26c20e9bc6f77b1ff94fefb7f4bcf22140f6",
+      "verified": {
+        "message": {
+          "taskId": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      }
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the envelope session_id is the same Hash32 spelled in uppercase hex",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "session_id_uppercase_hex",
+      "reason": "session_id and task_id are decoded only from 64-character lowercase hex without 0x; any other spelling is rejected before projection, so no digest exists",
+      "transport": {
+        "session_id": "77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
+      }
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the envelope task_id carries a 0x prefix",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "task_id_0x_prefixed",
+      "reason": "session_id and task_id are decoded only from 64-character lowercase hex without 0x; any other spelling is rejected before projection, so no digest exists",
+      "transport": {
+        "task_id": "0xbce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
+      }
+    },
+    {
+      "base": "sdk_request_session",
+      "change": "the envelope request_nonce is 16 bytes",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "request_nonce_not_32_bytes",
+      "reason": "request_nonce must be exactly 32 bytes; it cannot be projected into bytes32 requestNonce",
+      "transport": {
+        "request_nonce_hex": "202122232425262728292a2b2c2d2e2f"
+      }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the envelope expiry_height_or_time is -1",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "expiry_negative",
+      "reason": "the int64 transport value must be above zero; 0 or below is rejected before projection into uint64 expiryHeightOrTime",
+      "transport": {
+        "expiry_height_or_time": "-1"
+      }
+    }
+  ],
+  "request_auth_negative_cases_format": "Each row changes one thing about its base section. \"signed\" is what the signer signed: the named key over the base message and domain with the listed member overrides, and signature_65 is that exact RFC 6979 signature. \"verified\" is what the verifier rebuilds, as overrides of the base; signing_digest is that digest and recovered_address is what the signature (the row's, or the base section's when the row has no \"signed\") recovers to over it. A row with verification_context is a session-grant window decision at that height, from the base grant expiryHeight. expect is the verifier outcome; error, where present, is the Ingress error code, and status, where present, the gRPC status. The verifier runs five steps in order and stops at the first failure, which fixes the code: (1) format - lowercase-hex ids, a 32-byte nonce, an expiry above zero, an OpenTask expiry that is a chain height (below 10^12) rather than Unix milliseconds, endpoint matching method, the derived OpenTask task_id and payload_ref, a signer_address and OpenTask user_address in canonical lowercase trueopen Bech32 that decode to exactly 20 bytes, a projectable body - NEXUS_INGRESS_MALFORMED; (2) with a grant, a method outside the session-allowed set (and on the Task data path a non-OUTPUT object) - SDK_AUTH_SESSION_METHOD_NOT_ALLOWED or DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED; (3) the grant chain, user, user signature or stored account key - ..._SESSION_GRANT_INVALID, and the grant window - ..._SESSION_GRANT_EXPIRED; (4) the request signature, rebuilt with the sessionGrantHash the verifier derives and with the verifier's own chain_id and evm_chain_id, never the request's - SDK_AUTH_INVALID_SIGNATURE or DATA_ACCESS_INVALID_SIGNATURE, which also covers a wrong derived grant hash, a request signed for another chain (sdk_request_other_chain_id), a chain_id field other than the verifier's own (rejected here even though it could be detected at the format step), a wrong domain chainId, a version 1 signature and, for a wallet-signed request, an account that is missing, has no stored key or has a stored key other than the recovered one; (5) on SDKRequestEnvelopeV2, request expiry - SDK_AUTH_EXPIRED - and replay - SDK_AUTH_REPLAY; on TaskDataRequestAuthV1, a builder_operator_address other than the verifying Builder - DATA_ACCESS_DENIED - then request expiry - NEXUS_DATA_EXPIRED - then replay, then the Task duty - DATA_ACCESS_DENIED. The replay key uses the verifier's own chain_id. ConfirmOpenTask is refused before these steps with FailedPrecondition and NEXUS_INGRESS_CONTRACT_NOT_FROZEN. A row with none of signed, verified or verification_context is a rule stated in prose; its transport column, where present, shows the offending transport value, which is rejected before any typed data exists. tools/verify-vector-consistency recomputes every published value.",
+  "schema": "trueopen-account-signing-v1",
+  "sdk_request": {
+    "body_digest_source": "task/sdk_request_body_v1.json vector sdk_body_open_task_v1, domain TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
+    "contract": "SDK request typed-data signing (SDKRequestEnvelopeV2), wallet signed",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "94fee2e5657f013ddd184648fd2b056239a5468216aa0cea4a383adcbf18df27",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen SDK Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "1"
+    },
+    "encode_type": "SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)",
+    "envelope": {
+      "replay_key": "TRUEOPEN_SDK_REQUEST_V2\\x00trueopen-golden-1\\x00trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\\x00000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "request_domain": "TRUEOPEN_SDK_REQUEST_V2",
+      "session_grant": "absent",
+      "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "hash_struct": "b2f81396cd8cee609cf3f25f6485c2b7d07abc4643b8f3a62c338daa50dea397",
+    "message": {
+      "bodyDigest": "8bfc9e506af5acd6aef1ffe4a55180f4f828c716eb3b9988bf79900becb02140",
+      "chainId": "trueopen-golden-1",
+      "endpoint": "/nexus.v1.IngressAPI/OpenTask",
+      "expiryHeightOrTime": "1010",
+      "method": "OpenTask",
+      "requestNonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sessionGrantHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskId": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
+    },
+    "note": "OpenTask, signed by the user wallet directly; OpenTask never accepts a session grant. sessionGrantHash is 32 zero bytes because no grant is attached; the verifier derives it and never reads it from the request. expiryHeightOrTime below 10^12 is a chain height, which only OpenTask may use; OpenTask accepts only a chain height, and a Unix millisecond expiry is NEXUS_INGRESS_MALFORMED at the format step. The signature must recover to signer_address, which must equal the order user, and the recovered public key must equal the account's stored key. method is the bare method name and endpoint the full procedure /nexus.v1.IngressAPI/<Method>, whose <Method> must equal method. session_id and task_id travel as 64-character lowercase hex without 0x, are decoded strictly and enter as bytes32; any other spelling is rejected before projection. For OpenTask task_id must equal TRUEOPEN_TASK_ID_V1(session_id, order_sequence), here order sequence 7. requestNonce is exactly 32 bytes, and an expiry of 0 or below is rejected before projection. The user account must already hold its public key on chain (it has submitted MsgCreateSession). request_domain, signer_address, signature and the deprecated signer_pubkey are not typed fields. The replay_key column spells the NUL separators as \\x00. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. This OpenTask row expires at chain height 1010 and assumes current_height 1000; any height from 990 to 1010 accepts it, since an OpenTask height expiry must satisfy current_height <= expiry <= current_height + request_ttl_blocks. It is evaluated separately from the session rows, whose grant needs a height from 1100 to 1500.",
+    "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "signature_65": "364239bc1efc6fdb0da22116ab2ca4fdf26dd4dae69b8aa35e75134523be52882421d12aebae10b3e24e232f1875d5338d39fcb8986389a9663569c875beca7e1c",
+    "signer": "account",
+    "signing_digest": "976cb36e5c4941908259c020607b9082bdca3fa66efbc240734616715990e2ff",
+    "type_hash": "10322f9048e3c9b28f0a95d1acd80fd98e85eb78bbd308304e35a49eff5c57e8"
+  },
+  "sdk_request_session": {
+    "body_digest_source": "task/sdk_request_body_v1.json vector sdk_body_subscribe_output_v1, domain TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1",
+    "contract": "SDK request typed-data signing (SDKRequestEnvelopeV2), session-key signed",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "94fee2e5657f013ddd184648fd2b056239a5468216aa0cea4a383adcbf18df27",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen SDK Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "1"
+    },
+    "encode_type": "SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)",
+    "envelope": {
+      "replay_key": "TRUEOPEN_SDK_REQUEST_V2\\x00trueopen-golden-1\\x00trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\\x00202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "request_domain": "TRUEOPEN_SDK_REQUEST_V2",
+      "session_grant": "session_grant",
+      "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "hash_struct": "951a6726728cf9819b2310b0bad7bb744b01cbbb01fc5583a0ef5cac41287d8d",
+    "message": {
+      "bodyDigest": "e319c6b85eeacab31efcaa60691628f0fbf232d6be43191b253d93c94e1d868a",
+      "chainId": "trueopen-golden-1",
+      "endpoint": "/nexus.v1.IngressAPI/SubscribeOutput",
+      "expiryHeightOrTime": "1790000000000",
+      "method": "SubscribeOutput",
+      "requestNonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskId": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
+    },
+    "note": "SubscribeOutput signed by the session key under the grant of session_grant. sessionGrantHash is that grant's hash_struct. The signature recovers to the grant's sessionKey, and is compared with it only; the grant carries the account check. signer_address stays the granting user and keys the replay record. expiryHeightOrTime of 10^12 or more is Unix milliseconds, the only form methods other than OpenTask accept. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. It assumes current_height 1200, inside the grant window of session_grant, and a verifier clock at or before the Unix-millisecond expiry 1790000000000. request_ttl_blocks does not apply: only an OpenTask expiry is a chain height.",
+    "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "session_grant_source": "session_grant",
+    "signature_65": "b109ee8596a5d748fd94a640f44f35d2dca0826d0f2245ce507df5fab2d631467d331e3fc1625f6ae2172fe06bace1aaddb0b38f2de9a7de4c7511525a7682ad1c",
+    "signer": "session_key",
+    "signing_digest": "d8eebff290536870935f2659e8e3efc319ca0bb2de28f4c3a55083dd5d629a0d",
+    "type_hash": "10322f9048e3c9b28f0a95d1acd80fd98e85eb78bbd308304e35a49eff5c57e8"
+  },
+  "session_grant": {
+    "contract": "SessionGrant typed-data signing (SessionGrantV1)",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "94fee2e5657f013ddd184648fd2b056239a5468216aa0cea4a383adcbf18df27",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen SDK Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "1"
+    },
+    "encode_type": "SessionGrant(string chainId,string user,address sessionKey,uint64 expiryHeight,bytes32 grantNonce)",
+    "hash_struct": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf",
+    "message": {
+      "chainId": "trueopen-golden-1",
+      "expiryHeight": "1500",
+      "grantNonce": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "sessionKey": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "user": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "note": "Signed once by the user wallet under the SDK Request domain. sessionKey is the EIP-712 address of the session_key test key (a wallet JSON spells it 0x-prefixed); it is not an on-chain account. user_signature must recover to user, and user must be an existing account whose stored public key equals the recovered one. A request carrying this grant binds it through sessionGrantHash = hash_struct. verification_context is fixture material, not a network parameter: max_session_grant_blocks is a deployment value, and the rule is current_height <= expiryHeight <= current_height + max_session_grant_blocks with checked addition. There is no revocation; the grant is reusable until it expires and is not a replay record of its own. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. The grant (expiryHeight 1500) and the session rows built on it assume current_height 1200, as verification_context states: 1200 <= 1500 <= 1200 + 400. The grant-window rows in request_auth_negative_cases each state their own current_height with max_session_grant_blocks 400: 1501 and 1099 reject, 1100 and 1500 accept.",
+    "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "signature_65": "3fb4748b2a73fee79c93b4101038e92b07593d467655bf69d50ae0096de790064c38ca6aab0ea314ea18e0dfe3ee4eb89184075790287e64d284291e0911b8c71b",
+    "signer": "account",
+    "signing_digest": "e8a2c3e7c95d5e3d78248dbcd74eccda7dd6a68bea96ff5de30aa693c49c0fbc",
+    "transport": {
+      "chain_id": "trueopen-golden-1",
+      "expiry_height": "1500",
+      "grant_nonce_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "session_key_hex": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "user": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "user_signature_source": "signature_65"
+    },
+    "type_hash": "bd9ee4a9371113be96d680b704df5eff7410706af42b470e52b32b011acfd3c2",
+    "verification_context": {
+      "current_height": "1200",
+      "max_session_grant_blocks": "400"
+    }
+  },
+  "session_key": {
+    "address_0x": "0x3325a78425F17a7E487Eb5666b2bFd93aBb06c70",
+    "address_bytes": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "keccak256_pub_uncompressed_xy": "305681a4dc830a58a84c7cdf3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "note": "Deterministic session-key test material. The session key is generated by the client and held in memory only; it is not an account, so it has no Bech32 form.",
+    "private_key": "0303030303030303030303030303030303030303030303030303030303030303",
+    "pub_compressed": "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+    "pub_uncompressed_xy": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe3379e92c265e71e481ba82a84675a47ac705a200fcd524e92d93b0e7386f26a5458"
+  },
+  "task_data_request": {
+    "body_digest_source": "task/task_data_auth_v1.json vector task_data_fetch_body_v2, domain TRUEOPEN_TASK_DATA_FETCH_BODY_V2",
+    "contract": "Task data request typed-data signing (TaskDataRequestAuthV1 USER path), version 2, wallet signed",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "4e530b7089d608383d23d0871e81dccc52649854d1e02da2e59d8dc5c555e69e",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Data Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "2"
+    },
+    "encode_type": "TaskDataRequest(uint32 schemaVersion,string chainId,string builderOperatorAddress,string rpcMethod,bytes32 bodyDigest,uint32 requesterKind,string requesterAddress,uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight,bytes32 sessionGrantHash)",
+    "hash_struct": "906c330bb48bd6d019dfa87202adb061a612b9061eaff9e6a0804181e7bee558",
+    "message": {
+      "bodyDigest": "970b34d606804ecad3696838a6f78cde4a8b558307b7bdafdb3764657ada797e",
+      "builderOperatorAddress": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+      "chainId": "trueopen-golden-1",
+      "expiryHeight": "2000",
+      "requestNonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "requesterAddress": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "requesterKind": "1",
+      "rpcMethod": "/nexus.v1.IngressAPI/FetchTaskData",
+      "schemaVersion": "1",
+      "serviceAuthorizationNonce": "0",
+      "sessionGrantHash": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "note": "The USER branch of TaskDataRequestAuthV1 under domain version 2. Typed fields 1-10 project auth fields 1-10 and sessionGrantHash is 32 zero bytes without a grant. requester_kind alone selects the verifier: USER signs this typed data and supplies exactly 65 bytes, CORTEX_SERVICE signs the TRUEOPEN_TASK_DATA_REQUEST_V1 H_FIELDS_V1 digest and supplies exactly 64. Neither length is sniffed and no caller pubkey is trusted. personal_sign, eth_sign and raw64 are rejected, a USER request carries serviceAuthorizationNonce 0, and domain version 1 is not accepted. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. It assumes current_height 1200, so expiryHeight 2000 is inside current_height <= expiry_height <= current_height + max_service_material_expiry_blocks.",
+    "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "signature_65": "e1ecc9d01de1339c8b69d1b073d0e745a8db9cb805d824b2a825865c684acbc3239a98126f41ffd91134829a0545d627c35f029309e47cab054e8cea5ece57531b",
+    "signer": "account",
+    "signing_digest": "95c2b767f8ca9f8f6f60d65f6926a2b9430cbd3963d18e58d9f2d58b1b759673",
+    "type_hash": "ef9b6875caf865b195517f357fed5eaa344c89c627ca941b6ed633ed220f3a24"
+  },
+  "task_data_request_session": {
+    "body_digest_source": "task/task_data_auth_v1.json vector task_data_metadata_body_v2, domain TRUEOPEN_TASK_DATA_METADATA_BODY_V2",
+    "contract": "Task data request typed-data signing (TaskDataRequestAuthV1 USER path), version 2, session-key signed",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "4e530b7089d608383d23d0871e81dccc52649854d1e02da2e59d8dc5c555e69e",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Data Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "2"
+    },
+    "encode_type": "TaskDataRequest(uint32 schemaVersion,string chainId,string builderOperatorAddress,string rpcMethod,bytes32 bodyDigest,uint32 requesterKind,string requesterAddress,uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight,bytes32 sessionGrantHash)",
+    "hash_struct": "384df4b479f2fb67086c3e0af1dd62e741ae71e1ccc672a39dd43b78b1a4fca1",
+    "message": {
+      "bodyDigest": "32aacf5c17bdb0d88902e6cc713c764c12f85f22850f512fd609a61dc879ffbf",
+      "builderOperatorAddress": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+      "chainId": "trueopen-golden-1",
+      "expiryHeight": "2000",
+      "requestNonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "requesterAddress": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "requesterKind": "1",
+      "rpcMethod": "/nexus.v1.IngressAPI/GetTaskDataMetadata",
+      "schemaVersion": "1",
+      "serviceAuthorizationNonce": "0",
+      "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf"
+    },
+    "note": "GetTaskDataMetadata of an OUTPUT object, signed by the session key under the grant of session_grant, which is signed in the SDK Request domain. The grant is checked as for an SDK request with requester_address in place of signer_address; the signature recovers to the grant's sessionKey. Only GetTaskDataMetadata and FetchTaskData of an OUTPUT object accept a grant. The grant is always signed under the SDK Request domain, never under this one. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. It assumes current_height 1200: the grant (expiryHeight 1500) is inside 1200 <= 1500 <= 1200 + 400, and the request (expiryHeight 2000) is inside current_height <= expiry_height <= current_height + max_service_material_expiry_blocks, which at height 1200 needs max_service_material_expiry_blocks of at least 800. request_ttl_blocks does not apply to Task data requests.",
+    "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "session_grant_source": "session_grant",
+    "signature_65": "699c72b83b37c90eaeba1faf915434bf24eb9e71800cd1d129d804c8bb11202d68d80b47ff32d98201a154d7145507abb586a2d36d0a9f8adb93d72ac6963ae81c",
+    "signer": "session_key",
+    "signing_digest": "bef03dc85ee3922acd229c3ef154012687afce48ccb7e7f2a7f4116f6125bfff",
+    "type_hash": "ef9b6875caf865b195517f357fed5eaa344c89c627ca941b6ed633ed220f3a24"
+  },
+  "task_data_request_v1_obsolete": {
+    "body_digest_source": "task/task_data_auth_v1.json vector task_data_fetch_body_v2, domain TRUEOPEN_TASK_DATA_FETCH_BODY_V2",
+    "contract": "Task data request typed-data signing, domain version 1 (obsolete)",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "43a9e01264c13d99f777f935bb9125ec78f6d19732efca7d1e4328de85dd0d4f",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Data Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "1"
+    },
+    "encode_type": "TaskDataRequest(uint32 schemaVersion,string chainId,string builderOperatorAddress,string rpcMethod,bytes32 bodyDigest,uint32 requesterKind,string requesterAddress,uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight)",
+    "expect": "reject",
+    "hash_struct": "445fb9e9e1500a100a249cf7ab45c09dc5297012e8cf51b400a2162c6f090ace",
+    "message": {
+      "bodyDigest": "970b34d606804ecad3696838a6f78cde4a8b558307b7bdafdb3764657ada797e",
+      "builderOperatorAddress": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+      "chainId": "trueopen-golden-1",
+      "expiryHeight": "2000",
+      "requestNonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "requesterAddress": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "requesterKind": "1",
+      "rpcMethod": "/nexus.v1.IngressAPI/FetchTaskData",
+      "schemaVersion": "1",
+      "serviceAuthorizationNonce": "0"
+    },
+    "note": "Domain version 1, without sessionGrantHash, has no fresh-genesis route: a verifier must reject this signature. It is kept, with its values unchanged, as a negative vector; task_data_request is the version 2 replacement. The USER branch of TaskDataRequestAuthV1. requester_kind alone selects the verifier: USER signs this EIP-712 v4 typed data and supplies exactly 65 bytes, CORTEX_SERVICE signs the TRUEOPEN_TASK_DATA_REQUEST_V1 H_FIELDS_V1 digest and supplies exactly 64. Neither length is sniffed and no caller pubkey is trusted. personal_sign, eth_sign and raw64 are rejected on the USER path, and a USER request must carry serviceAuthorizationNonce 0.",
+    "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "signature_65": "943dca70514347d66504059b4f0e2c24c69e54c747ca4886a8ce072a2922d30f1a0f1e6cc46dc2848bbd23870c287fb0017c8507113527da36a4e4248daa38b51c",
+    "signing_digest": "ad060d652820c86e43f63b35964c4872bdb93060df92556dc1476db12c2bffa5",
+    "status": "obsolete",
+    "type_hash": "b46d57a151e675bb90df1ffa518e88e93ae97b3e0400ab9064c2d3f84cb3735a"
+  },
+  "task_order": {
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "b7a73368af2c3101ea0a2e6f4c7d3668621d2dc7815c75aaf9d7b8943e6e378e",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Order",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "3"
+    },
+    "encode_type": "TaskOrder(string chainId,string user,bytes32 sessionId,uint64 orderSequence,bytes32 modelId,uint32 profileVersion,string maxFee,string feeDenom,uint64 earliestSubmitHeight,uint64 orderExpireHeight,bytes32 taskHash)",
+    "fee_denom_source": "feeDenom is not a TaskOrderV3 field and does not enter taskHash. It must equal the chain business_denom, hub.v1 Params phase0.business_denom; the chain stores and compares amounts only, and the Keeper verifies the signature with feeDenom set to its current business_denom. \"uusdc\" here is that parameter's default.",
+    "hash_struct": "30575d2f720d371976f50864ec4c7b1e20bbe7dbe9fde908ace815166ad65871",
+    "message": {
+      "chainId": "trueopen-golden-1",
+      "earliestSubmitHeight": "1000",
+      "feeDenom": "uusdc",
+      "maxFee": "1000000",
+      "modelId": "5555555555555555555555555555555555555555555555555555555555555555",
+      "orderExpireHeight": "2000",
+      "orderSequence": "7",
+      "profileVersion": "1",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskHash": "58c2b8fdfa6e5dac474ff4d4fd2089bac2cea26756daf0b40973bff15bb221b7",
+      "user": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "note": "Order domain version 3 binds a raw bytes32 model ID; earlier order domains have no fresh-genesis decoder.",
+    "signature_65": "0d33bde9a788bc10284508fcf7a332050b141e2e4743b090f137b9fd21abb5ab44286a59df3b9b2f01c109087f65637305be3ba24a7863af78dd69d41649f3851b",
+    "signing_digest": "3b35b22ee8da1c67009f834ea5270dbd356fd8d2a5598b4ea6b5ed0274d87367",
+    "type_hash": "0ff134fd58c0e290fba30db564e6b74fced8f9cacbb8c246722d2ee072e3c114"
+  },
+  "transaction_domain": {
+    "chain_id": "424242",
+    "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+    "encode_type": "EIP712Domain(string name,string version,uint256 chainId,string verifyingContract,string salt)",
+    "name": "Cosmos Web3",
+    "salt": "0",
+    "type_hash": "7202319cae8ecbaae50f3107078979cb41be2857ce7614f76bf4db158bd919a7",
+    "verifying_contract": "cosmos",
+    "version": "1.0.0"
+  },
+  "upstream": {
+    "cosmos_sdk_version": "v0.53.6",
+    "extension_option_type_url": "/cosmos.evm.eip712.v1.ExtensionOptionsWeb3Tx",
+    "module": "github.com/cosmos/evm",
+    "pubkey_type_url": "/cosmos.evm.crypto.v1.ethsecp256k1.PubKey",
+    "version": "v0.6.3"
+  },
+  "wrong_key": {
+    "address_0x": "0xc48B812bB43401392c037381AcA934F4069C0517",
+    "address_bytes": "c48b812bb43401392c037381aca934f4069c0517",
+    "keccak256_pub_uncompressed_xy": "a151bc9b5ea30fe3922a9031c48b812bb43401392c037381aca934f4069c0517",
+    "note": "A key that is neither the account nor the session key, used only by negative cases.",
+    "private_key": "0404040404040404040404040404040404040404040404040404040404040404",
+    "pub_compressed": "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+    "pub_uncompressed_xy": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b199c07969f5442000bea455d72ae826a86bfac9089cb18152ed756ebb2a596f5"
+  }
+}
