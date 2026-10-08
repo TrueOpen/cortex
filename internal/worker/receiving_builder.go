@@ -35,8 +35,8 @@ func receivingBuilderRef(event chainclient.AssignmentFinalized) ReceivingBuilder
 //
 // Two methods because the two questions genuinely differ, not because one is a
 // leftover. Everything the task's material consists of -- output frames
-// (04-任务/02 §9.2: 逐帧向全部 Task Builders 推送), the evidence bundles and their
-// FinalizeTaskResult (§230, §257) -- goes to every Task Builder, so a Builder
+// (every frame is pushed to all Task Builders), the evidence bundles and their
+// FinalizeTaskResult -- goes to every Task Builder, so a Builder
 // that is down cannot strand the task and a Verifier can obtain data from any of
 // them. The single Builder remains for the one thing that is genuinely
 // once-per-task: relaying the signed receipt onward to the chain.

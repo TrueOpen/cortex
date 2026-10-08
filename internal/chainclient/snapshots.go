@@ -73,15 +73,15 @@ func (s ServiceBondSnapshot) Validate() error {
 // only becomes ACTIVE once a model support activates, which needs ActivationKind
 // set, which is only set when the node completes a first duty. Requiring ACTIVE
 // before working is therefore not a stricter version of the same rule, it is a
-// cycle: the node can never reach the state its own gate demands. The spec names
-// this and carves it out -- 04-任务/03 §"REGISTERED 冷启动例外" admits a node with
-// fresh declared_support and sufficient stake into the first candidate set
-// precisely 为避免首单死锁.
+// cycle: the node can never reach the state its own gate demands. The protocol
+// names this and carves out a cold-start exception for REGISTERED: a node with
+// fresh declared_support and sufficient stake is admitted into the first
+// candidate set precisely to avoid deadlocking on its first task.
 //
 // JAILED is admissible for a different reason, and deliberately: the candidate
 // selection hard filter tests jail_count against the pool-ejection threshold
 // rather than the status, so the chain has already excluded a node that jailed
-// too often. The same spec section forbids rejecting a node 仅因
+// too often. The same rule forbids rejecting a node solely because
 // ServiceBond.status=JAILED. A narrower local test would only refuse work the
 // chain would have accepted.
 //
