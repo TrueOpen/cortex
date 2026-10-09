@@ -231,6 +231,27 @@ Cortex's `LocalService` is an HTTP client against an OpenAI-compatible endpoint.
 It uses `/v1/completions` for raw-text input and `/v1/chat/completions` when the
 input is a JSON object carrying a `messages` field.
 
+Start that server with `--logprobs-mode raw_logprobs`:
+
+```sh
+vllm serve <model> --logprobs-mode raw_logprobs ...
+```
+
+The reported logprobs must be the raw model values, taken before the sampling
+processors (temperature, top-k, top-p, the penalties). That is vLLM's current
+default, so a server started without the flag is almost certainly already
+correct; pin it anyway, because nothing in the protocol carries the mode and an
+upgrade that changes the default would change what this node commits without
+any error to read.
+
+What is at stake is agreement between two independently run engines. The
+Verifier scores a task by re-running the committed token ids as a prefill, and
+`prompt_logprobs` are identical in both modes — so the Verifier is unaffected by
+this flag and a Worker serving `processed_logprobs` disagrees with every
+Verifier, at every position, by whatever its own temperature and penalties
+shift the values. The task is simply scored as a mismatch; there is no symptom
+that names the cause.
+
 `readyz` reports `model_service` red whenever vLLM is absent. Check it directly:
 
 ```sh
@@ -350,6 +371,7 @@ Before deploying:
 - [ ] `go build ./...` and `go test ./... -count=1` pass locally
 - [ ] target commit is known, and is not older than what is running
 - [ ] chain is alive (`/status` tip advancing, `/block_results` not 500)
+- [ ] the vLLM this node talks to was started with `--logprobs-mode raw_logprobs`
 - [ ] no colleague is mid-deployment on the same host
 
 Deploying:
