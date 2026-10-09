@@ -104,14 +104,20 @@ type chatCompletionRequest struct {
 	ParallelToolCalls *bool           `json:"parallel_tool_calls,omitempty"`
 
 	// Sampling parameters, set from the chain-bound generation context
-	// (localChatGenerationRequest), never from the request. Only the OpenAI Chat
-	// Completions sampling subset is sent: the vLLM-only knobs the raw-text path can
-	// carry (top_k, repetition_penalty) and the stop conditions (stop_sequences,
-	// stop_token_ids) are NOT forwarded -- a generation context that sets any of
-	// them is refused upstream (rejectNonOpenAIChatGenerationParams), so this request
-	// stays a pure OpenAI body.
+	// (localChatGenerationRequest), never from the request. The order may set only
+	// the OpenAI Chat Completions sampling subset below (temperature/top_p/...): the
+	// vLLM-only repetition_penalty and the stop conditions (stop_sequences,
+	// stop_token_ids) are refused upstream (rejectNonOpenAIChatGenerationParams).
+	//
+	// TopK is the one vLLM-only field Cortex still sends. It is NOT a user parameter
+	// -- an order that freezes top_k is refused -- but Cortex pins it to
+	// required_top_k (platform policy, not an OpenAI knob) so the sampled token is
+	// always inside the reported top_logprobs. The verifier never samples, so this
+	// changes no committed computation it checks; it only keeps the worker's top-k
+	// evidence complete under the API's 20-entry logprobs cap.
 	Temperature         float64 `json:"temperature"`
 	TopP                float64 `json:"top_p"`
+	TopK                int     `json:"top_k"`
 	MaxCompletionTokens int     `json:"max_completion_tokens,omitempty"`
 	Seed                *int64  `json:"seed,omitempty"`
 	PresencePenalty     float64 `json:"presence_penalty,omitempty"`
@@ -378,13 +384,14 @@ func rejectNonOpenAIChatGenerationParams(g *nodewire.GenerationContext) error {
 // localChatGenerationRequest assembles the outgoing chat request from the
 // content/intent input and the chain-bound generation context. The sampling
 // parameters come entirely from decodeGenerationParams (the same validated source
-// the raw-text path uses), never from the request -- and only the OpenAI sampling
-// subset is forwarded. The caller (Infer) has already rejected any context that
-// sets a non-OpenAI knob (top_k / repetition_penalty) or a stop condition
-// (rejectNonOpenAIChatGenerationParams), so decodeGenerationParams' stop/top_k
-// fields are guaranteed empty/zero here. The verification-relevant fields (logprobs
-// count, return_token_ids, skip_special_tokens) are pinned by Cortex from the
-// profile. It returns the local output-duration budget alongside the request.
+// the raw-text path uses), never from the request. The caller (Infer) has already
+// rejected any context that sets a non-OpenAI knob (top_k / repetition_penalty) or
+// a stop condition (rejectNonOpenAIChatGenerationParams), so decodeGenerationParams'
+// stop/top_k fields are guaranteed empty/zero here. top_k is then pinned by Cortex
+// to the profile's required_top_k (platform policy, see chatCompletionRequest.TopK),
+// along with the other verification-relevant fields (logprobs count, return_token_ids,
+// skip_special_tokens). It returns the local output-duration budget alongside the
+// request.
 func localChatGenerationRequest(req InferRequest, profile localModelProfile, in chatInferInput, streaming bool) (chatCompletionRequest, time.Duration, error) {
 	p, duration, err := decodeGenerationParams(req)
 	if err != nil {
@@ -402,6 +409,7 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 
 		Temperature:         p.temperature,
 		TopP:                p.topP,
+		TopK:                profile.RequiredTopK,
 		MaxCompletionTokens: p.maxTokens,
 		Seed:                &seed,
 		PresencePenalty:     p.presencePenalty,

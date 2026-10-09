@@ -24,8 +24,10 @@ func TestLocalGenerationAppliesTaskParameters(t *testing.T) {
 			t.Run(fmt.Sprintf("stream=%t/max=%d", streaming, limit), func(t *testing.T) {
 				g := localTestGeneration(testQwenModelID(), 1)
 				g.Params.MaxOutputTokens = limit
+				// top_k is platform-controlled, not a task parameter: an order that sets
+				// it is refused, and Cortex sends required_top_k instead (asserted below).
 				g.Params.DecodingParams = nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 750, TopPPPM: 825000,
-					TopK: 23, Seed: 47, PresencePenaltyMilli: -250, FrequencyPenaltyMilli: 500,
+					Seed: 47, PresencePenaltyMilli: -250, FrequencyPenaltyMilli: 500,
 					RepetitionPenaltyPPM: 1125000, StopSequences: []string{"END", "STOP"}, StopTokenIDs: []uint32{99, 100}}
 				var captured map[string]any
 				srv := localGenerationServer(t, localGenerationReply(int(limit), "length", nil), &captured)
@@ -36,7 +38,7 @@ func TestLocalGenerationAppliesTaskParameters(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := map[string]any{"max_tokens": float64(limit), "temperature": .75, "top_p": .825, "top_k": float64(23),
+				want := map[string]any{"max_tokens": float64(limit), "temperature": .75, "top_p": .825, "top_k": float64(defaultTopK),
 					"seed": float64(47), "presence_penalty": -.25, "frequency_penalty": .5, "repetition_penalty": 1.125,
 					"stop": []any{"END", "STOP"}, "stop_token_ids": []any{float64(99), float64(100)}, "stream": streaming}
 				for field, value := range want {

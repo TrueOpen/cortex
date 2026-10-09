@@ -146,10 +146,16 @@ func TestLocalGenerationPreservesZeroAndGreedy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, field := range []string{"temperature", "top_k", "seed", "presence_penalty", "frequency_penalty"} {
+		for _, field := range []string{"temperature", "seed", "presence_penalty", "frequency_penalty"} {
 			if captured[field] != float64(0) {
 				t.Errorf("%s = %v, want explicit 0", field, captured[field])
 			}
+		}
+		// top_k is not a zero-preserving task param: Cortex pins it to the profile's
+		// required_top_k regardless of the order, so the sampled token always lands in
+		// the reported top_logprobs.
+		if captured["top_k"] != float64(defaultTopK) {
+			t.Errorf("top_k = %v, want platform-pinned required_top_k %d", captured["top_k"], defaultTopK)
 		}
 	}
 }

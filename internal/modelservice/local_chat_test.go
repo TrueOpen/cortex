@@ -252,6 +252,29 @@ func TestLocalServiceChatToolCallsMapFinishReasonToEOS(t *testing.T) {
 	}
 }
 
+// Cortex pins the chat request's top_k to the profile's required_top_k (platform
+// policy, not a user parameter: the order never sets it, refused upstream), so the
+// sampled token always lands inside the reported top_logprobs.
+func TestLocalServiceChatPinsTopKToRequiredTopK(t *testing.T) {
+	srv, seen := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
+	svc := newBoundLocalService(srv.URL, "local-svc", 4, 0, 0)
+
+	if _, err := svc.Infer(context.Background(), chatBound(t, InferRequest{
+		RequestID:  "chat-topk",
+		ModelID:    testQwenModelID(),
+		Capability: CapabilityLLMTextV1,
+		Input:      []byte(`{"messages":[{"role":"user","content":"hi"}]}`),
+	})); err != nil {
+		t.Fatalf("Infer() error = %v", err)
+	}
+	if len(*seen) != 1 {
+		t.Fatalf("vLLM calls = %d, want 1", len(*seen))
+	}
+	if (*seen)[0].TopK != defaultTopK {
+		t.Fatalf("chat top_k = %d, want platform-pinned required_top_k %d", (*seen)[0].TopK, defaultTopK)
+	}
+}
+
 // newChatVLLMStreamStub emulates vLLM's /v1/chat/completions with a
 // text/event-stream of the supplied chunks (a leading keepalive comment and a
 // trailing [DONE] included), plus /v1/models and /metrics.
