@@ -16,13 +16,26 @@ import (
 // SignedOrderV2 is parsed strictly: unknown fields, duplicate singular fields
 // and mismatched protobuf wire types are rejected before deriving task_hash.
 const (
-	signedOrderFieldOrder           = 1
-	signedOrderFieldSignatureScheme = 2
-	signedOrderFieldUserSignature   = 3
+	signedOrderFieldOrder            = 1
+	signedOrderFieldSignatureScheme  = 2
+	signedOrderFieldUserSignature    = 3
+	signedOrderFieldSignatureChainID = 4
 
 	signedOrderSignatureScheme = "eip712"
 	signedOrderSignatureLen    = 65
 )
+
+// signedOrderV2 is a decoded carrier: the order the user signed, and the
+// signature metadata that travels beside it rather than inside it. task_hash is
+// derived from the TaskOrderV3 fields alone, so none of this metadata reaches
+// task identity -- the same order signed under another chain id is the same
+// task, and no replay or dedup decision may say otherwise.
+type signedOrderV2 struct {
+	order            taskOrderV3
+	signatureScheme  string
+	userSignature    []byte
+	signatureChainID uint64
+}
 
 // TaskOrderHashSignedOrderHex is TaskOrderHashAndFactsSignedOrderHex without the
 // facts, for callers that only need the identity.
@@ -46,24 +59,23 @@ func TaskOrderHashAndFactsSignedOrderHex(value string) (codec.Hash, TaskOrderFac
 	if err != nil {
 		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("SignedOrderV2 carrier must be lowercase hex: %w", err)
 	}
-	order, scheme, signature, err := decodeSignedOrderV2(raw)
+	carrier, err := decodeSignedOrderV2(raw)
 	if err != nil {
 		return codec.Hash{}, TaskOrderFacts{}, err
 	}
-	digest, err := taskOrderHash(order)
+	digest, err := taskOrderHash(carrier.order)
 	if err != nil {
 		return codec.Hash{}, TaskOrderFacts{}, err
 	}
-	facts := taskOrderFacts(order)
-	facts.SignatureScheme, facts.UserSignature = scheme, hex.EncodeToString(signature)
+	facts := taskOrderFacts(carrier.order)
+	facts.SignatureScheme, facts.UserSignature = carrier.signatureScheme, hex.EncodeToString(carrier.userSignature)
+	facts.SignatureChainID = carrier.signatureChainID
 	return digest, facts, nil
 }
 
-func decodeSignedOrderV2(raw []byte) (taskOrderV3, string, []byte, error) {
+func decodeSignedOrderV2(raw []byte) (signedOrderV2, error) {
 	var (
-		order     taskOrderV3
-		scheme    string
-		signature []byte
+		carrier   signedOrderV2
 		seenOrder bool
 	)
 	err := walkProtoMessage("SignedOrderV2", raw, func(field protoField) error {
@@ -77,47 +89,50 @@ func decodeSignedOrderV2(raw []byte) (taskOrderV3, string, []byte, error) {
 			if err != nil {
 				return err
 			}
-			order, seenOrder = decoded, true
+			carrier.order, seenOrder = decoded, true
 			return nil
 		case signedOrderFieldSignatureScheme:
-			value, err := field.string()
-			if err != nil {
-				return err
-			}
-			scheme = value
-			return nil
+			return field.assignString(&carrier.signatureScheme)
 		case signedOrderFieldUserSignature:
-			value, err := field.bytes()
-			if err != nil {
+			return field.assignBytes(&carrier.userSignature)
+		case signedOrderFieldSignatureChainID:
+			if err := field.uint64(&carrier.signatureChainID); err != nil {
 				return err
 			}
-			signature = value
+			// The signing wallet picks this value, so it is bounded rather than
+			// trusted: 1..MaxInt64, with an explicitly encoded 0 refused as
+			// malformed. A carrier that omits the field was signed when the
+			// chain's own EVM chain id was the authoritative domain, and stays
+			// legal so orders in flight across the upgrade still decode.
+			if carrier.signatureChainID == 0 || carrier.signatureChainID > math.MaxInt64 {
+				return fmt.Errorf("SignedOrderV2 signature_chain_id must be in 1..%d", int64(math.MaxInt64))
+			}
 			return nil
 		}
 		return fmt.Errorf("SignedOrderV2 carries unknown field %d", field.number)
 	})
 	if err != nil {
-		return taskOrderV3{}, "", nil, err
+		return signedOrderV2{}, err
 	}
 	if !seenOrder {
-		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 carries no order")
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 carries no order")
 	}
 	// EIP-712 signatures are recoverable R||S||V with canonical low-S.
-	if scheme != signedOrderSignatureScheme {
-		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 signature_scheme must be %q", signedOrderSignatureScheme)
+	if carrier.signatureScheme != signedOrderSignatureScheme {
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 signature_scheme must be %q", signedOrderSignatureScheme)
 	}
-	if len(signature) != signedOrderSignatureLen {
-		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature must be %d bytes", signedOrderSignatureLen)
+	if len(carrier.userSignature) != signedOrderSignatureLen {
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 user_signature must be %d bytes", signedOrderSignatureLen)
 	}
-	if signature[64] != 27 && signature[64] != 28 {
-		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature recovery id must be 27 or 28")
+	if carrier.userSignature[64] != 27 && carrier.userSignature[64] != 28 {
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 user_signature recovery id must be 27 or 28")
 	}
 	orderN, _ := new(big.Int).SetString("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
-	r, s := new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:64])
+	r, s := new(big.Int).SetBytes(carrier.userSignature[:32]), new(big.Int).SetBytes(carrier.userSignature[32:64])
 	if r.Sign() == 0 || r.Cmp(orderN) >= 0 || s.Sign() == 0 || s.Cmp(new(big.Int).Rsh(orderN, 1)) > 0 {
-		return taskOrderV3{}, "", nil, fmt.Errorf("SignedOrderV2 user_signature must contain valid r and low-S")
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 user_signature must contain valid r and low-S")
 	}
-	return order, scheme, signature, nil
+	return carrier, nil
 }
 
 // decodeTaskOrderV3 reads the 28 fields of TaskOrderV3 in their proto wire

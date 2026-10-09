@@ -10,6 +10,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -196,5 +197,59 @@ func TestSignedOrderVerifiesAddressAndEverySignedScope(t *testing.T) {
 	}
 	if err := VerifySignedOrderEnvelope(encode(&order, highS), 424242, "uusdc"); err == nil {
 		t.Fatal("high-S accepted")
+	}
+}
+
+// TestSignedOrderVerifiesUnderTheCarriedChainID checks where the EIP-712 domain
+// chain id comes from once the carrier states one. A browser wallet signs under
+// whatever network it is on, so the carried value is authoritative and the
+// configured one is only the fallback for a carrier that states none.
+func TestSignedOrderVerifiesUnderTheCarriedChainID(t *testing.T) {
+	var order taskv1.TaskOrderV3
+	if err := protojson.Unmarshal(goldenTaskOrderJSON(t), &order); err != nil {
+		t.Fatal(err)
+	}
+	key := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{2}, 32))
+	address := orderKeccak(key.PubKey().SerializeUncompressed()[1:])[12:]
+	var err error
+	if order.UserAddress, err = bech32ConvertAndEncode("trueopen", address); err != nil {
+		t.Fatal(err)
+	}
+	// The wallet's network, which is not the chain id the node would configure.
+	const walletChainID = 11155111
+	digest, err := TaskOrderSigningDigest(&order, walletChainID, "uusdc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact := ecdsa.SignCompact(key, digest[:], false)
+	signature := append(append([]byte(nil), compact[1:]...), compact[0])
+	// wire v0.4.0's generated type has no signature_chain_id, so the field is
+	// appended as the v0.5.0 signer writes it.
+	carrier := func(id uint64) string {
+		raw, err := proto.Marshal(&taskv1.SignedOrderV2{Order: &order, SignatureScheme: "eip712", UserSignature: signature})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id == 0 {
+			return hex.EncodeToString(raw)
+		}
+		return hex.EncodeToString(protowire.AppendVarint(protowire.AppendTag(raw, 4, protowire.VarintType), id))
+	}
+
+	if err := VerifySignedOrderEnvelope(carrier(walletChainID), 424242, "uusdc"); err != nil {
+		t.Fatalf("carried chain id was not used to rebuild the domain: %v", err)
+	}
+	// The carrier claiming the configured chain id does not make the signature
+	// verify under it: the claim is covered by the signature, not trusted beside it.
+	if err := VerifySignedOrderEnvelope(carrier(424242), 424242, "uusdc"); err == nil {
+		t.Fatal("a carrier claiming a chain id it was not signed under was accepted")
+	}
+	// Stating none falls back to the configured chain id, which is how every
+	// carrier signed before the field existed still verifies.
+	if err := VerifySignedOrderEnvelope(carrier(0), walletChainID, "uusdc"); err != nil {
+		t.Fatalf("a carrier stating no chain id did not fall back: %v", err)
+	}
+	if err := VerifySignedOrderEnvelope(carrier(0), 424242, "uusdc"); err == nil {
+		t.Fatal("the fallback accepted a chain id the order was not signed under")
 	}
 }
