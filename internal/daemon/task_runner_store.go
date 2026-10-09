@@ -109,38 +109,34 @@ func (r *TaskRunner) loadActiveTasks(ctx context.Context) (map[codec.Hash]store.
 	return infer, verify, nil
 }
 
-// persistInferChangesToLayout mirrors any updated infer task back to the
-// layout when a layout record already exists. Tasks that only live in the
-// legacy active document are skipped; they will be migrated once their callers
-// seed layout records.
-func (r *TaskRunner) persistInferChangesToLayout(ctx context.Context, infer map[codec.Hash]store.InferTask) error {
-	for h, task := range infer {
-		rec, err := layout.GetInferRecord(ctx, r.cfg.Store, layout.StoredHash(h))
-		if err != nil || rec.TaskID == "" {
-			continue
-		}
-		rec = inferRecordFromTask(task, rec)
-		if err := layout.MergeInfer(ctx, r.cfg.Store, layout.StoredHash(h), rec); err != nil {
-			return err
-		}
+// persistInferTaskToLayout mirrors one updated infer task back to the layout
+// when a layout record already exists. A task that only lives in the legacy
+// active document is skipped; it will be migrated once its callers seed layout
+// records.
+//
+// One task, not the whole active set: it replaces a sweep that rewrote every
+// active infer record whenever any one of them changed. That sweep was safe only
+// while executions could not outlive the pass that read them - with overlapping
+// passes it would write a running task's pre-run stage over the stage its own
+// executor had just committed. The record is re-read here rather than carried
+// in so the stable fields (and anything a Keeper effect advanced meanwhile) come
+// from the current document; only the execution fields come from the task.
+func (r *TaskRunner) persistInferTaskToLayout(ctx context.Context, hash codec.Hash, task store.InferTask) error {
+	rec, err := layout.GetInferRecord(ctx, r.cfg.Store, layout.StoredHash(hash))
+	if err != nil || rec.TaskID == "" {
+		return nil
 	}
-	return nil
+	return layout.MergeInfer(ctx, r.cfg.Store, layout.StoredHash(hash), inferRecordFromTask(task, rec))
 }
 
-// persistVerifyChangesToLayout mirrors any updated verify task back to the layout
-// when a layout record already exists.
-func (r *TaskRunner) persistVerifyChangesToLayout(ctx context.Context, verify map[codec.Hash]store.VerifyTask) error {
-	for h, task := range verify {
-		rec, err := layout.GetVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(h))
-		if err != nil || rec.TaskID == "" {
-			continue
-		}
-		rec = verifyRecordFromTask(task, rec)
-		if err := layout.MergeVerify(ctx, r.cfg.Store, layout.StoredHash(h), rec); err != nil {
-			return err
-		}
+// persistVerifyTaskToLayout is the verify half of persistInferTaskToLayout, with
+// the same scope and for the same reason.
+func (r *TaskRunner) persistVerifyTaskToLayout(ctx context.Context, hash codec.Hash, task store.VerifyTask) error {
+	rec, err := layout.GetVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(hash))
+	if err != nil || rec.TaskID == "" {
+		return nil
 	}
-	return nil
+	return layout.MergeVerify(ctx, r.cfg.Store, layout.StoredHash(hash), verifyRecordFromTask(task, rec))
 }
 
 func mergeInferExecution(current, updated store.InferTask) store.InferTask {
