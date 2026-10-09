@@ -172,12 +172,18 @@ type TaskOrderFacts struct {
 	BuilderSetHash         string
 	OrderExpireHeight      uint64
 
-	// SignatureScheme and UserSignature are the two SignedOrderV2 fields that sit
-	// beside the order in the proto carrier. They are empty for the legacy JSON
-	// carrier, which holds the bare order and nothing around it, so a caller must
-	// treat empty as "the carrier did not state one" rather than as a mismatch.
-	SignatureScheme string
-	UserSignature   string
+	// SignatureScheme, UserSignature and SignatureChainID are the SignedOrderV2
+	// fields that sit beside the order in the proto carrier. They are empty for
+	// the legacy JSON carrier, which holds the bare order and nothing around it,
+	// so a caller must treat empty as "the carrier did not state one" rather than
+	// as a mismatch. SignatureChainID is the EIP-712 domain chain id the signing
+	// wallet chose; zero means the carrier stated none, which is every carrier
+	// signed before wire v0.5.0. It is signature metadata, not order content: it
+	// does not enter task_hash, and two carriers differing only in it name the
+	// same task.
+	SignatureScheme  string
+	UserSignature    string
+	SignatureChainID uint64
 }
 
 func TaskOrderHashJSON(value string) (codec.Hash, error) {

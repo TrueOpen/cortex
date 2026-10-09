@@ -63,31 +63,41 @@ func taskOrderTypedDigest(order taskOrderV3, taskHash codec.Hash, evmChainID uin
 
 // VerifySignedOrderEnvelope checks the exact signed carrier and recovered user
 // address. It accepts only the current SignedOrderV2 eip712 signature format.
+//
+// The domain chain id is the one the carrier states: the signing wallet chose
+// it and the signature covers it, so it is read from the carrier rather than
+// configured. evmChainID is the fallback for a carrier that states none, which
+// is every carrier signed before the field existed, when the chain's own EVM
+// chain id was the authoritative domain.
 func VerifySignedOrderEnvelope(value string, evmChainID uint64, feeDenom string) error {
 	if _, _, err := TaskOrderHashAndFactsSignedOrderHex(value); err != nil {
 		return err
 	}
 	raw, _ := hex.DecodeString(value)
-	order, _, signature, err := decodeSignedOrderV2(raw)
+	carrier, err := decodeSignedOrderV2(raw)
 	if err != nil {
 		return err
 	}
-	digest, err := taskOrderSigningDigest(order, evmChainID, feeDenom)
+	domainChainID := carrier.signatureChainID
+	if domainChainID == 0 {
+		domainChainID = evmChainID
+	}
+	digest, err := taskOrderSigningDigest(carrier.order, domainChainID, feeDenom)
 	if err != nil {
 		return err
 	}
-	compact := append([]byte{signature[64]}, signature[:64]...)
+	compact := append([]byte{carrier.userSignature[64]}, carrier.userSignature[:64]...)
 	pub, _, err := ecdsa.RecoverCompact(compact, digest[:])
 	if err != nil {
 		return fmt.Errorf("recover order signer: %w", err)
 	}
-	address, err := CanonicalOperatorAddressBytes("user_address", order.UserAddress)
+	address, err := CanonicalOperatorAddressBytes("user_address", carrier.order.UserAddress)
 	if err != nil {
 		return err
 	}
 	recovered := orderKeccak(pub.SerializeUncompressed()[1:])[12:]
 	if !bytes.Equal(address, recovered) {
-		return fmt.Errorf("SignedOrderV2 signature does not match user_address on EVM chain %s", strconv.FormatUint(evmChainID, 10))
+		return fmt.Errorf("SignedOrderV2 signature does not match user_address on EVM chain %s", strconv.FormatUint(domainChainID, 10))
 	}
 	return nil
 }

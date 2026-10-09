@@ -2,6 +2,7 @@ package nodewire
 
 import (
 	"encoding/hex"
+	"math"
 	"strings"
 	"testing"
 
@@ -128,6 +129,13 @@ func TestSignedOrderCarrierRefusesMalformedCarriers(t *testing.T) {
 		return hex.EncodeToString(protowire.AppendBytes(protowire.AppendTag(out, 3, protowire.BytesType), signature))
 	}
 
+	// signature_chain_id (field 4) as the signer wrote it, for the shapes the
+	// range refuses.
+	withChainID := func(id uint64) string {
+		out := append([]byte(nil), raw...)
+		return hex.EncodeToString(protowire.AppendVarint(protowire.AppendTag(out, 4, protowire.VarintType), id))
+	}
+
 	for _, tc := range []struct {
 		name, carrier, want string
 	}{
@@ -137,7 +145,13 @@ func TestSignedOrderCarrierRefusesMalformedCarriers(t *testing.T) {
 		{"not hex", "zz", "must be lowercase hex"},
 		{"truncated frame", hex.EncodeToString(raw[:len(raw)-4]), "SignedOrderV2 field 3 is truncated"},
 		{"trailing garbage", hex.EncodeToString(append(append([]byte(nil), raw...), 0xff)), "SignedOrderV2 is not a well-formed proto message"},
-		{"unknown SignedOrderV2 field", hex.EncodeToString(appendField(raw, 4, protowire.VarintType, []byte{1})), "SignedOrderV2 carries unknown field 4"},
+		{"unknown SignedOrderV2 field", hex.EncodeToString(appendField(raw, 5, protowire.VarintType, []byte{1})), "SignedOrderV2 carries unknown field 5"},
+		// An explicitly encoded zero is malformed, which is distinguishable on the
+		// wire from the absent field a pre-v0.5.0 signer wrote.
+		{"zero signature_chain_id", withChainID(0), "signature_chain_id must be in 1..9223372036854775807"},
+		{"signature_chain_id above MaxInt64", withChainID(math.MaxInt64 + 1), "signature_chain_id must be in 1..9223372036854775807"},
+		{"duplicate signature_chain_id", hex.EncodeToString(appendField(mustDecodeHex(t, withChainID(1)), 4, protowire.VarintType, []byte{1})), "SignedOrderV2 field 4 appears more than once"},
+		{"signature_chain_id as bytes", hex.EncodeToString(appendField(raw, 4, protowire.BytesType, []byte{1})), "SignedOrderV2 field 4 is not a varint on the wire"},
 		{"unknown TaskOrderV2 field", rewrap(appendField(orderOnly, 31, protowire.VarintType, []byte{1})), "TaskOrderV3 carries unknown field 31"},
 		{"duplicate TaskOrderV2 field", rewrap(appendField(orderOnly, 2, protowire.BytesType, []byte("trueopen-test-2"))), "TaskOrderV3 field 2 appears more than once"},
 		{"wrong wire type", rewrap(appendField(orderOnly[:0], 2, protowire.VarintType, []byte{1})), "TaskOrderV3 field 2 is not a string on the wire"},
@@ -155,6 +169,58 @@ func TestSignedOrderCarrierRefusesMalformedCarriers(t *testing.T) {
 				t.Fatalf("error = %v, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func mustDecodeHex(t *testing.T, value string) []byte {
+	t.Helper()
+	raw, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// TestSignedOrderCarrierCarriesTheSignatureChainID covers the field wire v0.5.0
+// adds beside the signature: the EIP-712 domain chain id the signing wallet
+// chose. The node accepts it rather than refusing the carrier, reports it, and
+// derives the same task_hash with it, without it, and under any value of it --
+// it is signature metadata, so an order signed on another network is the same
+// order and must not open a second task.
+func TestSignedOrderCarrierCarriesTheSignatureChainID(t *testing.T) {
+	fixture := loadNexusSignedOrderFixture(t)
+	raw := mustDecodeHex(t, fixture.OrderEnvelopeHex)
+	withChainID := func(id uint64) string {
+		out := append([]byte(nil), raw...)
+		return hex.EncodeToString(protowire.AppendVarint(protowire.AppendTag(out, 4, protowire.VarintType), id))
+	}
+
+	// A carrier signed before the field existed states no chain id and stays
+	// legal, so orders in flight across the upgrade still decode.
+	wantHash, absent, err := TaskOrderHashAndFactsSignedOrderHex(fixture.OrderEnvelopeHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absent.SignatureChainID != 0 {
+		t.Fatalf("absent signature_chain_id = %d, want 0", absent.SignatureChainID)
+	}
+	absent.Generation = nil // compared independently; the pointer differs per decode.
+
+	for _, id := range []uint64{1, 11155111, math.MaxInt64} {
+		digest, facts, err := TaskOrderHashAndFactsSignedOrderHex(withChainID(id))
+		if err != nil {
+			t.Fatalf("signature_chain_id %d was refused: %v", id, err)
+		}
+		if facts.SignatureChainID != id {
+			t.Fatalf("signature_chain_id = %d, want %d", facts.SignatureChainID, id)
+		}
+		if digest != wantHash {
+			t.Fatalf("task_hash under signature_chain_id %d = %x, want the carrier's %x", id, digest, wantHash)
+		}
+		facts.Generation, facts.SignatureChainID = nil, 0
+		if facts != absent {
+			t.Fatalf("signature_chain_id %d moved another fact:\n got %+v\nwant %+v", id, facts, absent)
+		}
 	}
 }
 
