@@ -549,6 +549,10 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 		}
 	}()
 	if savedErr != nil {
+		// The clock the two first-output latencies are measured from starts here,
+		// at the last instant before the generation request leaves this node, so
+		// neither of them charges the engine for work this node did first.
+		recorder.inferStartedAt = time.Now()
 		resp, err = w.cfg.Model.Infer(modelservice.WithInferStreamObserver(ctx, recorder), modelservice.InferRequest{
 			RequestID: "infer-" + event.TaskID, ModelServiceID: w.cfg.ModelServiceID, JobID: jobID,
 			TaskID: event.TaskID, ModelID: event.ModelID, ProfileVersion: profileVersion,
@@ -566,6 +570,24 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	}
 	if recorder.err != nil {
 		return nil, nil, nil, outputDescriptor{}, recorder.err
+	}
+	if !recorder.inferStartedAt.IsZero() {
+		// Generation is over; everything after this line is receipt, upload and
+		// chain work. Splitting the two is the whole point: a slow task is either
+		// a slow engine or a slow node, and infer_completed alone cannot say which.
+		done := time.Now()
+		decode := tasktrace.Field{}
+		if !recorder.firstDeltaAt.IsZero() {
+			decode = tasktrace.Millis("since_first_delta_ms", done.Sub(recorder.firstDeltaAt))
+		}
+		w.cfg.Trace.Event("output_generation_completed",
+			tasktrace.Str("task", event.TaskID),
+			tasktrace.Millis("since_infer_started_ms", done.Sub(recorder.inferStartedAt)),
+			decode,
+			tasktrace.Uint("generated_token_count", resp.GeneratedTokenCount),
+			tasktrace.Uint("output_bytes", recorder.total),
+			tasktrace.Int("frames", len(recorder.frames)),
+			tasktrace.Int("finish_reason", int(resp.FinishReason)))
 	}
 	if generation != nil {
 		if !bytes.Equal(resp.GenerationParamsDigest, generationDigest) {
