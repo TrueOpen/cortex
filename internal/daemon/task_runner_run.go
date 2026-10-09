@@ -651,8 +651,18 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				Stage:               layout.StageQueued,
 				DeadlineHeight:      a.InferDeadlineHeight.Uint64(),
 			}
+			// woken_by says whether this node waited out its own poll interval or
+			// was told to look. It is the measurement that decides whether the
+			// interval is worth shortening, or worth replacing with a chain
+			// subscription: an assignment admitted on a tick waited up to one
+			// interval that a notify would have saved.
+			wokenBy := tasktrace.Field{}
+			if source, ok := WakeSourceFrom(ctx); ok {
+				wokenBy = tasktrace.Str("woken_by", string(source))
+			}
 			r.cfg.Trace.Event("keeper_assignment_admitted",
 				tasktrace.Str("task", effect.TaskID), tasktrace.Hash("task_hash", effect.TaskHash),
+				wokenBy,
 				tasktrace.Str("session", a.SessionID), tasktrace.Uint("order_sequence", a.OrderSequence.Uint64()),
 				tasktrace.Str("model", a.ModelID), tasktrace.Uint("profile_version", uint64(a.ProfileVersion.Uint32())),
 				tasktrace.Hash("accepted_order_payload_hash", codec.Hash(a.AcceptedOrderPayloadHash)),

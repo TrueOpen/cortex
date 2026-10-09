@@ -64,7 +64,17 @@ type TaskRunnerConfig struct {
 	// payload-matches-signed_order comparisons (task_runner_util.go:60-75). A
 	// deployment running with it set would accept an OrderBroadcast whose
 	// fields contradict the order its own Builder signed.
-	FakeBus                        bool
+	FakeBus bool
+	// WakeKeeperPoll asks the Keeper poller for a scan now. It is set after the
+	// poller is built, because the poller is built around this runner. Nil is
+	// the ordinary state in tests and in the fake-bus deployment, and costs
+	// nothing: the bus frame that would have woken the poller is retried on the
+	// bus instead, exactly as it was before.
+	//
+	// It carries no authority. The scan it asks for reads and validates the
+	// chain the same way a tick does, so a frame that lies about chain state
+	// buys nothing but one early scan.
+	WakeKeeperPoll                 func(WakeSource)
 	EnvelopeTTL, EnvelopeClockSkew time.Duration
 	HandraiseEligibility           HandraiseEligibility
 	NexusEnvelopeAuthenticator     builderclient.BusEnvelopeAuthenticator
@@ -219,6 +229,18 @@ type TaskRunner struct {
 type sessionAdmission struct {
 	sequence uint64
 	taskHash codec.Hash
+}
+
+// SetKeeperPollWake closes the loop the constructor cannot: the Keeper poller
+// is built around this runner, so it can only be handed back afterwards. Until
+// it is -- and in every deployment that runs without a poller -- a frame that
+// outruns the cursor is retried on the bus alone, which is the behaviour this
+// shortens rather than replaces.
+func (r *TaskRunner) SetKeeperPollWake(wake func(WakeSource)) {
+	if r == nil {
+		return
+	}
+	r.cfg.WakeKeeperPoll = wake
 }
 
 func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {

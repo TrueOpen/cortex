@@ -1056,7 +1056,7 @@ func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, projec
 		return nil
 	}
 	interval := time.Duration(cfg.Keeper.PollIntervalMS) * time.Millisecond
-	return daemon.NewKeeperPoller(rt.Store, rt.KeeperEvents, rt.Reconciler, daemon.KeeperPollerConfig{
+	poller := daemon.NewKeeperPoller(rt.Store, rt.KeeperEvents, rt.Reconciler, daemon.KeeperPollerConfig{
 		Interval:             interval,
 		MaxChainLag:          cfg.Keeper.MaxLagBlocks,
 		ObserveChainProgress: rt.ObserveChainProgress,
@@ -1076,6 +1076,13 @@ func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, projec
 			return nil
 		},
 	})
+	// Closed after construction because the poller is built around this runner:
+	// a bus frame that names chain state the cursor has not reached can now ask
+	// for the scan instead of waiting for the next tick.
+	if taskRunner != nil {
+		taskRunner.SetKeeperPollWake(poller.Wake)
+	}
+	return poller
 }
 
 func logWorkloadStartFailure(err error) {

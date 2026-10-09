@@ -22,6 +22,42 @@ const (
 // that never settles must not keep a node polling forever without scanning.
 const maxConsecutiveRepositions = 32
 
+// WakeSource names what caused one scan to run. It is carried to the effect
+// sink so a milestone can say whether this node learned of a chain fact by
+// waiting for its own tick or by being told, which is the measurement that
+// decides whether the poll interval is costing anything worth fixing.
+type WakeSource string
+
+const (
+	// WakeStartup is the first scan after the poller starts.
+	WakeStartup WakeSource = "startup"
+	// WakeTick is the ordinary interval scan.
+	WakeTick WakeSource = "tick"
+	// WakeNotify is a scan a bus frame asked for, because the frame referred to
+	// chain state this node has not scanned up to yet.
+	WakeNotify WakeSource = "notify"
+)
+
+// wakeSourceKey carries the WakeSource of the running scan to the effect sink.
+// A context value rather than a sink parameter: the sink signature is the one
+// seam between the poller and the task runner, and widening it would put a
+// diagnostic field in the way of every caller and test that applies effects
+// directly.
+type wakeSourceKey struct{}
+
+func withWakeSource(ctx context.Context, source WakeSource) context.Context {
+	return context.WithValue(ctx, wakeSourceKey{}, source)
+}
+
+// WakeSourceFrom reports the scan that produced the effects being applied.
+// Absent -- effects applied by a caller that is not the poller, which is every
+// test that drives the runner directly -- reports false, and callers leave the
+// field off their line rather than guessing a source.
+func WakeSourceFrom(ctx context.Context) (WakeSource, bool) {
+	source, ok := ctx.Value(wakeSourceKey{}).(WakeSource)
+	return source, ok && source != ""
+}
+
 type KeeperPollerConfig struct {
 	Interval    time.Duration
 	MaxChainLag uint64
@@ -59,6 +95,13 @@ type KeeperPoller struct {
 	// poll retry budget; but it cannot be unlimited either, or a chain answering
 	// with a new height forever would spin without ever scanning anything.
 	repositions int
+	// wake carries out-of-band scan requests. One slot: a second request that
+	// arrives before the scan runs is already covered by the pending one, and
+	// dropping it is what keeps a burst of frames from queueing a burst of
+	// scans. Nothing here changes what a scan does or what it trusts -- a wake
+	// only decides when the next one starts, so a wake that was wrong, repeated
+	// or lost costs at most one early scan or one interval of patience.
+	wake chan WakeSource
 }
 
 func NewKeeperPoller(db *store.Store, keeper KeeperEventClient, reconciler *Reconciler, cfg KeeperPollerConfig) *KeeperPoller {
@@ -77,7 +120,22 @@ func NewKeeperPoller(db *store.Store, keeper KeeperEventClient, reconciler *Reco
 	if cfg.MaxRetryBackoff < cfg.RetryBackoff {
 		cfg.MaxRetryBackoff = cfg.RetryBackoff
 	}
-	return &KeeperPoller{store: db, keeper: keeper, reconciler: reconciler, cfg: cfg}
+	return &KeeperPoller{store: db, keeper: keeper, reconciler: reconciler, cfg: cfg, wake: make(chan WakeSource, 1)}
+}
+
+// Wake asks for a scan now instead of at the next interval. It never blocks and
+// never fails: a full slot means a scan is already pending, and a poller that is
+// not running simply leaves the request in the slot for when it starts. Callers
+// use it when they hold evidence that the chain has moved past this node's
+// cursor -- a bus frame naming a task the local store does not know yet.
+func (p *KeeperPoller) Wake(source WakeSource) {
+	if p == nil || p.wake == nil || source == "" {
+		return
+	}
+	select {
+	case p.wake <- source:
+	default:
+	}
 }
 
 func (p *KeeperPoller) RunOnce(ctx context.Context) error {
@@ -287,12 +345,13 @@ func lagBehind(chainHeight, consumedHeight uint64) uint64 {
 
 func (p *KeeperPoller) Run(ctx context.Context) error {
 	consecutiveFailures := 0
+	source := WakeStartup
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
 		delay := p.cfg.Interval
-		if err := p.RunOnce(ctx); err != nil {
+		if err := p.RunOnce(withWakeSource(ctx, source)); err != nil {
 			if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 				return nil
 			}
@@ -318,6 +377,15 @@ func (p *KeeperPoller) Run(ctx context.Context) error {
 			}
 			return nil
 		case <-timer.C:
+			source = WakeTick
+		case requested := <-p.wake:
+			// A wake cuts the wait short, including the backoff after a retryable
+			// failure: the caller has evidence the chain moved, and the next scan
+			// either reads it or fails again and restores the backoff.
+			if !timer.Stop() {
+				<-timer.C
+			}
+			source = requested
 		}
 	}
 }
