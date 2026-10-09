@@ -122,6 +122,7 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 		tasktrace.Uint("infer_deadline_height", task.DeadlineHeight),
 		tasktrace.Err("input_error", err))
 	var result worker.InferResult
+	var inferStartedAt time.Time
 	if err == nil {
 		if reader, ok := e.cfg.TaskReader.(chainclient.OutputStreamLimitsReader); ok {
 			var limits chainclient.OutputStreamLimitsSnapshot
@@ -133,6 +134,7 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 			err = fmt.Errorf("Keeper output stream limits reader is required")
 		}
 		if err == nil {
+			inferStartedAt = time.Now()
 			result, err = worker.New(wcfg).HandleAssignmentFinalized(ctx, event)
 		}
 	}
@@ -145,6 +147,9 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	// line and theirs rather than a re-derivation.
 	e.cfg.Trace.Event("infer_completed",
 		tasktrace.Str("task", task.TaskID), tasktrace.Hash("task_hash", taskHash),
+		// The whole worker turn: generation plus receipt, upload and relay.
+		// output_generation_completed carries the generation share of it.
+		tasktrace.Millis("since_infer_started_ms", time.Since(inferStartedAt)),
 		tasktrace.Hash("output_hash", result.Receipt.OutputHash),
 		tasktrace.Hash("package_hash", result.PackageHash),
 		tasktrace.Hash("receipt_package_hash", result.Receipt.PackageHash),

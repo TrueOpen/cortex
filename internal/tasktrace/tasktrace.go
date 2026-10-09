@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/observability"
@@ -122,6 +123,18 @@ func Hex(key, value string) Field {
 
 func Uint(key string, value uint64) Field {
 	return Field{key: key, value: strconv.FormatUint(value, 10)}
+}
+
+// Millis renders an elapsed duration as whole milliseconds, the unit every
+// other latency this daemon reports already uses (the publish observer and the
+// inbox runner both spell theirs duration_ms). A negative duration -- a clock
+// that moved backwards between two reads -- is reported as 0 rather than as a
+// negative latency no reader would believe.
+func Millis(key string, d time.Duration) Field {
+	if d < 0 {
+		d = 0
+	}
+	return Field{key: key, value: strconv.FormatInt(d.Milliseconds(), 10)}
 }
 
 func Int(key string, value int) Field {

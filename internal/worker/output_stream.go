@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 	"unicode/utf8"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -15,6 +16,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
 const OutputStreamFramePrefix = "worker-output-frame:"
@@ -37,6 +39,16 @@ type outputStreamRecorder struct {
 	err          error
 	deferredErr  error
 	transportErr error
+
+	// inferStartedAt is set immediately before the generation request leaves for
+	// the engine, so the two latencies an operator asks about are measured from
+	// the same instant: the engine's first delta, and the first signed frame this
+	// node puts on the wire. They are not the same number -- a frame is held back
+	// until it reaches min_output_stream_frame_bytes -- and only the second one is
+	// what a waiting reader actually sees.
+	inferStartedAt   time.Time
+	firstDeltaAt     time.Time
+	firstFrameTraced bool
 }
 
 type deferredFrameError struct{ err error }
@@ -123,7 +135,10 @@ func (w *Worker) resumeOutputRecorder(ctx context.Context, event chainclient.Ass
 		}
 		pending = nil
 	}
-	r := &outputStreamRecorder{w: w, ctx: ctx, event: event, taskHash: saved.TaskHash, mmr: mmr, frames: frames, pending: pending, total: total}
+	// A resumed task already streamed its first frame in an earlier run; there is
+	// no first-frame latency left to measure, only frames to re-send.
+	r := &outputStreamRecorder{w: w, ctx: ctx, event: event, taskHash: saved.TaskHash, mmr: mmr, frames: frames, pending: pending, total: total,
+		firstFrameTraced: len(frames) > 0}
 	r.stream, r.transportErr = w.openOutputStream(ctx, event, saved.TaskHash, frames)
 	return r, nil
 }
@@ -239,6 +254,13 @@ func (r *outputStreamRecorder) ObserveInferFrame(ctx context.Context, frame mode
 		r.err = fmt.Errorf("model stream text is not UTF-8")
 		return r.err
 	}
+	if len(frame.TextDelta) > 0 && r.firstDeltaAt.IsZero() {
+		r.firstDeltaAt = time.Now()
+		r.w.cfg.Trace.Event("output_first_delta",
+			tasktrace.Str("task", r.event.TaskID),
+			tasktrace.Millis("since_infer_started_ms", r.firstDeltaAt.Sub(r.inferStartedAt)),
+			tasktrace.Int("delta_bytes", len(frame.TextDelta)))
+	}
 	limit := r.w.cfg.MaxOutputBytes
 	if limit == 0 {
 		limit = 64 << 20
@@ -295,6 +317,28 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 	}
 	r.mmr = candidate
 	r.frames = append(r.frames, chunk)
+	if !r.firstFrameTraced && !r.inferStartedAt.IsZero() {
+		r.firstFrameTraced = true
+		now := time.Now()
+		// since_first_delta_ms is the share of the wait that is this node's
+		// chunking rather than the engine's time to think; it is absent when the
+		// frame did not come from a stream this run observed -- a resumed task, or
+		// the tail frame of a generation that never reached the minimum size.
+		sinceDelta := tasktrace.Field{}
+		if !r.firstDeltaAt.IsZero() {
+			sinceDelta = tasktrace.Millis("since_first_delta_ms", now.Sub(r.firstDeltaAt))
+		}
+		// Traced before SendChunk, because the frame is committed here: it is
+		// signed and journaled, and a transport that is gone only means it will be
+		// resumed rather than regenerated.
+		r.w.cfg.Trace.Event("output_first_frame",
+			tasktrace.Str("task", r.event.TaskID), tasktrace.Uint("seq", seq),
+			tasktrace.Int("frame_bytes", len(text)),
+			tasktrace.Millis("since_infer_started_ms", now.Sub(r.inferStartedAt)),
+			sinceDelta,
+			tasktrace.Uint("min_frame_bytes", uint64(r.w.cfg.StreamLimits.MinOutputStreamFrameBytes)),
+			tasktrace.Bool("transport_attached", r.stream != nil))
+	}
 	// Keep collecting durable model output after a network failure. The same
 	// signed frames can then resume without rerunning generation or rechunking.
 	if r.stream != nil {
