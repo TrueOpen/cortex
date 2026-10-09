@@ -183,6 +183,32 @@ type TaskRunner struct {
 	admitMu      sync.Mutex
 	sessions     map[string]sessionAdmission
 	sessionOrder []string
+	// slots is this node's entire model-execution budget, and it belongs to the
+	// runner rather than to one scheduling pass. It used to be created fresh
+	// inside every pass, which bounded the node only because passes could not
+	// overlap; now that they do (see dispatch), a per-pass semaphore would bound
+	// nothing at all -- MAX_CONCURRENCY executions per pass, times as many passes
+	// as the poll interval allows.
+	slots chan struct{}
+	// inflightMu guards inflight, the responsibilities this process has an
+	// executor goroutine for right now. See claimInflight.
+	inflightMu sync.Mutex
+	inflight   map[responsibilityKey]struct{}
+	// executions counts every executor goroutine this runner has started, across
+	// all passes. Run waits on it before returning so that a cancelled context
+	// still drains in-flight work rather than leaving a task mid-commit while the
+	// process tears its dependencies down.
+	executions sync.WaitGroup
+	// failureMu guards execFailure, the first durable-store write that an
+	// asynchronously applied outcome could not complete. A pass no longer returns
+	// such a failure directly -- the goroutine that hit it has no caller left to
+	// return to -- so it is parked here and surfaced by the next Run iteration or
+	// by the RunOnce whose batch it belonged to. Stopping the daemon on it is the
+	// behaviour the batched write path had, and it is kept deliberately: a node
+	// that cannot write its own task documents has no safe way to keep executing
+	// against them.
+	failureMu   sync.Mutex
+	execFailure error
 	// recoveryMu guards recoveryChecked, the set of task hashes whose committed
 	// local objects this process has already audited. See
 	// localObjectsRecoveryReason.
@@ -258,6 +284,8 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 	runner := &TaskRunner{
 		cfg:             cfg,
 		wakeup:          make(chan struct{}, 1),
+		slots:           make(chan struct{}, int(cfg.MaxConcurrency)),
+		inflight:        make(map[responsibilityKey]struct{}),
 		sessions:        make(map[string]sessionAdmission),
 		recoveryChecked: make(map[codec.Hash]struct{}),
 		chainWaits:      make(map[string]uint64),
@@ -373,10 +401,48 @@ func (r *TaskRunner) RequeueActiveTask(ctx context.Context, queueID, reason stri
 	}
 }
 
+// Run is the scheduling loop, and it deliberately does not call RunOnce.
+//
+// Every iteration starts the work that became due and returns immediately to the
+// select below, so a wake-up published while earlier work is still in the model
+// is consumed on the next tick instead of after that work drains. RunOnce still
+// exists for the callers that need a pass to be complete when it returns; what
+// it adds over dispatch -- waiting for the batch -- is precisely what must not
+// happen here. See dispatch for the measurement.
+//
+// The context-cancelled path waits for the executors before returning, and that
+// wait is load-bearing rather than tidy: cortexd's runner group blocks on this
+// function and then tears the node's dependencies down, so returning while an
+// execution is still between its model call and its durable write would pull the
+// store out from under a task mid-commit. The batched waits this replaced gave
+// the same guarantee as a side effect of their round structure.
 func (r *TaskRunner) Run(ctx context.Context) error {
+	// stop is the one exit. It drains the executors this loop started, then
+	// decides whether the reason for stopping is worth reporting: a cancelled
+	// context never is, because the store refuses every write on it and a clean
+	// shutdown therefore manufactures its own errors -- out of the next load, and
+	// out of the outcome writes still draining. Anything else is a node that
+	// cannot read or write its own task documents, which must not keep executing
+	// against them.
+	stop := func(err error) error {
+		r.executions.Wait()
+		if err == nil {
+			err = r.takeExecutionFailure()
+		}
+		if isContextShutdown(ctx, err) {
+			return nil
+		}
+		return err
+	}
 	for {
-		if err := r.RunOnce(ctx); err != nil {
-			return err
+		// Before dispatching, so a write failure parked by the previous
+		// iteration's executors stops the node rather than being compounded by
+		// another pass of work it also cannot record.
+		if err := r.takeExecutionFailure(); err != nil {
+			return stop(err)
+		}
+		if _, err := r.dispatch(ctx); err != nil {
+			return stop(err)
 		}
 		timer := time.NewTimer(r.cfg.PollInterval)
 		select {
@@ -384,7 +450,7 @@ func (r *TaskRunner) Run(ctx context.Context) error {
 			if !timer.Stop() {
 				<-timer.C
 			}
-			return nil
+			return stop(nil)
 		case <-r.wakeup:
 			if !timer.Stop() {
 				<-timer.C

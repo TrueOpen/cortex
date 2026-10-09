@@ -19,20 +19,96 @@ import (
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
-// RunOnce restores the two independent active-task documents with exactly two
-// point reads. Terminal responsibilities never appear because their Keeper
-// effects delete them from the owning document.
+// responsibilityKey names one role's attempt at one task hash. Both halves are
+// needed: the Worker and the Verifier responsibilities for a task live in
+// separate documents under the same task_hash, and a node that holds both is
+// running two independent executions.
+type responsibilityKey struct {
+	role string
+	hash codec.Hash
+}
+
+// taskOutcome is one finished attempt at one responsibility: what the executor
+// returned, or the reason it was never called.
+type taskOutcome struct {
+	role     string
+	hash     codec.Hash
+	infer    store.InferTask
+	verify   store.VerifyTask
+	terminal bool
+	err      error
+	// stopReason fails the responsibility without having run it. It is
+	// applied after the execution merge, which by contract carries only the
+	// stage and the output/receipt fields across and would otherwise drop
+	// the reason - and the reason is the only place an operator learns why
+	// the task stopped.
+	stopReason string
+	// finishedAt is when the executor returned, not when the pass began.
+	// The retry clock is measured from it for the reason recordRetrySchedule
+	// gives: a run that outlasts the retry delay would otherwise be due the
+	// instant it failed.
+	finishedAt time.Time
+}
+
+// RunOnce is one scheduling pass that waits for every execution it started.
+//
+// It exists for the callers that need a pass to be observable the moment it
+// returns -- seed a record, run a tick, read the durable outcome back. Run does
+// NOT use it, and the split is the whole fix: waiting here is what used to make
+// a newly admitted task sit out the remaining execution time of the previous
+// pass. See dispatch.
 func (r *TaskRunner) RunOnce(ctx context.Context) error {
+	batch, err := r.dispatch(ctx)
+	if err != nil {
+		return err
+	}
+	batch.Wait()
+	return r.takeExecutionFailure()
+}
+
+// dispatch restores the two independent active-task documents with exactly two
+// point reads, then starts an executor for every responsibility that is due and
+// does not already have one. Terminal responsibilities never appear because
+// their Keeper effects delete them from the owning document.
+//
+// It returns without waiting for those executors, and that is the fix for a
+// measured stall. Scheduling used to be round-based: a pass launched everything
+// it had found and then blocked on the entire set before the loop could reach
+// the select that consumes r.wakeup. A task the chain admitted mid-pass could
+// therefore be started by neither the running pass (it had already read its
+// documents) nor the wake-up the admission published (nothing reads that channel
+// until the pass returns), so it waited out unrelated work. On devnet a Worker
+// admitted at 07:05:22.481 entered the model at 07:05:29.496 -- 0.32s after the
+// verify that was holding the round finished at 07:05:29.178, seven seconds of a
+// GPU it was queued for.
+//
+// MAX_CONCURRENCY never addressed this and could not: r.slots bounds how many
+// executions run at once, not whether a new responsibility may join a pass
+// already in progress. The node that produced the measurement had four slots and
+// two executions.
+//
+// Removing the wait leaves r.slots as the only gate, so an admitted task now
+// waits for a free slot and nothing else. Two invariants that the round boundary
+// used to supply for free are carried explicitly instead: claimInflight keeps a
+// second executor off a responsibility that already has one, and applyOutcome
+// writes the one record an outcome belongs to rather than the whole snapshot.
+func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
+	batch := &sync.WaitGroup{}
 	if r == nil || r.cfg.Store == nil {
-		return fmt.Errorf("task runner store is required")
+		return batch, fmt.Errorf("task runner store is required")
 	}
 	r.mu.Lock()
 	infer, verify, err := r.loadActiveTasks(ctx)
 	if err != nil {
 		r.mu.Unlock()
-		return err
+		return batch, err
 	}
 	r.infer, r.verify = infer, verify
+	// The pass walks its own copies. r.infer and r.verify are now written by
+	// outcomes landing from executions this pass does not own and cannot wait
+	// for, so the live maps belong exclusively to r.mu holders; ranging over them
+	// outside the lock was the one data race the round boundary had been hiding.
+	infer, verify = copyInfer(infer), copyVerify(verify)
 	r.mu.Unlock()
 
 	tip := r.currentChainTip(ctx)
@@ -40,67 +116,75 @@ func (r *TaskRunner) RunOnce(ctx context.Context) error {
 	// whether there will BE one: a Verifier candidate that never got its
 	// handraise out is never selected, so no verify document ever exists for the
 	// loop below to find. It runs outside r.mu on purpose - it publishes and
-	// waits on the chain - and it swallows its own errors, because RunOnce
-	// returning one stops the daemon.
+	// waits on the chain - and it swallows its own errors, because a scheduling
+	// pass returning one stops the daemon.
 	r.redriveVerifierHandraises(ctx, tip)
 	// And the Worker half of the same problem. trueopen.task.open.* is Core tier
 	// too, so a busy node's retryable refusal has no transport to honour it;
 	// this is where an order held over from a full moment gets its next attempt.
 	// Same placement and same reason: it decides whether a responsibility will
-	// exist at all, and it swallows its own errors because RunOnce returning one
-	// stops the daemon.
+	// exist at all, and it swallows its own errors because a scheduling pass
+	// returning one stops the daemon.
 	r.redriveWorkerOrders(ctx, tip)
 	now := time.Now().UTC()
-	type result struct {
-		role     string
-		hash     codec.Hash
-		infer    store.InferTask
-		verify   store.VerifyTask
-		terminal bool
-		err      error
-		// stopReason fails the responsibility without having run it. It is
-		// applied after the execution merge, which by contract carries only the
-		// stage and the output/receipt fields across and would otherwise drop
-		// the reason - and the reason is the only place an operator learns why
-		// the task stopped.
-		stopReason string
-		// finishedAt is when the executor returned, not when this tick began.
-		// The retry clock is measured from it for the reason recordRetrySchedule
-		// gives: a run that outlasts the retry delay would otherwise be due the
-		// instant it failed.
-		finishedAt time.Time
-	}
-	results := make(chan result, len(infer)+len(verify))
-	sem := make(chan struct{}, int(r.cfg.MaxConcurrency))
-	var wg sync.WaitGroup
-	launchInfer := func(hash codec.Hash, task store.InferTask) {
-		wg.Add(1)
+	launch := func(key responsibilityKey, run func() taskOutcome) {
+		if !r.claimInflight(key) {
+			return
+		}
+		batch.Add(1)
+		r.executions.Add(1)
 		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
+			defer batch.Done()
+			defer r.executions.Done()
+			// Released after the outcome is durable, never before: the record of
+			// a running task still reads "queued" until this goroutine writes it,
+			// so a pass that saw the claim gone would read that stale document
+			// and start the same work a second time.
+			defer r.releaseInflight(key)
+			r.slots <- struct{}{}
 			// The slot is returned on every exit -- success, failure, panic
 			// unwinding -- because it is the node's whole admission budget for
 			// model work. Leaking one against MaxConcurrency=1 is the node.
-			defer func() { <-sem }()
-			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(ctx, hash, task)
-			results <- result{role: "infer", hash: hash, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
+			//
+			// It covers the model call and stops there. Writing the outcome waits
+			// on r.mu, which a Nexus control handler can hold across a chain
+			// query, and a slot held through that is GPU time nobody is using.
+			slot := sync.OnceFunc(func() { <-r.slots })
+			defer slot()
+			outcome := run()
+			slot()
+			if err := r.applyOutcome(ctx, outcome); err != nil {
+				r.recordExecutionFailure(err)
+			}
 		}()
+	}
+	launchInfer := func(hash codec.Hash, task store.InferTask) {
+		launch(responsibilityKey{role: "infer", hash: hash}, func() taskOutcome {
+			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(ctx, hash, task)
+			return taskOutcome{role: "infer", hash: hash, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
+		})
 	}
 	launchVerify := func(hash codec.Hash, task store.VerifyTask) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		launch(responsibilityKey{role: "verify", hash: hash}, func() taskOutcome {
 			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(ctx, hash, task)
-			results <- result{role: "verify", hash: hash, verify: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
-		}()
+			return taskOutcome{role: "verify", hash: hash, verify: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
+		})
 	}
 	for hash, task := range infer {
+		// A responsibility this process is already executing is not reconsidered
+		// at all, not even for the stop checks below. The document this pass read
+		// is the one the running executor started from, so every judgment made
+		// from it -- due, expired, retry-exhausted -- is about a state that
+		// attempt is in the middle of replacing.
+		if r.executing(responsibilityKey{role: "infer", hash: hash}) {
+			continue
+		}
 		deadline := inferDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
 			r.reportStoppedResponsibility("infer", task.TaskID, hash, tip, deadline, task.RetryCount, reason)
-			results <- result{role: "infer", hash: hash, infer: task, stopReason: reason}
+			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: task, stopReason: reason}); err != nil {
+				return batch, err
+			}
 			continue
 		}
 		if task.AutoHalted {
@@ -115,27 +199,35 @@ func (r *TaskRunner) RunOnce(ctx context.Context) error {
 			continue
 		}
 		if reason != "" {
-			results <- result{role: "infer", hash: hash, infer: task, stopReason: reason}
+			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: task, stopReason: reason}); err != nil {
+				return batch, err
+			}
 			continue
 		}
 		launchInfer(hash, task)
 	}
 	for hash, task := range verify {
+		// See the infer loop: an executing responsibility is left alone.
+		if r.executing(responsibilityKey{role: "verify", hash: hash}) {
+			continue
+		}
 		// Before any scheduling decision is made about it, because every one of
 		// them reads the reveal deadline: verifyDeadline bounds a committed
 		// responsibility by it, taskTerminalReason stops the task on it, and
 		// awaitingRevealPhase parks on its absence. Recovering afterwards would
-		// leave this tick deciding on a zero it has already replaced.
+		// leave this pass deciding on a zero it has already replaced.
 		if awaitingRevealPhase(task) {
 			if recovered := r.recoverRevealDeadline(ctx, hash, task); recovered != 0 {
 				task.RevealDeadlineHeight = recovered
-				verify[hash] = task
+				r.rememberRecoveredRevealDeadline(hash, task)
 			}
 		}
 		deadline := verifyDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
 			r.reportStoppedResponsibility("verify", task.TaskID, hash, tip, deadline, task.RetryCount, reason)
-			results <- result{role: "verify", hash: hash, verify: task, stopReason: reason}
+			if err := r.applyOutcome(ctx, taskOutcome{role: "verify", hash: hash, verify: task, stopReason: reason}); err != nil {
+				return batch, err
+			}
 			continue
 		}
 		if awaitingRevealPhase(task) {
@@ -159,81 +251,146 @@ func (r *TaskRunner) RunOnce(ctx context.Context) error {
 			continue
 		}
 		if reason != "" {
-			results <- result{role: "verify", hash: hash, verify: task, stopReason: reason}
+			if err := r.applyOutcome(ctx, taskOutcome{role: "verify", hash: hash, verify: task, stopReason: reason}); err != nil {
+				return batch, err
+			}
 			continue
 		}
 		launchVerify(hash, task)
 	}
-	wg.Wait()
-	close(results)
+	return batch, nil
+}
 
+// applyOutcome makes one finished attempt durable, on its own, under r.mu.
+//
+// This used to be a batch: a pass collected every outcome of its round and wrote
+// them all once the last executor had returned. Dropping the batch is not a
+// mechanical consequence of dropping the round -- it is what makes overlapping
+// executions safe to write. The batched path rewrote EVERY active record from
+// the snapshot its pass had loaded, so a pass that overlapped a running
+// execution would push that execution's pre-run stage back over whatever it had
+// committed in the meantime. Writing only the record the outcome belongs to
+// removes the whole class.
+//
+// The merge target is re-read from r.infer/r.verify rather than carried in from
+// the pass that launched the attempt, for the same reason: a Keeper effect may
+// have advanced the record while the executor ran, and merging into the launch
+// snapshot would undo it. A record that is gone is not a failure -- a terminal
+// effect deletes it while its executor is still unwinding, and there is then
+// nothing left to write.
+func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	inferChanged, verifyChanged := false, false
-	var terminalInfer, terminalVerify []codec.Hash
-	for outcome := range results {
-		if outcome.role == "infer" {
-			original, ok := infer[outcome.hash]
-			if !ok {
-				continue
-			}
-			outcome.infer = mergeInferExecution(original, outcome.infer)
-			if outcome.stopReason != "" {
-				outcome.infer.Stage, outcome.infer.LastError = "failed", outcome.stopReason
-			}
-			if outcome.err != nil {
-				r.recordInferRetry(&outcome.infer, outcome.err, outcome.finishedAt, outcome.hash)
-			}
-			if outcome.terminal {
-				delete(infer, outcome.hash)
-				terminalInfer = append(terminalInfer, outcome.hash)
-			} else {
-				infer[outcome.hash] = outcome.infer
-			}
-			inferChanged = true
-		} else {
-			original, ok := verify[outcome.hash]
-			if !ok {
-				continue
-			}
-			outcome.verify = mergeVerifyExecution(original, outcome.verify)
-			if outcome.stopReason != "" {
-				outcome.verify.Stage, outcome.verify.LastError = "failed", outcome.stopReason
-			}
-			if outcome.err != nil {
-				r.recordVerifyRetry(&outcome.verify, outcome.err, outcome.finishedAt, outcome.hash)
-			}
-			if outcome.terminal {
-				delete(verify, outcome.hash)
-				terminalVerify = append(terminalVerify, outcome.hash)
-			} else {
-				verify[outcome.hash] = outcome.verify
-			}
-			verifyChanged = true
+	if outcome.role == "infer" {
+		current, ok := r.infer[outcome.hash]
+		if !ok {
+			return nil
 		}
+		updated := mergeInferExecution(current, outcome.infer)
+		if outcome.stopReason != "" {
+			updated.Stage, updated.LastError = "failed", outcome.stopReason
+		}
+		if outcome.err != nil {
+			r.recordInferRetry(&updated, outcome.err, outcome.finishedAt, outcome.hash)
+		}
+		if outcome.terminal {
+			delete(r.infer, outcome.hash)
+			return layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(outcome.hash))
+		}
+		r.infer[outcome.hash] = updated
+		return r.persistInferTaskToLayout(ctx, outcome.hash, updated)
 	}
-	if inferChanged {
-		if err := r.persistInferChangesToLayout(ctx, infer); err != nil {
-			return err
-		}
-		for _, h := range terminalInfer {
-			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(h)); err != nil {
-				return err
-			}
-		}
+	current, ok := r.verify[outcome.hash]
+	if !ok {
+		return nil
 	}
-	if verifyChanged {
-		if err := r.persistVerifyChangesToLayout(ctx, verify); err != nil {
-			return err
-		}
-		for _, h := range terminalVerify {
-			if err := layout.DeleteVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(h)); err != nil {
-				return err
-			}
-		}
+	updated := mergeVerifyExecution(current, outcome.verify)
+	if outcome.stopReason != "" {
+		updated.Stage, updated.LastError = "failed", outcome.stopReason
 	}
-	r.infer, r.verify = infer, verify
-	return nil
+	if outcome.err != nil {
+		r.recordVerifyRetry(&updated, outcome.err, outcome.finishedAt, outcome.hash)
+	}
+	if outcome.terminal {
+		delete(r.verify, outcome.hash)
+		return layout.DeleteVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(outcome.hash))
+	}
+	r.verify[outcome.hash] = updated
+	return r.persistVerifyTaskToLayout(ctx, outcome.hash, updated)
+}
+
+// rememberRecoveredRevealDeadline mirrors a reveal deadline just recovered from
+// the chain into the live verify view, which is what ActiveTasks and the next
+// outcome merge read. recoverRevealDeadline has already made it durable; this is
+// only the in-memory copy, and it is skipped when the responsibility has since
+// been released, so a terminal effect is not undone by a late mirror.
+func (r *TaskRunner) rememberRecoveredRevealDeadline(hash codec.Hash, task store.VerifyTask) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, active := r.verify[hash]; active {
+		r.verify[hash] = task
+	}
+}
+
+// claimInflight marks one responsibility as having an executor goroutine in this
+// process, and reports false when it already had one.
+//
+// The round boundary used to make this impossible to get wrong: no pass started
+// until every execution of the previous one had finished, so no pass could see a
+// record whose executor was still running. Passes overlap now, and the durable
+// record of a running task still says "queued" -- the executor is what changes
+// it -- so without this claim the very next poll tick would start a second
+// executor for work already in the model. For a Worker that is two signed
+// answers to one question; for a Verifier it is a second commit attempt against
+// a round the first one is still committing.
+func (r *TaskRunner) claimInflight(key responsibilityKey) bool {
+	r.inflightMu.Lock()
+	defer r.inflightMu.Unlock()
+	if r.inflight == nil {
+		r.inflight = make(map[responsibilityKey]struct{})
+	}
+	if _, running := r.inflight[key]; running {
+		return false
+	}
+	r.inflight[key] = struct{}{}
+	return true
+}
+
+func (r *TaskRunner) releaseInflight(key responsibilityKey) {
+	r.inflightMu.Lock()
+	defer r.inflightMu.Unlock()
+	delete(r.inflight, key)
+}
+
+func (r *TaskRunner) executing(key responsibilityKey) bool {
+	r.inflightMu.Lock()
+	defer r.inflightMu.Unlock()
+	_, running := r.inflight[key]
+	return running
+}
+
+// recordExecutionFailure parks the first durable write an asynchronously applied
+// outcome could not complete, and wakes the loop so it is acted on at once
+// rather than at the end of the poll interval. Only the first is kept: it is the
+// one that explains the others.
+func (r *TaskRunner) recordExecutionFailure(err error) {
+	if err == nil {
+		return
+	}
+	r.failureMu.Lock()
+	if r.execFailure == nil {
+		r.execFailure = err
+	}
+	r.failureMu.Unlock()
+	r.Wake()
+}
+
+func (r *TaskRunner) takeExecutionFailure() error {
+	r.failureMu.Lock()
+	defer r.failureMu.Unlock()
+	err := r.execFailure
+	r.execFailure = nil
+	return err
 }
 
 // localObjectsRecoveryReason gates one due responsibility on the local task
