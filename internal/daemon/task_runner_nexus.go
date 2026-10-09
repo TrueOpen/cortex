@@ -114,6 +114,15 @@ func inboxWillRedeliver(subject string, err error) bool {
 		kind == builderclient.KindOutputAvailable || kind == builderclient.KindVerifierAssignmentNotify)
 }
 
+// wakeKeeperPoll asks for a Keeper scan now, from the two places that hold the
+// evidence for it: a bus frame named a task whose local record the scan has not
+// written yet. Nil-safe, because the poller is optional wiring.
+func (r *TaskRunner) wakeKeeperPoll() {
+	if r.cfg.WakeKeeperPoll != nil {
+		r.cfg.WakeKeeperPoll(WakeNotify)
+	}
+}
+
 func (r *TaskRunner) recordAssignNotify(ctx context.Context, envelope builderclient.BusEnvelope, message *busv1.WorkerAssignmentNotifyV1) error {
 	taskID, err := busTaskIDHex(message.GetTaskId(), envelope.Subject)
 	if err != nil {
@@ -143,6 +152,11 @@ func (r *TaskRunner) recordAssignNotify(ctx context.Context, envelope buildercli
 
 	foundHash, foundRec, err := layout.FindInferRecordByTaskID(ctx, r.cfg.Store, taskID)
 	if err != nil {
+		// The Builder has seen an assignment this node has not scanned up to, so
+		// the cursor is behind the chain rather than the frame being wrong. Ask
+		// for a scan now: without it this frame waits out the bus redelivery and
+		// then the poll interval, twice over, for a fact already on chain.
+		r.wakeKeeperPoll()
 		return builderclient.Retryable(fmt.Errorf("Keeper assignment for %s is not available: %w", taskID, err))
 	}
 
@@ -223,6 +237,9 @@ func (r *TaskRunner) recordVerifierAssignment(ctx context.Context, envelope buil
 	// which sent operators off to investigate a chain query that never happened.
 	foundHash, foundRec, err := layout.FindVerifyRecordByTaskID(ctx, r.cfg.Store, taskID)
 	if err != nil {
+		// Same shape as the Worker side: the index is empty because the scan that
+		// would fill it has not run yet, so ask for it now rather than waiting.
+		r.wakeKeeperPoll()
 		return builderclient.Retryable(fmt.Errorf("local verify record for %s is not available yet: %w", taskID, err))
 	}
 
