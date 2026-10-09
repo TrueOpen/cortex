@@ -165,7 +165,7 @@ func TestLocalSampledInferMarksPositionsWithoutValuesMissing(t *testing.T) {
 	svc.SetOutputDecodingSource(testOutputDecodingSource())
 	svc.SetProfileResolver(&countingProfileResolver{snapshot: liveLikeProfileSnapshotWithTopK(k)})
 	g := localTestGeneration(testQwenModelID(), 1)
-	g.Params.DecodingParams = nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 900, TopPPPM: 950000, TopK: 40, Seed: 11, RepetitionPenaltyPPM: 1000000}
+	g.Params.DecodingParams = nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 900, TopPPPM: 950000, Seed: 11, RepetitionPenaltyPPM: 1000000}
 	resp, err := svc.Infer(context.Background(), localGenerationInfer(t, g))
 	if err != nil {
 		t.Fatal(err)

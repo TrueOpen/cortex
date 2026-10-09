@@ -83,10 +83,18 @@ func localGenerationRequest(req InferRequest, profile localModelProfile, streami
 	if err != nil {
 		return completionRequest{}, 0, err
 	}
+	// top_k is not a user parameter: it is not an OpenAI knob, and the verifier
+	// never samples, so it is platform-controlled. Cortex pins it to required_top_k
+	// (below) so the sampled token always lands inside the reported top_logprobs --
+	// the top-k evidence the verifier compares, capped at the API's 20. An order
+	// that freezes its own top_k is refused rather than silently overridden.
+	if p.topK != 0 {
+		return completionRequest{}, 0, fmt.Errorf("modelservice local: generation context sets top_k (%d); top_k is platform-controlled and fixed to required_top_k, not a user parameter", p.topK)
+	}
 	seed, topK, skipSpecial, spacesBetweenSpecial := p.seed, profile.Sampling.Logprobs, profile.Sampling.SkipSpecialTokens, false
 	return completionRequest{
 		Model: profile.ServedModel, Prompt: string(req.Input), MaxTokens: p.maxTokens,
-		Temperature: p.temperature, TopP: p.topP, TopK: p.topK, Seed: &seed,
+		Temperature: p.temperature, TopP: p.topP, TopK: profile.RequiredTopK, Seed: &seed,
 		PresencePenalty: p.presencePenalty, FrequencyPenalty: p.frequencyPenalty,
 		RepetitionPenalty: p.repetitionPenalty,
 		Stop:              p.stop, StopTokenIDs: p.stopTokenIDs,
