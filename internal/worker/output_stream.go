@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
 	"time"
 	"unicode/utf8"
 
@@ -24,6 +25,37 @@ const OutputStreamFinKind = "worker-output-fin"
 
 func OutputStreamFrameKind(seq uint64) string {
 	return fmt.Sprintf("%s%020d", OutputStreamFramePrefix, seq)
+}
+
+// maxFrameRampBytes is where the ramp below stops, and from there on it is the
+// minimum size of every frame but the last. It is a protocol constant rather
+// than a chain parameter because the chain carries the other end of the ramp,
+// and both ends have to be stated somewhere for three implementations to agree
+// on the same frame boundaries.
+const maxFrameRampBytes = 256
+
+// minFrameBytes is the smallest frame this node may commit at seq. The chain
+// parameter min_output_stream_frame_bytes is the minimum of frame 0 rather than
+// of every frame: a reader sees the start of an answer after a fraction of the
+// generation a flat floor would have required, while the minimum doubles per
+// frame until it reaches maxFrameRampBytes, where ADR-0017's floor against
+// micro-frame inflation governs the bulk of the stream. The last frame keeps
+// its separate exemption and never consults this.
+func minFrameBytes(floor uint32, seq uint64) uint64 {
+	minimum := uint64(floor)
+	// The ramp only ever climbs to the cap. A chain carrying a floor at or above
+	// it is asking for frames at least that large, and lowering them to the cap
+	// would emit frames the Builder is entitled to reject.
+	if minimum >= maxFrameRampBytes {
+		return minimum
+	}
+	// seq is bounded only by max_output_mmr_leaves, so it reaches far past the
+	// point the ramp flattens. Any floor of at least one byte is at the cap
+	// within the cap's bit width, which keeps the shift below from overflowing.
+	if seq >= uint64(bits.Len64(maxFrameRampBytes)) {
+		return maxFrameRampBytes
+	}
+	return min(minimum<<seq, maxFrameRampBytes)
 }
 
 type outputStreamRecorder struct {
@@ -271,7 +303,7 @@ func (r *outputStreamRecorder) ObserveInferFrame(ctx context.Context, frame mode
 	}
 	r.total += uint64(len(frame.TextDelta))
 	r.pending = append(r.pending, frame.TextDelta...)
-	if r.deferredErr == nil && len(r.pending) >= int(r.w.cfg.StreamLimits.MinOutputStreamFrameBytes) {
+	if r.deferredErr == nil && uint64(len(r.pending)) >= minFrameBytes(r.w.cfg.StreamLimits.MinOutputStreamFrameBytes, r.mmr.LeafCount()) {
 		if err := r.emit(ctx, r.pending); err != nil {
 			var deferred deferredFrameError
 			if errors.As(err, &deferred) {
