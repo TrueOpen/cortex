@@ -959,9 +959,28 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				}
 			}
 		case ReconcilerEffectVerifyTerminal:
+			// Every node on the chain sees every reveal, and on a task with
+			// several Verifiers the first one to land arrives while the others
+			// still owe theirs. Only a reveal naming this node ends this node's
+			// responsibility; a peer's reveal says nothing about it. An empty
+			// address is not a foreign one -- a reveal deadline closing is the
+			// chain ending the phase for the whole task, and names nobody.
+			if effect.Event.Verifier != "" && r.cfg.LocalVerifierAddress != "" && effect.Event.Verifier != r.cfg.LocalVerifierAddress {
+				continue
+			}
 			if err := layout.DeleteVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
 				return err
 			}
+			// Traced because this delete is what takes the task out of the
+			// active set for good: loadActiveTasks rebuilds that set from the
+			// stored records alone, so a responsibility released here never
+			// comes back, and an operator reading the log has no other way to
+			// see it happen.
+			r.cfg.Trace.Event("verify_responsibility_released",
+				tasktrace.Str("task", effect.TaskID), tasktrace.Hash("task_hash", effect.TaskHash),
+				tasktrace.Str("keeper_event", string(effect.Event.Type)),
+				tasktrace.Str("verifier", effect.Event.Verifier),
+				tasktrace.Uint("chain_height", effect.Event.Height))
 		case ReconcilerEffectEvidenceRetention:
 			finality, cleanup := effect.FinalityHeight, effect.CleanupHeight
 			switch effect.Event.Type {
