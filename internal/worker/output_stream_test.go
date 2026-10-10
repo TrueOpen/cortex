@@ -357,7 +357,9 @@ func TestOutputStreamRecorderEnforcesLimitsBeforeSigningExtraFrames(t *testing.T
 		wantFrames int
 	}{
 		{"byte limit", 4, 100, []string{"too-long"}, 0},
-		{"leaf limit", 100, 1, []string{"first-frame-text", "second-frame-now"}, 1},
+		// The second frame has to reach seq 1's own minimum before the recorder
+		// tries to sign it, which is what the leaf limit is being checked ahead of.
+		{"leaf limit", 100, 1, []string{"first-frame-text", "second-frame-text-that-is-longer"}, 1},
 		{"invalid UTF-8", 100, 100, []string{string([]byte{0xff})}, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
