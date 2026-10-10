@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -25,6 +26,10 @@ const keeperQueryTimeout = 10 * time.Second
 type KeeperABCIClient struct {
 	rpcURL string
 	http   *http.Client
+
+	// Genesis-only Task params, read at most once. See OutputStreamLimits.
+	outputStreamLimitsMu sync.Mutex
+	outputStreamLimits   *OutputStreamLimitsSnapshot
 }
 
 // KeeperHTTPClient is retained as a source-compatible name for callers that

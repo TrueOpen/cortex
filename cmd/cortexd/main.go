@@ -592,6 +592,42 @@ func shouldStartNexusOutboxRunners(cfg config.Config, deps daemon.Dependencies) 
 
 type runtimeRunner func(context.Context) error
 
+// outputStreamLimitsWarmRunner reads the governed stream limits once at
+// startup. They are genesis-only and the Keeper client retains them, so this is
+// the read the first task would have made, moved off the path between that
+// task being admitted and its generation starting -- two sequential chain round
+// trips, measured at 291ms on devnet.
+//
+// It never fails the daemon. A chain that is unreachable at boot is a state
+// this node already recovers from, through the poller's retries and the
+// readiness gate holding the workload back, and failing here would turn that
+// into a node that refuses to come up. The limits stay lazily readable, so a
+// warm that did not happen costs the first task exactly what it costs today.
+//
+// It also outlives its own work: the supervisor reads a runner returning while
+// the daemon is still up as a component that died, and reports every runner
+// having exited as a failure.
+func outputStreamLimitsWarmRunner(keeper any) runtimeRunner {
+	reader, ok := keeper.(chainclient.OutputStreamLimitsReader)
+	if !ok || reader == nil {
+		return nil
+	}
+	return func(ctx context.Context) error {
+		if limits, err := reader.OutputStreamLimits(ctx); err != nil {
+			observability.LogAtDepth(slog.LevelWarn, 1,
+				"output stream limits were not read at startup, the first task will read them",
+				slog.Any("error", err))
+		} else {
+			observability.LogAtDepth(slog.LevelInfo, 1, "output stream limits read at startup",
+				slog.Uint64("min_output_stream_frame_bytes", uint64(limits.MinOutputStreamFrameBytes)),
+				slog.Uint64("max_output_mmr_leaves", limits.MaxOutputMMRLeaves),
+				slog.Uint64("snapshot_height", limits.SnapshotHeight))
+		}
+		<-ctx.Done()
+		return nil
+	}
+}
+
 func runtimeRunners(cfg config.Config, rt *daemon.Runtime, projector projectionRunner) ([]runtimeRunner, func(), error) {
 	return runtimeRunnersWithHealth(cfg, rt, projector, nil)
 }
@@ -616,6 +652,14 @@ func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime
 	poller := newKeeperPollerWithTaskRunner(cfg, rt, projector, taskRunner)
 	if poller != nil {
 		runners = append(runners, poller.Run)
+	}
+	// Warmed alongside the poller rather than on its own, so a deployment with
+	// no poller is not left with the warm as its only runner: one that returns
+	// is the supervisor's signal that the runtime is finished.
+	if poller != nil {
+		if warm := outputStreamLimitsWarmRunner(rt.Dependencies.Keeper); warm != nil {
+			runners = append(runners, warm)
+		}
 	}
 	if projector != nil && cfg.UsesRealDependencies() {
 		runners = append(runners, func(ctx context.Context) error {
