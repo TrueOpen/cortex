@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -36,7 +37,13 @@ func (w *Worker) taskFacts(ctx context.Context, taskID string) (taskfacts.Facts,
 	if w.cfg.TaskFacts == nil {
 		return taskfacts.Facts{}, fmt.Errorf("Keeper task facts reader is required")
 	}
+	// Timed here rather than at each caller: every read of these facts goes
+	// through this function, so one timer covers them all and the count reports
+	// how many times a value that cannot change was asked for.
+	startedAt := time.Now()
 	facts, err := w.cfg.TaskFacts.TaskFacts(ctx, taskID)
+	w.prepare.taskFactsCalls++
+	w.prepare.observe(&w.prepare.taskFacts, startedAt)
 	if err != nil {
 		return taskfacts.Facts{}, fmt.Errorf("read Keeper task %s receipt facts: %w", taskID, err)
 	}

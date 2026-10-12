@@ -230,9 +230,11 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 	if err != nil {
 		return nil, err
 	}
-	// Reported beside output_stream_ms, because the loop below opens one stream
+	// Reported beside open_stream_ms, because the loop below opens one stream
 	// per Builder in turn: the count is what the duration has to be read against.
 	w.prepare.builders = len(endpoints)
+	openStartedAt := time.Now()
+	defer func() { w.prepare.observe(&w.prepare.openStream, openStartedAt) }()
 	digest, err := builderclient.TaskDataOutputStreamBodyDigest(taskHash.String(), event.SessionID, event.TaskID)
 	if err != nil {
 		return nil, err

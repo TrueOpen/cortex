@@ -18,22 +18,32 @@ import (
 // existed none of it appeared in the log: it could only be recovered by
 // subtracting the two different clocks that happen to bracket it.
 //
-// Durations are summed rather than listed, because a step that runs twice is
-// itself the finding -- see taskGenerationCalls.
+// There is one timer per external call rather than per stage, because a stage
+// that bundles two different calls cannot say which of them was slow. The first
+// measurement on a node deployed away from the chain made that concrete: a
+// single stage held 81% of the preparation, and it covered both the Builder
+// handshakes and a chain read.
+//
+// Durations are summed rather than listed, because a call that runs more than
+// once is itself the finding -- see taskFactsCalls. total is wall clock, so the
+// difference between it and the sum of the parts is this node's own work.
 type preparationTiming struct {
 	startedAt time.Time
-	// taskGeneration is every read of the locked generation parameters, which
-	// re-reads the task's immutable facts each time. taskGenerationCalls counts
-	// them, so a step that runs more than once says so rather than hiding inside
-	// a total.
-	taskGeneration      time.Duration
-	taskGenerationCalls int
-	taskSnapshot        time.Duration
-	input               time.Duration
-	// outputStream covers resolving the receiving Builders and opening a stream
-	// to each, which is the one step whose cost scales with the Builder count.
-	outputStream time.Duration
-	builders     int
+	// taskFacts is every read of the task's immutable facts, counted across all
+	// of its callers: the value cannot change for a task, so a count above one
+	// is a re-read of something already known.
+	taskFacts      time.Duration
+	taskFactsCalls int
+	// generationParams is the separate chain read of the locked generation
+	// parameters. It travels with taskFacts but is its own query.
+	generationParams time.Duration
+	taskSnapshot     time.Duration
+	input            time.Duration
+	// openStream is the Builder handshakes alone, which is the one cost that
+	// scales with the Builder count -- each is a TLS handshake plus a round trip
+	// for the header acknowledgement.
+	openStream time.Duration
+	builders   int
 }
 
 // observe adds one step's duration to total. It takes the instant the step
@@ -68,10 +78,11 @@ func (w *Worker) tracePreparationCompleted(taskID string) {
 	w.cfg.Trace.Event("infer_prepare_completed",
 		tasktrace.Str("task", taskID),
 		tasktrace.Millis("total_ms", time.Since(w.prepare.startedAt)),
-		tasktrace.Millis("task_generation_ms", w.prepare.taskGeneration),
-		tasktrace.Int("task_generation_calls", w.prepare.taskGenerationCalls),
+		tasktrace.Millis("task_facts_ms", w.prepare.taskFacts),
+		tasktrace.Int("task_facts_calls", w.prepare.taskFactsCalls),
+		tasktrace.Millis("generation_params_ms", w.prepare.generationParams),
 		tasktrace.Millis("task_snapshot_ms", w.prepare.taskSnapshot),
 		tasktrace.Millis("input_ms", w.prepare.input),
-		tasktrace.Millis("output_stream_ms", w.prepare.outputStream),
+		tasktrace.Millis("open_stream_ms", w.prepare.openStream),
 		tasktrace.Int("builders", w.prepare.builders))
 }

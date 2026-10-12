@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -27,7 +28,9 @@ func (w *Worker) taskGeneration(ctx context.Context, event chainclient.Assignmen
 	if w.cfg.GenerationReader == nil {
 		return nil, nil, fmt.Errorf("frozen task generation parameter reader is required")
 	}
+	generationStartedAt := time.Now()
 	generation, err := w.cfg.GenerationReader.TaskGeneration(ctx, event.TaskID, codec.Hash(facts.AcceptedTaskHash))
+	w.prepare.observe(&w.prepare.generationParams, generationStartedAt)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read frozen task generation parameters: %w", err)
 	}
