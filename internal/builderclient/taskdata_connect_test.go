@@ -369,7 +369,7 @@ func TestV040FetchValidatesHeaderRangeAndFinalEOF(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			server := newTaskDataTestServer(t, &taskDataTestHandler{fetch: func(_ context.Context, r *connect.Request[nexusv1.FetchTaskDataRequest], stream *connect.ServerStream[nexusv1.FetchTaskDataResponse]) error {
-				if r.Msg.Range == nil || r.Msg.Range.Offset != 2 || r.Msg.RequestAuth.BodyDigest != hex.EncodeToString(digest[:]) {
+				if r.Msg.Range == nil || r.Msg.Range.Offset != 2 || r.Msg.RequestAuth.BodyDigest != ToIngressHash32(hex.EncodeToString(digest[:])) {
 					t.Error("fetch signed range lost")
 				}
 				for _, frame := range tc.frames {

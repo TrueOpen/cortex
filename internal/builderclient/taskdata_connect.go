@@ -317,7 +317,7 @@ func (c *ConnectTaskDataClient) FinalizeTaskResult(ctx context.Context, endpoint
 	if err != nil {
 		return FinalizeTaskResultResponse{}, err
 	}
-	req := connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, Receipt: signedInferReceiptToProto(request.Receipt), RequestAuth: taskDataRequestAuthToProto(request.Auth), EvidenceKind: sharedv1.EvidenceKind(request.EvidenceKind)})
+	req := connect.NewRequest(&nexusv1.FinalizeTaskResultRequest{TaskHash: ToIngressHash32(request.TaskHash), SessionId: ToIngressHash32(request.SessionID), TaskId: ToIngressHash32(request.TaskID), Receipt: signedInferReceiptToProto(request.Receipt), RequestAuth: taskDataRequestAuthToProto(request.Auth), EvidenceKind: sharedv1.EvidenceKind(request.EvidenceKind)})
 	c.authorize(req.Header())
 	response, err := client.FinalizeTaskResult(ctx, req)
 	if err != nil {
@@ -379,7 +379,7 @@ func (c *ConnectTaskDataClient) FinalizeVerifierEvidence(ctx context.Context, en
 	if err != nil {
 		return FinalizeVerifierEvidenceResponse{}, err
 	}
-	req := connect.NewRequest(&nexusv1.FinalizeVerifierEvidenceRequest{TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, VerifyRound: request.VerifyRound, VerifierOperator: request.VerifierOperator, Receipt: receipt, RequestAuth: taskDataRequestAuthToProto(request.Auth)})
+	req := connect.NewRequest(&nexusv1.FinalizeVerifierEvidenceRequest{TaskHash: ToIngressHash32(request.TaskHash), SessionId: ToIngressHash32(request.SessionID), TaskId: ToIngressHash32(request.TaskID), VerifyRound: request.VerifyRound, VerifierOperator: request.VerifierOperator, Receipt: receipt, RequestAuth: taskDataRequestAuthToProto(request.Auth)})
 	c.authorize(req.Header())
 	response, err := client.FinalizeVerifierEvidence(ctx, req)
 	if err != nil {
@@ -615,7 +615,7 @@ func storageConfirmationFromProto(wire *nexusv1.BuilderStorageConfirmationV1) (S
 }
 
 func taskDataKeyToProto(key TaskDataKey) *nexusv1.TaskDataObjectRefV1 {
-	result := &nexusv1.TaskDataObjectRefV1{TaskHash: key.TaskHash, SessionId: key.SessionID, TaskId: key.TaskID, ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: key.ContentHash, EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound, EvidenceKind: sharedv1.EvidenceKind(key.EvidenceKind)}
+	result := &nexusv1.TaskDataObjectRefV1{TaskHash: ToIngressHash32(key.TaskHash), SessionId: ToIngressHash32(key.SessionID), TaskId: ToIngressHash32(key.TaskID), ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: ToIngressHash32(key.ContentHash), EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound, EvidenceKind: sharedv1.EvidenceKind(key.EvidenceKind)}
 	if key.ProducerOperator != "" {
 		operator := key.ProducerOperator
 		result.ProducerOperator = &operator
@@ -627,7 +627,14 @@ func taskDataKeyFromProto(wire *nexusv1.TaskDataObjectRefV1) (TaskDataKey, error
 	if wire == nil {
 		return TaskDataKey{}, fmt.Errorf("task data object ref is required")
 	}
-	key := TaskDataKey{TaskHash: wire.TaskHash, SessionID: wire.SessionId, TaskID: wire.TaskId, Kind: DataKind(wire.ObjectKind), ContentHash: wire.ContentHash, EvidenceProducerKind: EvidenceProducerKind(wire.EvidenceProducerKind), VerifyRound: wire.VerifyRound, ProducerOperator: wire.GetProducerOperator(), EvidenceKind: nodewire.EvidenceKind(wire.EvidenceKind)}
+	taskHash, taskHashOK := FromIngressHash32(wire.TaskHash)
+	sessionID, sessionOK := FromIngressHash32(wire.SessionId)
+	taskID, taskOK := FromIngressHash32(wire.TaskId)
+	contentHash, contentOK := FromIngressHash32(wire.ContentHash)
+	if !taskHashOK || !sessionOK || !taskOK || !contentOK {
+		return TaskDataKey{}, fmt.Errorf("task data object ref Hash32 fields must be 0x followed by 64 lowercase hex characters")
+	}
+	key := TaskDataKey{TaskHash: taskHash, SessionID: sessionID, TaskID: taskID, Kind: DataKind(wire.ObjectKind), ContentHash: contentHash, EvidenceProducerKind: EvidenceProducerKind(wire.EvidenceProducerKind), VerifyRound: wire.VerifyRound, ProducerOperator: wire.GetProducerOperator(), EvidenceKind: nodewire.EvidenceKind(wire.EvidenceKind)}
 	if wire.ProducerOperator != nil && key.ProducerOperator == "" {
 		return TaskDataKey{}, fmt.Errorf("present producer operator cannot be empty")
 	}
@@ -645,7 +652,7 @@ func taskDataRangeToProto(bounds *TaskDataRange) *nexusv1.ByteRangeV1 {
 }
 
 func taskDataRequestAuthToProto(auth TaskDataRequestAuth) *nexusv1.TaskDataRequestAuthV1 {
-	return &nexusv1.TaskDataRequestAuthV1{SchemaVersion: auth.SchemaVersion, ChainId: auth.ChainID, BuilderOperatorAddress: auth.BuilderAddress, RpcMethod: auth.Method, BodyDigest: hex.EncodeToString(auth.BodyDigest[:]), RequesterKind: nexusv1.TaskDataRequesterKindV1(auth.RequesterKind), RequesterAddress: auth.Requester, ServiceAuthorizationNonce: auth.ServiceAuthorizationNonce, RequestNonce: append([]byte(nil), auth.RequestNonce...), ExpiryHeight: auth.ExpiresAtHeight, Signature: append([]byte(nil), auth.Signature...)}
+	return &nexusv1.TaskDataRequestAuthV1{SchemaVersion: auth.SchemaVersion, ChainId: auth.ChainID, BuilderOperatorAddress: auth.BuilderAddress, RpcMethod: auth.Method, BodyDigest: ToIngressHash32(hex.EncodeToString(auth.BodyDigest[:])), RequesterKind: nexusv1.TaskDataRequesterKindV1(auth.RequesterKind), RequesterAddress: auth.Requester, ServiceAuthorizationNonce: auth.ServiceAuthorizationNonce, RequestNonce: append([]byte(nil), auth.RequestNonce...), ExpiryHeight: auth.ExpiresAtHeight, Signature: append([]byte(nil), auth.Signature...)}
 }
 
 func signedInferReceiptToProto(receipt SignedInferReceipt) *taskv1.InferReceiptV3 {
