@@ -102,7 +102,7 @@ func TestSlotWaitIsTracedWhenTheModelBudgetIsFull(t *testing.T) {
 	}
 
 	var waits []int
-	for _, line := range trace.lines {
+	for _, line := range trace.allLines() {
 		if !matchesSlotWaitFor(line, "task-infer") {
 			continue
 		}
@@ -114,7 +114,7 @@ func TestSlotWaitIsTracedWhenTheModelBudgetIsFull(t *testing.T) {
 		waits = append(waits, waited)
 	}
 	if len(waits) != 1 {
-		t.Fatalf("task_slot_acquired lines for task-infer = %d, want exactly one:\n%v", len(waits), trace.lines)
+		t.Fatalf("task_slot_acquired lines for task-infer = %d, want exactly one:\n%v", len(waits), trace.allLines())
 	}
 	if waits[0] < 200 {
 		t.Fatalf("waited_ms = %d, want the ~250ms it was held off the budget", waits[0])
@@ -164,10 +164,10 @@ func TestSlotWaitIsTracedForAnUncontendedTask(t *testing.T) {
 	cancel()
 	<-done
 
-	for _, line := range trace.lines {
+	for _, line := range trace.allLines() {
 		if matchesSlotWaitFor(line, "task-alone") {
 			return
 		}
 	}
-	t.Fatalf("no task_slot_acquired for an uncontended task:\n%v", trace.lines)
+	t.Fatalf("no task_slot_acquired for an uncontended task:\n%v", trace.allLines())
 }

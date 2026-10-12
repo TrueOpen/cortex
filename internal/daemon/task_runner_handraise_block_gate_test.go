@@ -40,7 +40,7 @@ func TestVerifierHandraiseAsksTheChainOncePerBlockForOneTaskRound(t *testing.T) 
 		t.Fatalf("verifier candidate window queries = %d, want 1 for three frames inside one block", window.calls)
 	}
 	if got := countTraceEvents(fixture, "verifier_window_pending"); got != 1 {
-		t.Fatalf("verifier_window_pending lines = %d, want one per block:\n%s", got, strings.Join(fixture.trace.lines, "\n"))
+		t.Fatalf("verifier_window_pending lines = %d, want one per block:\n%s", got, strings.Join(fixture.trace.allLines(), "\n"))
 	}
 }
 
@@ -87,7 +87,7 @@ func TestVerifierHandraiseRetriesOnTheNextBlock(t *testing.T) {
 		t.Fatalf("Keeper task queries = %d, want one per block", got)
 	}
 	if got := countTraceEvents(fixture, "verifier_window_pending"); got != 3 {
-		t.Fatalf("verifier_window_pending lines = %d, want one per block:\n%s", got, strings.Join(fixture.trace.lines, "\n"))
+		t.Fatalf("verifier_window_pending lines = %d, want one per block:\n%s", got, strings.Join(fixture.trace.allLines(), "\n"))
 	}
 }
 
@@ -119,7 +119,7 @@ func TestVerifierHandraiseArmsTheRedriveEvenWhenTheBlockIsAlreadyAnswered(t *tes
 
 func countTraceEvents(fixture *outputAvailableFixture, event string) int {
 	count := 0
-	for _, line := range fixture.trace.lines {
+	for _, line := range fixture.trace.allLines() {
 		if strings.HasPrefix(line, "task trace event="+event+" ") {
 			count++
 		}

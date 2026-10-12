@@ -16,10 +16,17 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-const descriptorSHA256 = "cd447cf2fb5a53745489cfdc50690e6354025d7b282f7dad380e54c51ae9c2ef"
+// descriptorSHA256 pins the exact bytes the bindings were generated from.
+//
+// wire has stopped tagging releases, so this is no longer a release asset but
+// `buf build` run over a named wire commit, which is what its own contract
+// workflow does to produce the asset. The buf version is part of the pin: a
+// different one can lay the same contract out differently, and then the
+// checksum here is the only thing that would notice.
+const descriptorSHA256 = "ef6b506941477df100b703c9f123dd20ee6728f8fb2bc2abfe4b6bdaca2edcf6"
 
 func main() {
-	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.4.0.binpb", "pinned wire release descriptor")
+	descriptor := flag.String("descriptor", "proto/testdata/wire-main-41af15b5.binpb", "pinned wire descriptor")
 	out := flag.String("out", "bin/.chain-bindings", "empty scratch output directory")
 	flag.Parse()
 	data, err := os.ReadFile(*descriptor)

@@ -55,7 +55,10 @@ func TestMirrorFieldNumbersAreFrozen(t *testing.T) {
 		"expiry_height": 14, "service_signature": 15,
 		"verifier_value_root": 16, "metric_leaf_count": 17, "verifier_evidence_key_commitment": 18,
 	})
+	// signature_chain_id is the EIP-712 domain chainId the signer chose. It is
+	// signature metadata and enters neither task_hash nor task_id, so it is
+	// listed here rather than treated as a shape change the mirror must refuse.
 	assert(&bustaskv1.SignedOrderV2{}, map[string]int32{
-		"order": 1, "signature_scheme": 2, "user_signature": 3,
+		"order": 1, "signature_scheme": 2, "user_signature": 3, "signature_chain_id": 4,
 	})
 }

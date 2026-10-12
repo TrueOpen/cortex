@@ -952,7 +952,7 @@ func TestRunOnceHonorsRetryDeadlineAttemptsConcurrencyAndDoesNotHoldManagerLock(
 		t.Fatalf("exhausted task = %#v", exhaustedRec)
 	}
 	var stopped int
-	for _, record := range trace.records {
+	for _, record := range trace.allRecords() {
 		if strings.HasPrefix(record.Message, "task trace event=responsibility_stopped ") {
 			stopped++
 			if record.Level != slog.LevelError {
@@ -961,7 +961,7 @@ func TestRunOnceHonorsRetryDeadlineAttemptsConcurrencyAndDoesNotHoldManagerLock(
 		}
 	}
 	if stopped != 2 {
-		t.Fatalf("responsibility_stopped records = %d, want deadline and retry-bound records: %#v", stopped, trace.records)
+		t.Fatalf("responsibility_stopped records = %d, want deadline and retry-bound records: %#v", stopped, trace.allRecords())
 	}
 	if peak != 1 {
 		t.Fatalf("peak concurrency = %d, want 1", peak)
