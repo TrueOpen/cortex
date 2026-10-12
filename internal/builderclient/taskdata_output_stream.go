@@ -237,7 +237,7 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 	})
 	zero := make([]byte, 32)
 	header := &nexusv1.OutputStreamHeaderV2{
-		TaskHash: request.TaskHash, SessionId: request.SessionID, TaskId: request.TaskID, RequestAuth: taskDataRequestAuthToProto(request.Auth),
+		TaskHash: ToIngressHash32(request.TaskHash), SessionId: ToIngressHash32(request.SessionID), TaskId: ToIngressHash32(request.TaskID), RequestAuth: taskDataRequestAuthToProto(request.Auth),
 		Attempt: 0, StreamInstance: 1, OutputKeyCommitment: zero, KeyPackageHash: zero,
 		WorkerSignature: append([]byte(nil), request.HeaderSignature...),
 	}

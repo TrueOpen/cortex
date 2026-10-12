@@ -465,7 +465,7 @@ func (n *nexusProofServer) FinalizeTaskResult(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	request := builderclient.FinalizeTaskResultRequest{TaskHash: req.Msg.TaskHash, SessionID: req.Msg.SessionId, TaskID: req.Msg.TaskId, Receipt: receipt, Auth: proofAuthFromProto(req.Msg.RequestAuth), EvidenceKind: nodewire.EvidenceKind(req.Msg.GetEvidenceKind())}
+	request := builderclient.FinalizeTaskResultRequest{TaskHash: proofBare(req.Msg.TaskHash), SessionID: proofBare(req.Msg.SessionId), TaskID: proofBare(req.Msg.TaskId), Receipt: receipt, Auth: proofAuthFromProto(req.Msg.RequestAuth), EvidenceKind: nodewire.EvidenceKind(req.Msg.GetEvidenceKind())}
 	body, err := builderclient.TaskDataFinalizeResultBodyDigest(request)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -545,7 +545,14 @@ func proofKeyFromProto(ref *nexusv1.TaskDataObjectRefV1) (builderclient.TaskData
 	if ref == nil {
 		return builderclient.TaskDataKey{}, errors.New("object ref is missing")
 	}
-	key := builderclient.TaskDataKey{TaskHash: ref.TaskHash, SessionID: ref.SessionId, TaskID: ref.TaskId, Kind: builderclient.DataKind(ref.ObjectKind), ContentHash: ref.ContentHash, EvidenceProducerKind: builderclient.EvidenceProducerKind(ref.EvidenceProducerKind), VerifyRound: ref.VerifyRound, ProducerOperator: ref.GetProducerOperator(), EvidenceKind: nodewire.EvidenceKind(ref.GetEvidenceKind())}
+	taskHash, taskHashOK := builderclient.FromIngressHash32(ref.TaskHash)
+	sessionID, sessionOK := builderclient.FromIngressHash32(ref.SessionId)
+	taskID, taskOK := builderclient.FromIngressHash32(ref.TaskId)
+	contentHash, contentOK := builderclient.FromIngressHash32(ref.ContentHash)
+	if !taskHashOK || !sessionOK || !taskOK || !contentOK {
+		return builderclient.TaskDataKey{}, errors.New("object ref Hash32 fields must be 0x followed by 64 lowercase hex characters")
+	}
+	key := builderclient.TaskDataKey{TaskHash: taskHash, SessionID: sessionID, TaskID: taskID, Kind: builderclient.DataKind(ref.ObjectKind), ContentHash: contentHash, EvidenceProducerKind: builderclient.EvidenceProducerKind(ref.EvidenceProducerKind), VerifyRound: ref.VerifyRound, ProducerOperator: ref.GetProducerOperator(), EvidenceKind: nodewire.EvidenceKind(ref.GetEvidenceKind())}
 	return key, builderclient.ValidateTaskDataKey(key)
 }
 func proofFetchHeader(key builderclient.TaskDataKey, total, offset, length uint64) *nexusv1.FetchTaskDataResponse {
@@ -555,8 +562,14 @@ func proofFetchChunk(offset uint64, data []byte, eof bool) *nexusv1.FetchTaskDat
 	return &nexusv1.FetchTaskDataResponse{Frame: &nexusv1.FetchTaskDataResponse_Chunk{Chunk: &nexusv1.FetchTaskDataChunkV1{Offset: offset, Data: data, Eof: eof}}}
 }
 func proofHex(s string) []byte { data, _ := hex.DecodeString(s); return data }
+
+// proofBare reads a Hash32 the way a real Builder does: the IngressAPI spelling
+// in, the bare spelling everything inside works with. A stand-in that skipped
+// this would accept what nexus rejects, and the client would look correct here
+// while failing against the service.
+func proofBare(value string) string { bare, _ := builderclient.FromIngressHash32(value); return bare }
 func proofKeyToProto(key builderclient.TaskDataKey) *nexusv1.TaskDataObjectRefV1 {
-	ref := &nexusv1.TaskDataObjectRefV1{TaskHash: key.TaskHash, SessionId: key.SessionID, TaskId: key.TaskID, ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: key.ContentHash, EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound, EvidenceKind: sharedv1.EvidenceKind(key.EvidenceKind)}
+	ref := &nexusv1.TaskDataObjectRefV1{TaskHash: builderclient.ToIngressHash32(key.TaskHash), SessionId: builderclient.ToIngressHash32(key.SessionID), TaskId: builderclient.ToIngressHash32(key.TaskID), ObjectKind: nexusv1.TaskDataObjectKind(key.Kind), ContentHash: builderclient.ToIngressHash32(key.ContentHash), EvidenceProducerKind: nexusv1.EvidenceProducerKindV1(key.EvidenceProducerKind), VerifyRound: key.VerifyRound, EvidenceKind: sharedv1.EvidenceKind(key.EvidenceKind)}
 	if key.ProducerOperator != "" {
 		operator := key.ProducerOperator
 		ref.ProducerOperator = &operator
@@ -576,7 +589,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 	if header == nil {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("output stream header required"))
 	}
-	body, err := builderclient.TaskDataOutputStreamBodyDigest(header.TaskHash, header.SessionId, header.TaskId)
+	body, err := builderclient.TaskDataOutputStreamBodyDigest(proofBare(header.TaskHash), proofBare(header.SessionId), proofBare(header.TaskId))
 	if err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -587,7 +600,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 	n.uploadCalls++
 	n.uploadDigests = append(n.uploadDigests, body)
 	n.relayObservedBeforeRelease = n.relayObservedBeforeRelease || n.relayAccepted
-	request := builderclient.OutputStreamRequest{TaskHash: header.TaskHash, SessionID: header.SessionId, TaskID: header.TaskId, Auth: proofAuthFromProto(header.RequestAuth), HeaderSignature: header.GetWorkerSignature(), ReplayChunks: append([]builderclient.OutputChunk(nil), n.outputFrames...)}
+	request := builderclient.OutputStreamRequest{TaskHash: proofBare(header.TaskHash), SessionID: proofBare(header.SessionId), TaskID: proofBare(header.TaskId), Auth: proofAuthFromProto(header.RequestAuth), HeaderSignature: header.GetWorkerSignature(), ReplayChunks: append([]builderclient.OutputChunk(nil), n.outputFrames...)}
 	inner, err := n.objects.OpenTaskOutputStream(ctx, "", request)
 	progress := &nexusv1.OutputStreamProgressV1{}
 	if len(n.outputFrames) > 0 {
@@ -610,7 +623,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			return err
 		}
 		if chunk := frame.GetChunk(); chunk != nil {
-			digest, err := nodewire.OutputChunkSigningDigest(n.chainID, proofHex(header.TaskHash), chunk.Seq, chunk.MmrRoot)
+			digest, err := nodewire.OutputChunkSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), chunk.Seq, chunk.MmrRoot)
 			if err != nil {
 				return connect.NewError(connect.CodeInvalidArgument, err)
 			}
@@ -649,7 +662,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			return connect.NewError(connect.CodeUnavailable, errors.New("injected upload failure"))
 		}
 		finishReason := nodewire.FinishReasonV1(fin.FinishReason)
-		finDigest, err := nodewire.OutputFinSigningDigest(n.chainID, proofHex(header.TaskHash), fin.FinalSeq, fin.OutputMmrRoot, finishReason)
+		finDigest, err := nodewire.OutputFinSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), fin.FinalSeq, fin.OutputMmrRoot, finishReason)
 		if err == nil {
 			err = n.verifyServiceSignature(n.workerOperator, n.servicePubkey, finDigest, fin.WorkerSignature)
 		}
@@ -678,7 +691,7 @@ func proofAuthFromProto(w *nexusv1.TaskDataRequestAuthV1) builderclient.TaskData
 	if w == nil {
 		return builderclient.TaskDataRequestAuth{}
 	}
-	body, _ := hex.DecodeString(w.BodyDigest)
+	body, _ := hex.DecodeString(proofBare(w.BodyDigest))
 	var hash codec.Hash
 	copy(hash[:], body)
 	return builderclient.TaskDataRequestAuth{SchemaVersion: w.SchemaVersion, ChainID: w.ChainId, BuilderAddress: w.BuilderOperatorAddress, Method: w.RpcMethod, BodyDigest: hash, RequesterKind: builderclient.TaskDataRequesterKind(w.RequesterKind), Requester: w.RequesterAddress, ServiceAuthorizationNonce: w.ServiceAuthorizationNonce, RequestNonce: w.RequestNonce, ExpiresAtHeight: w.ExpiryHeight, Signature: w.Signature}
@@ -875,7 +888,7 @@ func receiptToProto(receipt builderclient.SignedInferReceipt) *taskv1.InferRecei
 }
 
 func authToProto(a builderclient.TaskDataRequestAuth) *nexusv1.TaskDataRequestAuthV1 {
-	return &nexusv1.TaskDataRequestAuthV1{SchemaVersion: a.SchemaVersion, ChainId: a.ChainID, BuilderOperatorAddress: a.BuilderAddress, RpcMethod: a.Method, BodyDigest: a.BodyDigest.String(), RequesterKind: nexusv1.TaskDataRequesterKindV1(a.RequesterKind), RequesterAddress: a.Requester, ServiceAuthorizationNonce: a.ServiceAuthorizationNonce, RequestNonce: a.RequestNonce, ExpiryHeight: a.ExpiresAtHeight, Signature: a.Signature}
+	return &nexusv1.TaskDataRequestAuthV1{SchemaVersion: a.SchemaVersion, ChainId: a.ChainID, BuilderOperatorAddress: a.BuilderAddress, RpcMethod: a.Method, BodyDigest: builderclient.ToIngressHash32(a.BodyDigest.String()), RequesterKind: nexusv1.TaskDataRequesterKindV1(a.RequesterKind), RequesterAddress: a.Requester, ServiceAuthorizationNonce: a.ServiceAuthorizationNonce, RequestNonce: a.RequestNonce, ExpiryHeight: a.ExpiresAtHeight, Signature: a.Signature}
 }
 
 func compactSignature(private *secp256k1.PrivateKey, digest codec.Hash) []byte {

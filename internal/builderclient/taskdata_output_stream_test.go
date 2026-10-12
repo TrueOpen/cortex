@@ -83,7 +83,7 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					if header.GetHeader() == nil || header.GetHeader().TaskHash != request.TaskHash || !proto.Equal(header.GetHeader().RequestAuth, taskDataRequestAuthToProto(request.Auth)) {
+					if header.GetHeader() == nil || header.GetHeader().TaskHash != ToIngressHash32(request.TaskHash) || !proto.Equal(header.GetHeader().RequestAuth, taskDataRequestAuthToProto(request.Auth)) {
 						t.Error("stream header changed signed identity")
 					}
 					progress := &nexusv1.OutputStreamProgressV1{}

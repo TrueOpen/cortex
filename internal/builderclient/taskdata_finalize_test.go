@@ -72,7 +72,7 @@ func TestV040FinalizeResultRequiresCompleteScopedConfirmations(t *testing.T) {
 			answer := proto.Clone(base).(*nexusv1.FinalizeTaskResultResponse)
 			mutate(answer)
 			server := newTaskDataTestServer(t, &taskDataTestHandler{finalize: func(_ context.Context, r *connect.Request[nexusv1.FinalizeTaskResultRequest]) (*connect.Response[nexusv1.FinalizeTaskResultResponse], error) {
-				if !proto.Equal(r.Msg.Receipt, signedInferReceiptToProto(receipt)) || r.Msg.RequestAuth.BodyDigest != hex.EncodeToString(digest[:]) {
+				if !proto.Equal(r.Msg.Receipt, signedInferReceiptToProto(receipt)) || r.Msg.RequestAuth.BodyDigest != ToIngressHash32(hex.EncodeToString(digest[:])) {
 					t.Error("finalize receipt or authentication changed")
 				}
 				return connect.NewResponse(answer), nil
