@@ -90,13 +90,13 @@ func TestVerifierWindowWaitCountsTheBlocksItHasBeenWaiting(t *testing.T) {
 		height.advance()
 	}
 	var waits []string
-	for _, line := range fixture.trace.lines {
+	for _, line := range fixture.trace.allLines() {
 		if strings.HasPrefix(line, "task trace event=verifier_window_pending ") {
 			waits = append(waits, line)
 		}
 	}
 	if len(waits) != 3 {
-		t.Fatalf("verifier_window_pending lines = %d, want one per block:\n%s", len(waits), strings.Join(fixture.trace.lines, "\n"))
+		t.Fatalf("verifier_window_pending lines = %d, want one per block:\n%s", len(waits), strings.Join(fixture.trace.allLines(), "\n"))
 	}
 	for index, line := range waits {
 		requireTraceFields(t, line, fmt.Sprintf("waits=%d", index+1))
@@ -120,7 +120,7 @@ func TestVerifierWindowQueryFailureIsStillReportedAsAFailure(t *testing.T) {
 	if len(diagnostics) != 1 || diagnostics[0].Waiting {
 		t.Fatalf("diagnostics = %#v, want exactly one ordinary failure", diagnostics)
 	}
-	for _, line := range fixture.trace.lines {
+	for _, line := range fixture.trace.allLines() {
 		if strings.HasPrefix(line, "task trace event=verifier_window_pending ") {
 			t.Fatalf("a query failure was traced as a wait:\n%s", line)
 		}

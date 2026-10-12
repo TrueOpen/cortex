@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -22,16 +23,40 @@ import (
 
 // collectTrace is the sink cortexd supplies in production, captured instead of
 // logged.
+//
+// The sink it stands in for is a logger, which several goroutines may write to
+// at once: the scheduling pass emits milestones while every responsibility it
+// launched emits its own. Collecting into a slice has to take that seriously,
+// so the append is guarded and readers take a copy -- a test that reads the
+// records while a responsibility is still running would otherwise race rather
+// than simply see fewer of them.
 type collectTrace struct {
+	mu      sync.Mutex
 	records []observability.LogRecord
 	lines   []string
 }
 
 func (c *collectTrace) trace() *tasktrace.Trace {
 	return &tasktrace.Trace{Emit: func(record observability.LogRecord) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.records = append(c.records, record)
 		c.lines = append(c.lines, record.Message)
 	}}
+}
+
+// allRecords and allLines are the only way to read what was collected. They
+// copy, so a caller ranging over the result cannot be overtaken by an emitter.
+func (c *collectTrace) allRecords() []observability.LogRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]observability.LogRecord(nil), c.records...)
+}
+
+func (c *collectTrace) allLines() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.lines...)
 }
 
 // event returns the single line for one milestone, failing when the milestone
@@ -45,20 +70,21 @@ func (c *collectTrace) event(t *testing.T, name string) string {
 func (c *collectTrace) eventRecord(t *testing.T, name string) observability.LogRecord {
 	t.Helper()
 	prefix := "task trace event=" + name + " "
+	records := c.allRecords()
 	var found observability.LogRecord
 	foundOne := false
-	for _, record := range c.records {
+	for _, record := range records {
 		line := record.Message
 		if strings.HasPrefix(line, prefix) {
 			if foundOne {
-				t.Fatalf("event %q emitted more than once: %#v", name, c.records)
+				t.Fatalf("event %q emitted more than once: %#v", name, records)
 			}
 			found = record
 			foundOne = true
 		}
 	}
 	if !foundOne {
-		t.Fatalf("event %q was never emitted; records: %#v", name, c.records)
+		t.Fatalf("event %q was never emitted; records: %#v", name, records)
 	}
 	return found
 }
