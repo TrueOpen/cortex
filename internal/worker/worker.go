@@ -122,6 +122,9 @@ type Worker struct {
 	receipts           map[string]ReceiptState
 	results            map[string]InferResult
 	snapshot           chainclient.TaskSnapshot
+	// prepare times the span before the engine. A Worker is built per task, so
+	// this accumulates one task's preparation and nothing else.
+	prepare preparationTiming
 }
 
 // producedOutput holds the material produced by a single inference run.
@@ -404,8 +407,16 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	if err := validateAssignmentIdentity(event); err != nil {
 		return InferResult{}, err
 	}
+	// Preparation starts here rather than at the function entry: the two checks
+	// above are local, and the clock is meant to measure what this node waits on
+	// other services for.
+	w.prepare.startedAt = time.Now()
 	if !w.cfg.FakeOutput {
-		if _, _, err := w.taskGeneration(ctx, event); err != nil {
+		startedAt := time.Now()
+		_, _, err := w.taskGeneration(ctx, event)
+		w.prepare.taskGenerationCalls++
+		w.prepare.observe(&w.prepare.taskGeneration, startedAt)
+		if err != nil {
 			return InferResult{}, err
 		}
 	}
@@ -418,7 +429,9 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	if err := w.requireInferDependencies(); err != nil {
 		return InferResult{}, err
 	}
+	snapshotStartedAt := time.Now()
 	snapshot, err := w.cfg.SnapshotReader.TaskSnapshot(ctx, event.TaskID)
+	w.prepare.observe(&w.prepare.taskSnapshot, snapshotStartedAt)
 	if err != nil {
 		return InferResult{}, fmt.Errorf("read task snapshot: %w", err)
 	}
@@ -428,7 +441,9 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	w.snapshot = snapshot
 
 	// Ensure input: fetch if not present.
+	inputStartedAt := time.Now()
 	input, err := w.ensureInput(ctx, event)
+	w.prepare.observe(&w.prepare.input, inputStartedAt)
 	if err != nil {
 		return InferResult{}, err
 	}
@@ -510,7 +525,13 @@ func (w *Worker) requireInferDependencies() error {
 
 func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chainclient.AssignmentFinalized) (output, tokenIDs, positionValues []byte, descriptor outputDescriptor, err error) {
 	profileVersion := fmt.Sprintf("%d", event.ProfileVersion)
+	// The second read of the same locked parameters for the same task. It is
+	// counted, not deduplicated, because the milestone's job here is to report
+	// what the node actually did.
+	generationStartedAt := time.Now()
 	generation, generationDigest, err := w.taskGeneration(ctx, event)
+	w.prepare.taskGenerationCalls++
+	w.prepare.observe(&w.prepare.taskGeneration, generationStartedAt)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
@@ -526,6 +547,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	}
 	var recorder *outputStreamRecorder
 	var resp modelservice.InferResponse
+	recorderStartedAt := time.Now()
 	savedData, savedErr := w.cfg.Persistence.ReadArtifact(ctx, event.TaskID, "worker-model-result")
 	if savedErr == nil {
 		var saved completedModelInference
@@ -540,6 +562,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	} else {
 		recorder, err = w.newOutputRecorder(ctx, event)
 	}
+	w.prepare.observe(&w.prepare.outputStream, recorderStartedAt)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
@@ -548,6 +571,10 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			_ = recorder.stream.Close()
 		}
 	}()
+	// Preparation ends here: everything the node had to ask another service for
+	// is done, and what follows is the engine.
+	recorder.prepareStartedAt = w.prepare.startedAt
+	w.tracePreparationCompleted(event.TaskID)
 	if savedErr != nil {
 		// The clock the two first-output latencies are measured from starts here,
 		// at the last instant before the generation request leaves this node, so

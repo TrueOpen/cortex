@@ -78,7 +78,13 @@ type outputStreamRecorder struct {
 	// node puts on the wire. They are not the same number -- a frame is held back
 	// until it reaches min_output_stream_frame_bytes -- and only the second one is
 	// what a waiting reader actually sees.
-	inferStartedAt   time.Time
+	inferStartedAt time.Time
+	// prepareStartedAt is the other baseline the two first-output milestones
+	// publish. inferStartedAt deliberately excludes the preparation above, so a
+	// reader with only that number attributes the whole preparation to the
+	// engine -- and infer_completed publishes a field of the same name measured
+	// from before it. Carrying both ends the ambiguity in the line itself.
+	prepareStartedAt time.Time
 	firstDeltaAt     time.Time
 	firstFrameTraced bool
 }
@@ -224,6 +230,9 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 	if err != nil {
 		return nil, err
 	}
+	// Reported beside output_stream_ms, because the loop below opens one stream
+	// per Builder in turn: the count is what the duration has to be read against.
+	w.prepare.builders = len(endpoints)
 	digest, err := builderclient.TaskDataOutputStreamBodyDigest(taskHash.String(), event.SessionID, event.TaskID)
 	if err != nil {
 		return nil, err
@@ -291,6 +300,7 @@ func (r *outputStreamRecorder) ObserveInferFrame(ctx context.Context, frame mode
 		r.w.cfg.Trace.Event("output_first_delta",
 			tasktrace.Str("task", r.event.TaskID),
 			tasktrace.Millis("since_infer_started_ms", r.firstDeltaAt.Sub(r.inferStartedAt)),
+			r.sincePrepareStarted(r.firstDeltaAt),
 			tasktrace.Int("delta_bytes", len(frame.TextDelta)))
 	}
 	limit := r.w.cfg.MaxOutputBytes
@@ -367,6 +377,7 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 			tasktrace.Str("task", r.event.TaskID), tasktrace.Uint("seq", seq),
 			tasktrace.Int("frame_bytes", len(text)),
 			tasktrace.Millis("since_infer_started_ms", now.Sub(r.inferStartedAt)),
+			r.sincePrepareStarted(now),
 			sinceDelta,
 			tasktrace.Uint("min_frame_bytes", uint64(r.w.cfg.StreamLimits.MinOutputStreamFrameBytes)),
 			tasktrace.Bool("transport_attached", r.stream != nil))
