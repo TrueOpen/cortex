@@ -1990,9 +1990,11 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 			t.Fatalf("refusal = %q still blames %q, which is wired now", err.Error(), stale)
 		}
 	}
-	// And the read really happened, for exactly the task in hand.
-	if len(h.taskFacts.asked) < 2 {
-		t.Fatalf("task facts asked = %#v, want stream and receipt reads for the finalized assignment", h.taskFacts.asked)
+	// And the read really happened, for exactly the task in hand. One read
+	// serves every caller: the facts are immutable for a task and are retained
+	// after the first read, so the stream and receipt paths share it.
+	if len(h.taskFacts.asked) == 0 {
+		t.Fatalf("task facts asked = %#v, want a read for the finalized assignment", h.taskFacts.asked)
 	}
 	for _, asked := range h.taskFacts.asked {
 		if asked != finalizedTask().TaskID {

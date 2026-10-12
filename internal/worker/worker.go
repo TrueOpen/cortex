@@ -125,6 +125,9 @@ type Worker struct {
 	// prepare times the span before the engine. A Worker is built per task, so
 	// this accumulates one task's preparation and nothing else.
 	prepare preparationTiming
+	// taskFactsCache retains the immutable facts of each task this Worker has
+	// read them for. See taskFacts.
+	taskFactsCache map[string]taskfacts.Facts
 }
 
 // producedOutput holds the material produced by a single inference run.

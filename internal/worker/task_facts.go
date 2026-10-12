@@ -37,6 +37,19 @@ func (w *Worker) taskFacts(ctx context.Context, taskID string) (taskfacts.Facts,
 	if w.cfg.TaskFacts == nil {
 		return taskfacts.Facts{}, fmt.Errorf("Keeper task facts reader is required")
 	}
+	// Retained per task after the first read. Both facts are immutable for a
+	// task -- that is what this function exists to read -- so a second query can
+	// only return what the first one did, and several callers ask for them
+	// before generation starts. Away from the chain each read measured about
+	// 630ms, three times before the first token.
+	//
+	// Keyed by the task rather than kept as a single value. A Worker is built
+	// per task today, but answering for the wrong task would put another task's
+	// accepted hash into a signed receipt, and that must not depend on a
+	// lifetime this function cannot see.
+	if facts, ok := w.taskFactsCache[taskID]; ok {
+		return facts, nil
+	}
 	// Timed here rather than at each caller: every read of these facts goes
 	// through this function, so one timer covers them all and the count reports
 	// how many times a value that cannot change was asked for.
@@ -50,6 +63,13 @@ func (w *Worker) taskFacts(ctx context.Context, taskID string) (taskfacts.Facts,
 	if err := facts.Validate(taskID); err != nil {
 		return taskfacts.Facts{}, err
 	}
+	// Retained only once it has been read and checked, so a chain that was
+	// briefly unreachable, or an answer that did not survive Validate, does not
+	// become this task's permanent answer.
+	if w.taskFactsCache == nil {
+		w.taskFactsCache = map[string]taskfacts.Facts{}
+	}
+	w.taskFactsCache[taskID] = facts
 	return facts, nil
 }
 

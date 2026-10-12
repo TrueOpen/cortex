@@ -84,12 +84,13 @@ func TestPreparationBeforeTheEngineIsTraced(t *testing.T) {
 // and every read used to be its own chain query for a value the code itself
 // documents as immutable.
 //
-// The count is asserted exactly, so the number cannot drift without a test
-// saying so -- it is what a cache would have to change.
+// The count is asserted exactly, because it is the whole point: the facts are
+// immutable for a task, so anything above one read is asking the chain again
+// for a value this node already holds.
 func TestTaskFactsReadsAreCounted(t *testing.T) {
 	line := runTracedGeneration(t).one(t, "infer_prepare_completed")
-	if !strings.Contains(line, "task_facts_calls=3") {
-		t.Fatalf("infer_prepare_completed = %q, want task_facts_calls=3", line)
+	if !strings.Contains(line, "task_facts_calls=1") {
+		t.Fatalf("infer_prepare_completed = %q, want task_facts_calls=1", line)
 	}
 }
 
