@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"sync"
+
 	"github.com/TrueOpen/cortex/internal/nodewire"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -20,6 +22,9 @@ type FakeClient struct {
 	UploadedTaskResults       []UploadTaskResultRequest
 	UploadedOutputStreams     []OutputStreamRequest
 	UploadedOutputFins        []OutputFin
+	// outputStreamsMu guards the three fields OpenTaskOutputStream touches. It
+	// is the only method the Worker calls concurrently; see the comment there.
+	outputStreamsMu           sync.Mutex
 	outputStreams             map[string][]OutputChunk
 	SubmittedInferReceipts    []SubmitInferReceiptRequest
 	SubmittedVerifyCommits    []SubmitVerifyCommitRequest
