@@ -12,8 +12,11 @@ import (
 )
 
 const (
-	defaultKeeperPollRetries     = 5
-	defaultKeeperRetryBackoff    = time.Second
+	defaultKeeperRetryBackoff = time.Second
+	// defaultKeeperMaxRetryBackoff is where a poller waiting out a chain outage
+	// settles. It used to describe a state the poller could never reach: the
+	// delay climbed 1, 2, 4, 8, 16 and the sixth consecutive failure ended the
+	// process before the cap applied to anything.
 	defaultKeeperMaxRetryBackoff = 30 * time.Second
 )
 
@@ -63,7 +66,6 @@ type KeeperPollerConfig struct {
 	MaxChainLag uint64
 	EffectSink  func(context.Context, []ReconcilerEffect) error
 
-	MaxRetryAttempts     int
 	RetryBackoff         time.Duration
 	MaxRetryBackoff      time.Duration
 	OnRetryableFailure   func(attempt int, delay time.Duration, err error)
@@ -107,9 +109,6 @@ type KeeperPoller struct {
 func NewKeeperPoller(db *store.Store, keeper KeeperEventClient, reconciler *Reconciler, cfg KeeperPollerConfig) *KeeperPoller {
 	if cfg.Interval <= 0 {
 		cfg.Interval = time.Second
-	}
-	if cfg.MaxRetryAttempts <= 0 {
-		cfg.MaxRetryAttempts = defaultKeeperPollRetries
 	}
 	if cfg.RetryBackoff <= 0 {
 		cfg.RetryBackoff = defaultKeeperRetryBackoff
@@ -358,10 +357,19 @@ func (p *KeeperPoller) Run(ctx context.Context) error {
 			if !chainclient.IsRetryable(err) {
 				return err
 			}
+			// A chain this node cannot reach is a reason to wait, not a reason
+			// to exit. Giving up used to end the process -- the supervisor reads
+			// a runner returning as the runtime dying -- which turned a chain
+			// blip measured in seconds into an outage lasting until somebody
+			// noticed, on a host with nothing to restart it.
+			//
+			// Nothing is lost by waiting. The cursor is durable, so the scan
+			// resumes where it stopped, and the node already says it cannot work
+			// without having to die to do it: the readiness gate closes and
+			// /readyz answers 503 for as long as this keeps failing. The count
+			// keeps rising in the log line below, so an outage is visible as a
+			// climbing attempt number rather than as silence.
 			consecutiveFailures++
-			if consecutiveFailures > p.cfg.MaxRetryAttempts {
-				return fmt.Errorf("keeper poll failed %d consecutive times: %w", consecutiveFailures, err)
-			}
 			delay = p.retryDelay(consecutiveFailures)
 			if p.cfg.OnRetryableFailure != nil {
 				p.cfg.OnRetryableFailure(consecutiveFailures, delay, err)
