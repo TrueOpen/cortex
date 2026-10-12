@@ -80,11 +80,25 @@ carried no field changes with it.
 
 ## Reproduction
 
-The release descriptor is committed as `proto/testdata/wire-v0.4.0.binpb`.
+The descriptor is committed as `proto/testdata/wire-main-41af15b5.binpb`.
 Its SHA-256 is
-`cd447cf2fb5a53745489cfdc50690e6354025d7b282f7dad380e54c51ae9c2ef`, which is the
-`wire.binpb.sha256` asset of
-https://github.com/TrueOpen/wire/releases/tag/v0.4.0.
+`ef6b506941477df100b703c9f123dd20ee6728f8fb2bc2abfe4b6bdaca2edcf6`.
+
+wire has stopped tagging releases, so this is no longer a release asset.
+It is `buf build` over wire commit
+[`41af15b5`](https://github.com/TrueOpen/wire/commit/41af15b5c290cf82b2223090b50d42dc0bec49bd),
+which is what wire's own `contract.yml` does to produce the asset it used to
+publish:
+
+```sh
+git clone --depth 1 --branch main https://github.com/TrueOpen/wire
+cd wire && mkdir -p build
+go run github.com/bufbuild/buf/cmd/buf@v1.71.0 build -o build/wire.binpb
+shasum -a 256 build/wire.binpb
+```
+
+The buf version is part of the pin. A different one may lay the same contract
+out differently, and the checksum is then the only thing that would notice.
 
 Generation uses `protoc v6.33.2`, `protoc-gen-go v1.36.11`,
 `protoc-gen-connect-go v1.18.1` and `protoc-gen-go-grpc v1.6.2`. Install these

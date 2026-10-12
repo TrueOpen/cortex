@@ -641,15 +641,28 @@ func (x *TaskOrderV3) GetUserRecipientPubkey() []byte {
 // signature_scheme accepts exactly lowercase "eip712" and is not persisted on
 // Task state. user_signature is recoverable 65-byte R||S||V with V in {27,28}
 // and low-S. It signs the "TrueOpen Task Order" version "3" EIP-712 digest,
-// whose feeDenom is hub.v1 Params phase0.business_denom (see TaskOrderV3).
+// whose feeDenom is hub.v1 Params phase0.business_denom (see TaskOrderV3), and
+// whose domain chainId is signature_chain_id.
+//
+// signature_chain_id is chosen by the signer: a browser wallet uses its active
+// network, so the user never switches networks. It must be in 1..MaxInt64;
+// 0 is rejected as malformed. The verifier rebuilds the domain from it and the
+// signature covers it. Cross-chain isolation comes only from the chainId string
+// (TaskOrderV3.chain_id), which the verifier takes from its own chain.
+// signature_scheme, user_signature and signature_chain_id are signature
+// metadata: they enter neither task_hash, task_id nor any opening, and no
+// identity, replay, dedup or exact-retry binding may include them. The same
+// order signed under another signature_chain_id is the same order.
 // SignedOrderV2 defines the SignedOrderV2 wire type.
 type SignedOrderV2 struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Order           *TaskOrderV3           `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
 	SignatureScheme string                 `protobuf:"bytes,2,opt,name=signature_scheme,json=signatureScheme,proto3" json:"signature_scheme,omitempty"`
 	UserSignature   []byte                 `protobuf:"bytes,3,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// EIP-712 domain chainId of user_signature, 1..MaxInt64.
+	SignatureChainId uint64 `protobuf:"varint,4,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SignedOrderV2) Reset() {
@@ -701,6 +714,13 @@ func (x *SignedOrderV2) GetUserSignature() []byte {
 		return x.UserSignature
 	}
 	return nil
+}
+
+func (x *SignedOrderV2) GetSignatureChainId() uint64 {
+	if x != nil {
+		return x.SignatureChainId
+	}
+	return 0
 }
 
 // ExistingTaskRefV1 addresses an already accepted task for a follow-up proposal
@@ -1195,11 +1215,12 @@ const file_task_v1_msg_assignment_proto_rawDesc = "" +
 	"\x10builder_set_hash\x18\x19 \x01(\fB\x04\xc8\xf3\x18\x02R\x0ebuilderSetHash\x129\n" +
 	"\fpayload_mode\x18\x1a \x01(\x0e2\x16.task.v1.PayloadModeV1R\vpayloadMode\x126\n" +
 	"\x14input_key_commitment\x18\x1b \x01(\fB\x04\xc8\xf3\x18\x02R\x12inputKeyCommitment\x128\n" +
-	"\x15user_recipient_pubkey\x18\x1c \x01(\fB\x04\xc8\xf3\x18\x01R\x13userRecipientPubkey\"\x99\x01\n" +
+	"\x15user_recipient_pubkey\x18\x1c \x01(\fB\x04\xc8\xf3\x18\x01R\x13userRecipientPubkey\"\xc7\x01\n" +
 	"\rSignedOrderV2\x120\n" +
 	"\x05order\x18\x01 \x01(\v2\x14.task.v1.TaskOrderV3B\x04\xc8\xde\x1f\x00R\x05order\x12)\n" +
 	"\x10signature_scheme\x18\x02 \x01(\tR\x0fsignatureScheme\x12+\n" +
-	"\x0euser_signature\x18\x03 \x01(\fB\x04\xc8\xf3\x18\x01R\ruserSignature\"U\n" +
+	"\x0euser_signature\x18\x03 \x01(\fB\x04\xc8\xf3\x18\x01R\ruserSignature\x12,\n" +
+	"\x12signature_chain_id\x18\x04 \x01(\x04R\x10signatureChainId\"U\n" +
 	"\x11ExistingTaskRefV1\x12\x1d\n" +
 	"\atask_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\x06taskId\x12!\n" +
 	"\ttask_hash\x18\x02 \x01(\fB\x04\xc8\xf3\x18\x02R\btaskHash\"\xa1\x01\n" +

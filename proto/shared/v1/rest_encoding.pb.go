@@ -41,8 +41,10 @@ const (
 	// validation stays plain protobuf bytes and adds no length semantics.
 	// REST_BYTES_ENCODING_PROTOJSON_BASE64 identifies the corresponding protocol value.
 	RESTBytesEncoding_REST_BYTES_ENCODING_PROTOJSON_BASE64 RESTBytesEncoding = 1
-	// A raw 32-byte digest/ID. Output is exactly 64 lowercase hex characters with
-	// no `0x` prefix. Input accepts only that same form and is decoded to raw32
+	// A raw 32-byte digest/ID. Output is `0x` followed by exactly 64 lowercase hex
+	// characters, 66 characters in all. `LOWER` constrains the hex letters only; the
+	// enum name and number stay frozen. Input accepts only that same form (a bare
+	// 64-character hex string is rejected) and is decoded to raw32
 	// before typed validation; a present value must be exactly 32 raw bytes.
 	// REST_BYTES_ENCODING_HASH32_LOWER_HEX identifies the corresponding protocol value.
 	RESTBytesEncoding_REST_BYTES_ENCODING_HASH32_LOWER_HEX RESTBytesEncoding = 2

@@ -13,18 +13,20 @@ import (
 	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-// TestOrderBroadcastAcceptsACarriedSignatureChainID is this node's upgrade gate
-// for wire v0.5.0, which adds signature_chain_id beside the user signature in
-// SignedOrderV2. The field rides inside the nested signed_order, where the
-// envelope's guard does not look -- DecodePayload refuses unknown TOP-level
-// payload fields only -- so the strict carrier decoder is the single thing
-// standing between a v0.5.0 order and this node. While it refused the field,
-// every broadcast carrying one was rejected and the node took no work at all,
-// which is why accepting it has to land before any client signs under v0.5.0.
+// TestOrderBroadcastAcceptsACarriedSignatureChainID covers signature_chain_id
+// beside the user signature in SignedOrderV2. The field rides inside the nested
+// signed_order, where the envelope's guard does not look -- DecodePayload
+// refuses unknown TOP-level payload fields only -- so the strict carrier
+// decoder is the single thing standing between such an order and this node.
+// While it refused the field, every broadcast carrying one was rejected and the
+// node took no work at all.
 //
-// The carrier is built the way the field actually arrives: encoded by a v0.5.0
-// signer, then decoded into the v0.4.0 generated type this node still compiles
-// against, which keeps the field as an unknown and writes it back out verbatim.
+// It was written as an upgrade gate, building the carrier the way the field
+// arrived from a signer ahead of the pinned descriptor: appended as an unknown
+// field that the generated type carried through verbatim. The descriptor now
+// has it, so the fixture sets it directly; what is being checked is unchanged,
+// and the unknown-field path it used to prove is no longer the one real
+// carriers take.
 func TestOrderBroadcastAcceptsACarriedSignatureChainID(t *testing.T) {
 	const (
 		chainID       = "trueopen-localnet-1"
@@ -39,15 +41,13 @@ func TestOrderBroadcastAcceptsACarriedSignatureChainID(t *testing.T) {
 		t.Fatal(err)
 	}
 	var received bustaskv1.SignedOrderV2
-	if err := proto.Unmarshal(protowire.AppendVarint(protowire.AppendTag(raw, 4, protowire.VarintType), walletChainID), &received); err != nil {
+	if err := proto.Unmarshal(raw, &received); err != nil {
 		t.Fatal(err)
 	}
-	if len(received.ProtoReflect().GetUnknown()) == 0 {
-		t.Fatal("signature_chain_id did not survive as an unknown field; this fixture no longer reproduces a v0.5.0 carrier")
-	}
+	received.SignatureChainId = walletChainID
 
-	// The bus guard sees nothing: the unknown field is nested, so the carrier
-	// reaches the decoder rather than being refused at the envelope.
+	// The bus guard sees nothing: the field is nested, so the carrier reaches
+	// the decoder rather than being refused at the envelope.
 	broadcast := &busv1.OrderBroadcastV1{SignedOrder: &received}
 	envelope, err := builderclient.NewUnsignedBusEnvelope(builderclient.UnsignedEnvelopeInput{
 		Kind: builderclient.KindOrderBroadcast, ChainID: chainID,
