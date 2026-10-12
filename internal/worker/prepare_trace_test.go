@@ -60,26 +60,37 @@ func runTracedGeneration(t *testing.T) *traceLines {
 func TestPreparationBeforeTheEngineIsTraced(t *testing.T) {
 	collected := runTracedGeneration(t)
 	line := collected.one(t, "infer_prepare_completed")
+	// One timer per external call, so a slow preparation names the call rather
+	// than a stage that bundles several of them.
 	for _, want := range []string{
-		"total_ms=", "task_generation_ms=", "task_snapshot_ms=", "input_ms=", "output_stream_ms=", "builders=",
+		"total_ms=", "task_facts_ms=", "task_facts_calls=", "generation_params_ms=",
+		"task_snapshot_ms=", "input_ms=", "open_stream_ms=", "builders=",
 	} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("infer_prepare_completed = %q, want it to carry %s", line, want)
 		}
 	}
+	// output_stream_ms bundled the Builder handshakes with a task facts read, so
+	// the field that dominated the measurement could not say which it was.
+	if strings.Contains(line, "output_stream_ms=") {
+		t.Fatalf("infer_prepare_completed = %q, want the bundled field replaced", line)
+	}
 }
 
-// TestTaskFactsRereadsAreCounted makes the redundancy visible rather than
-// leaving it to be rediscovered by reading the call graph. taskGeneration runs
-// once in handleAssignmentFinalized and again in runInferenceAndPersistArtifacts
-// with the same arguments, and each run re-reads immutable facts from the chain.
+// TestTaskFactsAreReadFromTheChainOnce pins what the preparation spends on the
+// task's immutable facts. They are read through one function from several
+// callers -- handleAssignmentFinalized and runInferenceAndPersistArtifacts both
+// resolve the generation parameters, and the output recorder reads them again --
+// and every read used to be its own chain query for a value the code itself
+// documents as immutable.
 //
-// The count is asserted exactly, so caching those facts has to come here and say
-// so rather than silently changing what the milestone reports.
-func TestTaskFactsRereadsAreCounted(t *testing.T) {
+// The count is asserted exactly, because it is the whole point: the facts are
+// immutable for a task, so anything above one read is asking the chain again
+// for a value this node already holds.
+func TestTaskFactsReadsAreCounted(t *testing.T) {
 	line := runTracedGeneration(t).one(t, "infer_prepare_completed")
-	if !strings.Contains(line, "task_generation_calls=2") {
-		t.Fatalf("infer_prepare_completed = %q, want task_generation_calls=2", line)
+	if !strings.Contains(line, "task_facts_calls=1") {
+		t.Fatalf("infer_prepare_completed = %q, want task_facts_calls=1", line)
 	}
 }
 

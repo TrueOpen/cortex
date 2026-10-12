@@ -127,7 +127,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	// returning one stops the daemon.
 	r.redriveWorkerOrders(ctx, tip)
 	now := time.Now().UTC()
-	launch := func(key responsibilityKey, run func() taskOutcome) {
+	launch := func(key responsibilityKey, taskID string, run func() taskOutcome) {
 		if !r.claimInflight(key) {
 			return
 		}
@@ -141,7 +141,23 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			// so a pass that saw the claim gone would read that stale document
 			// and start the same work a second time.
 			defer r.releaseInflight(key)
+			slotRequestedAt := time.Now()
 			r.slots <- struct{}{}
+			// Traced on every acquisition, not only the slow ones: a line that
+			// appeared only when the node was busy would leave a reader unable
+			// to tell a fast acquisition from a milestone never reached.
+			//
+			// This is the whole span between the admission milestone and the
+			// executor's own first line, and until it existed that span was a
+			// gap in the log that an operator could only attribute by guessing.
+			// A node whose model service admits one request at a time spends it
+			// here, waiting for work it is already doing -- including its own
+			// verification of someone else's task.
+			r.cfg.Trace.Event("task_slot_acquired",
+				tasktrace.Str("task", taskID), tasktrace.Str("role", key.role),
+				tasktrace.Hash("task_hash", key.hash),
+				tasktrace.Millis("waited_ms", time.Since(slotRequestedAt)),
+				tasktrace.Int("max_concurrency", cap(r.slots)))
 			// The slot is returned on every exit -- success, failure, panic
 			// unwinding -- because it is the node's whole admission budget for
 			// model work. Leaking one against MaxConcurrency=1 is the node.
@@ -159,13 +175,13 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		}()
 	}
 	launchInfer := func(hash codec.Hash, task store.InferTask) {
-		launch(responsibilityKey{role: "infer", hash: hash}, func() taskOutcome {
+		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, func() taskOutcome {
 			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(ctx, hash, task)
 			return taskOutcome{role: "infer", hash: hash, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
 	}
 	launchVerify := func(hash codec.Hash, task store.VerifyTask) {
-		launch(responsibilityKey{role: "verify", hash: hash}, func() taskOutcome {
+		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, func() taskOutcome {
 			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(ctx, hash, task)
 			return taskOutcome{role: "verify", hash: hash, verify: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})

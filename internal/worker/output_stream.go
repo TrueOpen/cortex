@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -230,9 +231,11 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 	if err != nil {
 		return nil, err
 	}
-	// Reported beside output_stream_ms, because the loop below opens one stream
+	// Reported beside open_stream_ms, because the loop below opens one stream
 	// per Builder in turn: the count is what the duration has to be read against.
 	w.prepare.builders = len(endpoints)
+	openStartedAt := time.Now()
+	defer func() { w.prepare.observe(&w.prepare.openStream, openStartedAt) }()
 	digest, err := builderclient.TaskDataOutputStreamBodyDigest(taskHash.String(), event.SessionID, event.TaskID)
 	if err != nil {
 		return nil, err
@@ -249,28 +252,58 @@ func (w *Worker) openOutputStream(ctx context.Context, event chainclient.Assignm
 	if err != nil {
 		return nil, fmt.Errorf("sign output stream header: %w", err)
 	}
-	streams := make([]builderclient.TaskOutputStream, 0, len(endpoints))
-	builders := make([]string, 0, len(endpoints))
+	// Opened together rather than one after another. Each open is a TLS
+	// handshake and a round trip for the header acknowledgement, and the
+	// Builders share nothing that would order them: separate endpoints,
+	// separate authorisation, the same header signature and the same replay
+	// frames. In turn they cost the sum of the handshakes; together they cost
+	// the slowest one, which on a node deployed away from the Builders is the
+	// difference between most of the wait before the first token and a third of
+	// it.
+	//
+	// Results are written by index, never appended. The fan-out pairs the two
+	// slices by position and names a failing Builder by looking its address up
+	// at the stream's index, so an open that finishes early must not take an
+	// earlier slot.
+	streams := make([]builderclient.TaskOutputStream, len(endpoints))
+	builders := make([]string, len(endpoints))
+	errs := make([]error, len(endpoints))
 	closeOpened := func() {
 		for _, opened := range streams {
-			_ = opened.Close()
+			if opened != nil {
+				_ = opened.Close()
+			}
 		}
 	}
-	for _, endpoint := range endpoints {
-		auth, err := w.cfg.TaskDataAuth.SignRequest(ctx, "UploadTaskOutputStream", key, endpoint.OperatorAddress, digest)
+	var wg sync.WaitGroup
+	for i, endpoint := range endpoints {
+		wg.Go(func() {
+			auth, err := w.cfg.TaskDataAuth.SignRequest(ctx, "UploadTaskOutputStream", key, endpoint.OperatorAddress, digest)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			stream, err := w.cfg.TaskData.OpenTaskOutputStream(
+				builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint,
+				builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, HeaderSignature: headerSignature, ReplayChunks: frames})
+			if err != nil {
+				errs[i] = fmt.Errorf("open output stream to Task Builder %s: %w", endpoint.OperatorAddress, err)
+				return
+			}
+			streams[i] = stream
+			builders[i] = endpoint.OperatorAddress
+		})
+	}
+	// Every open is waited for before any is judged, so a refusal cannot leave
+	// a handshake still running against a Builder nobody will stream to. The
+	// first failure in Builder order is reported, which is the one the serial
+	// loop would have reached.
+	wg.Wait()
+	for _, err := range errs {
 		if err != nil {
 			closeOpened()
 			return nil, err
 		}
-		stream, err := w.cfg.TaskData.OpenTaskOutputStream(
-			builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint,
-			builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, HeaderSignature: headerSignature, ReplayChunks: frames})
-		if err != nil {
-			closeOpened()
-			return nil, fmt.Errorf("open output stream to Task Builder %s: %w", endpoint.OperatorAddress, err)
-		}
-		streams = append(streams, stream)
-		builders = append(builders, endpoint.OperatorAddress)
 	}
 	fanOut, err := newFanOutOutputStream(streams, builders)
 	if err != nil {

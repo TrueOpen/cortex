@@ -28,6 +28,17 @@ func (f *FakeClient) OpenTaskOutputStream(_ context.Context, endpoint string, re
 		}
 	}
 	scope := endpoint + "|" + request.Auth.BuilderAddress + "|" + request.Auth.ChainID + "|" + request.TaskHash + "|" + request.SessionID + "|" + request.TaskID
+	// The Worker opens its streams to every Task Builder at once, so this is the
+	// one method of the fake that is entered concurrently. The resume check
+	// below reads the retained chunks and the write replaces them, which has to
+	// be one critical section rather than two: a second open interleaving
+	// between them would be checked against a prefix that is already stale.
+	//
+	// The streams the method returns are driven serially afterwards -- the
+	// fan-out sends, finishes and closes one at a time -- so their own methods
+	// are left unguarded rather than locked for a concurrency they never see.
+	f.outputStreamsMu.Lock()
+	defer f.outputStreamsMu.Unlock()
 	stored := f.outputStreams[scope]
 	progress := &nexusv1.OutputStreamProgressV1{}
 	if len(stored) > 0 {
