@@ -444,9 +444,11 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 	keeperEvents := opts.KeeperEvents
 	if keeperEvents == nil && cfg.UsesRealDependencies() {
 		keeperEvents = chainclient.NewCometEventClient(chainclient.CometEventClientConfig{
-			RPCURL:    cfg.Node.RPCEndpoint,
-			ChainID:   cfg.ChainID,
-			Transport: nodeTransport,
+			RPCURL:           cfg.Node.RPCEndpoint,
+			ChainID:          cfg.ChainID,
+			Transport:        nodeTransport,
+			MaxBlocksPerPage: cfg.Keeper.EventPageBlocks,
+			FetchConcurrency: cfg.Keeper.EventFetchConcurrency,
 		})
 	}
 	chainStatus := opts.ChainStatus
