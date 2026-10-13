@@ -276,7 +276,7 @@ func (n *nexusProofServer) GetTaskDataMetadata(_ context.Context, req *connect.R
 		response.InferReceipt = receiptToProto(*metadata.SignedInferReceipt)
 	}
 	if b := metadata.EvidenceBundle; b != nil {
-		response.EvidenceBundle = &nexusv1.EvidenceBundleSummaryV1{EvidenceManifestHash: b.EvidenceManifestHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
+		response.EvidenceBundle = &nexusv1.EvidenceBundleSummaryV1{EvidenceManifestHash: builderclient.ToIngressHash32(b.EvidenceManifestHash), EvidenceSchemaHash: builderclient.ToIngressHash32(b.EvidenceSchemaHash), ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
 	}
 	return connect.NewResponse(response), nil
 }
@@ -397,7 +397,7 @@ func (n *nexusProofServer) SubmitInferReceipt(_ context.Context, req *connect.Re
 	if mismatch {
 		hash = strings.Repeat("ff", 32)
 	}
-	return connect.NewResponse(&nexusv1.SubmitInferReceiptResponse{RelayAccepted: true, InferReceiptHash: hash}), nil
+	return connect.NewResponse(&nexusv1.SubmitInferReceiptResponse{RelayAccepted: true, InferReceiptHash: builderclient.ToIngressHash32(hash)}), nil
 }
 
 func (n *nexusProofServer) UploadTaskResultObject(ctx context.Context, stream *connect.ClientStream[nexusv1.UploadTaskResultObjectRequest]) (*connect.Response[nexusv1.UploadTaskResultObjectResponse], error) {

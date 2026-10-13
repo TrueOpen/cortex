@@ -424,20 +424,26 @@ func TestV040RelayCarriesImportedTaskMessageAndChecksDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []bool{false, true} {
-		t.Run(map[bool]string{false: "accepted", true: "wrong digest"}[bad], func(t *testing.T) {
+	// nexus echoes the digest in the IngressAPI spelling, so the bare spelling
+	// of the right digest is refused the same as a wrong digest.
+	for _, bad := range []string{"", "wrong digest", "bare"} {
+		t.Run("response "+bad, func(t *testing.T) {
 			server := newTaskDataTestServer(t, &taskDataTestHandler{infer: func(_ context.Context, r *connect.Request[nexusv1.SubmitInferReceiptRequest]) (*connect.Response[nexusv1.SubmitInferReceiptResponse], error) {
 				if !proto.Equal(r.Msg.Receipt, signedInferReceiptToProto(receipt)) {
 					t.Error("relay receipt changed")
 				}
 				echoed := digest
-				if bad {
+				if bad == "wrong digest" {
 					echoed[0] ^= 1
 				}
-				return connect.NewResponse(&nexusv1.SubmitInferReceiptResponse{RelayAccepted: true, InferReceiptHash: hex.EncodeToString(echoed[:]), Idempotent: true}), nil
+				hash := ToIngressHash32(hex.EncodeToString(echoed[:]))
+				if bad == "bare" {
+					hash = hex.EncodeToString(echoed[:])
+				}
+				return connect.NewResponse(&nexusv1.SubmitInferReceiptResponse{RelayAccepted: true, InferReceiptHash: hash, Idempotent: true}), nil
 			}})
 			err := newTestTaskDataClient(server.Client(), "").SubmitInferReceipt(context.Background(), server.URL, SubmitInferReceiptRequest{Receipt: receipt})
-			if (err != nil) != bad {
+			if (err == nil) != (bad == "") {
 				t.Fatalf("bad=%v err=%v", bad, err)
 			}
 		})
