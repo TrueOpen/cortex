@@ -66,9 +66,11 @@ func (g *manifestGate) Check(ctx context.Context, profiles []config.ModelProfile
 	// evidence_schema_hash, no DECODE_VECTORS artifact), and nothing in the
 	// serving path reads the manifest yet. Verification is skipped so
 	// model_service readiness rests on the model the service actually serves.
+	// The skip is that known choice, not a fault, and every readiness poll
+	// repeats it, so it is logged at Debug where it does not fill the log.
 	for _, profile := range profiles {
 		if err := g.checkProfile(ctx, profile); err != nil {
-			slog.Warn("model manifest verification skipped",
+			slog.Debug("model manifest verification skipped",
 				"model_id", profile.ModelID, "profile_version", profile.ProfileVersion, "error", err)
 		}
 	}
