@@ -69,7 +69,7 @@ func TestWorkerManifestMetadataSeparatesLocatorAndIntegrityHash(t *testing.T) {
 			t.Error("typed manifest reference changed")
 		}
 		b := metadata.EvidenceBundle
-		return connect.NewResponse(&nexusv1.GetTaskDataMetadataResponse{Metadata: &nexusv1.TaskDataObjectMetadataV1{ObjectRef: taskDataKeyToProto(key), SizeBytes: metadata.SizeBytes, Readiness: nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_STORED}, EvidenceBundle: &nexusv1.EvidenceBundleSummaryV1{EvidenceManifestHash: b.EvidenceManifestHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}}), nil
+		return connect.NewResponse(&nexusv1.GetTaskDataMetadataResponse{Metadata: &nexusv1.TaskDataObjectMetadataV1{ObjectRef: taskDataKeyToProto(key), SizeBytes: metadata.SizeBytes, Readiness: nexusv1.TaskDataObjectReadinessV1_TASK_DATA_OBJECT_READINESS_V1_STORED}, EvidenceBundle: &nexusv1.EvidenceBundleSummaryV1{EvidenceManifestHash: ToIngressHash32(b.EvidenceManifestHash), EvidenceSchemaHash: ToIngressHash32(b.EvidenceSchemaHash), ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}}), nil
 	}})
 	got, err := newTestTaskDataClient(server.Client(), "").GetTaskDataMetadata(context.Background(), server.URL, GetTaskDataMetadataRequest{Key: key, Auth: auth})
 	if err != nil || got.EvidenceBundle == nil || got.EvidenceBundle.EvidenceManifestHash != want {

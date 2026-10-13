@@ -102,19 +102,24 @@ func (c *ConnectTaskDataClient) GetTaskDataMetadata(ctx context.Context, endpoin
 	result.RetainUntilHeight = response.Msg.RetainUntilHeight
 	if response.Msg.EvidenceBundle != nil {
 		b := response.Msg.EvidenceBundle
+		manifestHash, manifestOK := FromIngressHash32(b.EvidenceManifestHash)
+		schemaHash, schemaOK := FromIngressHash32(b.EvidenceSchemaHash)
+		if !manifestOK || !schemaOK {
+			return TaskDataMetadata{}, fmt.Errorf("evidence bundle summary hashes must be 0x followed by 64 lowercase hex characters")
+		}
 		// A Worker manifest is addressed by its typed commitment, not by the hash
 		// of its bytes; only a Verifier manifest's content hash is the manifest
 		// hash itself.
-		if request.Key.Kind != DataKindEvidenceManifest || (request.Key.EvidenceProducerKind != EvidenceProducerWorker && b.EvidenceManifestHash != request.Key.ContentHash) || b.ManifestSizeBytes != result.SizeBytes || b.ArtifactCount == 0 {
+		if request.Key.Kind != DataKindEvidenceManifest || (request.Key.EvidenceProducerKind != EvidenceProducerWorker && manifestHash != request.Key.ContentHash) || b.ManifestSizeBytes != result.SizeBytes || b.ArtifactCount == 0 {
 			return TaskDataMetadata{}, fmt.Errorf("evidence bundle summary does not match manifest")
 		}
-		if _, err := taskDataHash("evidence_manifest_hash", b.EvidenceManifestHash); err != nil {
+		if _, err := taskDataHash("evidence_manifest_hash", manifestHash); err != nil {
 			return TaskDataMetadata{}, err
 		}
-		if _, err := taskDataHash("evidence_schema_hash", b.EvidenceSchemaHash); err != nil {
+		if _, err := taskDataHash("evidence_schema_hash", schemaHash); err != nil {
 			return TaskDataMetadata{}, err
 		}
-		result.EvidenceBundle = &EvidenceBundleSummary{EvidenceManifestHash: b.EvidenceManifestHash, EvidenceSchemaHash: b.EvidenceSchemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
+		result.EvidenceBundle = &EvidenceBundleSummary{EvidenceManifestHash: manifestHash, EvidenceSchemaHash: schemaHash, ArtifactCount: b.ArtifactCount, ArtifactTotalSizeBytes: b.ArtifactTotalSizeBytes, ManifestSizeBytes: b.ManifestSizeBytes}
 	} else if request.Key.Kind == DataKindEvidenceManifest {
 		return TaskDataMetadata{}, fmt.Errorf("manifest metadata requires bundle summary")
 	}
@@ -425,7 +430,7 @@ func (c *ConnectTaskDataClient) SubmitInferReceipt(ctx context.Context, endpoint
 	if err != nil {
 		return classifyConnectError(nexusv1connect.IngressAPISubmitInferReceiptProcedure, err)
 	}
-	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.InferReceiptHash != hex.EncodeToString(digest[:]) {
+	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.InferReceiptHash != ToIngressHash32(hex.EncodeToString(digest[:])) {
 		return fmt.Errorf("infer receipt relay acknowledgment has wrong material digest")
 	}
 	return nil
@@ -449,10 +454,10 @@ func (c *ConnectTaskDataClient) SubmitVerifyCommit(ctx context.Context, endpoint
 	if err != nil {
 		return VerifyRelayAck{}, classifyConnectError(nexusv1connect.IngressAPISubmitVerifyCommitProcedure, err)
 	}
-	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.VerifyCommitSigningDigest != hex.EncodeToString(digest[:]) {
+	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.VerifyCommitSigningDigest != ToIngressHash32(hex.EncodeToString(digest[:])) {
 		return VerifyRelayAck{}, fmt.Errorf("verify commit relay acknowledgment has wrong material digest")
 	}
-	raw, err := taskDataHash("commit_key", response.Msg.CommitKey)
+	raw, err := ingressHash32Bytes("commit_key", response.Msg.CommitKey)
 	if err != nil {
 		return VerifyRelayAck{}, err
 	}
@@ -487,15 +492,19 @@ func (c *ConnectTaskDataClient) SubmitVerifyResult(ctx context.Context, endpoint
 	if err != nil {
 		return VerifyRelayAck{}, classifyConnectError(nexusv1connect.IngressAPISubmitVerifyResultProcedure, err)
 	}
-	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.ResultReceiptSigningDigest != hex.EncodeToString(digest[:]) {
+	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.ResultReceiptSigningDigest != ToIngressHash32(hex.EncodeToString(digest[:])) {
 		return VerifyRelayAck{}, fmt.Errorf("verify result relay acknowledgment has wrong material digest")
 	}
-	raw, err := taskDataHash("result_payload_hash", response.Msg.ResultPayloadHash)
-	if err != nil {
-		return VerifyRelayAck{}, err
-	}
+	// nexus leaves result_payload_hash unset: the Keeper recomputes it and the
+	// receipt does not assert it. A value that is present still has to be well formed.
 	var payload codec.Hash
-	copy(payload[:], raw)
+	if response.Msg.ResultPayloadHash != "" {
+		raw, err := ingressHash32Bytes("result_payload_hash", response.Msg.ResultPayloadHash)
+		if err != nil {
+			return VerifyRelayAck{}, err
+		}
+		copy(payload[:], raw)
+	}
 	return VerifyRelayAck{Idempotent: response.Msg.Idempotent, SigningDigest: digest, ResultPayloadHash: payload}, nil
 }
 

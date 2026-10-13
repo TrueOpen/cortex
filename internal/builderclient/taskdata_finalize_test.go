@@ -159,7 +159,7 @@ func TestV040VerifyCommitRelayChecksBothReturnedIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"", "digest", "key"} {
+	for _, bad := range []string{"", "digest", "key", "bare digest", "bare key"} {
 		t.Run("response "+bad, func(t *testing.T) {
 			server := newTaskDataTestServer(t, &taskDataTestHandler{commit: func(_ context.Context, r *connect.Request[nexusv1.SubmitVerifyCommitRequest]) (*connect.Response[nexusv1.SubmitVerifyCommitResponse], error) {
 				if !proto.Equal(r.Msg.Commit, signedVerifyCommitToProto(commit)) {
@@ -172,7 +172,14 @@ func TestV040VerifyCommitRelayChecksBothReturnedIdentities(t *testing.T) {
 				if bad == "key" {
 					gotKey[0] ^= 1
 				}
-				return connect.NewResponse(&nexusv1.SubmitVerifyCommitResponse{RelayAccepted: true, CommitKey: hex.EncodeToString(gotKey[:]), VerifyCommitSigningDigest: hex.EncodeToString(gotDigest[:]), Idempotent: true}), nil
+				keyText, digestText := ToIngressHash32(hex.EncodeToString(gotKey[:])), ToIngressHash32(hex.EncodeToString(gotDigest[:]))
+				if bad == "bare key" {
+					keyText = hex.EncodeToString(gotKey[:])
+				}
+				if bad == "bare digest" {
+					digestText = hex.EncodeToString(gotDigest[:])
+				}
+				return connect.NewResponse(&nexusv1.SubmitVerifyCommitResponse{RelayAccepted: true, CommitKey: keyText, VerifyCommitSigningDigest: digestText, Idempotent: true}), nil
 			}})
 			ack, err := newTestTaskDataClient(server.Client(), "").SubmitVerifyCommit(context.Background(), server.URL, SubmitVerifyCommitRequest{Commit: commit})
 			if (err == nil) != (bad == "") {
@@ -201,5 +208,46 @@ func TestV040AuthenticationRejectsMalformedSignatureBeforeNetwork(t *testing.T) 
 	changed.BodyDigest = codec.Hash{}
 	if _, err := TaskDataRequestSigningHash(changed); err == nil {
 		t.Fatal("unsigned body digest accepted")
+	}
+}
+
+func TestVerifyResultRelayReadsTheIngressSpelling(t *testing.T) {
+	pair := newTaskDataTestKeyPair(t)
+	receipt := taskDataTestResultReceipt(t, pair)
+	digest, err := nodewire.ResultReceiptSigningDigest(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := codec.HashBytes([]byte("result-payload"))
+	for _, bad := range []string{"", "no payload", "digest", "bare digest", "bare payload"} {
+		t.Run("response "+bad, func(t *testing.T) {
+			server := newTaskDataTestServer(t, &taskDataTestHandler{result: func(context.Context, *connect.Request[nexusv1.SubmitVerifyResultRequest]) (*connect.Response[nexusv1.SubmitVerifyResultResponse], error) {
+				gotDigest := digest
+				if bad == "digest" {
+					gotDigest[0] ^= 1
+				}
+				digestText, payloadText := ToIngressHash32(hex.EncodeToString(gotDigest[:])), ToIngressHash32(payload.String())
+				if bad == "bare digest" {
+					digestText = hex.EncodeToString(gotDigest[:])
+				}
+				if bad == "bare payload" {
+					payloadText = payload.String()
+				}
+				if bad == "no payload" {
+					payloadText = ""
+				}
+				return connect.NewResponse(&nexusv1.SubmitVerifyResultResponse{RelayAccepted: true, ResultReceiptSigningDigest: digestText, ResultPayloadHash: payloadText}), nil
+			}})
+			ack, err := newTestTaskDataClient(server.Client(), "").SubmitVerifyResult(context.Background(), server.URL, SubmitVerifyResultRequest{Receipt: receipt})
+			if (err == nil) != (bad == "" || bad == "no payload") {
+				t.Fatalf("ack=%+v err=%v", ack, err)
+			}
+			if bad == "no payload" && ack.ResultPayloadHash != (codec.Hash{}) {
+				t.Fatalf("ack=%+v, want an unset payload hash left unset", ack)
+			}
+			if bad == "" && (ack.SigningDigest != digest || ack.ResultPayloadHash != payload) {
+				t.Fatalf("ack=%+v, want the bare digest and payload hash", ack)
+			}
+		})
 	}
 }

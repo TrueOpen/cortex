@@ -1,5 +1,7 @@
 package builderclient
 
+import "fmt"
+
 // The text form of a Hash32 differs between the IngressAPI and this node.
 //
 // On the IngressAPI a Hash32 carried as a string is "0x" followed by exactly 64
@@ -45,4 +47,14 @@ func FromIngressHash32(value string) (string, bool) {
 		}
 	}
 	return value[len(ingressHash32Prefix):], true
+}
+
+// ingressHash32Bytes reads a Hash32 an IngressAPI response carries as a string
+// and decodes it, refusing the bare spelling the same as any other malformed one.
+func ingressHash32Bytes(field, value string) ([]byte, error) {
+	bare, ok := FromIngressHash32(value)
+	if !ok {
+		return nil, fmt.Errorf("%s must be 0x followed by 64 lowercase hex characters", field)
+	}
+	return taskDataHash(field, bare)
 }
