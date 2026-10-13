@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -88,32 +89,83 @@ type CometEventClientConfig struct {
 	// Identifier decides which protocol event each raw chain event is. Nil
 	// selects released message names and the typed protocol event envelope.
 	Identifier EventIdentifier
+	// MaxBlocksPerPage bounds how many blocks one FinalizedEvents call reads.
+	// Zero selects defaultMaxBlocksPerPage.
+	MaxBlocksPerPage uint64
+	// FetchConcurrency is how many blocks of a page are read at once. Zero
+	// selects defaultFetchConcurrency.
+	FetchConcurrency int
 }
 
+// A node that fell behind -- down for a day while the chain kept producing --
+// used to read the whole backlog as one page, one block after another, before
+// the poller could commit anything or report progress. Against a remote chain
+// at about 0.9s per block a 48k-block backlog took more than ten hours for the
+// first page alone, readiness said "Keeper event lag is not known yet" the
+// whole time, and one failed request threw the page away and started over.
+// A bounded page lets the poller commit and report each step, and reading the
+// blocks of a page concurrently takes the round trip off the critical path.
+const (
+	defaultMaxBlocksPerPage = 200
+	defaultFetchConcurrency = 8
+)
+
 type CometEventClient struct {
-	rpcURL        string
-	chainID       string
-	finalityDepth uint64
-	http          *http.Client
-	identifier    EventIdentifier
+	rpcURL           string
+	chainID          string
+	finalityDepth    uint64
+	http             *http.Client
+	identifier       EventIdentifier
+	maxBlocksPerPage uint64
+	fetchConcurrency int
 }
 
 func NewCometEventClient(cfg CometEventClientConfig) *CometEventClient {
+	maxBlocks := cfg.MaxBlocksPerPage
+	if maxBlocks == 0 {
+		maxBlocks = defaultMaxBlocksPerPage
+	}
+	concurrency := cfg.FetchConcurrency
+	if concurrency <= 0 {
+		concurrency = defaultFetchConcurrency
+	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second, Transport: cfg.Transport}
+		httpClient = &http.Client{Timeout: 10 * time.Second, Transport: pooledTransport(cfg.Transport, concurrency)}
 	}
 	identifier := cfg.Identifier
 	if identifier == nil {
 		identifier = MessageNameEventIdentifier()
 	}
 	return &CometEventClient{
-		rpcURL:        strings.TrimRight(strings.TrimSpace(cfg.RPCURL), "/"),
-		chainID:       strings.TrimSpace(cfg.ChainID),
-		finalityDepth: cfg.FinalityDepth,
-		http:          httpClient,
-		identifier:    identifier,
+		rpcURL:           strings.TrimRight(strings.TrimSpace(cfg.RPCURL), "/"),
+		chainID:          strings.TrimSpace(cfg.ChainID),
+		finalityDepth:    cfg.FinalityDepth,
+		http:             httpClient,
+		identifier:       identifier,
+		maxBlocksPerPage: maxBlocks,
+		fetchConcurrency: concurrency,
 	}
+}
+
+// pooledTransport keeps enough idle connections for concurrent block reads.
+// http.Transport keeps two per host by default, so the other readers would
+// open a fresh TLS connection for nearly every block -- a full handshake to a
+// remote chain each time. A transport that is not an *http.Transport is used
+// as given.
+func pooledTransport(base http.RoundTripper, concurrency int) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	transport, ok := base.(*http.Transport)
+	if !ok {
+		return base
+	}
+	pooled := transport.Clone()
+	if pooled.MaxIdleConnsPerHost < concurrency {
+		pooled.MaxIdleConnsPerHost = concurrency
+	}
+	return pooled
 }
 
 func (c *CometEventClient) FinalizedEvents(ctx context.Context, after EventPosition) (KeeperEventsPage, error) {
@@ -148,20 +200,75 @@ func (c *CometEventClient) FinalizedEvents(ctx context.Context, after EventPosit
 		return page, nil
 	}
 	startHeight := after.Height + 1
+	endHeight := finalizedHeight
+	if endHeight-startHeight+1 > c.maxBlocksPerPage {
+		endHeight = startHeight + c.maxBlocksPerPage - 1
+	}
+	// A bounded page answers for the blocks through endHeight and nothing
+	// beyond, so that is the height it reports as finalized: the poller commits
+	// its cursor there and the next call continues from it. ChainHeight stays
+	// the tip, so the page's lag still tells how far there is to go.
+	page.FinalizedHeight = endHeight
 	page.RangeStartHeight = startHeight
-	page.RangeEndHeight = finalizedHeight
-	for height := startHeight; height <= finalizedHeight; height++ {
-		events, err := c.blockEvents(ctx, height)
-		if err != nil {
-			return KeeperEventsPage{}, err
-		}
+	page.RangeEndHeight = endHeight
+	blocks, err := c.readBlocks(ctx, startHeight, endHeight)
+	if err != nil {
+		return KeeperEventsPage{}, err
+	}
+	for i, events := range blocks {
 		page.Events = append(page.Events, events...)
 		if len(events) > 0 {
-			page.LastEventHeight = height
+			page.LastEventHeight = startHeight + uint64(i)
 		}
 	}
-	page.LastPosition = BlockEndPosition(finalizedHeight)
+	page.LastPosition = BlockEndPosition(endHeight)
 	return page, nil
+}
+
+// readBlocks reads the events of every block in [start, end], up to
+// fetchConcurrency at a time, and returns them in height order. The first
+// failure cancels the reads still in flight and is returned.
+func (c *CometEventClient) readBlocks(ctx context.Context, start, end uint64) ([][]KeeperEvent, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	blocks := make([][]KeeperEvent, end-start+1)
+	heights := make(chan uint64)
+	var (
+		wg       sync.WaitGroup
+		errOnce  sync.Once
+		firstErr error
+	)
+	for i := 0; i < c.fetchConcurrency && i < len(blocks); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for height := range heights {
+				events, err := c.blockEvents(ctx, height)
+				if err != nil {
+					errOnce.Do(func() { firstErr = err; cancel() })
+					continue
+				}
+				blocks[height-start] = events
+			}
+		}()
+	}
+feed:
+	for height := start; height <= end; height++ {
+		select {
+		case heights <- height:
+		case <-ctx.Done():
+			break feed
+		}
+	}
+	close(heights)
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return blocks, nil
 }
 
 func (c *CometEventClient) ChainStatus(ctx context.Context) (uint64, string, error) {
