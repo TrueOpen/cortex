@@ -495,12 +495,16 @@ func (c *ConnectTaskDataClient) SubmitVerifyResult(ctx context.Context, endpoint
 	if response == nil || response.Msg == nil || !response.Msg.RelayAccepted || response.Msg.ResultReceiptSigningDigest != ToIngressHash32(hex.EncodeToString(digest[:])) {
 		return VerifyRelayAck{}, fmt.Errorf("verify result relay acknowledgment has wrong material digest")
 	}
-	raw, err := ingressHash32Bytes("result_payload_hash", response.Msg.ResultPayloadHash)
-	if err != nil {
-		return VerifyRelayAck{}, err
-	}
+	// nexus leaves result_payload_hash unset: the Keeper recomputes it and the
+	// receipt does not assert it. A value that is present still has to be well formed.
 	var payload codec.Hash
-	copy(payload[:], raw)
+	if response.Msg.ResultPayloadHash != "" {
+		raw, err := ingressHash32Bytes("result_payload_hash", response.Msg.ResultPayloadHash)
+		if err != nil {
+			return VerifyRelayAck{}, err
+		}
+		copy(payload[:], raw)
+	}
 	return VerifyRelayAck{Idempotent: response.Msg.Idempotent, SigningDigest: digest, ResultPayloadHash: payload}, nil
 }
 

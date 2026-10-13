@@ -219,7 +219,7 @@ func TestVerifyResultRelayReadsTheIngressSpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := codec.HashBytes([]byte("result-payload"))
-	for _, bad := range []string{"", "digest", "bare digest", "bare payload"} {
+	for _, bad := range []string{"", "no payload", "digest", "bare digest", "bare payload"} {
 		t.Run("response "+bad, func(t *testing.T) {
 			server := newTaskDataTestServer(t, &taskDataTestHandler{result: func(context.Context, *connect.Request[nexusv1.SubmitVerifyResultRequest]) (*connect.Response[nexusv1.SubmitVerifyResultResponse], error) {
 				gotDigest := digest
@@ -233,11 +233,17 @@ func TestVerifyResultRelayReadsTheIngressSpelling(t *testing.T) {
 				if bad == "bare payload" {
 					payloadText = payload.String()
 				}
+				if bad == "no payload" {
+					payloadText = ""
+				}
 				return connect.NewResponse(&nexusv1.SubmitVerifyResultResponse{RelayAccepted: true, ResultReceiptSigningDigest: digestText, ResultPayloadHash: payloadText}), nil
 			}})
 			ack, err := newTestTaskDataClient(server.Client(), "").SubmitVerifyResult(context.Background(), server.URL, SubmitVerifyResultRequest{Receipt: receipt})
-			if (err == nil) != (bad == "") {
+			if (err == nil) != (bad == "" || bad == "no payload") {
 				t.Fatalf("ack=%+v err=%v", ack, err)
+			}
+			if bad == "no payload" && ack.ResultPayloadHash != (codec.Hash{}) {
+				t.Fatalf("ack=%+v, want an unset payload hash left unset", ack)
 			}
 			if bad == "" && (ack.SigningDigest != digest || ack.ResultPayloadHash != payload) {
 				t.Fatalf("ack=%+v, want the bare digest and payload hash", ack)
