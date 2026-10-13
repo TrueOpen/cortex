@@ -182,6 +182,13 @@ type KeeperConfig struct {
 	APIURL         string `yaml:"api_url"`
 	PollIntervalMS uint64 `yaml:"poll_interval_ms"`
 	MaxLagBlocks   uint64 `yaml:"max_lag_blocks"`
+	// EventPageBlocks bounds how many blocks one event read covers while the
+	// node catches up; EventFetchConcurrency is how many of them are read at
+	// once. Zero takes the event client's default for either. Catch-up speed
+	// against a remote chain is set by the round trip, so concurrency is the
+	// knob that matters there.
+	EventPageBlocks       uint64 `yaml:"event_page_blocks"`
+	EventFetchConcurrency int    `yaml:"event_fetch_concurrency"`
 }
 
 // Task input resolver modes. fixture reads plaintext input from a local

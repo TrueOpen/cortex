@@ -1038,6 +1038,8 @@ keeper:
   api_url: https://keeper.devnet.trueopen.xyz
   poll_interval_ms: 250
   max_lag_blocks: 15
+  event_page_blocks: 300
+  event_fetch_concurrency: 16
 task_execution:
   retry_delay_ms: 5000
   input_resolver: nexus
@@ -1085,7 +1087,7 @@ signer:
 	if cfg.Keeper.APIURL != "https://keeper.devnet.trueopen.xyz" {
 		t.Fatalf("Keeper.APIURL = %q", cfg.Keeper.APIURL)
 	}
-	if cfg.Keeper.PollIntervalMS != 250 || cfg.Keeper.MaxLagBlocks != 15 {
+	if cfg.Keeper.PollIntervalMS != 250 || cfg.Keeper.MaxLagBlocks != 15 || cfg.Keeper.EventPageBlocks != 300 || cfg.Keeper.EventFetchConcurrency != 16 {
 		t.Fatalf("Keeper polling config = %#v", cfg.Keeper)
 	}
 	if cfg.TaskExecution.RetryDelayMS != 5000 {

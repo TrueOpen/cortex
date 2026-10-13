@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -670,5 +671,51 @@ func TestCometEventClientFailsThePageOnOneFailedBlock(t *testing.T) {
 	}
 	if !IsRetryable(err) {
 		t.Fatalf("error = %v, want retryable", err)
+	}
+}
+
+// The block is read only to hash successful transactions. A block with none --
+// empty, or carrying only failed transactions -- is answered from its results
+// alone, which halves the round trips of a catch-up; its finalize-block events
+// are still read.
+func TestCometEventClientReadsTheBlockOnlyForSuccessfulTransactions(t *testing.T) {
+	txBytes := base64.StdEncoding.EncodeToString([]byte("signed-tx"))
+	var mu sync.Mutex
+	blockReads := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		height := r.URL.Query().Get("height")
+		switch r.URL.Path {
+		case "/status":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"node_info":{"network":"trueopen-devnet-1"},"sync_info":{"latest_block_height":"3"}}}`))
+		case "/block_results":
+			switch height {
+			case "1": // empty, with a finalize-block event
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"1","txs_results":[],"finalize_block_events":[{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}}`))
+			case "2": // only a failed transaction
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"2","txs_results":[{"code":5,"events":[]}],"finalize_block_events":[]}}`))
+			case "3": // a successful transaction
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"3","txs_results":[{"code":0,"events":[{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"task_id","value":"task-3","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}],"finalize_block_events":[]}}`))
+			}
+		case "/block":
+			mu.Lock()
+			blockReads[height]++
+			mu.Unlock()
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"block":{"header":{"chain_id":"trueopen-devnet-1","height":%q},"data":{"txs":["%s"]}}}}`, height, txBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := NewCometEventClient(CometEventClientConfig{RPCURL: server.URL, ChainID: "trueopen-devnet-1"})
+
+	page, err := client.FinalizedEvents(context.Background(), EventPosition{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]int{"3": 1}; !reflect.DeepEqual(blockReads, want) {
+		t.Fatalf("block reads = %v, want only the block with a successful transaction", blockReads)
+	}
+	if len(page.Events) != 2 || page.Events[0].Height != 1 || page.Events[1].Height != 3 || page.Events[1].TxHash == "" {
+		t.Fatalf("events = %+v, want the finalize-block event of 1 and the hashed transaction event of 3", page.Events)
 	}
 }

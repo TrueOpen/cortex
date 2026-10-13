@@ -105,9 +105,13 @@ type CometEventClientConfig struct {
 // whole time, and one failed request threw the page away and started over.
 // A bounded page lets the poller commit and report each step, and reading the
 // blocks of a page concurrently takes the round trip off the critical path.
+//
+// Each block read is bound by the round trip, not by the chain node, so the
+// default runs 32 at a time: CometBFT accepts hundreds of RPC connections, and
+// at 8 a page from the vast.ai nodes still took ten seconds for 200 blocks.
 const (
-	defaultMaxBlocksPerPage = 200
-	defaultFetchConcurrency = 8
+	defaultMaxBlocksPerPage = 500
+	defaultFetchConcurrency = 32
 )
 
 type CometEventClient struct {
@@ -323,6 +327,25 @@ func (c *CometEventClient) blockEvents(ctx context.Context, height uint64) ([]Ke
 	}
 	if resultsResponse.Result.Height != strconv.FormatUint(height, 10) {
 		return nil, fmt.Errorf("CometBFT block results height %q does not match requested %d", resultsResponse.Result.Height, height)
+	}
+
+	// The block itself is read only for the bytes of successful transactions,
+	// to name each one by its hash. Most blocks carry none, and skipping the
+	// read for them halves the round trips of a catch-up. The chain identity
+	// the block header would confirm was already checked against /status for
+	// this page.
+	hasSuccessfulTx := false
+	for _, result := range resultsResponse.Result.TxsResults {
+		if result.Code == 0 {
+			hasSuccessfulTx = true
+			break
+		}
+	}
+	if !hasSuccessfulTx {
+		if len(resultsResponse.Result.FinalizeBlockEvents) == 0 {
+			return nil, nil
+		}
+		return parseCometEvents(c.identifier, c.chainID, height, ^uint32(0), "", resultsResponse.Result.FinalizeBlockEvents)
 	}
 
 	var blockResponse struct {
