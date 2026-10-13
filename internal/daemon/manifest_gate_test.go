@@ -61,7 +61,7 @@ func captureManifestWarnings(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	return &buf
 }
@@ -200,5 +200,24 @@ func TestNewManifestGateUsesTheConfiguredSources(t *testing.T) {
 	cfg.ModelManifest.IPFSGateway = "http://127.0.0.1:8080"
 	if _, err := newManifestGate(cfg, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The skip is a deployment choice repeated on every readiness poll, so it stays
+// out of a log written at the production level.
+func TestManifestGateSkipIsNotLoggedAtInfo(t *testing.T) {
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	gate := &manifestGate{
+		operator: gateOperator, reader: gateProfileReader{proposer: "trueopen1someoneelse"},
+		fetcher: &gateFetcher{err: errors.New("committed manifest is invalid")},
+	}
+	if err := gate.Check(context.Background(), gateProfiles()); err != nil {
+		t.Fatalf("unverified manifest held the profile: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("skip was logged at Info: %q", buf.String())
 	}
 }
