@@ -10,7 +10,9 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestCometEventClientReadsFinalizedKeeperEventsWithStablePositions(t *testing.T) {
@@ -534,5 +536,139 @@ func TestParseCometEventsRecognizesVerifyTransitionEvents(t *testing.T) {
 				t.Fatalf("events = %#v, want a known %s", events, want)
 			}
 		})
+	}
+}
+
+// cometChainServer serves a chain whose tip is tip; every block carries one
+// assignment event naming its own height, so a test can see which blocks were
+// read and in what order. fail, when nonzero, is a height whose block results
+// answer 503.
+func cometChainServer(t *testing.T, tip uint64, fail uint64, inFlight *atomicMax) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		height := r.URL.Query().Get("height")
+		switch r.URL.Path {
+		case "/status":
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"node_info":{"network":"trueopen-devnet-1"},"sync_info":{"latest_block_height":"%d"}}}`, tip)
+		case "/block_results":
+			if inFlight != nil {
+				inFlight.enter()
+				defer inFlight.leave()
+			}
+			if fail != 0 && height == strconv.FormatUint(fail, 10) {
+				http.Error(w, "not ready", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"height":%q,"txs_results":[],"finalize_block_events":[{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"task_id","value":"task-%s","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}}`, height, height)
+		case "/block":
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"block":{"header":{"chain_id":"trueopen-devnet-1","height":%q},"data":{"txs":[]}}}}`, height)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+type atomicMax struct {
+	mu      sync.Mutex
+	current int
+	max     int
+}
+
+func (a *atomicMax) enter() {
+	a.mu.Lock()
+	a.current++
+	if a.current > a.max {
+		a.max = a.current
+	}
+	a.mu.Unlock()
+	// Hold each read briefly so concurrent readers overlap.
+	time.Sleep(5 * time.Millisecond)
+}
+
+func (a *atomicMax) leave() {
+	a.mu.Lock()
+	a.current--
+	a.mu.Unlock()
+}
+
+// A node far behind the tip reads one bounded page at a time. The page answers
+// for the blocks it read and no further, so the poller commits there and the
+// next call continues; the chain height stays the tip, so the lag still shows
+// how far there is to go.
+func TestCometEventClientBoundsACatchUpPage(t *testing.T) {
+	server := cometChainServer(t, 1000, 0, nil)
+	defer server.Close()
+	client := NewCometEventClient(CometEventClientConfig{RPCURL: server.URL, ChainID: "trueopen-devnet-1", MaxBlocksPerPage: 50})
+
+	page, err := client.FinalizedEvents(context.Background(), EventPosition{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.RangeStartHeight != 1 || page.RangeEndHeight != 50 || page.FinalizedHeight != 50 || !page.RangeComplete || page.LastPosition != BlockEndPosition(50) {
+		t.Fatalf("page range = %d-%d finalized %d complete %v last %v, want the first 50 blocks", page.RangeStartHeight, page.RangeEndHeight, page.FinalizedHeight, page.RangeComplete, page.LastPosition)
+	}
+	if page.ChainHeight != 1000 || page.Lag() != 950 {
+		t.Fatalf("chain height %d lag %d, want the tip 1000 and a lag of 950", page.ChainHeight, page.Lag())
+	}
+	if len(page.Events) != 50 || page.LastEventHeight != 50 {
+		t.Fatalf("read %d events, last at %d; want one per block through 50", len(page.Events), page.LastEventHeight)
+	}
+
+	next, err := client.FinalizedEvents(context.Background(), page.LastPosition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.RangeStartHeight != 51 || next.RangeEndHeight != 100 {
+		t.Fatalf("next page range = %d-%d, want 51-100", next.RangeStartHeight, next.RangeEndHeight)
+	}
+
+	// Near the tip the page ends at the tip, as before.
+	last, err := client.FinalizedEvents(context.Background(), EventPosition{Height: 990})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last.RangeStartHeight != 991 || last.RangeEndHeight != 1000 || last.FinalizedHeight != 1000 || last.Lag() != 0 {
+		t.Fatalf("tail page = %d-%d finalized %d lag %d, want 991-1000 at the tip", last.RangeStartHeight, last.RangeEndHeight, last.FinalizedHeight, last.Lag())
+	}
+}
+
+// The blocks of a page are read concurrently, and the events still come back
+// in chain order: the reconciler applies them block by block.
+func TestCometEventClientReadsAPageConcurrentlyInOrder(t *testing.T) {
+	inFlight := &atomicMax{}
+	server := cometChainServer(t, 64, 0, inFlight)
+	defer server.Close()
+	client := NewCometEventClient(CometEventClientConfig{RPCURL: server.URL, ChainID: "trueopen-devnet-1", FetchConcurrency: 8})
+
+	page, err := client.FinalizedEvents(context.Background(), EventPosition{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inFlight.max < 2 || inFlight.max > 8 {
+		t.Fatalf("at most %d block reads in flight, want concurrency bounded by 8", inFlight.max)
+	}
+	if len(page.Events) != 64 {
+		t.Fatalf("read %d events, want 64", len(page.Events))
+	}
+	for i, event := range page.Events {
+		if event.Height != uint64(i+1) {
+			t.Fatalf("event %d is at height %d, want chain order", i, event.Height)
+		}
+	}
+}
+
+// One failed block read fails the page rather than returning a page with a
+// hole in it, and it stays retryable so the poller backs off and tries again.
+func TestCometEventClientFailsThePageOnOneFailedBlock(t *testing.T) {
+	server := cometChainServer(t, 100, 37, nil)
+	defer server.Close()
+	client := NewCometEventClient(CometEventClientConfig{RPCURL: server.URL, ChainID: "trueopen-devnet-1"})
+
+	page, err := client.FinalizedEvents(context.Background(), EventPosition{})
+	if err == nil {
+		t.Fatalf("page = %d events through %d, want the failed block to fail the page", len(page.Events), page.RangeEndHeight)
+	}
+	if !IsRetryable(err) {
+		t.Fatalf("error = %v, want retryable", err)
 	}
 }
