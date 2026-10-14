@@ -10,7 +10,6 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -223,17 +222,12 @@ func TestSignedOrderVerifiesUnderTheCarriedChainID(t *testing.T) {
 	}
 	compact := ecdsa.SignCompact(key, digest[:], false)
 	signature := append(append([]byte(nil), compact[1:]...), compact[0])
-	// wire v0.4.0's generated type has no signature_chain_id, so the field is
-	// appended as the v0.5.0 signer writes it.
 	carrier := func(id uint64) string {
-		raw, err := proto.Marshal(&taskv1.SignedOrderV2{Order: &order, SignatureScheme: "eip712", UserSignature: signature})
+		raw, err := proto.Marshal(&taskv1.SignedOrderV2{Order: &order, SignatureScheme: "eip712", UserSignature: signature, SignatureChainId: id})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if id == 0 {
-			return hex.EncodeToString(raw)
-		}
-		return hex.EncodeToString(protowire.AppendVarint(protowire.AppendTag(raw, 4, protowire.VarintType), id))
+		return hex.EncodeToString(raw)
 	}
 
 	if err := VerifySignedOrderEnvelope(carrier(walletChainID), 424242, "uusdc"); err != nil {

@@ -43,7 +43,6 @@
     "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgCreateSession\",\"value\":{\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
     "cosmos_chain_id": "trueopen-golden-1",
     "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgCreateSession msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgCreateSession(TypeValue value,string type)TypeValue(string signer_address)",
-    "evm_chain_id": "424242",
     "fee_amount": "12345",
     "fee_denom": "uusdc",
     "fee_denom_source": "The fee Coin denom must be the chain business_denom (hub.v1 Params phase0.business_denom); \"uusdc\" is its default.",
@@ -62,11 +61,13 @@
       "TypeMsgCreateSession(TypeValue value,string type)",
       "TypeValue(string signer_address)"
     ],
-    "type_hash": "e848e9290ee4903553832df1b0fb404da6ac476208fe3503f09770dd3f9f6142"
+    "type_hash": "e848e9290ee4903553832df1b0fb404da6ac476208fe3503f09770dd3f9f6142",
+    "typed_data_chain_id": "424242"
   },
   "negative_cases": [
     "wrong cosmos chain_id",
-    "wrong EIP-712 chainId",
+    "signature under an EIP-712 domain chainId other than the carried typed_data_chain_id",
+    "typed_data_chain_id of 0 or above MaxInt64",
     "unknown or mismatched amino.name",
     "missing, renamed, or reordered msg0",
     "non-zero timeout_height",
@@ -93,11 +94,11 @@
     },
     {
       "base": "sdk_request",
-      "change": "the verifier rebuilds the domain with chainId 424243",
+      "change": "the original signature is kept but the carried signature_chain_id is changed to 424243, so the verifier rebuilds the domain with chainId 424243",
       "error": "SDK_AUTH_INVALID_SIGNATURE",
       "expect": "reject",
-      "name": "sdk_request_other_evm_chain_id",
-      "reason": "the domain chainId binds evm_chain_id; the domain separator changes and the original signature recovers to another address",
+      "name": "sdk_request_tampered_signature_chain_id",
+      "reason": "the signature covers the domain chainId; the domain separator changes and the original signature recovers to another address",
       "recovered_address": "6fc514cfce83740739b011107c378a5b56818a80",
       "signing_digest": "378d56c2fa63c24111d25c5aed2cdd6477a4aff51013dccf9c000a0e43f2628b",
       "verified": {
@@ -107,17 +108,118 @@
       }
     },
     {
+      "base": "sdk_request",
+      "change": "the wallet signs under domain chainId 424243 but the envelope carries signature_chain_id 424242",
+      "error": "SDK_AUTH_INVALID_SIGNATURE",
+      "expect": "reject",
+      "name": "sdk_request_signed_under_other_signature_chain_id",
+      "reason": "the verifier rebuilds the domain from the carried value only, so the signature recovers to another address",
+      "recovered_address": "fc6018d4210439dcdd49835c35c5053e6808423e",
+      "signature_65": "994f9cbd97aca432d0d2114ffe268b1bbac63153bdb1d21edc22ba088c4b69c12e68d1d78e5e1b5457acbde64da38a51ba2e59ca0c5337da49f534792327d33a1c",
+      "signed": {
+        "domain": {
+          "chain_id": "424243"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "976cb36e5c4941908259c020607b9082bdca3fa66efbc240734616715990e2ff"
+    },
+    {
+      "base": "sdk_request",
+      "change": "the wallet signs under its active network, domain chainId 1, and the envelope carries signature_chain_id 1",
+      "expect": "accept",
+      "name": "sdk_request_wallet_network_signature_chain_id",
+      "reason": "the domain chainId is the signer-chosen carried value. The request is the same request: its replay key does not include the signature or signature_chain_id, so after the base request it is SDK_AUTH_REPLAY, not a new request",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "dfcf70ec531d67951f0625b7686abc7d1d34b00a640ca07961bb76cbf7de5da72ff427fe9a6bf2aed512e58d387bd330d747e14fc48815b5141fa5b898415bf91b",
+      "signed": {
+        "domain": {
+          "chain_id": "1"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "2036d2db649201b1611f9eb15761ec9511fe0c267b19483f995f1c7d7aa6c0e9",
+      "verified": {
+        "domain": {
+          "chain_id": "1"
+        }
+      }
+    },
+    {
       "base": "task_data_request",
-      "change": "the verifier rebuilds the Task Data Request domain with chainId 424243",
+      "change": "the original signature is kept but the carried signature_chain_id is changed to 424243, so the verifier rebuilds the domain with chainId 424243",
       "error": "DATA_ACCESS_INVALID_SIGNATURE",
       "expect": "reject",
-      "name": "task_data_request_other_evm_chain_id",
-      "reason": "the chainId string and the domain chainId must both match the current chain",
+      "name": "task_data_request_tampered_signature_chain_id",
+      "reason": "the signature covers the domain chainId; the domain separator changes and the original signature recovers to another address",
       "recovered_address": "c9e52a8591d4d4d5b8055fcfe672a754d4d75124",
       "signing_digest": "7a02a7580051163a1dd90ef4acec954b3438d627d0d630f88096aa824fb79144",
       "verified": {
         "domain": {
           "chain_id": "424243"
+        }
+      }
+    },
+    {
+      "base": "task_data_request",
+      "change": "the wallet signs under domain chainId 1 and the request carries signature_chain_id 1",
+      "expect": "accept",
+      "name": "task_data_request_wallet_network_signature_chain_id",
+      "reason": "the domain chainId is the signer-chosen carried value; the StoreOnce replay key does not include it",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "94689a74507eb76c494d20fb669904501e76383230fcc0edf70c641a151031ae70c38f158d9745a95d2f0db6950d6d52a63cdf1cccf443d3f637406b67ebeb6f1c",
+      "signed": {
+        "domain": {
+          "chain_id": "1"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "b83d868bd2785db761454d65c6e914d06ead60b3e48cc6a855c2160de53db822",
+      "verified": {
+        "domain": {
+          "chain_id": "1"
+        }
+      }
+    },
+    {
+      "base": "task_order",
+      "change": "the user signs the same order under domain chainId 1 and SignedOrderV2 carries signature_chain_id 1",
+      "expect": "accept",
+      "name": "task_order_wallet_network_signature_chain_id",
+      "reason": "the same order: task_hash, task_id and every identity, replay and exact-retry binding exclude the signature and signature_chain_id. An OpenTask retry carrying this signature returns the first result once the signature verifies on its own",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "86995a5ba6c5bfdaa5b99def5761f9d0adf6ea19d5c49669f4fd1736004e9f0e4630e482885790cc528f9df3ac37bac68b1d90bba3739aa6082a656c1a5e31131b",
+      "signed": {
+        "domain": {
+          "chain_id": "1"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "b9d13496bda748365bb8f173bb6d33d45737e7a45a68b3f6336ca84043d0cc54",
+      "verified": {
+        "domain": {
+          "chain_id": "1"
+        }
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "the wallet signs the grant under domain chainId 1 and SessionGrantV1 carries signature_chain_id 1",
+      "expect": "accept",
+      "name": "session_grant_wallet_network_signature_chain_id",
+      "reason": "hashStruct(SessionGrant) carries no domain, so sessionGrantHash is unchanged and requests under the grant may carry any valid signature_chain_id of their own",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "signature_65": "dddf59fd6137cad57adb4b74d83a6c9e4c7a90dadba851f2f447e44e12316b153ec7dbce2760fa76bbc3a401ababc42ea224515fe1b60aff724af15eed7aa9051c",
+      "signed": {
+        "domain": {
+          "chain_id": "1"
+        },
+        "signer": "account"
+      },
+      "signing_digest": "ac28e1df394f397cd62f869e0cb8268f54236ecc8edabb1d9ad1941eb11c932b",
+      "verified": {
+        "domain": {
+          "chain_id": "1"
         }
       }
     },
@@ -296,25 +398,14 @@
       }
     },
     {
-      "base": "sdk_request",
-      "change": "the session key signs the OpenTask request with the grant attached",
-      "error": "SDK_AUTH_SESSION_METHOD_NOT_ALLOWED",
+      "base": "sdk_request_open_task_session",
+      "change": "the session-signed OpenTask carries a SignedOrder whose user_address is trueopen1cj9cz2a5xsqnjtqrwwq6e2f57srfcpgh4eqn90, not the grant user",
+      "error": "SDK_AUTH_SESSION_GRANT_INVALID",
       "expect": "reject",
-      "name": "open_task_with_session_grant",
-      "reason": "the signature recovers to the sessionKey, but OpenTask is outside the session-allowed set and must be signed by the wallet",
-      "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
-      "signature_65": "b65324c0d8d4fc8a4204601c999f1e89afe8714c6e537dc3bbda6efdb53de0f15ea3093db3c485bf91e6418ff52b2820b719083ddf8d66a1f4b285449457f1571c",
-      "signed": {
-        "message": {
-          "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf"
-        },
-        "signer": "session_key"
-      },
-      "signing_digest": "247a10a975670610fbaba4ab5ceb1fa8ca1e4841a43fb436076fc8e6bac42a15",
-      "verified": {
-        "message": {
-          "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf"
-        }
+      "name": "open_task_session_grant_user_not_order_user",
+      "reason": "for OpenTask the grant user must also equal the SignedOrder user_address; the check reads the order, not a typed field, so no digest is published",
+      "transport": {
+        "order_user_address": "trueopen1cj9cz2a5xsqnjtqrwwq6e2f57srfcpgh4eqn90"
       }
     },
     {
@@ -426,24 +517,24 @@
     },
     {
       "base": "sdk_request_session",
-      "change": "the envelope session_id is the same Hash32 spelled in uppercase hex",
+      "change": "the envelope session_id is the same Hash32 spelled as 0x followed by uppercase hex",
       "error": "NEXUS_INGRESS_MALFORMED",
       "expect": "reject",
       "name": "session_id_uppercase_hex",
-      "reason": "session_id and task_id are decoded only from 64-character lowercase hex without 0x; any other spelling is rejected before projection, so no digest exists",
+      "reason": "session_id and task_id are decoded only from 0x followed by 64 lowercase hex characters; any other spelling is rejected before projection, so no digest exists",
       "transport": {
-        "session_id": "77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
+        "session_id": "0x77625100BA4FAA1306AE6EAF5A872A661443AA94F87C5530C4B178614E3D62F7"
       }
     },
     {
       "base": "sdk_request_session",
-      "change": "the envelope task_id carries a 0x prefix",
+      "change": "the envelope task_id is the same Hash32 spelled as 64 bare lowercase hex characters without the 0x prefix",
       "error": "NEXUS_INGRESS_MALFORMED",
       "expect": "reject",
-      "name": "task_id_0x_prefixed",
-      "reason": "session_id and task_id are decoded only from 64-character lowercase hex without 0x; any other spelling is rejected before projection, so no digest exists",
+      "name": "task_id_bare_hex",
+      "reason": "session_id and task_id are decoded only from 0x followed by 64 lowercase hex characters; any other spelling is rejected before projection, so no digest exists",
       "transport": {
-        "task_id": "0xbce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
+        "task_id": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
       }
     },
     {
@@ -467,9 +558,54 @@
       "transport": {
         "expiry_height_or_time": "-1"
       }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the envelope signature_chain_id is 0 (absent in proto3)",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "signature_chain_id_zero",
+      "reason": "signature_chain_id must be in 1..MaxInt64; a request from a signer that does not carry it is rejected at the format step",
+      "transport": {
+        "signature_chain_id": "0"
+      }
+    },
+    {
+      "base": "sdk_request",
+      "change": "the envelope signature_chain_id is 9223372036854775808",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "signature_chain_id_above_max_int64",
+      "reason": "signature_chain_id must be in 1..MaxInt64",
+      "transport": {
+        "signature_chain_id": "9223372036854775808"
+      }
+    },
+    {
+      "base": "session_grant",
+      "change": "the attached SessionGrantV1 signature_chain_id is 0",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "session_grant_signature_chain_id_zero",
+      "reason": "the grant carries its own signature_chain_id in 1..MaxInt64, checked at the format step",
+      "transport": {
+        "signature_chain_id": "0"
+      }
+    },
+    {
+      "base": "task_data_request",
+      "change": "a CORTEX_SERVICE TaskDataRequestAuthV1 carries signature_chain_id 1",
+      "error": "NEXUS_INGRESS_MALFORMED",
+      "expect": "reject",
+      "name": "cortex_service_signature_chain_id_nonzero",
+      "reason": "only the USER path signs EIP-712; a CORTEX_SERVICE request must carry signature_chain_id 0",
+      "transport": {
+        "requester_kind": "CORTEX_SERVICE",
+        "signature_chain_id": "1"
+      }
     }
   ],
-  "request_auth_negative_cases_format": "Each row changes one thing about its base section. \"signed\" is what the signer signed: the named key over the base message and domain with the listed member overrides, and signature_65 is that exact RFC 6979 signature. \"verified\" is what the verifier rebuilds, as overrides of the base; signing_digest is that digest and recovered_address is what the signature (the row's, or the base section's when the row has no \"signed\") recovers to over it. A row with verification_context is a session-grant window decision at that height, from the base grant expiryHeight. expect is the verifier outcome; error, where present, is the Ingress error code, and status, where present, the gRPC status. The verifier runs five steps in order and stops at the first failure, which fixes the code: (1) format - lowercase-hex ids, a 32-byte nonce, an expiry above zero, an OpenTask expiry that is a chain height (below 10^12) rather than Unix milliseconds, endpoint matching method, the derived OpenTask task_id and payload_ref, a signer_address and OpenTask user_address in canonical lowercase trueopen Bech32 that decode to exactly 20 bytes, a projectable body - NEXUS_INGRESS_MALFORMED; (2) with a grant, a method outside the session-allowed set (and on the Task data path a non-OUTPUT object) - SDK_AUTH_SESSION_METHOD_NOT_ALLOWED or DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED; (3) the grant chain, user, user signature or stored account key - ..._SESSION_GRANT_INVALID, and the grant window - ..._SESSION_GRANT_EXPIRED; (4) the request signature, rebuilt with the sessionGrantHash the verifier derives and with the verifier's own chain_id and evm_chain_id, never the request's - SDK_AUTH_INVALID_SIGNATURE or DATA_ACCESS_INVALID_SIGNATURE, which also covers a wrong derived grant hash, a request signed for another chain (sdk_request_other_chain_id), a chain_id field other than the verifier's own (rejected here even though it could be detected at the format step), a wrong domain chainId, a version 1 signature and, for a wallet-signed request, an account that is missing, has no stored key or has a stored key other than the recovered one; (5) on SDKRequestEnvelopeV2, request expiry - SDK_AUTH_EXPIRED - and replay - SDK_AUTH_REPLAY; on TaskDataRequestAuthV1, a builder_operator_address other than the verifying Builder - DATA_ACCESS_DENIED - then request expiry - NEXUS_DATA_EXPIRED - then replay, then the Task duty - DATA_ACCESS_DENIED. The replay key uses the verifier's own chain_id. ConfirmOpenTask is refused before these steps with FailedPrecondition and NEXUS_INGRESS_CONTRACT_NOT_FROZEN. A row with none of signed, verified or verification_context is a rule stated in prose; its transport column, where present, shows the offending transport value, which is rejected before any typed data exists. tools/verify-vector-consistency recomputes every published value.",
+  "request_auth_negative_cases_format": "Each row changes one thing about its base section. \"signed\" is what the signer signed: the named key over the base message and domain with the listed member overrides, and signature_65 is that exact RFC 6979 signature. \"verified\" is what the verifier rebuilds, as overrides of the base; signing_digest is that digest and recovered_address is what the signature (the row's, or the base section's when the row has no \"signed\") recovers to over it. A row with verification_context is a session-grant window decision at that height, from the base grant expiryHeight. expect is the verifier outcome; error, where present, is the Ingress error code, and status, where present, the gRPC status. The verifier runs five steps in order and stops at the first failure, which fixes the code: (1) format - lowercase-hex ids, a 32-byte nonce, an expiry above zero, an OpenTask expiry that is a chain height (below 10^12) rather than Unix milliseconds, endpoint matching method, the derived OpenTask task_id and payload_ref, a signer_address and OpenTask user_address in canonical lowercase trueopen Bech32 that decode to exactly 20 bytes, a signature_chain_id (and a grant's) in 1..MaxInt64 and, on TaskDataRequestAuthV1, 0 for CORTEX_SERVICE, a projectable body - NEXUS_INGRESS_MALFORMED; (2) with a grant, a method outside the session-allowed set (and on the Task data path a non-OUTPUT object) - SDK_AUTH_SESSION_METHOD_NOT_ALLOWED or DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED; (3) the grant chain, user, user signature (over the grant's own signature_chain_id) or stored account key, and for OpenTask a grant user other than the SignedOrder user - ..._SESSION_GRANT_INVALID, and the grant window - ..._SESSION_GRANT_EXPIRED; (4) the request signature, rebuilt with the sessionGrantHash the verifier derives, the verifier's own chain_id (never the request's) as the typed chainId, and the carried signature_chain_id as the domain chainId - SDK_AUTH_INVALID_SIGNATURE or DATA_ACCESS_INVALID_SIGNATURE, which also covers a wrong derived grant hash, a request signed for another chain (sdk_request_other_chain_id), a chain_id field other than the verifier's own (rejected here even though it could be detected at the format step), a tampered signature_chain_id or a signature made under another domain chainId, a version 1 signature and, for a wallet-signed request, an account that is missing, has no stored key or has a stored key other than the recovered one; (5) on SDKRequestEnvelopeV2, request expiry - SDK_AUTH_EXPIRED - and replay - SDK_AUTH_REPLAY; on TaskDataRequestAuthV1, a builder_operator_address other than the verifying Builder - DATA_ACCESS_DENIED - then request expiry - NEXUS_DATA_EXPIRED - then replay, then the Task duty - DATA_ACCESS_DENIED. The replay key uses the verifier's own chain_id and never includes the signature or signature_chain_id. The domain chainId is chosen by the signer and isolates nothing; a section's signature_chain_id, and its envelope's or transport's, is the carried value its domain was built with, and a verified domain chain_id override is the carried value the verifier reads. ConfirmOpenTask is refused before these steps with FailedPrecondition and NEXUS_INGRESS_CONTRACT_NOT_FROZEN. A row with none of signed, verified or verification_context is a rule stated in prose; its transport column, where present, shows the offending transport value, which is rejected before any typed data exists. tools/verify-vector-consistency recomputes every published value.",
   "schema": "trueopen-account-signing-v1",
   "sdk_request": {
     "body_digest_source": "task/sdk_request_body_v1.json vector sdk_body_open_task_v1, domain TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
@@ -487,6 +623,7 @@
       "replay_key": "TRUEOPEN_SDK_REQUEST_V2\\x00trueopen-golden-1\\x00trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\\x00000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "request_domain": "TRUEOPEN_SDK_REQUEST_V2",
       "session_grant": "absent",
+      "signature_chain_id": "424242",
       "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
     },
     "hash_struct": "b2f81396cd8cee609cf3f25f6485c2b7d07abc4643b8f3a62c338daa50dea397",
@@ -501,11 +638,52 @@
       "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
       "taskId": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
     },
-    "note": "OpenTask, signed by the user wallet directly; OpenTask never accepts a session grant. sessionGrantHash is 32 zero bytes because no grant is attached; the verifier derives it and never reads it from the request. expiryHeightOrTime below 10^12 is a chain height, which only OpenTask may use; OpenTask accepts only a chain height, and a Unix millisecond expiry is NEXUS_INGRESS_MALFORMED at the format step. The signature must recover to signer_address, which must equal the order user, and the recovered public key must equal the account's stored key. method is the bare method name and endpoint the full procedure /nexus.v1.IngressAPI/<Method>, whose <Method> must equal method. session_id and task_id travel as 64-character lowercase hex without 0x, are decoded strictly and enter as bytes32; any other spelling is rejected before projection. For OpenTask task_id must equal TRUEOPEN_TASK_ID_V1(session_id, order_sequence), here order sequence 7. requestNonce is exactly 32 bytes, and an expiry of 0 or below is rejected before projection. The user account must already hold its public key on chain (it has submitted MsgCreateSession). request_domain, signer_address, signature and the deprecated signer_pubkey are not typed fields. The replay_key column spells the NUL separators as \\x00. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. This OpenTask row expires at chain height 1010 and assumes current_height 1000; any height from 990 to 1010 accepts it, since an OpenTask height expiry must satisfy current_height <= expiry <= current_height + request_ttl_blocks. It is evaluated separately from the session rows, whose grant needs a height from 1100 to 1500.",
+    "note": "OpenTask, signed by the user wallet directly. OpenTask may also be signed by a session key under a grant whose user is the order user (sdk_request_open_task_session). sessionGrantHash is 32 zero bytes because no grant is attached; the verifier derives it and never reads it from the request. expiryHeightOrTime below 10^12 is a chain height, which only OpenTask may use; OpenTask accepts only a chain height, and a Unix millisecond expiry is NEXUS_INGRESS_MALFORMED at the format step. The signature must recover to signer_address, which must equal the order user, and the recovered public key must equal the account's stored key. method is the bare method name and endpoint the full procedure /nexus.v1.IngressAPI/<Method>, whose <Method> must equal method. session_id and task_id travel as 0x followed by 64 lowercase hex characters, are decoded strictly and enter as bytes32; any other spelling is rejected before projection. For OpenTask task_id must equal TRUEOPEN_TASK_ID_V1(session_id, order_sequence), here order sequence 7. requestNonce is exactly 32 bytes, and an expiry of 0 or below is rejected before projection. The user account must already hold its public key on chain (it has submitted MsgCreateSession). request_domain, signer_address, signature and the deprecated signer_pubkey are not typed fields. The replay_key column spells the NUL separators as \\x00. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. This OpenTask row expires at chain height 1010 and assumes current_height 1000; any height from 990 to 1010 accepts it, since an OpenTask height expiry must satisfy current_height <= expiry <= current_height + request_ttl_blocks. It is evaluated separately from the session rows, whose grant needs a height from 1100 to 1500.",
     "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
     "signature_65": "364239bc1efc6fdb0da22116ab2ca4fdf26dd4dae69b8aa35e75134523be52882421d12aebae10b3e24e232f1875d5338d39fcb8986389a9663569c875beca7e1c",
+    "signature_chain_id": "424242",
     "signer": "account",
     "signing_digest": "976cb36e5c4941908259c020607b9082bdca3fa66efbc240734616715990e2ff",
+    "type_hash": "10322f9048e3c9b28f0a95d1acd80fd98e85eb78bbd308304e35a49eff5c57e8"
+  },
+  "sdk_request_open_task_session": {
+    "body_digest_source": "task/sdk_request_body_v1.json vector sdk_body_open_task_v1, domain TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
+    "contract": "SDK request typed-data signing (SDKRequestEnvelopeV2), OpenTask signed by the session key",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "94fee2e5657f013ddd184648fd2b056239a5468216aa0cea4a383adcbf18df27",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen SDK Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "1"
+    },
+    "encode_type": "SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)",
+    "envelope": {
+      "replay_key": "TRUEOPEN_SDK_REQUEST_V2\\x00trueopen-golden-1\\x00trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\\x00606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "request_domain": "TRUEOPEN_SDK_REQUEST_V2",
+      "session_grant": "session_grant",
+      "signature_chain_id": "424242",
+      "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "hash_struct": "482bdeffba212a436b174f9f57f1c147e7ebc91a0e00de60ba5bf67dbb3b0f20",
+    "message": {
+      "bodyDigest": "8bfc9e506af5acd6aef1ffe4a55180f4f828c716eb3b9988bf79900becb02140",
+      "chainId": "trueopen-golden-1",
+      "endpoint": "/nexus.v1.IngressAPI/OpenTask",
+      "expiryHeightOrTime": "1110",
+      "method": "OpenTask",
+      "requestNonce": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "sessionGrantHash": "86101b4118a0736de236e8f1c7b7ebdcbf7165b1dbeb0143e6125e8c2c3034bf",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskId": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
+    },
+    "note": "OpenTask signed by the session key under the grant of session_grant. OpenTask is in the session-allowed set, and the grant user must also equal the SignedOrder user_address, otherwise SDK_AUTH_SESSION_GRANT_INVALID (open_task_session_grant_user_not_order_user). The order itself is still signed by the user wallet; a session key cannot forge or alter it. sessionGrantHash is hashStruct(SessionGrant) of session_grant, derived by the verifier. The signature must recover to sessionKey and is not compared with an account key. The body digest is the OpenTask body of sdk_request; requestNonce differs, so the replay key differs. This row expires at chain height 1110 and assumes current_height 1100, inside both the grant window (1100 to 1500) and the OpenTask window (current_height <= expiry <= current_height + request_ttl_blocks).",
+    "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "session_grant_source": "session_grant",
+    "signature_65": "e84e9d1f2333524e021e20640538313ddc7b37fc63dd4ba892d331ee9ea311bf6a2aa18e5ba53e6f565b9a6b8d6cff753dbcd51410afe1cac7e84c0e961dcaa31c",
+    "signature_chain_id": "424242",
+    "signer": "session_key",
+    "signing_digest": "b34a57a012810005e9b57f67767a39399f5b6c86c2fe87024890de5ff6084fea",
     "type_hash": "10322f9048e3c9b28f0a95d1acd80fd98e85eb78bbd308304e35a49eff5c57e8"
   },
   "sdk_request_session": {
@@ -524,6 +702,7 @@
       "replay_key": "TRUEOPEN_SDK_REQUEST_V2\\x00trueopen-golden-1\\x00trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\\x00202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
       "request_domain": "TRUEOPEN_SDK_REQUEST_V2",
       "session_grant": "session_grant",
+      "signature_chain_id": "424242",
       "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
     },
     "hash_struct": "951a6726728cf9819b2310b0bad7bb744b01cbbb01fc5583a0ef5cac41287d8d",
@@ -542,6 +721,7 @@
     "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
     "session_grant_source": "session_grant",
     "signature_65": "b109ee8596a5d748fd94a640f44f35d2dca0826d0f2245ce507df5fab2d631467d331e3fc1625f6ae2172fe06bace1aaddb0b38f2de9a7de4c7511525a7682ad1c",
+    "signature_chain_id": "424242",
     "signer": "session_key",
     "signing_digest": "d8eebff290536870935f2659e8e3efc319ca0bb2de28f4c3a55083dd5d629a0d",
     "type_hash": "10322f9048e3c9b28f0a95d1acd80fd98e85eb78bbd308304e35a49eff5c57e8"
@@ -568,6 +748,7 @@
     "note": "Signed once by the user wallet under the SDK Request domain. sessionKey is the EIP-712 address of the session_key test key (a wallet JSON spells it 0x-prefixed); it is not an on-chain account. user_signature must recover to user, and user must be an existing account whose stored public key equals the recovered one. A request carrying this grant binds it through sessionGrantHash = hash_struct. verification_context is fixture material, not a network parameter: max_session_grant_blocks is a deployment value, and the rule is current_height <= expiryHeight <= current_height + max_session_grant_blocks with checked addition. There is no revocation; the grant is reusable until it expires and is not a replay record of its own. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. The grant (expiryHeight 1500) and the session rows built on it assume current_height 1200, as verification_context states: 1200 <= 1500 <= 1200 + 400. The grant-window rows in request_auth_negative_cases each state their own current_height with max_session_grant_blocks 400: 1501 and 1099 reject, 1100 and 1500 accept.",
     "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
     "signature_65": "3fb4748b2a73fee79c93b4101038e92b07593d467655bf69d50ae0096de790064c38ca6aab0ea314ea18e0dfe3ee4eb89184075790287e64d284291e0911b8c71b",
+    "signature_chain_id": "424242",
     "signer": "account",
     "signing_digest": "e8a2c3e7c95d5e3d78248dbcd74eccda7dd6a68bea96ff5de30aa693c49c0fbc",
     "transport": {
@@ -575,6 +756,7 @@
       "expiry_height": "1500",
       "grant_nonce_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "session_key_hex": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "signature_chain_id": "424242",
       "user": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
       "user_signature_source": "signature_65"
     },
@@ -622,6 +804,7 @@
     "note": "The USER branch of TaskDataRequestAuthV1 under domain version 2. Typed fields 1-10 project auth fields 1-10 and sessionGrantHash is 32 zero bytes without a grant. requester_kind alone selects the verifier: USER signs this typed data and supplies exactly 65 bytes, CORTEX_SERVICE signs the TRUEOPEN_TASK_DATA_REQUEST_V1 H_FIELDS_V1 digest and supplies exactly 64. Neither length is sniffed and no caller pubkey is trusted. personal_sign, eth_sign and raw64 are rejected, a USER request carries serviceAuthorizationNonce 0, and domain version 1 is not accepted. Timing assumed by the expected results (fixture material, not network values): max_session_grant_blocks = 400, max_service_material_expiry_blocks = 604800 (the ServiceParamsV1 value in params_v1.json; any value of 800 or more gives the same results), request_ttl_blocks = 20. It assumes current_height 1200, so expiryHeight 2000 is inside current_height <= expiry_height <= current_height + max_service_material_expiry_blocks.",
     "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
     "signature_65": "e1ecc9d01de1339c8b69d1b073d0e745a8db9cb805d824b2a825865c684acbc3239a98126f41ffd91134829a0545d627c35f029309e47cab054e8cea5ece57531b",
+    "signature_chain_id": "424242",
     "signer": "account",
     "signing_digest": "95c2b767f8ca9f8f6f60d65f6926a2b9430cbd3963d18e58d9f2d58b1b759673",
     "type_hash": "ef9b6875caf865b195517f357fed5eaa344c89c627ca941b6ed633ed220f3a24"
@@ -656,6 +839,7 @@
     "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
     "session_grant_source": "session_grant",
     "signature_65": "699c72b83b37c90eaeba1faf915434bf24eb9e71800cd1d129d804c8bb11202d68d80b47ff32d98201a154d7145507abb586a2d36d0a9f8adb93d72ac6963ae81c",
+    "signature_chain_id": "424242",
     "signer": "session_key",
     "signing_digest": "bef03dc85ee3922acd229c3ef154012687afce48ccb7e7f2a7f4116f6125bfff",
     "type_hash": "ef9b6875caf865b195517f357fed5eaa344c89c627ca941b6ed633ed220f3a24"
@@ -689,6 +873,7 @@
     "note": "Domain version 1, without sessionGrantHash, has no fresh-genesis route: a verifier must reject this signature. It is kept, with its values unchanged, as a negative vector; task_data_request is the version 2 replacement. The USER branch of TaskDataRequestAuthV1. requester_kind alone selects the verifier: USER signs this EIP-712 v4 typed data and supplies exactly 65 bytes, CORTEX_SERVICE signs the TRUEOPEN_TASK_DATA_REQUEST_V1 H_FIELDS_V1 digest and supplies exactly 64. Neither length is sniffed and no caller pubkey is trusted. personal_sign, eth_sign and raw64 are rejected on the USER path, and a USER request must carry serviceAuthorizationNonce 0.",
     "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
     "signature_65": "943dca70514347d66504059b4f0e2c24c69e54c747ca4886a8ce072a2922d30f1a0f1e6cc46dc2848bbd23870c287fb0017c8507113527da36a4e4248daa38b51c",
+    "signature_chain_id": "424242",
     "signing_digest": "ad060d652820c86e43f63b35964c4872bdb93060df92556dc1476db12c2bffa5",
     "status": "obsolete",
     "type_hash": "b46d57a151e675bb90df1ffa518e88e93ae97b3e0400ab9064c2d3f84cb3735a"
@@ -720,6 +905,7 @@
     },
     "note": "Order domain version 3 binds a raw bytes32 model ID; earlier order domains have no fresh-genesis decoder.",
     "signature_65": "0d33bde9a788bc10284508fcf7a332050b141e2e4743b090f137b9fd21abb5ab44286a59df3b9b2f01c109087f65637305be3ba24a7863af78dd69d41649f3851b",
+    "signature_chain_id": "424242",
     "signing_digest": "3b35b22ee8da1c67009f834ea5270dbd356fd8d2a5598b4ea6b5ed0274d87367",
     "type_hash": "0ff134fd58c0e290fba30db564e6b74fced8f9cacbb8c246722d2ee072e3c114"
   },
