@@ -91,8 +91,8 @@
       "path": "shared/account_signing_v1.json",
       "origin": "wire",
       "contract_section": "Account, TaskOrderV3, SDK request, session grant and TaskDataRequest EIP-712 signatures",
-      "bytes": 51217,
-      "sha256": "0736b6263ba1645b9b0d6884af4e77b787c2b89adb782b54a43e5813d7cd0cdc"
+      "bytes": 62058,
+      "sha256": "5fb6b09a64a6201c0c61a61ee7aeef5e73c5d17a23b3d924ca3f1f36d6d42f9f"
     },
     {
       "path": "shared/framing_v1.json",
@@ -111,8 +111,8 @@
       "path": "shared/params_v1.json",
       "origin": "wire",
       "contract_section": "Hub and Task parameter commitments and replay separation",
-      "bytes": 58695,
-      "sha256": "bfe9ee9599814b777f82dcae6a959ae6f74aa978d6abbc4085d863e8fc7d3fcf"
+      "bytes": 58515,
+      "sha256": "14c7a77c5166028c920194d185fe7146689cec4415502d11c2ce301cd61c4e23"
     },
     {
         "path": "shared/query_page_v1.json",
@@ -125,8 +125,8 @@
       "path": "shared/rest_json_shapes_v1.json",
       "origin": "wire",
       "contract_section": "Node REST gateway JSON rendering of query responses",
-      "bytes": 36874,
-      "sha256": "120feb21c94bd41b7b90bd9fe8736eb2d6570cee145d7341547ed3dd39260025"
+      "bytes": 36962,
+      "sha256": "c150be0038adf420556e241695763dd89ab2ba727e51c68fb174f91074e97883"
     },
     {
       "path": "shared/shared_domains_v1.json",
@@ -229,8 +229,8 @@
       "path": "task/sdk_request_body_v1.json",
       "origin": "wire",
       "contract_section": "User Ingress request body digests: the five TRUEOPEN_SDK_BODY_*_V1 domains",
-      "bytes": 22557,
-      "sha256": "05029710793e7de0275b232bfa0ada22ff320ec254e4bcc8af4eda86d624e086"
+      "bytes": 22569,
+      "sha256": "016a07065b2e0154566f46da33380e3f57f853e90e3a95b0b9fa7d36581b1bef"
     },
     {
       "path": "task/task_builder_rank_v1.json",
@@ -269,8 +269,8 @@
       "path": "task/task_order_eip712_v1.json",
       "origin": "wire",
       "contract_section": "TaskOrderV3 to order-domain EIP-712 digest",
-      "bytes": 3810,
-      "sha256": "81f21547fb952477fb6ad5852473530477cb68c9a6d2e34cc2235043d6701e42"
+      "bytes": 3915,
+      "sha256": "2b6d1401365bc16c8828ff71d34c5985cf157c5ca32698e4c418eacd54c91e99"
     },
     {
       "path": "task/task_order_v3.json",

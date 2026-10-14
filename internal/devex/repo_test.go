@@ -225,12 +225,12 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"586ea8f2f1664b9a8fd625dfc8c6eb612a445a36",
+		"v0.5.0",
+		"ebeeb84f640c035d7761ac818ccf4ab79ae254d2",
 		"ef6b506941477df100b703c9f123dd20ee6728f8fb2bc2abfe4b6bdaca2edcf6",
-		"proto/testdata/wire-main-41af15b5.binpb",
-		// wire no longer tags, so the provenance has to name the commit the
-		// descriptor was built from and the buf version that built it.
-		"41af15b5c290cf82b2223090b50d42dc0bec49bd",
+		"proto/testdata/wire-v0.5.0.binpb",
+		// The release asset is a buf build, so the provenance names the buf
+		// version that reproduces it as well as the tag.
 		"buf@v1.71.0",
 		"protoc-gen-go",
 		"make proto-gen-chain",

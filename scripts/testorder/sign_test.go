@@ -15,6 +15,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/signer"
 	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -97,7 +98,7 @@ func testSignerSpec(t *testing.T) (signerSpec, signer.KeyDescriptor) {
 func testOrderSpec(seed string, nonce uint64, now time.Time) orderSpec {
 	return orderSpec{
 		chainID: testChainID, modelID: testModelID, builderAddr: testBuilderAddr,
-		evmChainID: 424242, feeDenom: "uusdc",
+		signatureChainID: 424242, feeDenom: "uusdc",
 		builderSetID: "7", builderSetHash: []byte(strings.Repeat("h", 32)),
 		sessionAnchorBlockHash: []byte(strings.Repeat("a", 32)),
 		profileVersion:         1, deadlineHeight: 122800, snapshotHeight: 122681,
@@ -124,13 +125,25 @@ func TestOrderUsesEIP712WithExplicitChainAndDenomination(t *testing.T) {
 		t.Fatal(err)
 	}
 	carrier := hex.EncodeToString(encoded)
-	if err := nodewire.VerifySignedOrderEnvelope(carrier, spec.evmChainID, spec.feeDenom); err != nil {
+	// wire v0.5.0: the carrier states the domain chainId it was signed under,
+	// and the verifier rebuilds the domain from it rather than from its own
+	// configuration.
+	if got := broadcast.SignedOrder.SignatureChainId; got != spec.signatureChainID {
+		t.Fatalf("signature_chain_id = %d, want %d", got, spec.signatureChainID)
+	}
+	if err := nodewire.VerifySignedOrderEnvelope(carrier, 1, spec.feeDenom); err != nil {
 		t.Fatal(err)
 	}
-	if err := nodewire.VerifySignedOrderEnvelope(carrier, spec.evmChainID+1, spec.feeDenom); err == nil {
-		t.Fatal("accepted another EVM chain domain")
+	restated := proto.Clone(broadcast.SignedOrder).(*bustaskv1.SignedOrderV2)
+	restated.SignatureChainId = spec.signatureChainID + 1
+	restatedBytes, err := proto.Marshal(restated)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := nodewire.VerifySignedOrderEnvelope(carrier, spec.evmChainID, "other"); err == nil {
+	if err := nodewire.VerifySignedOrderEnvelope(hex.EncodeToString(restatedBytes), 1, spec.feeDenom); err == nil {
+		t.Fatal("accepted a carrier restating another domain chainId")
+	}
+	if err := nodewire.VerifySignedOrderEnvelope(carrier, 1, "other"); err == nil {
 		t.Fatal("accepted another fee denomination")
 	}
 	if broadcast.SignedOrder.Order.UserAddress == spec.builderAddr {
@@ -139,7 +152,7 @@ func TestOrderUsesEIP712WithExplicitChainAndDenomination(t *testing.T) {
 	for _, missing := range []string{"chain", "denomination"} {
 		invalid := spec
 		if missing == "chain" {
-			invalid.evmChainID = 0
+			invalid.signatureChainID = 0
 		} else {
 			invalid.feeDenom = ""
 		}

@@ -3,7 +3,7 @@
   "contract": "TaskOrderV3 to order-domain EIP-712 digest",
   "notes": [
     "Each case links a task_order_v3.json vector to the digest its user signs. taskHash is that vector digest_hex (TRUEOPEN_TASK_ORDER_V3 over the canonical order); the other ten message fields are copied from the same order, with user the canonical Bech32 form of its 20-byte user_address.",
-    "The domain is the order domain of shared/account_signing_v1.json: name \"TrueOpen Task Order\", version \"3\", chainId the EVM chain ID. feeDenom is not an order field: it is the chain business_denom (hub.v1 Params phase0.business_denom), and the Keeper verifies with its current value.",
+    "The domain is the order domain of shared/account_signing_v1.json: name \"TrueOpen Task Order\", version \"3\", chainId the signer-chosen signature_chain_id that SignedOrderV2 carries (424242 in these cases; a wallet uses its active network). feeDenom is not an order field: it is the chain business_denom (hub.v1 Params phase0.business_denom), and the Keeper verifies with its current value.",
     "No signature is published: the user addresses of these orders have no published key. account_signing_v1.json task_order carries a signed example over an opaque taskHash.",
     "task_order_v3_max_amounts has no case. Its non-zero assignment_priority_fee is rejected by the Phase 0 order validation before an EIP-712 digest is built, so it stays an encoding-only vector.",
     "Derived from the Node implementation (BuildTaskOrderEIP712Digest over the TaskOrderV3 rebuilt from the typed fields, whose TaskOrderHash reproduces each vector digest)."

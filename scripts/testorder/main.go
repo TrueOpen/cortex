@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ const keeperReadTimeout = 15 * time.Second
 // test can call, rather than by main() alone.
 type orderSpec struct {
 	chainID                string
-	evmChainID             uint64
+	signatureChainID       uint64
 	feeDenom               string
 	modelID                string
 	builderAddr            string
@@ -107,7 +108,9 @@ func main() {
 	observability.SetDefaultLogger(os.Stderr)
 	natsURL := flag.String("nats-url", "", "Nexus NATS URL, credentials may be in the userinfo")
 	chainID := flag.String("chain-id", "trueopen-localnet-1", "chain id")
-	evmChainID := flag.Uint64("evm-chain-id", 0, "authoritative EVM chain id for the EIP-712 order domain")
+	// wire v0.5.0: the signer chooses the EIP-712 domain chainId -- a wallet
+	// uses its active network -- and carries it as signature_chain_id.
+	signatureChainID := flag.Uint64("signature-chain-id", 1, "EIP-712 domain chainId the synthetic user signs under, 1..MaxInt64")
 	feeDenom := flag.String("fee-denom", "", "authoritative fee denomination for the EIP-712 order")
 	modelID := flag.String("model-id", "", "chain model id (64 lowercase hex)")
 	profileVersion := flag.Uint("profile-version", 1, "chain profile version")
@@ -135,7 +138,7 @@ func main() {
 	signing := strings.TrimSpace(*signerURI) != ""
 	builderSetHashBytes, builderSetHashErr := hex.DecodeString(*builderSetHash)
 	anchorBlockHashBytes, anchorHashErr := hex.DecodeString(*anchorBlockHash)
-	if *natsURL == "" || *evmChainID == 0 || strings.TrimSpace(*feeDenom) == "" || *modelID == "" || *builderAddr == "" || *deadlineHeight == 0 ||
+	if *natsURL == "" || *signatureChainID == 0 || *signatureChainID > math.MaxInt64 || strings.TrimSpace(*feeDenom) == "" || *modelID == "" || *builderAddr == "" || *deadlineHeight == 0 ||
 		*builderSetID == "" || builderSetHashErr != nil || len(builderSetHashBytes) != len(codec.Hash{}) ||
 		(*authorizationNonce == 0 && !*nonceFromChain) || *snapshotHeight == 0 || anchorHashErr != nil || len(anchorBlockHashBytes) != 32 {
 		printUsage()
@@ -193,7 +196,7 @@ func main() {
 
 	built, err := buildOrderFrame(orderSpec{
 		chainID: *chainID, modelID: *modelID, builderAddr: *builderAddr,
-		evmChainID: *evmChainID, feeDenom: strings.TrimSpace(*feeDenom),
+		signatureChainID: *signatureChainID, feeDenom: strings.TrimSpace(*feeDenom),
 		builderSetID: *builderSetID, builderSetHash: builderSetHashBytes,
 		sessionAnchorBlockHash: anchorBlockHashBytes,
 		profileVersion:         uint32(*profileVersion), deadlineHeight: *deadlineHeight,
@@ -246,7 +249,7 @@ func main() {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: testorder -nats-url URL -model-id ID -builder ADDR -deadline-height N")
-	fmt.Fprintln(os.Stderr, "       -evm-chain-id N -fee-denom DENOM")
+	fmt.Fprintln(os.Stderr, "       -fee-denom DENOM [-signature-chain-id N]")
 	fmt.Fprintln(os.Stderr, "       -builder-set-id ID -builder-set-hash HEX64 -authorization-nonce N -snapshot-height N")
 	fmt.Fprintln(os.Stderr, "       -session-anchor-block-hash HEX64")
 	fmt.Fprintln(os.Stderr, "  to publish a signed envelope: -signer-uri URI -key-ref REF -keeper-rpc URL")
@@ -358,8 +361,8 @@ func bech32HRP(address string) string {
 // A nil signer produces the unsigned frame this tool has always published; a
 // non-nil one produces a frame signed through the production sign bytes.
 func buildOrderFrame(spec orderSpec, envelopeSigner builderclient.BusEnvelopeSigner) (orderFrame, error) {
-	if spec.evmChainID == 0 || strings.TrimSpace(spec.feeDenom) != spec.feeDenom || spec.feeDenom == "" {
-		return orderFrame{}, fmt.Errorf("explicit EVM chain id and fee denomination are required")
+	if spec.signatureChainID == 0 || spec.signatureChainID > math.MaxInt64 || strings.TrimSpace(spec.feeDenom) != spec.feeDenom || spec.feeDenom == "" {
+		return orderFrame{}, fmt.Errorf("a signature chain id in 1..MaxInt64 and a fee denomination are required")
 	}
 	// This diagnostic order has an ephemeral user identity. Only the Builder's
 	// service key signs the bus envelope; the user key never leaves memory.
@@ -418,9 +421,10 @@ func buildOrderFrame(spec orderSpec, envelopeSigner builderclient.BusEnvelopeSig
 			PayloadMode:        bustaskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
 			InputKeyCommitment: make([]byte, 32),
 		},
-		SignatureScheme: "eip712",
+		SignatureScheme:  "eip712",
+		SignatureChainId: spec.signatureChainID,
 	}
-	signingDigest, err := nodewire.TaskOrderSigningDigest(signedOrder.Order, spec.evmChainID, spec.feeDenom)
+	signingDigest, err := nodewire.TaskOrderSigningDigest(signedOrder.Order, spec.signatureChainID, spec.feeDenom)
 	if err != nil {
 		return orderFrame{}, fmt.Errorf("derive EIP-712 order digest: %w", err)
 	}
