@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TrueOpen/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/buildinfo"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/observability"
@@ -66,6 +67,7 @@ func newRootCommand(stdout io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "cortexctl",
 		Short:         "Operate a local cortexd instance",
+		Version:       buildinfo.Current(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
