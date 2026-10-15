@@ -17,6 +17,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/adminapi"
 	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/buildinfo"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
@@ -87,6 +88,8 @@ func normalizeLegacyDaemonArgs(args []string) []string {
 	for i, arg := range normalized {
 		if arg == "-config" {
 			normalized[i] = "--config"
+		} else if arg == "-version" {
+			normalized[i] = "--version"
 		} else if strings.HasPrefix(arg, "-config=") {
 			normalized[i] = "--" + strings.TrimPrefix(arg, "-")
 		}
@@ -151,6 +154,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "cortexd",
 		Short:         "Run the Cortex control-plane daemon",
+		Version:       buildinfo.Current(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
@@ -351,7 +355,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("cortexd health listening", "bind", cfg.Health.Bind)
+		slog.Info("cortexd health listening", "bind", cfg.Health.Bind, "version", buildinfo.Current())
 		errCh <- server.ListenAndServe()
 	}()
 

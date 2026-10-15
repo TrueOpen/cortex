@@ -11,9 +11,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
+# Pass the release tag: docker build --build-arg VERSION=v0.1.0 .
+ARG VERSION=dev
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cortexd ./cmd/cortexd && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cortexctl ./cmd/cortexctl
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/TrueOpen/cortex/internal/buildinfo.Version=${VERSION}" -o /out/cortexd ./cmd/cortexd && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/TrueOpen/cortex/internal/buildinfo.Version=${VERSION}" -o /out/cortexctl ./cmd/cortexctl
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata && \

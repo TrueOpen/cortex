@@ -2,6 +2,7 @@
 .idea/
 .worktrees/
 bin/
+dist/
 /cortexd
 deploy/devnet/.env
 deploy/devnet/runtime.env
