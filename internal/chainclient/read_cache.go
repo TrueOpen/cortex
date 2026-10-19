@@ -26,6 +26,45 @@ func (c *KeeperABCIClient) EnableConnectionPool() *KeeperABCIClient {
 // lower committed height is refused after a higher one was read.
 const heightGuardFactor = 4
 
+// EnableParallelReads lets a read that needs several independent queries at one
+// committed height issue them together instead of one after another. Errors
+// are still reported in the order the queries are listed.
+func (c *KeeperABCIClient) EnableParallelReads() *KeeperABCIClient {
+	c.parallelReads = true
+	return c
+}
+
+// runReads runs reads one after another, stopping at the first failure, or all
+// together when parallel reads are enabled. Either way the caller checks the
+// returned errors in order and reports the first one, so both modes fail the
+// same way.
+func (c *KeeperABCIClient) runReads(reads ...func() error) []error {
+	errs := make([]error, len(reads))
+	if !c.parallelReads {
+		for i, read := range reads {
+			if errs[i] = read(); errs[i] != nil {
+				break
+			}
+		}
+		return errs
+	}
+	var wg sync.WaitGroup
+	for i, read := range reads {
+		wg.Go(func() { errs[i] = read() })
+	}
+	wg.Wait()
+	return errs
+}
+
+func firstError(errs []error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // serviceKeyMemoHeights is how many committed heights of service-key reads the
 // memo keeps. Reads are pinned to the newest committed height, so older entries
 // stop being asked for within a block or two.

@@ -58,8 +58,17 @@ func (c *KeeperABCIClient) TaskReceiptFacts(ctx context.Context, taskID string) 
 		return TaskReceiptFactsAnswer{}, err
 	}
 	var task taskv1.QueryTaskResponse
-	if err := c.query(ctx, taskQuery+"Task", height, &taskv1.QueryTaskRequest{TaskId: key}, &task); err != nil {
-		return TaskReceiptFactsAnswer{}, fmt.Errorf("read Keeper task %s accepted_task_hash: %w", taskID, err)
+	var assignment taskv1.QueryTaskAssignmentResponse
+	errs := c.runReads(
+		func() error {
+			return c.query(ctx, taskQuery+"Task", height, &taskv1.QueryTaskRequest{TaskId: key}, &task)
+		},
+		func() error {
+			return c.query(ctx, taskQuery+"TaskAssignment", height, &taskv1.QueryTaskAssignmentRequest{TaskId: key}, &assignment)
+		},
+	)
+	if errs[0] != nil {
+		return TaskReceiptFactsAnswer{}, fmt.Errorf("read Keeper task %s accepted_task_hash: %w", taskID, errs[0])
 	}
 	core := task.GetTask().GetActive().GetCore()
 	if core == nil {
@@ -68,10 +77,8 @@ func (c *KeeperABCIClient) TaskReceiptFacts(ctx context.Context, taskID string) 
 	if !bytes.Equal(core.TaskId, key) {
 		return TaskReceiptFactsAnswer{}, fmt.Errorf("Keeper task core identity does not match queried task %s", taskID)
 	}
-
-	var assignment taskv1.QueryTaskAssignmentResponse
-	if err := c.query(ctx, taskQuery+"TaskAssignment", height, &taskv1.QueryTaskAssignmentRequest{TaskId: key}, &assignment); err != nil {
-		return TaskReceiptFactsAnswer{}, fmt.Errorf("read Keeper task %s assignment commitments: %w", taskID, err)
+	if errs[1] != nil {
+		return TaskReceiptFactsAnswer{}, fmt.Errorf("read Keeper task %s assignment commitments: %w", taskID, errs[1])
 	}
 	view := assignment.GetAssignment()
 	if !bytes.Equal(view.GetTaskId(), key) {

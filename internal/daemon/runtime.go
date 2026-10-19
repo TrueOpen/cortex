@@ -34,9 +34,10 @@ import (
 const keeperReadCacheMaxAge = 500 * time.Millisecond
 
 // tuneKeeperClient applies the Keeper read optimizations to the daemon's
-// client: a connection pool sized for concurrent reads, and the read cache.
+// client: a connection pool sized for concurrent reads, the read cache, and
+// independent queries at one height issued together.
 func tuneKeeperClient(client *chainclient.KeeperABCIClient) *chainclient.KeeperABCIClient {
-	return client.EnableConnectionPool().EnableReadCache(keeperReadCacheMaxAge)
+	return client.EnableConnectionPool().EnableReadCache(keeperReadCacheMaxAge).EnableParallelReads()
 }
 
 type Runtime struct {

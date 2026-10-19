@@ -33,6 +33,8 @@ type KeeperABCIClient struct {
 
 	// Off unless EnableReadCache is called. See read_cache.go.
 	readCache keeperReadCache
+	// Off unless EnableParallelReads is called.
+	parallelReads bool
 }
 
 // KeeperHTTPClient is retained as a source-compatible name for callers that

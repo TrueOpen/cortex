@@ -227,7 +227,9 @@ func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.Assign
 // per-Builder liveness tracking this change does not add yet; failing here keeps
 // the behaviour honest rather than silently streaming to a subset.
 func (w *Worker) openOutputStream(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk) (builderclient.TaskOutputStream, error) {
+	resolveStartedAt := time.Now()
 	endpoints, err := w.receivingBuilders(ctx, receivingBuilderRef(event))
+	w.prepare.observe(&w.prepare.resolveBuilders, resolveStartedAt)
 	if err != nil {
 		return nil, err
 	}

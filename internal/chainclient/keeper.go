@@ -549,20 +549,27 @@ func (c *KeeperABCIClient) CommittedModelSupportScope(ctx context.Context, opera
 		return CommittedModelSupportScope{}, err
 	}
 	operatorAddress, modelID = strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID)
-	profile, err := c.currentModelProfileAt(ctx, modelID, version, height)
-	if err != nil {
-		return CommittedModelSupportScope{}, err
-	}
-	capability, err := c.modelCapabilityAt(ctx, operatorAddress, modelID, height)
-	if err != nil {
-		return CommittedModelSupportScope{}, err
-	}
-	support, err := c.modelSupportAt(ctx, operatorAddress, modelID, height)
-	if err != nil {
-		return CommittedModelSupportScope{}, err
-	}
+	var profile CurrentModelProfileSnapshot
+	var capability ModelCapabilitySnapshot
+	var support ModelSupportSnapshot
 	var paramsResponse hubv1.QueryHubParamsResponse
-	if err := c.query(ctx, hubQuery+"Params", height, &hubv1.QueryHubParamsRequest{}, &paramsResponse); err != nil {
+	if err := firstError(c.runReads(
+		func() (err error) {
+			profile, err = c.currentModelProfileAt(ctx, modelID, version, height)
+			return err
+		},
+		func() (err error) {
+			capability, err = c.modelCapabilityAt(ctx, operatorAddress, modelID, height)
+			return err
+		},
+		func() (err error) {
+			support, err = c.modelSupportAt(ctx, operatorAddress, modelID, height)
+			return err
+		},
+		func() error {
+			return c.query(ctx, hubQuery+"Params", height, &hubv1.QueryHubParamsRequest{}, &paramsResponse)
+		},
+	)); err != nil {
 		return CommittedModelSupportScope{}, err
 	}
 	epochLength := paramsResponse.Params.Epoch.EpochLengthBlocks

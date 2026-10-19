@@ -382,3 +382,28 @@ func TestCommittedHeightBelowMinimumIsRetryable(t *testing.T) {
 		t.Fatalf("cached height = %d, want 100", cached)
 	}
 }
+
+func TestRunReadsReportsErrorsInListedOrder(t *testing.T) {
+	first, second := errors.New("first"), errors.New("second")
+	for _, parallel := range []bool{false, true} {
+		client := NewKeeperABCIClientWithTransport("http://node", newFakeKeeperNode(t, 1))
+		if parallel {
+			client.EnableParallelReads()
+		}
+		ran := atomic.Int64{}
+		errs := client.runReads(
+			func() error { ran.Add(1); time.Sleep(10 * time.Millisecond); return first },
+			func() error { ran.Add(1); return second },
+		)
+		if got := firstError(errs); got != first {
+			t.Fatalf("parallel=%v first error = %v, want %v", parallel, got, first)
+		}
+		want := int64(1)
+		if parallel {
+			want = 2
+		}
+		if ran.Load() != want {
+			t.Fatalf("parallel=%v ran %d reads, want %d", parallel, ran.Load(), want)
+		}
+	}
+}
