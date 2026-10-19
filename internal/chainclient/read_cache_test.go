@@ -363,3 +363,22 @@ func TestServiceKeyWithMinimumReadsAtNewHeight(t *testing.T) {
 		t.Fatalf("height = %d, %v; want 101", height, err)
 	}
 }
+
+func TestCommittedHeightBelowMinimumIsRetryable(t *testing.T) {
+	node := newFakeKeeperNode(t, 100)
+	client := NewKeeperABCIClientWithTransport("http://node", node).EnableReadCache(time.Hour)
+	if _, err := client.CommittedHeight(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The event is from block 101 but the node still answers 100.
+	_, err := client.CommittedHeight(WithMinCommittedHeight(context.Background(), 101))
+	if err == nil || !IsRetryable(err) {
+		t.Fatalf("err = %v, want a retryable error", err)
+	}
+	client.readCache.mu.Lock()
+	cached := client.readCache.height
+	client.readCache.mu.Unlock()
+	if cached != 100 {
+		t.Fatalf("cached height = %d, want 100", cached)
+	}
+}

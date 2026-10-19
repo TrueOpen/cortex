@@ -2,6 +2,7 @@ package chainclient
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -84,7 +85,8 @@ type minCommittedHeightKey struct{}
 // at least as new as height. A caller that is checking an event from block h
 // against Keeper state sets it to h: a cached height below h would show state
 // from before the event and make a valid event look inconsistent. Reads below
-// the minimum bypass the cache and ask the node.
+// the minimum bypass the cache and ask the node; a node still below the
+// minimum is a retryable error, never a stale answer.
 func WithMinCommittedHeight(ctx context.Context, height uint64) context.Context {
 	if height == 0 {
 		return ctx
@@ -112,15 +114,23 @@ func (c *KeeperABCIClient) committedHeight(ctx context.Context) (uint64, error) 
 		// before the minimum was reached.
 		cache.mu.Unlock()
 		height, err := c.readCommittedHeight(ctx)
-		if err == nil {
-			cache.mu.Lock()
-			if height > cache.height {
-				cache.height = height
-				cache.heightReadAt = time.Now()
-			}
-			cache.mu.Unlock()
+		if err != nil {
+			return 0, err
 		}
-		return height, err
+		if height < minimum {
+			// The node itself is behind the event (its application has not
+			// committed the block yet, or a lagging replica answered). State at
+			// this height would be just as stale, so fail retryably and let
+			// the caller come back rather than hand it the old view.
+			return 0, Retryable(fmt.Errorf("committed height %d is below required height %d", height, minimum))
+		}
+		cache.mu.Lock()
+		if height > cache.height {
+			cache.height = height
+			cache.heightReadAt = time.Now()
+		}
+		cache.mu.Unlock()
+		return height, nil
 	}
 	if cache.height != 0 && time.Since(cache.heightReadAt) < cache.heightMaxAge {
 		height := cache.height
