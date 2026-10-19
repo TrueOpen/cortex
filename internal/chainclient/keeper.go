@@ -59,6 +59,10 @@ func (c *KeeperABCIClient) ChainHeight(ctx context.Context) (uint64, error) {
 // application answers from its own store, so it can lag the block store but can
 // never lead it.
 func (c *KeeperABCIClient) CommittedHeight(ctx context.Context) (uint64, error) {
+	return c.committedHeight(ctx)
+}
+
+func (c *KeeperABCIClient) readCommittedHeight(ctx context.Context) (uint64, error) {
 	var rpc cometRPCResponse
 	if err := c.getRPC(ctx, "/abci_info", nil, &rpc); err != nil {
 		return 0, err
@@ -224,6 +228,10 @@ func (c *KeeperABCIClient) currentServiceKeyAt(ctx context.Context, participantT
 			return ServiceKeySnapshot{}, 0, err
 		}
 	}
+	memoKey := serviceKeyMemoKey{participant: wireParticipant, operator: operatorAddress, height: snapshotHeight}
+	if entry, ok := c.lookupServiceKey(memoKey); ok {
+		return entry.binding, entry.served, nil
+	}
 	request := &hubv1.QueryCurrentServiceKeyRequest{
 		ParticipantType: wireParticipant,
 		OperatorAddress: operatorAddress,
@@ -243,6 +251,7 @@ func (c *KeeperABCIClient) currentServiceKeyAt(ctx context.Context, participantT
 	if err := binding.Validate(); err != nil {
 		return ServiceKeySnapshot{}, 0, err
 	}
+	c.storeServiceKey(memoKey, serviceKeyMemoEntry{binding: binding, served: served})
 	return binding, served, nil
 }
 
