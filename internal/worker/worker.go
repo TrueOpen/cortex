@@ -59,6 +59,9 @@ type Config struct {
 	// key at one pinned chain height for output relay and confirmation
 	// verification.
 	ReceivingBuilder ReceivingBuilderProvider
+	// PreresolvedBuilders, when set, is a Task Builder resolution already in
+	// flight for this task; the first output stream open uses it.
+	PreresolvedBuilders *PreresolvedBuilders
 	// TaskFacts reads TaskCoreState.accepted_task_hash and
 	// TaskAssignmentViewV1.generation_params_digest for the assignment being
 	// worked. Both are signed fields of the frozen InferReceiptV3 that no local

@@ -54,6 +54,20 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	var requirements []builderclient.InferEvidenceRequirement
 	var requiredTopK uint32
 	var err error
+	// The Task Builders the output stream will open to are resolved while the
+	// profile and input are read; the first stream open of this attempt uses
+	// the result, checks it as it checks a fresh resolution, and resolves
+	// again if it failed. It is cancelled and waited for when RunInfer returns,
+	// so the resolution goroutine does not outlive the attempt.
+	var preresolved *worker.PreresolvedBuilders
+	if e.cfg.ReceivingBuilder != nil {
+		preresolveCtx, cancelPreresolve := context.WithCancel(ctx)
+		preresolved = worker.PreresolveBuilders(preresolveCtx, e.cfg.ReceivingBuilder, worker.ReceivingBuilderRef{SessionID: task.SessionID, TaskID: task.TaskID, AssignedBuilderOperator: task.BuilderOperatorAddress})
+		defer func() {
+			cancelPreresolve()
+			preresolved.Wait()
+		}()
+	}
 	if e.cfg.ProfileReader == nil {
 		if !e.cfg.FakeOutput {
 			return task, false, builderclient.Retryable(fmt.Errorf("Keeper profile reader is required"))
@@ -83,6 +97,7 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	persistence := &evidenceWorkerPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, store: e.cfg.Store, builder: e.cfg.Builder, persist: e.persist}
 	signerAddress, signerPubkey := resolveSigningIdentity(e.cfg, e.cfg.LocalWorkerAddress)
 	wcfg := worker.Config{WorkerAddress: e.cfg.LocalWorkerAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, TaskData: e.cfg.TaskData, TaskDataAuth: e.cfg.TaskDataAuth, Tx: e.cfg.Tx, Persistence: persistence, InferDeadlineDeltaHeights: e.cfg.InferDeadlineDeltaHeights, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, SignerPubkey: signerPubkey, Signer: e.cfg.Signer, FakeOutput: e.cfg.FakeOutput, TrustedNATSDev: e.cfg.TrustedNATSDev || e.cfg.FakeBus, PackageStore: e.cfg.OutputPackages, NexusEnvelopeSigner: e.cfg.NexusEnvelopeSigner, EnvelopeTTL: e.cfg.EnvelopeTTL, ReceivingBuilder: e.cfg.ReceivingBuilder, TaskFacts: e.cfg.TaskFacts, EvidenceSchemaHash: evidenceSchemaHash, ProfileEvidenceRequirements: requirements, RequiredTopK: requiredTopK, CrashHook: e.cfg.CrashHook, SnapshotReader: newTaskSnapshotReader(e.cfg.TaskReader, task.SessionID), Trace: e.cfg.Trace}
+	wcfg.PreresolvedBuilders = preresolved
 	wcfg.GenerationReader = persistedGenerationReader{store: e.cfg.Store, chainID: e.cfg.ChainID}
 	wcfg.MaxOutputBytes = e.cfg.MaxOutputBytes
 	event := chainclient.AssignmentFinalized{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, Winner: firstNonEmpty(task.WorkerAddress, e.cfg.LocalWorkerAddress), WinnerConfirmHeight: task.WinnerConfirmHeight, InferDeadlineHeight: task.DeadlineHeight, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, BuilderOperatorAddress: task.BuilderOperatorAddress}

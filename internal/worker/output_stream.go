@@ -228,7 +228,7 @@ func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.Assign
 // the behaviour honest rather than silently streaming to a subset.
 func (w *Worker) openOutputStream(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk) (builderclient.TaskOutputStream, error) {
 	resolveStartedAt := time.Now()
-	endpoints, err := w.receivingBuilders(ctx, receivingBuilderRef(event))
+	endpoints, err := w.openReceivingBuilders(ctx, receivingBuilderRef(event))
 	w.prepare.observe(&w.prepare.resolveBuilders, resolveStartedAt)
 	if err != nil {
 		return nil, err
