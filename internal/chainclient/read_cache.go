@@ -78,6 +78,25 @@ type serviceKeyMemoEntry struct {
 	served  uint64
 }
 
+type minCommittedHeightKey struct{}
+
+// WithMinCommittedHeight marks reads made under ctx as needing committed state
+// at least as new as height. A caller that is checking an event from block h
+// against Keeper state sets it to h: a cached height below h would show state
+// from before the event and make a valid event look inconsistent. Reads below
+// the minimum bypass the cache and ask the node.
+func WithMinCommittedHeight(ctx context.Context, height uint64) context.Context {
+	if height == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, minCommittedHeightKey{}, height)
+}
+
+func minCommittedHeight(ctx context.Context) uint64 {
+	height, _ := ctx.Value(minCommittedHeightKey{}).(uint64)
+	return height
+}
+
 // committedHeight returns a cached committed height, or reads /abci_info once
 // on behalf of every caller that arrives while the read is in flight.
 func (c *KeeperABCIClient) committedHeight(ctx context.Context) (uint64, error) {
@@ -86,6 +105,22 @@ func (c *KeeperABCIClient) committedHeight(ctx context.Context) (uint64, error) 
 	if !cache.enabled {
 		cache.mu.Unlock()
 		return c.readCommittedHeight(ctx)
+	}
+	if minimum := minCommittedHeight(ctx); minimum != 0 && cache.height < minimum {
+		// The cached view predates what the caller needs. Read the node
+		// directly rather than join a shared read that may have started
+		// before the minimum was reached.
+		cache.mu.Unlock()
+		height, err := c.readCommittedHeight(ctx)
+		if err == nil {
+			cache.mu.Lock()
+			if height > cache.height {
+				cache.height = height
+				cache.heightReadAt = time.Now()
+			}
+			cache.mu.Unlock()
+		}
+		return height, err
 	}
 	if cache.height != 0 && time.Since(cache.heightReadAt) < cache.heightMaxAge {
 		height := cache.height

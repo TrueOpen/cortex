@@ -321,3 +321,45 @@ func decodeTestABCIData(data string, message proto.Message) error {
 	}
 	return proto.Unmarshal(raw, message)
 }
+
+func TestCommittedHeightHonoursMinimumFromContext(t *testing.T) {
+	node := newFakeKeeperNode(t, 100)
+	client := NewKeeperABCIClientWithTransport("http://node", node).EnableReadCache(time.Hour)
+	if height, _ := client.CommittedHeight(context.Background()); height != 100 {
+		t.Fatalf("first height = %d", height)
+	}
+	// Block 101 has committed and an event from it is being checked: the cached
+	// 100 must not be used for it.
+	node.height.Store(101)
+	height, err := client.CommittedHeight(WithMinCommittedHeight(context.Background(), 101))
+	if err != nil || height != 101 {
+		t.Fatalf("height with minimum = %d, %v; want 101", height, err)
+	}
+	if got := node.infoCalls.Load(); got != 2 {
+		t.Fatalf("abci_info calls = %d, want 2", got)
+	}
+	// The fresh read also refreshed the cache for ordinary callers.
+	if height, _ := client.CommittedHeight(context.Background()); height != 101 {
+		t.Fatalf("height after refresh = %d, want 101", height)
+	}
+	// A minimum already met is served from the cache.
+	if height, _ := client.CommittedHeight(WithMinCommittedHeight(context.Background(), 100)); height != 101 {
+		t.Fatalf("height with met minimum = %d", height)
+	}
+	if got := node.infoCalls.Load(); got != 2 {
+		t.Fatalf("abci_info calls = %d, want still 2", got)
+	}
+}
+
+func TestServiceKeyWithMinimumReadsAtNewHeight(t *testing.T) {
+	node := newFakeKeeperNode(t, 100)
+	client := NewKeeperABCIClientWithTransport("http://node", node).EnableReadCache(time.Hour)
+	if _, _, err := client.CommittedCurrentServiceKey(context.Background(), ParticipantTypeCortexNode, "trueopen1operator"); err != nil {
+		t.Fatal(err)
+	}
+	node.height.Store(101)
+	_, height, err := client.CommittedCurrentServiceKey(WithMinCommittedHeight(context.Background(), 101), ParticipantTypeCortexNode, "trueopen1operator")
+	if err != nil || height != 101 {
+		t.Fatalf("height = %d, %v; want 101", height, err)
+	}
+}
