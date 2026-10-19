@@ -98,7 +98,14 @@ type keeperReadCache struct {
 	heightReadAt time.Time
 	heightCall   *committedHeightCall
 
-	serviceKeys map[serviceKeyMemoKey]serviceKeyMemoEntry
+	serviceKeys     map[serviceKeyMemoKey]serviceKeyMemoEntry
+	serviceKeyCalls map[serviceKeyMemoKey]*serviceKeyCall
+}
+
+type serviceKeyCall struct {
+	done  chan struct{}
+	entry serviceKeyMemoEntry
+	err   error
 }
 
 type committedHeightCall struct {
@@ -223,18 +230,55 @@ func (c *KeeperABCIClient) committedHeight(ctx context.Context) (uint64, error) 
 	return height, err
 }
 
-func (c *KeeperABCIClient) lookupServiceKey(key serviceKeyMemoKey) (serviceKeyMemoEntry, bool) {
-	if key.height == 0 {
-		return serviceKeyMemoEntry{}, false
-	}
+// memoServiceKey answers a service-key read pinned to a committed height from
+// the memo, or makes the read once on behalf of every caller that asks for the
+// same key at the same height while it is in flight. As with committedHeight, a
+// waiter whose shared read failed reads for itself, a waiter honours its own
+// context, and failures are not kept.
+func (c *KeeperABCIClient) memoServiceKey(ctx context.Context, key serviceKeyMemoKey, read func(context.Context) (serviceKeyMemoEntry, error)) (serviceKeyMemoEntry, error) {
 	cache := &c.readCache
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if !cache.enabled {
-		return serviceKeyMemoEntry{}, false
+	if key.height == 0 || !cache.enabled {
+		cache.mu.Unlock()
+		return read(ctx)
 	}
-	entry, ok := cache.serviceKeys[key]
-	return entry, ok
+	if entry, ok := cache.serviceKeys[key]; ok {
+		cache.mu.Unlock()
+		return entry, nil
+	}
+	if call := cache.serviceKeyCalls[key]; call != nil {
+		cache.mu.Unlock()
+		select {
+		case <-call.done:
+			if call.err == nil {
+				return call.entry, nil
+			}
+			entry, err := read(ctx)
+			if err == nil {
+				c.storeServiceKey(key, entry)
+			}
+			return entry, err
+		case <-ctx.Done():
+			return serviceKeyMemoEntry{}, ctx.Err()
+		}
+	}
+	call := &serviceKeyCall{done: make(chan struct{})}
+	if cache.serviceKeyCalls == nil {
+		cache.serviceKeyCalls = make(map[serviceKeyMemoKey]*serviceKeyCall)
+	}
+	cache.serviceKeyCalls[key] = call
+	cache.mu.Unlock()
+
+	entry, err := read(ctx)
+	if err == nil {
+		c.storeServiceKey(key, entry)
+	}
+	cache.mu.Lock()
+	delete(cache.serviceKeyCalls, key)
+	cache.mu.Unlock()
+	call.entry, call.err = entry, err
+	close(call.done)
+	return entry, err
 }
 
 func (c *KeeperABCIClient) storeServiceKey(key serviceKeyMemoKey, entry serviceKeyMemoEntry) {

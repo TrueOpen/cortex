@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -175,9 +176,25 @@ func (r *Resolver) resolveOnChain(ctx context.Context, operator string) (Identit
 	if descriptorVersion == 0 {
 		return Identity{}, fmt.Errorf("%w: %s", ErrNoCurrentDescriptor, operator)
 	}
-	descriptor, err := r.keeper.ServiceDescriptor(ctx, chainclient.ParticipantTypeBuilder, operator, height)
-	if err != nil {
-		return Identity{}, normalizeRetryable(err)
+	// The descriptor and the service key are both pinned to height and neither
+	// read needs the other, so they are issued together; the checks below still
+	// run in the original order, descriptor first.
+	var (
+		descriptor    chainclient.ServiceDescriptorSnapshot
+		serviceKey    chainclient.ServiceKeySnapshot
+		descriptorErr error
+		serviceKeyErr error
+		wg            sync.WaitGroup
+	)
+	wg.Go(func() {
+		descriptor, descriptorErr = r.keeper.ServiceDescriptor(ctx, chainclient.ParticipantTypeBuilder, operator, height)
+	})
+	wg.Go(func() {
+		serviceKey, serviceKeyErr = r.keeper.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, operator, height)
+	})
+	wg.Wait()
+	if descriptorErr != nil {
+		return Identity{}, normalizeRetryable(descriptorErr)
 	}
 	// The frozen query selects no version, so freshness is a post-read identity
 	// check against the Builder row's own current_descriptor_version.
@@ -187,9 +204,8 @@ func (r *Resolver) resolveOnChain(ctx context.Context, operator string) (Identit
 	if descriptor.OperatorAddress != operator {
 		return Identity{}, fmt.Errorf("Builder %s descriptor is published for %q", operator, descriptor.OperatorAddress)
 	}
-	serviceKey, err := r.keeper.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, operator, height)
-	if err != nil {
-		return Identity{}, normalizeRetryable(err)
+	if serviceKeyErr != nil {
+		return Identity{}, normalizeRetryable(serviceKeyErr)
 	}
 	if err := validateServiceKey(serviceKey, operator, height); err != nil {
 		return Identity{}, err

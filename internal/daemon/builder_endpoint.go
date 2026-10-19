@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/builderdirectory"
@@ -148,13 +149,22 @@ func (r receivingBuilders) resolveAll(
 	if err != nil {
 		return nil, fmt.Errorf("read Task Builders for task %s/%s: %w", task.SessionID, task.TaskID, err)
 	}
-	endpoints := make([]worker.BuilderEndpoint, 0, len(operators))
-	for _, operator := range operators {
-		endpoint, err := r.resolveOperator(ctx, task, operator, lookup)
+	// Each Builder resolves on its own; results keep the Task's Builder order and
+	// the first failure in that order is the one reported, as when they were
+	// resolved one after another.
+	endpoints := make([]worker.BuilderEndpoint, len(operators))
+	errs := make([]error, len(operators))
+	var wg sync.WaitGroup
+	for i, operator := range operators {
+		wg.Go(func() {
+			endpoints[i], errs[i] = r.resolveOperator(ctx, task, operator, lookup)
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
 		if err != nil {
 			return nil, err
 		}
-		endpoints = append(endpoints, endpoint)
 	}
 	return endpoints, nil
 }

@@ -32,6 +32,8 @@ type fakeKeeperNode struct {
 	infoCalls atomic.Int64
 	keyCalls  atomic.Int64
 	gate      chan struct{}
+	keyGate   chan struct{}
+	failKey   atomic.Int64
 	binding   func(participant sharedv1.ParticipantType, operator string) *hubv1.CurrentServiceKeyViewV1
 }
 
@@ -55,6 +57,12 @@ func (n *fakeKeeperNode) RoundTrip(r *http.Request) (*http.Response, error) {
 		return encode(map[string]any{"response": map[string]any{"last_block_height": strconv.FormatUint(n.height.Load(), 10)}})
 	case "/abci_query":
 		n.keyCalls.Add(1)
+		if n.keyGate != nil {
+			<-n.keyGate
+		}
+		if n.failKey.Add(-1) >= 0 {
+			return &http.Response{StatusCode: http.StatusBadGateway, Status: "502 Bad Gateway", Body: io.NopCloser(bytes.NewReader(nil)), Header: http.Header{}}, nil
+		}
 		var request hubv1.QueryCurrentServiceKeyRequest
 		if err := decodeTestABCIData(r.URL.Query().Get("data"), &request); err != nil {
 			n.t.Errorf("decode request: %v", err)
@@ -405,5 +413,88 @@ func TestRunReadsReportsErrorsInListedOrder(t *testing.T) {
 		if ran.Load() != want {
 			t.Fatalf("parallel=%v ran %d reads, want %d", parallel, ran.Load(), want)
 		}
+	}
+}
+
+// keyCallers starts n concurrent CommittedCurrentServiceKey reads for one
+// identity once the committed height is cached, and waits until the first has
+// reached the node.
+func keyCallers(ctx context.Context, t *testing.T, client *KeeperABCIClient, node *fakeKeeperNode, n int) (wait func() []error) {
+	t.Helper()
+	if _, err := client.CommittedHeight(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Go(func() {
+			_, _, errs[i] = client.CommittedCurrentServiceKey(ctx, ParticipantTypeCortexNode, "trueopen1operator")
+		})
+	}
+	for node.keyCalls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	return func() []error { wg.Wait(); return errs }
+}
+
+func TestServiceKeyConcurrentCallersShareOneRead(t *testing.T) {
+	node := newFakeKeeperNode(t, 100)
+	node.keyGate = make(chan struct{})
+	client := NewKeeperABCIClientWithTransport("http://node", node).EnableReadCache(time.Hour)
+	wait := keyCallers(context.Background(), t, client, node, 8)
+	close(node.keyGate)
+	for i, err := range wait() {
+		if err != nil {
+			t.Fatalf("caller %d: %v", i, err)
+		}
+	}
+	if got := node.keyCalls.Load(); got != 1 {
+		t.Fatalf("CurrentServiceKey queries = %d, want 1", got)
+	}
+}
+
+func TestServiceKeyWaiterRereadsAfterSharedFailure(t *testing.T) {
+	node := newFakeKeeperNode(t, 100)
+	node.keyGate = make(chan struct{})
+	node.failKey.Store(1)
+	client := NewKeeperABCIClientWithTransport("http://node", node).EnableReadCache(time.Hour)
+	wait := keyCallers(context.Background(), t, client, node, 2)
+	close(node.keyGate)
+	errs := wait()
+	failed := 0
+	for _, err := range errs {
+		if err != nil {
+			failed++
+		}
+	}
+	// The caller whose read failed sees the failure; the waiter reads again
+	// for itself and succeeds. The failure is not kept.
+	if failed != 1 {
+		t.Fatalf("errors = %v, want exactly the shared read's failure", errs)
+	}
+	if got := node.keyCalls.Load(); got != 2 {
+		t.Fatalf("CurrentServiceKey queries = %d, want 2", got)
+	}
+}
+
+func TestServiceKeyWaiterHonoursItsContext(t *testing.T) {
+	node := newFakeKeeperNode(t, 100)
+	node.keyGate = make(chan struct{})
+	defer close(node.keyGate)
+	client := NewKeeperABCIClientWithTransport("http://node", node).EnableReadCache(time.Hour)
+	if _, err := client.CommittedHeight(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _, _ = client.CommittedCurrentServiceKey(context.Background(), ParticipantTypeCortexNode, "trueopen1operator")
+	}()
+	for node.keyCalls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, _, err := client.CommittedCurrentServiceKey(ctx, ParticipantTypeCortexNode, "trueopen1operator"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiter error = %v, want its own deadline", err)
 	}
 }

@@ -229,30 +229,32 @@ func (c *KeeperABCIClient) currentServiceKeyAt(ctx context.Context, participantT
 		}
 	}
 	memoKey := serviceKeyMemoKey{participant: wireParticipant, operator: operatorAddress, height: snapshotHeight}
-	if entry, ok := c.lookupServiceKey(memoKey); ok {
-		return entry.binding, entry.served, nil
-	}
-	request := &hubv1.QueryCurrentServiceKeyRequest{
-		ParticipantType: wireParticipant,
-		OperatorAddress: operatorAddress,
-	}
-	var response hubv1.QueryCurrentServiceKeyResponse
-	served, err := c.queryServed(ctx, hubQuery+"CurrentServiceKey", snapshotHeight, request, &response)
+	entry, err := c.memoServiceKey(ctx, memoKey, func(ctx context.Context) (serviceKeyMemoEntry, error) {
+		request := &hubv1.QueryCurrentServiceKeyRequest{
+			ParticipantType: wireParticipant,
+			OperatorAddress: operatorAddress,
+		}
+		var response hubv1.QueryCurrentServiceKeyResponse
+		served, err := c.queryServed(ctx, hubQuery+"CurrentServiceKey", snapshotHeight, request, &response)
+		if err != nil {
+			return serviceKeyMemoEntry{}, err
+		}
+		binding, err := serviceKeySnapshotFromWire(response.Binding)
+		if err != nil {
+			return serviceKeyMemoEntry{}, err
+		}
+		if binding.ParticipantType != strings.TrimSpace(participantType) || binding.OperatorAddress != operatorAddress {
+			return serviceKeyMemoEntry{}, fmt.Errorf("Keeper current service key response does not match query identity")
+		}
+		if err := binding.Validate(); err != nil {
+			return serviceKeyMemoEntry{}, err
+		}
+		return serviceKeyMemoEntry{binding: binding, served: served}, nil
+	})
 	if err != nil {
 		return ServiceKeySnapshot{}, 0, err
 	}
-	binding, err := serviceKeySnapshotFromWire(response.Binding)
-	if err != nil {
-		return ServiceKeySnapshot{}, 0, err
-	}
-	if binding.ParticipantType != strings.TrimSpace(participantType) || binding.OperatorAddress != operatorAddress {
-		return ServiceKeySnapshot{}, 0, fmt.Errorf("Keeper current service key response does not match query identity")
-	}
-	if err := binding.Validate(); err != nil {
-		return ServiceKeySnapshot{}, 0, err
-	}
-	c.storeServiceKey(memoKey, serviceKeyMemoEntry{binding: binding, served: served})
-	return binding, served, nil
+	return entry.binding, entry.served, nil
 }
 
 func serviceKeySnapshotFromWire(binding *hubv1.CurrentServiceKeyViewV1) (ServiceKeySnapshot, error) {
@@ -430,6 +432,24 @@ func (c *KeeperABCIClient) CurrentModelProfile(ctx context.Context, modelID, pro
 }
 
 func (c *KeeperABCIClient) currentModelProfileAt(ctx context.Context, modelID string, version uint32, height uint64) (CurrentModelProfileSnapshot, error) {
+	// The Profile query needs only the model key and the height, not the Model
+	// row, so the two reads can run together; the Model error still comes first.
+	// A model ID that does not encode takes the original path, which reports the
+	// Model read's error before the encoding error.
+	if key, keyErr := identity.ModelIDBytes(modelID); keyErr == nil {
+		var model CurrentModelSnapshot
+		var response hubv1.QueryProfileResponse
+		request := &hubv1.QueryProfileRequest{ModelId: key, ProfileVersion: version}
+		errs := c.runReads(
+			func() (err error) { model, err = c.currentModelAt(ctx, modelID, height); return err },
+			func() error { return c.query(ctx, hubQuery+"Profile", height, request, &response) },
+		)
+		if err := firstError(errs); err != nil {
+			return CurrentModelProfileSnapshot{}, err
+		}
+		snapshot := CurrentModelProfileSnapshot{Model: model, Profile: currentProfileSnapshotFromWire(response.Profile)}
+		return snapshot, snapshot.Validate()
+	}
 	model, err := c.currentModelAt(ctx, modelID, height)
 	if err != nil {
 		return CurrentModelProfileSnapshot{}, err
