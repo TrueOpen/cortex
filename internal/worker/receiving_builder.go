@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 )
@@ -130,6 +131,10 @@ func (w *Worker) receivingBuilders(ctx context.Context, ref ReceivingBuilderRef)
 	if err != nil {
 		return nil, err
 	}
+	return w.checkReceivingBuilders(builders)
+}
+
+func (w *Worker) checkReceivingBuilders(builders []BuilderEndpoint) ([]BuilderEndpoint, error) {
 	if len(builders) == 0 {
 		return nil, fmt.Errorf("task has no resolved Task Builders")
 	}
@@ -213,4 +218,68 @@ func (w *Worker) checkReceivingBuilder(builder BuilderEndpoint, err error) (Buil
 		return BuilderEndpoint{}, fmt.Errorf("resolved receiving Builder identity is incomplete or mismatched")
 	}
 	return builder, nil
+}
+
+// PreresolvedBuilders is a Task Builder resolution started before the output
+// stream needs it, so the reads overlap with fetching the input. It is used at
+// most once, by the first stream open of the attempt that started it; every
+// later read (reopen, relay, storage confirmation, refresh) resolves afresh.
+// The reads are the same ones the open would make after the assignment is
+// confirmed, only earlier.
+type PreresolvedBuilders struct {
+	ref      ReceivingBuilderRef
+	done     chan struct{}
+	builders []BuilderEndpoint
+	err      error
+	taken    atomic.Bool
+}
+
+// PreresolveBuilders starts resolving every Task Builder for ref.
+func PreresolveBuilders(ctx context.Context, provider ReceivingBuilderProvider, ref ReceivingBuilderRef) *PreresolvedBuilders {
+	p := &PreresolvedBuilders{ref: ref, done: make(chan struct{})}
+	go func() {
+		defer close(p.done)
+		p.builders, p.err = provider.ResolveReceivingBuilders(ctx, ref)
+	}()
+	return p
+}
+
+// Wait blocks until the resolution has finished. A caller that cancels the
+// context it passed to PreresolveBuilders calls Wait so the read does not
+// outlive it.
+func (p *PreresolvedBuilders) Wait() {
+	if p != nil {
+		<-p.done
+	}
+}
+
+// take returns the resolution for ref the first time it is asked, or false
+// when there is none to use: not started, already taken, for another task, or
+// failed. A caller that gets false resolves for itself.
+func (p *PreresolvedBuilders) take(ctx context.Context, ref ReceivingBuilderRef) ([]BuilderEndpoint, bool) {
+	if p == nil || p.ref != ref || !p.taken.CompareAndSwap(false, true) {
+		return nil, false
+	}
+	select {
+	case <-p.done:
+	case <-ctx.Done():
+		return nil, false
+	}
+	if p.err != nil {
+		return nil, false
+	}
+	return p.builders, true
+}
+
+// openReceivingBuilders resolves the Task Builders for a stream open, using a
+// preresolved set when one is waiting. The set is checked exactly as a fresh
+// resolution is; a set that fails the check is dropped and the Builders are
+// resolved again.
+func (w *Worker) openReceivingBuilders(ctx context.Context, ref ReceivingBuilderRef) ([]BuilderEndpoint, error) {
+	if builders, ok := w.cfg.PreresolvedBuilders.take(ctx, ref); ok {
+		if checked, err := w.checkReceivingBuilders(builders); err == nil {
+			return checked, nil
+		}
+	}
+	return w.receivingBuilders(ctx, ref)
 }
