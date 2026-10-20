@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -70,6 +71,15 @@ func (r *NexusTaskInputResolver) ResolveTaskInput(ctx context.Context, ref TaskI
 	if ref.PayloadHash.IsZero() {
 		return nil, fmt.Errorf("Keeper accepted order payload hash for %s is required", ref.TaskID)
 	}
+	// Signing the fetch needs this node's committed service key, which does not
+	// depend on the Builder endpoint. Reading it while the endpoint resolves
+	// fills the client's per-height memo, so the signature made for each
+	// request below finds it there or joins the read in flight. The fetch still
+	// signs and checks as before; an error here is dropped and the signing read
+	// reports its own.
+	var warm sync.WaitGroup
+	defer warm.Wait()
+	warm.Go(func() { _, _, _ = r.cfg.Auth.CommittedBusEnvelopeIdentity(ctx) })
 	var input []byte
 	err := dialBuilder(ctx, r.cfg.Endpoints, builderOperator, func(ctx context.Context, endpoint BuilderEndpoint) error {
 		got, err := r.resolveFrom(ctx, endpoint, builderOperator, ref)
