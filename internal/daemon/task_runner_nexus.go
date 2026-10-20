@@ -964,7 +964,10 @@ func (r *TaskRunner) admitOrder(ctx context.Context, subject string, envelope bu
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	tip := r.currentChainTip(ctx)
+	capability, capabilityErr := r.capabilityFor(orderFacts.ModelID, orderFacts.ProfileVersion)
+	candidate := WorkerHandraiseCandidate{TaskID: orderTaskID, SessionID: orderFacts.SessionID, OrderSequence: orderFacts.OrderSequence, ModelID: orderFacts.ModelID, ProfileVersion: orderFacts.ProfileVersion, Capability: capability, DeadlineHeight: orderFacts.OrderExpireHeight}
+	reads := r.readAdmission(ctx, candidate, capabilityErr == nil)
+	tip := reads.chainTip()
 	redriveTip = tip
 	if tip.readable && orderFacts.OrderExpireHeight <= tip.height {
 		return fmt.Errorf("OrderBroadcast order_expire_height %d is not above current chain height %d", orderFacts.OrderExpireHeight, tip.height)
@@ -972,11 +975,10 @@ func (r *TaskRunner) admitOrder(ctx context.Context, subject string, envelope bu
 	if !tip.readable && r.cfg.HandraiseEligibility == nil {
 		return builderclient.Retryable(fmt.Errorf("OrderBroadcast deadline cannot be judged without a chain view"))
 	}
-	capability, err := r.capabilityFor(orderFacts.ModelID, orderFacts.ProfileVersion)
-	if err != nil {
-		return err
+	if capabilityErr != nil {
+		return capabilityErr
 	}
-	precheck, expiry, err := r.workerEligibility(ctx, WorkerHandraiseCandidate{TaskID: orderTaskID, SessionID: orderFacts.SessionID, OrderSequence: orderFacts.OrderSequence, ModelID: orderFacts.ModelID, ProfileVersion: orderFacts.ProfileVersion, Capability: capability, DeadlineHeight: orderFacts.OrderExpireHeight})
+	precheck, expiry, err := reads.eligibility(ctx, r, candidate)
 	if err != nil {
 		return err
 	}
@@ -995,7 +997,7 @@ func (r *TaskRunner) admitOrder(ctx context.Context, subject string, envelope bu
 	// one message would be two different claims about the same thing.
 	member := builderclient.CandidateMemberRefMessage{}
 	if r.cfg.CandidateMemberReader != nil {
-		candidateMember, err := r.cfg.CandidateMemberReader.CurrentCandidateMember(ctx, r.cfg.LocalWorkerAddress)
+		candidateMember, err := reads.candidateMember(ctx, r)
 		if err != nil {
 			return builderclient.Retryable(fmt.Errorf("query current CandidatePool member: %w", err))
 		}
@@ -1011,10 +1013,11 @@ func (r *TaskRunner) admitOrder(ctx context.Context, subject string, envelope bu
 	} else {
 		return builderclient.Retryable(fmt.Errorf("CandidatePool member reader is required"))
 	}
-	authorizationNonce, _, err := r.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	authorizationNonce, err := reads.envelopeNonce(ctx, r)
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the WorkerHandraise envelope: %w", err))
 	}
+	reads.trace(r, orderTaskID)
 	signerAddress, _ := resolveSigningIdentity(r.cfg, r.cfg.LocalWorkerAddress)
 	result, err := worker.New(worker.Config{WorkerAddress: r.cfg.LocalWorkerAddress, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, FakeOutput: r.cfg.FakeOutput, TrustedNATSDev: r.cfg.TrustedNATSDev || r.cfg.FakeBus, EnvelopeTTL: r.cfg.EnvelopeTTL, NexusEnvelopeSigner: r.cfg.NexusEnvelopeSigner, Trace: r.cfg.Trace}).EvaluateAndHandraise(ctx, worker.WorkerHandraiseRequest{
 		TaskID: orderTaskID, SessionID: orderFacts.SessionID, OrderSequence: orderFacts.OrderSequence,

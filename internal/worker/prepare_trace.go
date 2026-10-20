@@ -44,6 +44,10 @@ type preparationTiming struct {
 	// for the header acknowledgement.
 	openStream time.Duration
 	builders   int
+	// resolveBuilders is finding the Task Builders and their endpoints before
+	// the streams open: the selected-Builder read plus one endpoint resolution
+	// per Builder.
+	resolveBuilders time.Duration
 }
 
 // observe adds one step's duration to total. It takes the instant the step
@@ -83,6 +87,7 @@ func (w *Worker) tracePreparationCompleted(taskID string) {
 		tasktrace.Millis("generation_params_ms", w.prepare.generationParams),
 		tasktrace.Millis("task_snapshot_ms", w.prepare.taskSnapshot),
 		tasktrace.Millis("input_ms", w.prepare.input),
+		tasktrace.Millis("resolve_builders_ms", w.prepare.resolveBuilders),
 		tasktrace.Millis("open_stream_ms", w.prepare.openStream),
 		tasktrace.Int("builders", w.prepare.builders))
 }

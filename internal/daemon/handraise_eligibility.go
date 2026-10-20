@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -91,14 +92,15 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	if e.cfg.ChainStatus == nil || e.cfg.Keeper == nil || e.cfg.Model == nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("chain status, Keeper, and model service are required for handraise eligibility")
 	}
-	height, chainID, err := e.cfg.ChainStatus.ChainStatus(ctx)
+	profileVersionText := fmt.Sprintf("%d", profileVersion)
+	pre := e.prefetch(ctx, modelID, profileVersionText)
+	height, chainID, err := pre.chainStatus(ctx, e)
 	if err != nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, builderclient.Retryable(fmt.Errorf("query chain status for handraise: %w", err))
 	}
 	if height == 0 || strings.TrimSpace(chainID) != strings.TrimSpace(e.cfg.ChainID) {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("handraise chain status does not match configured chain")
 	}
-	profileVersionText := fmt.Sprintf("%d", profileVersion)
 	var projection chainclient.CurrentModelProfileSnapshot
 	var capability chainclient.ModelCapabilitySnapshot
 	var support chainclient.ModelSupportSnapshot
@@ -106,7 +108,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	freshnessWindow := uint64(0)
 	committedScope := false
 	if reader, ok := e.cfg.Keeper.(committedModelSupportScopeReader); ok {
-		scope, err := reader.CommittedModelSupportScope(ctx, e.cfg.OperatorAddress, modelID, profileVersionText)
+		scope, err := pre.scope(ctx, e, reader, modelID, profileVersionText)
 		if err != nil {
 			return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, builderclient.Retryable(fmt.Errorf("query committed Keeper model support scope: %w", err))
 		}
@@ -136,7 +138,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	if (modelStatus != "REGISTERED" && modelStatus != "ACTIVE") || (profileStatus != "REGISTERED" && profileStatus != "ACTIVE") || projection.Profile.MinStake.Uint64() == 0 {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("Keeper model profile is not accepting handraise candidates")
 	}
-	node, err := e.cfg.Keeper.CortexNode(ctx, e.cfg.OperatorAddress)
+	node, err := pre.cortexNode(ctx, e)
 	if err != nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, builderclient.Retryable(fmt.Errorf("query Keeper Cortex node for handraise: %w", err))
 	}
@@ -146,7 +148,7 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	if node.OperatorAddress != e.cfg.OperatorAddress || (!strings.EqualFold(node.Status, "REGISTERED") && !strings.EqualFold(node.Status, "ACTIVE")) {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, fmt.Errorf("Keeper Cortex node is not eligible for handraise")
 	}
-	bond, err := e.cfg.Keeper.ServiceBond(ctx, e.cfg.OperatorAddress)
+	bond, err := pre.serviceBond(ctx, e)
 	if err != nil {
 		return 0, chainclient.ModelSupportSnapshot{}, "", 0, "", 0, builderclient.Retryable(fmt.Errorf("query Keeper service bond for handraise: %w", err))
 	}
@@ -279,4 +281,65 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 		availableSlots,
 	)
 	return height, support, supportState, freshnessWindow, capacityRef, availableSlots, nil
+}
+
+// eligibilityPrefetch holds the chain reads facts makes, issued together.
+// facts consumes them in its original order, so the first failure it meets is
+// the one the serial reads would have met.
+type eligibilityPrefetch struct {
+	ok        bool
+	height    uint64
+	chainID   string
+	statusErr error
+	scopeOK   bool
+	scopeVal  chainclient.CommittedModelSupportScope
+	scopeErr  error
+	node      chainclient.CortexNodeSnapshot
+	nodeErr   error
+	bond      chainclient.ServiceBondSnapshot
+	bondErr   error
+}
+
+func (e keeperHandraiseEligibility) prefetch(ctx context.Context, modelID, profileVersion string) eligibilityPrefetch {
+	pre := eligibilityPrefetch{ok: true}
+	var wg sync.WaitGroup
+	wg.Go(func() { pre.height, pre.chainID, pre.statusErr = e.cfg.ChainStatus.ChainStatus(ctx) })
+	if reader, ok := e.cfg.Keeper.(committedModelSupportScopeReader); ok {
+		pre.scopeOK = true
+		wg.Go(func() {
+			pre.scopeVal, pre.scopeErr = reader.CommittedModelSupportScope(ctx, e.cfg.OperatorAddress, modelID, profileVersion)
+		})
+	}
+	wg.Go(func() { pre.node, pre.nodeErr = e.cfg.Keeper.CortexNode(ctx, e.cfg.OperatorAddress) })
+	wg.Go(func() { pre.bond, pre.bondErr = e.cfg.Keeper.ServiceBond(ctx, e.cfg.OperatorAddress) })
+	wg.Wait()
+	return pre
+}
+
+func (p eligibilityPrefetch) chainStatus(ctx context.Context, e keeperHandraiseEligibility) (uint64, string, error) {
+	if p.ok {
+		return p.height, p.chainID, p.statusErr
+	}
+	return e.cfg.ChainStatus.ChainStatus(ctx)
+}
+
+func (p eligibilityPrefetch) scope(ctx context.Context, e keeperHandraiseEligibility, reader committedModelSupportScopeReader, modelID, profileVersion string) (chainclient.CommittedModelSupportScope, error) {
+	if p.ok && p.scopeOK {
+		return p.scopeVal, p.scopeErr
+	}
+	return reader.CommittedModelSupportScope(ctx, e.cfg.OperatorAddress, modelID, profileVersion)
+}
+
+func (p eligibilityPrefetch) cortexNode(ctx context.Context, e keeperHandraiseEligibility) (chainclient.CortexNodeSnapshot, error) {
+	if p.ok {
+		return p.node, p.nodeErr
+	}
+	return e.cfg.Keeper.CortexNode(ctx, e.cfg.OperatorAddress)
+}
+
+func (p eligibilityPrefetch) serviceBond(ctx context.Context, e keeperHandraiseEligibility) (chainclient.ServiceBondSnapshot, error) {
+	if p.ok {
+		return p.bond, p.bondErr
+	}
+	return e.cfg.Keeper.ServiceBond(ctx, e.cfg.OperatorAddress)
 }

@@ -48,6 +48,8 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	if task.Stage == "succeeded" {
 		return task, false, nil
 	}
+	runStartedAt := time.Now()
+	var profileTime, inputResolveTime, inputPersistTime time.Duration
 	var evidenceSchemaHash string
 	var requirements []builderclient.InferEvidenceRequirement
 	var requiredTopK uint32
@@ -61,7 +63,9 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 		requirements = builderclient.WorkerEvidenceRequirementsV3()
 		requiredTopK = fakeRequiredTopK
 	} else {
+		profileStartedAt := time.Now()
 		profile, err := e.cfg.ProfileReader.CurrentModelProfile(ctx, task.ModelID, fmt.Sprintf("%d", task.ProfileVersion))
+		profileTime = time.Since(profileStartedAt)
 		if err != nil {
 			return task, false, builderclient.Retryable(fmt.Errorf("query locked model profile: %w", err))
 		}
@@ -92,14 +96,18 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	if readErr == nil && len(input) > 0 && codec.HashBytes(input) == task.InputDigest {
 		event.Input = input
 	} else {
+		inputStartedAt := time.Now()
 		event.Input, err = e.cfg.InputResolver.ResolveTaskInput(ctx, TaskInputRef{SessionID: task.SessionID, TaskID: task.TaskID, TaskHash: taskHash, PayloadCID: task.InputCID, PayloadHash: chainclient.HexHash(task.InputDigest), BuilderOperatorAddress: task.BuilderOperatorAddress, InputSizeBytes: task.InputSizeBytes})
+		inputResolveTime = time.Since(inputStartedAt)
 		if err == nil && codec.HashBytes(event.Input) != task.InputDigest {
 			err = fmt.Errorf("resolved task input hash does not match Keeper accepted payload hash")
 		}
 		if err == nil {
+			persistStartedAt := time.Now()
 			if cpErr := persistence.WriteEvidence(ctx, worker.EvidenceRecord{TaskID: task.TaskID, Kind: "task-input", Data: event.Input}); cpErr != nil {
 				return task, false, fmt.Errorf("persist resolved task input: %w", cpErr)
 			}
+			inputPersistTime = time.Since(persistStartedAt)
 			if e.cfg.CrashHook != nil {
 				if crashErr := e.cfg.CrashHook(worker.CrashPointInputCommit); crashErr != nil {
 					return task, false, crashErr
@@ -116,6 +124,9 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 		tasktrace.Str("session", task.SessionID), tasktrace.Str("model", task.ModelID),
 		tasktrace.Uint("profile_version", uint64(task.ProfileVersion)),
 		tasktrace.Hash("input_digest", task.InputDigest), tasktrace.Int("input_bytes", len(event.Input)),
+		tasktrace.Millis("since_run_ms", time.Since(runStartedAt)),
+		tasktrace.Millis("profile_ms", profileTime), tasktrace.Millis("input_resolve_ms", inputResolveTime),
+		tasktrace.Millis("input_persist_ms", inputPersistTime),
 		tasktrace.Hex("evidence_schema_hash", evidenceSchemaHash),
 		tasktrace.Int("evidence_requirements", len(requirements)),
 		tasktrace.Str("builder", task.BuilderOperatorAddress),
