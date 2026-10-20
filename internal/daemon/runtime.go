@@ -28,6 +28,17 @@ import (
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
+// keeperReadCacheMaxAge bounds how long the daemon's Keeper client reuses a
+// committed height. It stays below one block so a reused height is at most one
+// block behind. See chainclient.KeeperABCIClient.EnableReadCache.
+const keeperReadCacheMaxAge = 500 * time.Millisecond
+
+// tuneKeeperClient applies the Keeper read optimizations to the daemon's
+// client: a connection pool sized for concurrent reads, and the read cache.
+func tuneKeeperClient(client *chainclient.KeeperABCIClient) *chainclient.KeeperABCIClient {
+	return client.EnableConnectionPool().EnableReadCache(keeperReadCacheMaxAge)
+}
+
 type Runtime struct {
 	Store *store.Store
 	// BuilderEndpoints resolves the Nexus endpoint of a Builder operator, so
@@ -300,7 +311,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 	}
 	keeperClient := opts.Keeper
 	if keeperClient == nil && cfg.UsesRealDependencies() {
-		keeperClient = chainclient.NewKeeperABCIClientWithTransport(cfg.Node.RPCEndpoint, nodeTransport)
+		keeperClient = tuneKeeperClient(chainclient.NewKeeperABCIClientWithTransport(cfg.Node.RPCEndpoint, nodeTransport))
 	}
 	txClient := opts.TxClient
 	// Build the signer once. A local key file would otherwise be decrypted on

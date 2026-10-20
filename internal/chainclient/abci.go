@@ -30,6 +30,9 @@ type KeeperABCIClient struct {
 	// Genesis-only Task params, read at most once. See OutputStreamLimits.
 	outputStreamLimitsMu sync.Mutex
 	outputStreamLimits   *OutputStreamLimitsSnapshot
+
+	// Off unless EnableReadCache is called. See read_cache.go.
+	readCache keeperReadCache
 }
 
 // KeeperHTTPClient is retained as a source-compatible name for callers that

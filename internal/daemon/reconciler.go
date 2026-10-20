@@ -125,6 +125,10 @@ func (r *Reconciler) Apply(ctx context.Context, events []chainclient.KeeperEvent
 	}
 	out := make([]ReconcilerEffect, 0, len(events))
 	for _, event := range events {
+		// Every Keeper read made for this event must see state at least as
+		// new as the block that emitted it; a cached older height would show
+		// the task before the event and quarantine a valid event.
+		ctx := chainclient.WithMinCommittedHeight(ctx, event.Position.Height)
 		if event.Quarantined {
 			r.reportQuarantine(event)
 			continue

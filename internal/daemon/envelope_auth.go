@@ -24,8 +24,10 @@ var ErrBusEnvelopeReplay = errors.New("Nexus envelope was already processed")
 
 // envelopeServiceKeyReader resolves the current service-key binding of a
 // participant. Only the verification-time current binding is admissible: a
-// historical key, a message-carried key, or a cached key from an earlier height
-// would each let a rotated-out key keep authenticating.
+// historical key or a message-carried key would let a rotated-out key keep
+// authenticating. The daemon's Keeper client verifies against committed state at
+// most keeperReadCacheMaxAge old, and reuses a key read at a height only for that
+// same height, so a rotation or revocation takes effect within that bound.
 type envelopeServiceKeyReader interface {
 	CurrentServiceKey(ctx context.Context, participantType, operatorAddress string, snapshotHeight uint64) (chainclient.ServiceKeySnapshot, error)
 }
