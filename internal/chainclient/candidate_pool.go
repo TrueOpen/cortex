@@ -55,6 +55,14 @@ func (c *KeeperABCIClient) CurrentCandidateMember(ctx context.Context, operatorA
 	if err != nil {
 		return CandidateMemberRefSnapshot{}, err
 	}
+	// Pinned to height throughout, so an order admitted in the same block as
+	// another reuses its answer. Only a found member is kept.
+	return memoPinned(ctx, c, pinnedReadKey{kind: "current_candidate_member", args: operatorAddress, height: height}, func(ctx context.Context) (CandidateMemberRefSnapshot, error) {
+		return c.currentCandidateMemberAt(ctx, operatorAddress, height)
+	})
+}
+
+func (c *KeeperABCIClient) currentCandidateMemberAt(ctx context.Context, operatorAddress string, height uint64) (CandidateMemberRefSnapshot, error) {
 	var current hubv1.QueryCurrentCandidatePoolResponse
 	if err := c.query(ctx, hubQuery+"CurrentCandidatePool", height, &hubv1.QueryCurrentCandidatePoolRequest{}, &current); err != nil {
 		return CandidateMemberRefSnapshot{}, err

@@ -371,7 +371,10 @@ func TestOutputStreamRecorderEnforcesLimitsBeforeSigningExtraFrames(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer recorder.stream.Close()
+			// The stream opens beside the generation; these tests drive the
+			// recorder directly and want it up before the first frame.
+			recorder.awaitOpen()
+			defer recorder.release()
 			for _, text := range test.chunks {
 				err = recorder.ObserveInferFrame(context.Background(), modelservice.InferStreamFrame{TaskID: event.TaskID, RequestID: "infer-" + event.TaskID, TextDelta: text})
 			}
@@ -527,6 +530,9 @@ func TestOutputRecorderRecoversCompletedUnsignedTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The stream opens beside the generation; these tests drive the
+	// recorder directly and want it up before the first frame.
+	recorder.awaitOpen()
 	for _, text := range []string{"first-frame-text", "tail"} {
 		if err := recorder.ObserveInferFrame(context.Background(), modelservice.InferStreamFrame{TaskID: event.TaskID, RequestID: "infer-" + event.TaskID, TextDelta: text}); err != nil {
 			t.Fatal(err)

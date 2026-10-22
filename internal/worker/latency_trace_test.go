@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,10 +14,25 @@ import (
 
 // traceLines collects the milestone lines cortexd would log, so a test can read
 // the trace the way an operator does.
-type traceLines struct{ lines []string }
+// It is safe for concurrent emitters: the output stream opens beside the
+// generation and traces from its own goroutine.
+type traceLines struct {
+	mu    sync.Mutex
+	lines []string
+}
 
 func (c *traceLines) trace() *tasktrace.Trace {
-	return &tasktrace.Trace{Emit: func(record observability.LogRecord) { c.lines = append(c.lines, record.Message) }}
+	return &tasktrace.Trace{Emit: func(record observability.LogRecord) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.lines = append(c.lines, record.Message)
+	}}
+}
+
+func (c *traceLines) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.lines...)
 }
 
 // one returns the single line for a milestone, and fails when the milestone was
@@ -26,17 +42,18 @@ func (c *traceLines) one(t *testing.T, name string) string {
 	t.Helper()
 	prefix := "task trace event=" + name + " "
 	found := ""
-	for _, line := range c.lines {
+	lines := c.snapshot()
+	for _, line := range lines {
 		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
 		if found != "" {
-			t.Fatalf("event %q emitted more than once:\n%s", name, strings.Join(c.lines, "\n"))
+			t.Fatalf("event %q emitted more than once:\n%s", name, strings.Join(lines, "\n"))
 		}
 		found = line
 	}
 	if found == "" {
-		t.Fatalf("event %q was never emitted:\n%s", name, strings.Join(c.lines, "\n"))
+		t.Fatalf("event %q was never emitted:\n%s", name, strings.Join(lines, "\n"))
 	}
 	return found
 }
@@ -44,9 +61,10 @@ func (c *traceLines) one(t *testing.T, name string) string {
 func (c *traceLines) absent(t *testing.T, name string) {
 	t.Helper()
 	prefix := "task trace event=" + name + " "
-	for _, line := range c.lines {
+	lines := c.snapshot()
+	for _, line := range lines {
 		if strings.HasPrefix(line, prefix) {
-			t.Fatalf("event %q was emitted before its milestone:\n%s", name, strings.Join(c.lines, "\n"))
+			t.Fatalf("event %q was emitted before its milestone:\n%s", name, strings.Join(lines, "\n"))
 		}
 	}
 }
@@ -68,7 +86,10 @@ func TestFirstOutputLatenciesAreTracedSeparately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer recorder.stream.Close()
+	// The stream opens beside the generation; these tests drive the
+	// recorder directly and want it up before the first frame.
+	recorder.awaitOpen()
+	defer recorder.release()
 	recorder.inferStartedAt = time.Now()
 
 	observe := func(text string) {
@@ -119,6 +140,9 @@ func TestResumedTaskClaimsNoFirstFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The stream opens beside the generation; these tests drive the
+	// recorder directly and want it up before the first frame.
+	recorder.awaitOpen()
 	recorder.inferStartedAt = time.Now()
 	if err := recorder.ObserveInferFrame(context.Background(), modelservice.InferStreamFrame{
 		TaskID: event.TaskID, RequestID: "infer-" + event.TaskID, TextDelta: "enough text to cross the minimum",

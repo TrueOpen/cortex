@@ -61,7 +61,10 @@ func TestEarlyFramesCommitBeforeReachingTheCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer recorder.stream.Close()
+	// The stream opens beside the generation; these tests drive the
+	// recorder directly and want it up before the first frame.
+	recorder.awaitOpen()
+	defer recorder.release()
 
 	// observe feeds exactly n bytes of generated text and reports how many frames
 	// stand committed afterwards.
@@ -117,6 +120,9 @@ func TestResumedStreamContinuesTheRampWhereItStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The stream opens beside the generation; these tests drive the
+	// recorder directly and want it up before the first frame.
+	recorder.awaitOpen()
 	for _, n := range []int{16, 32} {
 		if err := recorder.ObserveInferFrame(context.Background(), modelservice.InferStreamFrame{
 			TaskID: event.TaskID, RequestID: "infer-" + event.TaskID, TextDelta: strings.Repeat("a", n),

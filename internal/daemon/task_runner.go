@@ -74,7 +74,12 @@ type TaskRunnerConfig struct {
 	// It carries no authority. The scan it asks for reads and validates the
 	// chain the same way a tick does, so a frame that lies about chain state
 	// buys nothing but one early scan.
-	WakeKeeperPoll                 func(WakeSource)
+	WakeKeeperPoll func(WakeSource)
+	// AssignNotifyScanWait bounds how long a WORKER_ASSIGNMENT_NOTIFY for an
+	// assignment not yet recorded locally waits for the Keeper scan it asks
+	// for, instead of being refused into the bus redelivery delay. Zero
+	// defaults; negative disables the wait. See awaitAssignmentScan.
+	AssignNotifyScanWait           time.Duration
 	EnvelopeTTL, EnvelopeClockSkew time.Duration
 	HandraiseEligibility           HandraiseEligibility
 	NexusEnvelopeAuthenticator     builderclient.BusEnvelopeAuthenticator
@@ -250,6 +255,15 @@ type TaskRunner struct {
 	// task_runner_order_redrive.go.
 	orderRedriveMu sync.Mutex
 	orderRedrives  map[string]*workerOrderRedrive
+	// prefetches holds task inputs downloaded on WORKER_ASSIGNMENT_NOTIFY,
+	// before the chain assignment is recorded locally. Nil unless the
+	// production infer executor, which takes them, is in use. See
+	// prefetchAssignedInput.
+	prefetches *inputPrefetches
+	// keeperProgressMu guards keeperProgress, closed and replaced whenever the
+	// Keeper poller reports progress or effects land. See awaitAssignmentScan.
+	keeperProgressMu sync.Mutex
+	keeperProgress   chan struct{}
 }
 
 type sessionAdmission struct {
@@ -300,6 +314,9 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 	if cfg.MaxSessionAdmissions <= 0 {
 		cfg.MaxSessionAdmissions = 4096
 	}
+	if cfg.AssignNotifyScanWait == 0 {
+		cfg.AssignNotifyScanWait = defaultAssignNotifyScanWait
+	}
 	if cfg.VerifyExecutor == nil && cfg.Model != nil && cfg.LocalVerifierAddress != "" {
 		cfg.VerifyExecutor = newProductionVerifyExecutor(cfg)
 	}
@@ -316,7 +333,11 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 		orderRedrives:     make(map[string]*workerOrderRedrive),
 	}
 	if runner.cfg.InferExecutor == nil && cfg.Model != nil && cfg.LocalWorkerAddress != "" {
-		runner.cfg.InferExecutor = newProductionInferExecutor(cfg, runner.persistInferCheckpoint)
+		// Inputs are prefetched only for the production executor, the one
+		// consumer that takes them; with another executor they would only
+		// download and expire.
+		runner.prefetches = newInputPrefetches(cfg.Trace)
+		runner.cfg.InferExecutor = &productionInferExecutor{cfg: cfg, persist: runner.persistInferCheckpoint, prefetches: runner.prefetches}
 	}
 	return runner
 }
@@ -448,6 +469,7 @@ func (r *TaskRunner) Run(ctx context.Context) error {
 	// against them.
 	stop := func(err error) error {
 		r.executions.Wait()
+		r.prefetches.close()
 		if err == nil {
 			err = r.takeExecutionFailure()
 		}

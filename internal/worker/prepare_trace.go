@@ -41,13 +41,22 @@ type preparationTiming struct {
 	input            time.Duration
 	// openStream is the Builder handshakes alone, which is the one cost that
 	// scales with the Builder count -- each is a TLS handshake plus a round trip
-	// for the header acknowledgement.
+	// for the header acknowledgement. It and resolveBuilders accumulate only
+	// for a stream opened before the generation (a resumed task); see
+	// streamConcurrent.
 	openStream time.Duration
 	builders   int
 	// resolveBuilders is finding the Task Builders and their endpoints before
 	// the streams open: the selected-Builder read plus one endpoint resolution
 	// per Builder.
 	resolveBuilders time.Duration
+	// streamConcurrent says the output stream is opened beside the
+	// generation (every fresh generation). The stream is then not open when
+	// infer_prepare_completed is emitted: resolveBuilders and openStream stay
+	// zero, builders is not counted yet, and output_stream_opened, emitted
+	// when the open lands, carries resolve_builders_ms, open_stream_ms and
+	// builders instead.
+	streamConcurrent bool
 }
 
 // observe adds one step's duration to total. It takes the instant the step
@@ -75,6 +84,13 @@ func (r *outputStreamRecorder) sincePrepareStarted(at time.Time) tasktrace.Field
 // emit reports the breakdown once, at the end of preparation. It is emitted for
 // a resumed task too: the preparation ran either way, and a resume that was
 // slow is worth seeing even though no generation follows it.
+//
+// Field semantics depend on output_stream_concurrent. When it is true (a
+// fresh generation) the line is emitted before the output stream is open:
+// resolve_builders_ms, open_stream_ms and builders are 0 and the real values
+// are on output_stream_opened, and total_ms no longer includes the Builder
+// handshakes. When it is false (a resumed task) the stream was opened before
+// this line and the three fields keep their earlier meaning.
 func (w *Worker) tracePreparationCompleted(taskID string) {
 	if w.prepare.startedAt.IsZero() {
 		return
@@ -89,5 +105,6 @@ func (w *Worker) tracePreparationCompleted(taskID string) {
 		tasktrace.Millis("input_ms", w.prepare.input),
 		tasktrace.Millis("resolve_builders_ms", w.prepare.resolveBuilders),
 		tasktrace.Millis("open_stream_ms", w.prepare.openStream),
-		tasktrace.Int("builders", w.prepare.builders))
+		tasktrace.Int("builders", w.prepare.builders),
+		tasktrace.Bool("output_stream_concurrent", w.prepare.streamConcurrent))
 }

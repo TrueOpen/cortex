@@ -569,6 +569,16 @@ func (c *KeeperABCIClient) CommittedModelSupportScope(ctx context.Context, opera
 		return CommittedModelSupportScope{}, err
 	}
 	operatorAddress, modelID = strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID)
+	// Every query below is pinned to height, so the whole scope is a pure
+	// function of its arguments and the height: an order admitted in the same
+	// block as another reuses its answer.
+	key := pinnedReadKey{kind: "model_support_scope", args: operatorAddress + "\x00" + modelID + "\x00" + strconv.FormatUint(uint64(version), 10), height: height}
+	return memoPinned(ctx, c, key, func(ctx context.Context) (CommittedModelSupportScope, error) {
+		return c.modelSupportScopeAt(ctx, operatorAddress, modelID, version, height)
+	})
+}
+
+func (c *KeeperABCIClient) modelSupportScopeAt(ctx context.Context, operatorAddress, modelID string, version uint32, height uint64) (CommittedModelSupportScope, error) {
 	var profile CurrentModelProfileSnapshot
 	var capability ModelCapabilitySnapshot
 	var support ModelSupportSnapshot
