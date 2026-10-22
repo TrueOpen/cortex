@@ -147,6 +147,12 @@ func (r *TaskRunner) recordAssignNotify(ctx context.Context, envelope buildercli
 	if winner != r.cfg.LocalWorkerAddress {
 		return nil
 	}
+	// Both before the record lookup and outside r.mu: the input download
+	// runs while the chain view catches up, and the wait lets the Keeper
+	// scan this frame asks for land before the record is looked up, rather
+	// than refusing the frame into the redelivery delay.
+	r.prefetchAssignedInput(ctx, taskID, message)
+	r.awaitAssignmentScan(ctx, taskID, codec.Hash(message.GetTaskHash()), message.GetFinalizedHeight())
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

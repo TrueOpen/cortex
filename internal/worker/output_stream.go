@@ -88,6 +88,26 @@ type outputStreamRecorder struct {
 	prepareStartedAt time.Time
 	firstDeltaAt     time.Time
 	firstFrameTraced bool
+
+	// The fields below order a stream opened while the model generates (see
+	// openStreamConcurrently) against the frames emit signs meanwhile.
+	// streamMu guards stream, transportErr, openPending and the frames slice
+	// whenever an open is pending; emit holds it across the frame append and
+	// the send, and the opener holds it while it replays the frames already
+	// signed, so every frame reaches the stream exactly once, in seq order.
+	streamMu sync.Mutex
+	// openPending is true while the concurrent open has not landed. Frames
+	// signed meanwhile are journaled and kept in frames; the opener sends
+	// them when the stream is up.
+	openPending bool
+	// openDone is closed when the concurrent open has landed; nil when the
+	// stream was opened before generation.
+	openDone chan struct{}
+	// cancelOpen cancels the context the concurrent stream was opened under.
+	// The stream lives as long as that context, so it is cancelled only when
+	// the stream is released (release, or Worker.closeOutputStream once the
+	// stream was handed over).
+	cancelOpen context.CancelFunc
 }
 
 type deferredFrameError struct{ err error }
@@ -211,8 +231,107 @@ func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.Assign
 		return nil, err
 	}
 	r := &outputStreamRecorder{w: w, ctx: ctx, event: event, taskHash: codec.Hash(facts.AcceptedTaskHash), mmr: mmr}
-	r.stream, r.transportErr = w.openOutputStream(ctx, event, r.taskHash, nil)
+	r.openStreamConcurrently(ctx)
 	return r, nil
+}
+
+// openStreamConcurrently opens the output stream while the model starts
+// generating, instead of before it: resolving the Task Builders and the
+// handshakes with each of them no longer delay the generation request.
+//
+// Nothing about the frames depends on the stream. A frame's seq, MMR root and
+// signature depend only on the task hash, which is already known, and every
+// frame is journaled before it is sent; the stream only carries them. A frame
+// signed before the stream is up waits in frames, and the opener sends the
+// waiting frames, in order, the moment the stream is up -- the same replay
+// that already carries signed frames over a reopened stream.
+//
+// A failed open is what it was before: the transport error is kept, the model
+// keeps generating, every frame is signed and journaled, and the stream is
+// reopened with those frames as replay when the output is stored. Failing the
+// attempt instead would forbid it from ever completing, because signed frames
+// may not be regenerated.
+func (r *outputStreamRecorder) openStreamConcurrently(ctx context.Context) {
+	openCtx, cancel := context.WithCancel(ctx)
+	r.cancelOpen = cancel
+	r.openPending = true
+	r.openDone = make(chan struct{})
+	r.w.prepare.streamConcurrent = true
+	prepareStartedAt := r.w.prepare.startedAt
+	go func() {
+		defer close(r.openDone)
+		var timing streamOpenTiming
+		stream, err := r.w.openOutputStreamTimed(openCtx, r.event, r.taskHash, nil, &timing)
+		openedAt := time.Now()
+		r.streamMu.Lock()
+		r.stream, r.transportErr = stream, err
+		queued := len(r.frames)
+		for _, frame := range r.frames {
+			if r.stream == nil {
+				break
+			}
+			r.sendLocked(frame)
+		}
+		r.openPending = false
+		attached := r.stream != nil
+		r.streamMu.Unlock()
+		since := tasktrace.Field{}
+		if !prepareStartedAt.IsZero() {
+			since = tasktrace.Millis("since_prepare_started_ms", openedAt.Sub(prepareStartedAt))
+		}
+		traceOpened := r.w.cfg.Trace.Event
+		if err != nil {
+			traceOpened = r.w.cfg.Trace.ErrorEvent
+		}
+		traceOpened("output_stream_opened",
+			tasktrace.Str("task", r.event.TaskID),
+			tasktrace.Millis("resolve_builders_ms", timing.resolveBuilders),
+			tasktrace.Millis("open_stream_ms", timing.openStream),
+			tasktrace.Int("builders", timing.builders),
+			since,
+			// Frames signed before the stream was up and sent on it right
+			// after: non-zero means generation outran the handshakes.
+			tasktrace.Int("frames_queued", queued),
+			tasktrace.Bool("transport_attached", attached),
+			tasktrace.Err("error", err))
+	}()
+}
+
+// awaitOpen waits for a concurrent stream open to land. The open runs under a
+// context derived from the attempt's, so it cannot outlive the attempt.
+// Afterwards the stream fields are only used by the attempt's goroutine.
+func (r *outputStreamRecorder) awaitOpen() {
+	if r.openDone != nil {
+		<-r.openDone
+	}
+}
+
+// release closes a stream that was not handed over to the storing step and
+// cancels the context it was opened under. A pending open is cancelled first
+// and waited for, so nothing is left running.
+func (r *outputStreamRecorder) release() {
+	// cancelOpen is still set only when the stream was not handed over, so
+	// whatever it opened is being discarded.
+	if r.cancelOpen != nil {
+		r.cancelOpen()
+		r.cancelOpen = nil
+	}
+	r.awaitOpen()
+	if r.stream != nil {
+		_ = r.stream.Close()
+		r.stream = nil
+	}
+}
+
+// sendLocked sends one signed frame, dropping the stream on a transport
+// failure; the frame stays journaled and is replayed on the next open.
+// Callers hold streamMu or are the only user of the stream.
+func (r *outputStreamRecorder) sendLocked(chunk builderclient.OutputChunk) {
+	if err := r.stream.SendChunk(chunk); err != nil {
+		r.transportErr = err
+		_ = r.stream.Close()
+		r.stream = nil
+	}
 }
 
 // openOutputStream opens one stream per Task Builder and returns them as a
@@ -227,17 +346,38 @@ func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.Assign
 // per-Builder liveness tracking this change does not add yet; failing here keeps
 // the behaviour honest rather than silently streaming to a subset.
 func (w *Worker) openOutputStream(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk) (builderclient.TaskOutputStream, error) {
+	var timing streamOpenTiming
+	stream, err := w.openOutputStreamTimed(ctx, event, taskHash, frames, &timing)
+	w.prepare.resolveBuilders += timing.resolveBuilders
+	w.prepare.openStream += timing.openStream
+	if timing.resolved {
+		w.prepare.builders = timing.builders
+	}
+	return stream, err
+}
+
+// streamOpenTiming is one stream open's share of the preparation timing. It
+// is kept apart from Worker.prepare so an open running beside the generation
+// does not write the Worker's fields.
+type streamOpenTiming struct {
+	resolveBuilders time.Duration
+	openStream      time.Duration
+	builders        int
+	resolved        bool
+}
+
+func (w *Worker) openOutputStreamTimed(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk, timing *streamOpenTiming) (builderclient.TaskOutputStream, error) {
 	resolveStartedAt := time.Now()
 	endpoints, err := w.openReceivingBuilders(ctx, receivingBuilderRef(event))
-	w.prepare.observe(&w.prepare.resolveBuilders, resolveStartedAt)
+	timing.resolveBuilders += time.Since(resolveStartedAt)
 	if err != nil {
 		return nil, err
 	}
 	// Reported beside open_stream_ms, because the loop below opens one stream
 	// per Builder in turn: the count is what the duration has to be read against.
-	w.prepare.builders = len(endpoints)
+	timing.builders, timing.resolved = len(endpoints), true
 	openStartedAt := time.Now()
-	defer func() { w.prepare.observe(&w.prepare.openStream, openStartedAt) }()
+	defer func() { timing.openStream += time.Since(openStartedAt) }()
 	digest, err := builderclient.TaskDataOutputStreamBodyDigest(taskHash.String(), event.SessionID, event.TaskID)
 	if err != nil {
 		return nil, err
@@ -392,11 +532,24 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 	if err := r.w.cfg.Persistence.WriteEvidence(ctx, EvidenceRecord{TaskID: r.event.TaskID, Kind: OutputStreamFrameKind(seq), Data: encoded}); err != nil {
 		return deferredFrameError{err: err}
 	}
+	// The append and the send are one step under streamMu, so a stream that
+	// lands from a concurrent open in between either replays this frame or
+	// lets it be sent here, never both and never neither.
+	r.streamMu.Lock()
 	r.mmr = candidate
 	r.frames = append(r.frames, chunk)
+	attached, pending := r.stream != nil, r.openPending
+	// Keep collecting durable model output after a network failure. The same
+	// signed frames can then resume without rerunning generation or rechunking.
+	// While an open is pending the frame waits in frames and the opener sends it.
+	sentAt := time.Now()
+	if r.stream != nil && !r.openPending {
+		r.sendLocked(chunk)
+	}
+	r.streamMu.Unlock()
 	if !r.firstFrameTraced && !r.inferStartedAt.IsZero() {
 		r.firstFrameTraced = true
-		now := time.Now()
+		now := sentAt
 		// since_first_delta_ms is the share of the wait that is this node's
 		// chunking rather than the engine's time to think; it is absent when the
 		// frame did not come from a stream this run observed -- a resumed task, or
@@ -405,9 +558,11 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 		if !r.firstDeltaAt.IsZero() {
 			sinceDelta = tasktrace.Millis("since_first_delta_ms", now.Sub(r.firstDeltaAt))
 		}
-		// Traced before SendChunk, because the frame is committed here: it is
-		// signed and journaled, and a transport that is gone only means it will be
-		// resumed rather than regenerated.
+		// The latency is measured at sentAt, taken after the frame was signed
+		// and journaled and before any send, so it is the commit instant: a
+		// transport that is gone or still opening only means the frame is sent
+		// later, never regenerated. The line itself is emitted after streamMu
+		// is released, so the send (if any) has already happened.
 		r.w.cfg.Trace.Event("output_first_frame",
 			tasktrace.Str("task", r.event.TaskID), tasktrace.Uint("seq", seq),
 			tasktrace.Int("frame_bytes", len(text)),
@@ -415,16 +570,16 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 			r.sincePrepareStarted(now),
 			sinceDelta,
 			tasktrace.Uint("min_frame_bytes", uint64(r.w.cfg.StreamLimits.MinOutputStreamFrameBytes)),
-			tasktrace.Bool("transport_attached", r.stream != nil))
-	}
-	// Keep collecting durable model output after a network failure. The same
-	// signed frames can then resume without rerunning generation or rechunking.
-	if r.stream != nil {
-		if err := r.stream.SendChunk(chunk); err != nil {
-			r.transportErr = err
-			_ = r.stream.Close()
-			r.stream = nil
-		}
+			// transport_attached and stream_pending describe the stream at
+			// the moment the frame was committed. attached: the frame was
+			// sent now. Not attached and pending: the concurrent open had not
+			// landed; the frame is journaled and was sent the moment it did
+			// (output_stream_opened reports when, and frames_queued). Not
+			// attached and not pending: the open failed or the transport
+			// dropped; the journaled frames are replayed when the stream is
+			// reopened to store the output.
+			tasktrace.Bool("transport_attached", attached),
+			tasktrace.Bool("stream_pending", pending))
 	}
 	return nil
 }
@@ -436,6 +591,9 @@ func (r *outputStreamRecorder) finish(ctx context.Context, output []byte) ([]uin
 	if r.deferredErr != nil {
 		return nil, r.deferredErr
 	}
+	// The tail frame and the hand-over below need the stream settled: up with
+	// every earlier frame sent on it, or failed.
+	r.awaitOpen()
 	if r.total == 0 && len(r.frames) == 0 && len(output) > 0 {
 		// Unary model transports still deliver through the signed frame protocol.
 		limit := r.w.cfg.MaxOutputBytes
@@ -467,6 +625,7 @@ func (r *outputStreamRecorder) finish(ctx context.Context, output []byte) ([]uin
 		// acknowledgement. Transfer this stream to that later finalization step.
 		r.w.closeOutputStream()
 		r.w.outputStream, r.w.outputStreamTaskID = r.stream, r.event.TaskID
+		r.w.outputStreamCancel, r.cancelOpen = r.cancelOpen, nil
 		r.stream = nil
 	}
 	lengths := make([]uint64, len(r.frames))
@@ -615,6 +774,10 @@ func (w *Worker) closeOutputStream() {
 	if w.outputStream != nil {
 		_ = w.outputStream.Close()
 		w.outputStream, w.outputStreamTaskID = nil, ""
+	}
+	if w.outputStreamCancel != nil {
+		w.outputStreamCancel()
+		w.outputStreamCancel = nil
 	}
 }
 

@@ -49,6 +49,17 @@ func mustHash32(t *testing.T, value string) codec.Hash {
 // carrying accepted_input_hash exactly as ApplyReconcilerEffects writes it.
 func seedAssignedInferTask(t *testing.T, ctx context.Context, r *TaskRunner) codec.Hash {
 	t.Helper()
+	effect := notifyAssignmentEffect(t)
+	if err := r.ApplyReconcilerEffects(ctx, []ReconcilerEffect{effect}); err != nil {
+		t.Fatalf("ApplyReconcilerEffects returned error: %v", err)
+	}
+	return effect.TaskHash
+}
+
+// notifyAssignmentEffect is the Keeper assignment effect for the notify
+// fixture task, naming notifyWinner.
+func notifyAssignmentEffect(t *testing.T) ReconcilerEffect {
+	t.Helper()
 	taskHash := mustHash32(t, notifyAcceptedTaskHashHex)
 	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 		TaskID: notifyTaskIDHex, SessionID: "session-1", OrderSequence: chainclient.NewUint64String(0),
@@ -57,13 +68,9 @@ func seedAssignedInferTask(t *testing.T, ctx context.Context, r *TaskRunner) cod
 		InferDeadlineHeight:      chainclient.NewUint64String(112601),
 		AcceptedOrderPayloadHash: chainclient.HexHash(mustHash32(t, notifyAcceptedInputHashHex)),
 	}}
-	effect := ReconcilerEffect{
+	return ReconcilerEffect{
 		Type: ReconcilerEffectAssignment, TaskHash: taskHash, TaskID: notifyTaskIDHex, Snapshot: snapshot,
 	}
-	if err := r.ApplyReconcilerEffects(ctx, []ReconcilerEffect{effect}); err != nil {
-		t.Fatalf("ApplyReconcilerEffects returned error: %v", err)
-	}
-	return taskHash
 }
 
 func assignNotifyEnvelope() builderclient.BusEnvelope {

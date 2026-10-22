@@ -770,6 +770,9 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 		case ReconcilerEffectAssignment:
 			a := effect.Snapshot.Assignment
 			if r.cfg.LocalWorkerAddress == "" || a.SelectedWorker != r.cfg.LocalWorkerAddress {
+				// An input prefetched on the Builder's announcement is
+				// dropped unused: the chain assigned the task elsewhere.
+				r.prefetches.discard(effect.TaskHash, "assigned_elsewhere")
 				// Not selected: this node's handraise obligation ends here and the candidate
 				// row should go. It was written down so that "a restart in the middle of a
 				// handraise can still publish the signed document it promised"; once the
@@ -961,10 +964,12 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				tasktrace.Uint("chain_height", effect.Event.Height),
 				tasktrace.Str("stage", string(record.Stage)))
 		case ReconcilerEffectInferTerminal:
+			r.prefetches.discard(effect.TaskHash, "infer_terminal")
 			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
 				return err
 			}
 		case ReconcilerEffectTaskTerminal:
+			r.prefetches.discard(effect.TaskHash, "task_terminal")
 			ev := layout.Evidence{TaskID: effect.TaskID, TerminalOrSettled: true, RetentionStartHeight: retentionStartHeight(effect)}
 			if taskRecord, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err == nil {
 				ev.SessionID = taskRecord.SessionID
@@ -1029,6 +1034,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 		}
 	}
 	r.Wake()
+	r.signalKeeperProgress()
 	return nil
 }
 

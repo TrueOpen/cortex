@@ -34,6 +34,9 @@ const fakeRequiredTopK = 16
 type productionInferExecutor struct {
 	cfg     TaskRunnerConfig
 	persist func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error
+	// prefetches, when set, may hold this task's input, downloaded when the
+	// assignment was announced. See prefetchAssignedInput.
+	prefetches *inputPrefetches
 }
 type productionVerifyExecutor struct{ cfg TaskRunnerConfig }
 
@@ -107,12 +110,32 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	// Prefer a locally persisted input so retries (and process restart) do not
 	// re-download the same bytes from the Builder. The evidence store is
 	// content-addressed, so re-writing the same input is idempotent.
+	inputSource := "local"
+	prefetchStatus := ""
 	input, readErr := persistence.ReadArtifact(ctx, task.TaskID, "task-input")
 	if readErr == nil && len(input) > 0 && codec.HashBytes(input) == task.InputDigest {
 		event.Input = input
+		// The input is already durable; a prefetch is not needed.
+		e.prefetches.discard(taskHash, "input_persisted")
 	} else {
 		inputStartedAt := time.Now()
-		event.Input, err = e.cfg.InputResolver.ResolveTaskInput(ctx, TaskInputRef{SessionID: task.SessionID, TaskID: task.TaskID, TaskHash: taskHash, PayloadCID: task.InputCID, PayloadHash: chainclient.HexHash(task.InputDigest), BuilderOperatorAddress: task.BuilderOperatorAddress, InputSizeBytes: task.InputSizeBytes})
+		ref := TaskInputRef{SessionID: task.SessionID, TaskID: task.TaskID, TaskHash: taskHash, PayloadCID: task.InputCID, PayloadHash: chainclient.HexHash(task.InputDigest), BuilderOperatorAddress: task.BuilderOperatorAddress, InputSizeBytes: task.InputSizeBytes}
+		// A prefetch is used only when it was made for exactly this
+		// reference and its bytes hash to the chain's accepted payload hash;
+		// anything else is dropped and the input is fetched here as before.
+		// Either way the bytes are persisted below, after the profile read,
+		// exactly as a fetched input is.
+		prefetched, _, status := e.prefetches.take(ctx, ref)
+		prefetchStatus = status
+		if prefetched != nil && codec.HashBytes(prefetched) == task.InputDigest {
+			event.Input, inputSource = prefetched, "prefetch"
+		} else {
+			if prefetched != nil {
+				prefetchStatus = "digest_mismatch"
+			}
+			inputSource = "fetch"
+			event.Input, err = e.cfg.InputResolver.ResolveTaskInput(ctx, ref)
+		}
 		inputResolveTime = time.Since(inputStartedAt)
 		if err == nil && codec.HashBytes(event.Input) != task.InputDigest {
 			err = fmt.Errorf("resolved task input hash does not match Keeper accepted payload hash")
@@ -142,6 +165,7 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 		tasktrace.Millis("since_run_ms", time.Since(runStartedAt)),
 		tasktrace.Millis("profile_ms", profileTime), tasktrace.Millis("input_resolve_ms", inputResolveTime),
 		tasktrace.Millis("input_persist_ms", inputPersistTime),
+		tasktrace.Str("input_source", inputSource), tasktrace.Str("input_prefetch", prefetchStatus),
 		tasktrace.Hex("evidence_schema_hash", evidenceSchemaHash),
 		tasktrace.Int("evidence_requirements", len(requirements)),
 		tasktrace.Str("builder", task.BuilderOperatorAddress),

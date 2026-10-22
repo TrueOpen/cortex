@@ -100,6 +100,14 @@ type keeperReadCache struct {
 
 	serviceKeys     map[serviceKeyMemoKey]serviceKeyMemoEntry
 	serviceKeyCalls map[serviceKeyMemoKey]*serviceKeyCall
+
+	// pinned and pinnedCalls are the memo for the other reads pinned to a
+	// committed height; see memoPinned.
+	pinned      map[pinnedReadKey]any
+	pinnedCalls map[pinnedReadKey]*pinnedReadCall
+	// memoEpoch counts memo clears after a committed-height regression; see
+	// clearHeightMemosLocked.
+	memoEpoch uint64
 }
 
 type serviceKeyCall struct {
@@ -216,6 +224,14 @@ func (c *KeeperABCIClient) committedHeight(ctx context.Context) (uint64, error) 
 		if height < cache.height && time.Since(cache.heightReadAt) < heightGuardFactor*cache.heightMaxAge {
 			height = cache.height
 		} else {
+			if height < cache.height {
+				// The committed height went backwards for good: a reset
+				// chain or a node repointed at another one. Reads memoized
+				// at the old heights describe that other history, and the
+				// new chain will pass through the same heights, so they
+				// must not survive.
+				cache.clearHeightMemosLocked()
+			}
 			cache.height = height
 			// Age is counted from before the read, so a cached value is
 			// never more than heightMaxAge old.
@@ -238,6 +254,9 @@ func (c *KeeperABCIClient) committedHeight(ctx context.Context) (uint64, error) 
 func (c *KeeperABCIClient) memoServiceKey(ctx context.Context, key serviceKeyMemoKey, read func(context.Context) (serviceKeyMemoEntry, error)) (serviceKeyMemoEntry, error) {
 	cache := &c.readCache
 	cache.mu.Lock()
+	// A read that started before a chain reset must not store its answer
+	// after the memos were cleared.
+	epoch := cache.memoEpoch
 	if key.height == 0 || !cache.enabled {
 		cache.mu.Unlock()
 		return read(ctx)
@@ -255,7 +274,7 @@ func (c *KeeperABCIClient) memoServiceKey(ctx context.Context, key serviceKeyMem
 			}
 			entry, err := read(ctx)
 			if err == nil {
-				c.storeServiceKey(key, entry)
+				c.storeServiceKey(key, entry, epoch)
 			}
 			return entry, err
 		case <-ctx.Done():
@@ -271,24 +290,26 @@ func (c *KeeperABCIClient) memoServiceKey(ctx context.Context, key serviceKeyMem
 
 	entry, err := read(ctx)
 	if err == nil {
-		c.storeServiceKey(key, entry)
+		c.storeServiceKey(key, entry, epoch)
 	}
 	cache.mu.Lock()
-	delete(cache.serviceKeyCalls, key)
+	if cache.serviceKeyCalls[key] == call {
+		delete(cache.serviceKeyCalls, key)
+	}
 	cache.mu.Unlock()
 	call.entry, call.err = entry, err
 	close(call.done)
 	return entry, err
 }
 
-func (c *KeeperABCIClient) storeServiceKey(key serviceKeyMemoKey, entry serviceKeyMemoEntry) {
+func (c *KeeperABCIClient) storeServiceKey(key serviceKeyMemoKey, entry serviceKeyMemoEntry, epoch uint64) {
 	if key.height == 0 {
 		return
 	}
 	cache := &c.readCache
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	if !cache.enabled {
+	if !cache.enabled || cache.memoEpoch != epoch {
 		return
 	}
 	if cache.serviceKeys == nil {
@@ -306,4 +327,114 @@ func (c *KeeperABCIClient) storeServiceKey(key serviceKeyMemoKey, entry serviceK
 			delete(cache.serviceKeys, k)
 		}
 	}
+}
+
+// pinnedReadKey names one read pinned to a committed height: what was read,
+// for which arguments, at which height.
+type pinnedReadKey struct {
+	kind   string
+	args   string
+	height uint64
+}
+
+type pinnedReadCall struct {
+	done  chan struct{}
+	value any
+	err   error
+}
+
+// memoPinned answers a read pinned to a committed height from the memo, or
+// makes the read once on behalf of every caller that asks for the same read at
+// the same height while it is in flight. It is the service-key memo for any
+// pinned read: state at a committed height never changes, so a repeat read at
+// that height cannot differ, and a change is seen as soon as the committed
+// height moves on -- nothing is reused across heights. A waiter whose shared
+// read failed reads for itself, a waiter honours its own context, and failures
+// are not kept. Without EnableReadCache, or at height zero, it always reads.
+func memoPinned[T any](ctx context.Context, c *KeeperABCIClient, key pinnedReadKey, read func(context.Context) (T, error)) (T, error) {
+	cache := &c.readCache
+	cache.mu.Lock()
+	// A read that started before a chain reset must not store its answer
+	// after the memos were cleared.
+	epoch := cache.memoEpoch
+	if key.height == 0 || !cache.enabled {
+		cache.mu.Unlock()
+		return read(ctx)
+	}
+	if value, ok := cache.pinned[key]; ok {
+		cache.mu.Unlock()
+		return value.(T), nil
+	}
+	if call := cache.pinnedCalls[key]; call != nil {
+		cache.mu.Unlock()
+		select {
+		case <-call.done:
+			if call.err == nil {
+				return call.value.(T), nil
+			}
+			value, err := read(ctx)
+			if err == nil {
+				c.storePinned(key, value, epoch)
+			}
+			return value, err
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		}
+	}
+	call := &pinnedReadCall{done: make(chan struct{})}
+	if cache.pinnedCalls == nil {
+		cache.pinnedCalls = make(map[pinnedReadKey]*pinnedReadCall)
+	}
+	cache.pinnedCalls[key] = call
+	cache.mu.Unlock()
+
+	value, err := read(ctx)
+	if err == nil {
+		c.storePinned(key, value, epoch)
+	}
+	cache.mu.Lock()
+	if cache.pinnedCalls[key] == call {
+		delete(cache.pinnedCalls, key)
+	}
+	cache.mu.Unlock()
+	call.value, call.err = value, err
+	close(call.done)
+	return value, err
+}
+
+// storePinned keeps one successful pinned read and drops entries more than
+// serviceKeyMemoHeights below the newest height kept.
+func (c *KeeperABCIClient) storePinned(key pinnedReadKey, value any, epoch uint64) {
+	cache := &c.readCache
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if !cache.enabled || cache.memoEpoch != epoch {
+		return
+	}
+	if cache.pinned == nil {
+		cache.pinned = make(map[pinnedReadKey]any)
+	}
+	cache.pinned[key] = value
+	var newest uint64
+	for k := range cache.pinned {
+		if k.height > newest {
+			newest = k.height
+		}
+	}
+	for k := range cache.pinned {
+		if k.height+serviceKeyMemoHeights <= newest {
+			delete(cache.pinned, k)
+		}
+	}
+}
+
+// clearHeightMemosLocked drops every read memoized by committed height, and
+// the reads in flight from later joiners, and moves memoEpoch on so a read
+// still in flight from before does not store its answer afterwards. The
+// caller holds mu.
+func (cache *keeperReadCache) clearHeightMemosLocked() {
+	cache.serviceKeys, cache.serviceKeyCalls = nil, nil
+	cache.pinned, cache.pinnedCalls = nil, nil
+	cache.memoEpoch++
 }

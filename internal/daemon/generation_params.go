@@ -31,11 +31,7 @@ func (r persistedGenerationReader) TaskGeneration(ctx context.Context, taskID st
 	if len(admission.SignedOrder) == 0 {
 		return nodewire.GenerationContext{}, fmt.Errorf("persisted signed order has no generation parameters")
 	}
-	carrier := string(admission.SignedOrder)
-	if admission.SignedOrder[0] == 0x0a {
-		carrier = hex.EncodeToString(admission.SignedOrder)
-	}
-	hash, facts, err := nodewire.TaskOrderHashAndFactsEnvelope(carrier)
+	hash, facts, err := admittedOrderFacts(admission)
 	if err != nil {
 		return nodewire.GenerationContext{}, fmt.Errorf("decode persisted task generation parameters: %w", err)
 	}
@@ -46,4 +42,17 @@ func (r persistedGenerationReader) TaskGeneration(ctx context.Context, taskID st
 		return nodewire.GenerationContext{}, fmt.Errorf("persisted order lacks generation context")
 	}
 	return facts.Generation.Clone(), nil
+}
+
+// admittedOrderFacts re-derives the task hash and the signed facts of the order
+// a candidate admission retains, whichever carrier it was received in.
+func admittedOrderFacts(admission layout.CandidateAdmission) (codec.Hash, nodewire.TaskOrderFacts, error) {
+	if len(admission.SignedOrder) == 0 {
+		return codec.Hash{}, nodewire.TaskOrderFacts{}, fmt.Errorf("candidate admission retains no signed order")
+	}
+	carrier := string(admission.SignedOrder)
+	if admission.SignedOrder[0] == 0x0a {
+		carrier = hex.EncodeToString(admission.SignedOrder)
+	}
+	return nodewire.TaskOrderHashAndFactsEnvelope(carrier)
 }

@@ -121,6 +121,9 @@ type workerValueEvidenceInputs struct {
 type Worker struct {
 	outputStream       builderclient.TaskOutputStream
 	outputStreamTaskID string
+	// outputStreamCancel cancels the context outputStream was opened under,
+	// when it was opened beside the generation; nil otherwise.
+	outputStreamCancel context.CancelFunc
 	cfg                Config
 	receipts           map[string]ReceiptState
 	results            map[string]InferResult
@@ -560,11 +563,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
-	defer func() {
-		if recorder.stream != nil {
-			_ = recorder.stream.Close()
-		}
-	}()
+	defer recorder.release()
 	// Preparation ends here: everything the node had to ask another service for
 	// is done, and what follows is the engine.
 	recorder.prepareStartedAt = w.prepare.startedAt

@@ -1105,10 +1105,14 @@ func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, projec
 	}
 	interval := time.Duration(cfg.Keeper.PollIntervalMS) * time.Millisecond
 	poller := daemon.NewKeeperPoller(rt.Store, rt.KeeperEvents, rt.Reconciler, daemon.KeeperPollerConfig{
-		Interval:             interval,
-		MaxChainLag:          cfg.Keeper.MaxLagBlocks,
-		ObserveChainProgress: rt.ObserveChainProgress,
-		OnRetryableFailure:   logKeeperPollFailure,
+		Interval:    interval,
+		MaxChainLag: cfg.Keeper.MaxLagBlocks,
+		ObserveChainProgress: func(progress daemon.ChainProgress) {
+			rt.ObserveChainProgress(progress)
+			// A WORKER_ASSIGNMENT_NOTIFY may be waiting for this scan.
+			taskRunner.ObserveKeeperProgress(progress)
+		},
+		OnRetryableFailure: logKeeperPollFailure,
 		EffectSink: func(ctx context.Context, effects []daemon.ReconcilerEffect) error {
 			if len(effects) > 0 {
 				if taskRunner == nil {
