@@ -18,15 +18,14 @@ import (
 
 // descriptorSHA256 pins the exact bytes the bindings were generated from.
 //
-// wire has stopped tagging releases, so this is no longer a release asset but
-// `buf build` run over a named wire commit, which is what its own contract
-// workflow does to produce the asset. The buf version is part of the pin: a
-// different one can lay the same contract out differently, and then the
+// It is the `wire.binpb` asset of the wire v0.5.1 release, which wire's
+// contract workflow produces with `buf build`. The buf version is part of the
+// pin: a different one can lay the same contract out differently, and then the
 // checksum here is the only thing that would notice.
-const descriptorSHA256 = "ef6b506941477df100b703c9f123dd20ee6728f8fb2bc2abfe4b6bdaca2edcf6"
+const descriptorSHA256 = "d0726ab567377a84842f5a273db2ce8b508c86c2a7895aeae49197fd389bd6b4"
 
 func main() {
-	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.5.0.binpb", "pinned wire descriptor")
+	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.5.1.binpb", "pinned wire descriptor")
 	out := flag.String("out", "bin/.chain-bindings", "empty scratch output directory")
 	flag.Parse()
 	data, err := os.ReadFile(*descriptor)

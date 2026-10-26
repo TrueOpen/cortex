@@ -863,7 +863,14 @@ func (x *BuilderStorageConfirmationV1) GetServiceSignature() []byte {
 // 1..MaxInt64; a CORTEX_SERVICE request carries signature_chain_id 0, which
 // enters neither its preimage nor its replay key.
 //
-// Without session_grant the recovered address must equal requester_address.
+// Without session_grant the recovered address must equal requester_address,
+// or the current registered key of the session from this Builder's local Task
+// record (missing record rejects). The registered-key branch uses the owner,
+// status, expiry, method and cache rules of SDKRequestEnvelopeV2, with
+// requester_address in place of signer_address. It allows only OUTPUT
+// GetTaskDataMetadata/FetchTaskData. Invalid state/key maps to
+// DATA_ACCESS_INVALID_SIGNATURE, expiry to DATA_ACCESS_SESSION_GRANT_EXPIRED,
+// and disallowed method/object to DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED.
 // With session_grant the grant is verified as described on SessionGrantV1, with
 // requester_address in place of signer_address, the signature must recover to
 // session_key, rpc_method must be GetTaskDataMetadata or FetchTaskData, and the
@@ -884,11 +891,13 @@ func (x *BuilderStorageConfirmationV1) GetServiceSignature() []byte {
 //     is rejected here with DATA_ACCESS_INVALID_SIGNATURE even though it could
 //     be detected earlier, never as a format error. This covers a wrong
 //     derived grant hash, a tampered signature_chain_id, a chainId
-//     string of another chain and a version 1 signature. Without a grant it
-//     also covers the account check of SDKRequestEnvelopeV2: requester_address
+//     string of another chain and a version 1 signature. On the no-grant
+//     wallet branch it also covers the account check: requester_address
 //     must be an existing account holding an eth_secp256k1 public key equal to
 //     the recovered one. A stored key never changes, so a verifier may cache it
-//     by address, but a cache miss it cannot fill is a rejection.
+//     by address, but a cache miss it cannot fill is a rejection. On the
+//     registered-key branch use the state/key, expiry and allowlist errors
+//     above instead of comparing the session key with the owner's public key.
 //  5. In order: builder_operator_address other than this Builder ->
 //     DATA_ACCESS_DENIED; expiry_height outside
 //     current_height <= expiry_height <= current_height + max_service_material_expiry_blocks,
@@ -915,7 +924,7 @@ type TaskDataRequestAuthV1 struct {
 	ExpiryHeight uint64 `protobuf:"varint,10,opt,name=expiry_height,json=expiryHeight,proto3" json:"expiry_height,omitempty"`
 	// USER: 65 bytes R||S||V over the EIP-712 digest. CORTEX_SERVICE: 64 bytes R||S.
 	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
-	// USER only. Absent means the user's wallet signed the request directly.
+	// USER only. Absent permits the wallet or the session's registered key.
 	SessionGrant *SessionGrantV1 `protobuf:"bytes,12,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
 	// USER: EIP-712 domain chainId of signature, 1..MaxInt64. CORTEX_SERVICE: 0.
 	SignatureChainId uint64 `protobuf:"varint,13,opt,name=signature_chain_id,json=signatureChainId,proto3" json:"signature_chain_id,omitempty"`
@@ -1078,8 +1087,9 @@ func (x *TaskDataRequestAuthV1) GetSignatureChainId() uint64 {
 //     TaskDataRequestAuthV1. Every other request must be signed by the wallet
 //     directly and is rejected when it carries a grant;
 //   - for OpenTask, user also equals the SignedOrder user_address, otherwise
-//     SDK_AUTH_SESSION_GRANT_INVALID. The order itself is still signed by the
-//     wallet; a session key cannot forge or alter it.
+//     SDK_AUTH_SESSION_GRANT_INVALID. This grant does not authorize orders;
+//     order authorization is independent and requires the wallet or a key
+//     separately registered on that session's StreamState.
 //
 // The request signature itself is compared only with session_key; no account
 // public key is looked up for it. There is no revocation list: a grant is
@@ -1223,11 +1233,33 @@ func (x *SessionGrantV1) GetSignatureChainId() uint64 {
 // key; no identity, replay or dedup key may include the signature or
 // signature_chain_id.
 //
-// Without session_grant the signature must recover to signer_address, and the
-// recovered public key must equal the account's stored public key. With
+// Without session_grant, recovery to signer_address selects the wallet path,
+// where the public key must equal the account's stored public key. Otherwise
+// use the registered-key branch below. With
 // session_grant the grant is verified as described on SessionGrantV1 and the
 // signature must recover to its session_key. OpenTask accepts a grant whose
 // user equals the SignedOrder user (see SessionGrantV1).
+//
+// Registered-key branch (no grant, recovered address differs from owner):
+// first require the session named by session_id to exist and not be CLOSED,
+// owner to equal signer_address, and recovery to equal its current key; then
+// require current_height <= session_key_expiry_height; finally check the
+// session method allowlist.
+// State/key mismatch is SDK_AUTH_INVALID_SIGNATURE; disallowed method is
+// SDK_AUTH_SESSION_METHOD_NOT_ALLOWED; expired key is
+// SDK_AUTH_SESSION_GRANT_EXPIRED. sessionGrantHash remains 32 zero bytes.
+// Requests do not consume spend_cap. Cache entries, including missing sessions
+// and absent keys, carry a read height and expire after a configured block
+// limit. Clear on event-stream disconnect, invalidate on session_key_updated,
+// and fetch authoritative state on a miss; unavailable state rejects. Apply
+// ingress rate limits to bound cache misses.
+// OpenTask prechecks delegated order authorization before storing input. A
+// nonzero cap failure is SDK_AUTH_SESSION_KEY_SPEND_CAP_EXCEEDED. Keeper remains
+// final authority. A later assignment rejection emits ASSIGN_REJECTED; recovery
+// checks committed sequence state before resigning the same unused sequence.
+// Refresh the signing key after rotation, use the wallet after CLEAR, or renew
+// the grant after expiry/cap failure. Local terminal-task retry recovery is a
+// separate service implementation requirement, not a new wire field.
 //
 // The verifier runs five steps in order and stops at the first failure:
 //  1. Format: session_id and task_id as 0x followed by 64 lowercase hex characters, a 32-byte
@@ -1308,8 +1340,8 @@ type SDKRequestEnvelopeV2 struct {
 	BodyDigest []byte `protobuf:"bytes,9,opt,name=body_digest,json=bodyDigest,proto3" json:"body_digest,omitempty"`
 	// Canonical lowercase Bech32 address of the user with the chain's account
 	// prefix, trueopen, decoding to exactly 20 bytes; anything else is
-	// NEXUS_INGRESS_MALFORMED at the format step. Not signed: it is the address the
-	// recovered signer must match, and the granting user when session_grant is present.
+	// NEXUS_INGRESS_MALFORMED at the format step. Not signed: this is the user
+	// whose account, off-chain grant or registered session key authorizes recovery.
 	SignerAddress string `protobuf:"bytes,10,opt,name=signer_address,json=signerAddress,proto3" json:"signer_address,omitempty"`
 	// 65 bytes R||S||V, V in {27, 28}, low S, over the SDKRequest signing digest.
 	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
@@ -1318,7 +1350,7 @@ type SDKRequestEnvelopeV2 struct {
 	//
 	// Deprecated: Marked as deprecated in nexus/v1/ingress.proto.
 	SignerPubkey []byte `protobuf:"bytes,12,opt,name=signer_pubkey,json=signerPubkey,proto3" json:"signer_pubkey,omitempty"`
-	// Absent means the user's wallet signed this request directly.
+	// Absent permits the user's wallet or this session's registered key.
 	SessionGrant *SessionGrantV1 `protobuf:"bytes,13,opt,name=session_grant,json=sessionGrant,proto3" json:"session_grant,omitempty"`
 	// EIP-712 domain chainId of signature, 1..MaxInt64. Not in the typed data
 	// and not in the replay key.
@@ -1458,11 +1490,12 @@ func (x *SDKRequestEnvelopeV2) GetSignatureChainId() uint64 {
 
 // OpenTaskHeader opens a Task. request_envelope is signed by the user's wallet
 // directly, recovering to user_address, or by a session key under a grant whose
-// user is user_address; user_address must equal the SignedOrder user. That
+// user is user_address, or the session's registered key. user_address must
+// equal the SignedOrder user. That
 // account must already hold its public key on chain (the user has submitted
 // MsgCreateSession); otherwise the
 // request is rejected with SDK_AUTH_INVALID_SIGNATURE. The order itself is
-// authorized only by the SignedOrder EIP-712 user signature, which the Keeper
+// authorized only by the SignedOrder EIP-712 wallet or registered-key signature, which the Keeper
 // verifies; there is no outer order signature.
 //
 // expiry_height_or_time on request_envelope must be a chain height (below

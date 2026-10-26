@@ -64,6 +64,10 @@ func taskOrderTypedDigest(order taskOrderV3, taskHash codec.Hash, evmChainID uin
 // VerifySignedOrderEnvelope checks the exact signed carrier and recovered user
 // address. It accepts only the current SignedOrderV2 eip712 signature format.
 //
+// Since wire v0.5.1 the Keeper also admits an order signed by the session's
+// registered key. That branch needs StreamState, so it is not checked here: this
+// verifies the wallet branch only, and admission must not rely on it.
+//
 // The domain chain id is the one the carrier states: the signing wallet chose
 // it and the signature covers it, so it is read from the carrier rather than
 // configured. evmChainID is the fallback for a carrier that states none, which

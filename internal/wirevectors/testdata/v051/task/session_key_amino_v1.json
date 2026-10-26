@@ -1,0 +1,148 @@
+{
+  "cases": [
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgCreateSession\",\"value\":{\"session_key\":{\"expiry_height\":\"200\",\"session_key\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwM=\",\"spend_cap\":{\"atomic_units\":\"0\"}},\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgCreateSession msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgCreateSession(TypeValue value,string type)TypeValue(string signer_address,TypeValueSessionKey session_key)TypeValueSessionKey(TypeValueSessionKeySpendCap spend_cap,string session_key,string expiry_height)TypeValueSessionKeySpendCap(string atomic_units)",
+      "hash_struct": "3d12cec005395d5d05feeacc8080399c3d0cfd6383ca909b2fea9b0a33d2d001",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/task/MsgCreateSession",
+          "value": {
+            "session_key": {
+              "expiry_height": "200",
+              "session_key": "AwMDAwMDAwMDAwMDAwMDAwMDAwM=",
+              "spend_cap": {
+                "atomic_units": "0"
+              }
+            },
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "create",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "b7e7948e99f9f475852c19a32ff109e7db36649889489bc481543ec9e6e7dd6c",
+      "signature_65": "dbe0c0328d81acd808efed34516a7dbb57863aea44d08583e6b34fc8e745cd10459fdbd673f23435580150cc094b7538a711f8b0c2fc9e586c45bcd9abb7494e1b",
+      "signing_digest": "27894ed4973766f60e73a5b7c2a1e640d2868efdde23388d31e33fd330f3f7fe"
+    },
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgUpdateSessionKey\",\"value\":{\"session_id\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\",\"set\":{\"expiry_height\":\"200\",\"session_key\":\"AwMDAwMDAwMDAwMDAwMDAwMDAwM=\",\"spend_cap\":{\"atomic_units\":\"0\"}},\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgUpdateSessionKey msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgUpdateSessionKey(TypeValue value,string type)TypeValue(string signer_address,TypeValueSet set,string session_id)TypeValueSet(TypeValueSetSpendCap spend_cap,string session_key,string expiry_height)TypeValueSetSpendCap(string atomic_units)",
+      "hash_struct": "f58c0be2c6e52d4ea9c559baee4eff78673de9072f56c6fc1c3b6e0fec4f447d",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/task/MsgUpdateSessionKey",
+          "value": {
+            "session_id": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            "set": {
+              "expiry_height": "200",
+              "session_key": "AwMDAwMDAwMDAwMDAwMDAwMDAwM=",
+              "spend_cap": {
+                "atomic_units": "0"
+              }
+            },
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "set",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "48ba5d8e51247fe58cf914d7a05dea04a2c5447d3bce1b49957afdce2b13a042",
+      "signature_65": "a7d1654ad2fa31309d8535617a383b51900c6c634326227260ae8576d4bd4ce36fa5960eff2a8ddd199c11ec528d05df876c59b6c0eec0a476733ce5004576a51c",
+      "signing_digest": "1e65cfec21616e93b8f223a7fb6f3d32ca13d944fc02d7e658cf2b4c07a2cdbc"
+    },
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgUpdateSessionKey\",\"value\":{\"clear\":true,\"session_id\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\",\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgUpdateSessionKey msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgUpdateSessionKey(TypeValue value,string type)TypeValue(string signer_address,string session_id,bool clear)",
+      "hash_struct": "b2027bf17146f32f33ec32763c81126272db3a87eeda5faecd9a8a810f550038",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/task/MsgUpdateSessionKey",
+          "value": {
+            "clear": true,
+            "session_id": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "clear",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "32b00e642b19a05ddecc39cb40e58532e3357f4f5639cea1e625cbd0e677991c",
+      "signature_65": "5216e0b357c75df6ea5c6948a3ba018b47984d068bf30bd901b1294a97bd8ab359ef059852f2621142ca1801f60f53517229ff9bb896c5dec28f58e99bc75cec1b",
+      "signing_digest": "fc925a611a51591ef10e6f092ef40ccb2cb97437810d1f25e08a838c2836221b"
+    }
+  ],
+  "negative_cases": [
+    "missing_action",
+    "both_actions",
+    "null_set",
+    "null_clear",
+    "clear_false",
+    "clear_empty_object"
+  ],
+  "schema": "session-key-amino-v1",
+  "typed_data_chain_id": "424242"
+}
