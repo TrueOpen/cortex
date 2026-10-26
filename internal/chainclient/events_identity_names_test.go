@@ -30,6 +30,7 @@ var chainTaskEventNames = []string{
 	"EventResultAccepted",
 	"EventRevealPhaseStarted",
 	"EventSessionCreated",
+	"EventSessionKeyUpdated",
 	"EventTaskFailureClassUpdated",
 	"EventTaskParamsUpdated",
 	"EventTaskSettled",

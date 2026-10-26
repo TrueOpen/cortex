@@ -1,0 +1,1767 @@
+{
+  "account": {
+    "account_bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+    "address_0x": "0x1a642f0E3c3aF545E7AcBD38b07251B3990914F1",
+    "address_bytes": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "keccak256_pub_uncompressed_xy": "b8a0722ae6cb48cde0b4ae1f1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "operator_bech32": "trueopenvaloper1rfjz7r3u8t65teavh5utquj3kwvsj983lh0k88",
+    "private_key": "0101010101010101010101010101010101010101010101010101010101010101",
+    "pub_compressed": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "pub_uncompressed_xy": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1"
+  },
+  "admission_cases": [
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ACCEPT_SESSION_KEY",
+      "expected_spent": "1150000",
+      "name": "inclusive_expiry_and_exact_cap",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ACCEPT_SESSION_KEY",
+      "expected_spent": "1150000",
+      "name": "idle_session",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "IDLE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1101,
+      "expected": "ERR_SESSION_KEY_EXPIRED",
+      "expected_spent": "1000000",
+      "name": "expiry_passed",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_spent": "1000000",
+      "name": "anchor_before_reregistration",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 1000,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ACCEPT_SESSION_KEY",
+      "expected_spent": "1150000",
+      "name": "anchor_equals_set_height",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 990,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_spent": "1000000",
+      "name": "rotated_to_other_key",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "c48b812bb43401392c037381aca934f4069c0517",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_spent": "1000000",
+      "name": "cleared_key",
+      "order": "delegated_order",
+      "state": {
+        "cap": "0",
+        "expiry": 0,
+        "key": "",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 0,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "SESSION_CLOSED",
+      "expected_spent": "1000000",
+      "name": "closed_retained_session",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "CLOSED"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ERR_SESSION_KEY_SPEND_CAP_EXCEEDED",
+      "expected_spent": "1000000",
+      "name": "cap_one_unit_short",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1149999",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ERR_SESSION_KEY_SPEND_CAP_EXCEEDED",
+      "expected_spent": "1000000",
+      "name": "cap_reduced_below_spent",
+      "order": "delegated_order",
+      "state": {
+        "cap": "999999",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ACCEPT_SESSION_KEY",
+      "expected_spent": "1150000",
+      "name": "zero_cap_is_unlimited",
+      "order": "delegated_order",
+      "state": {
+        "cap": "0",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "AMOUNT_OVERFLOW",
+      "expected_spent": "18446744073709551615",
+      "name": "unlimited_still_checks_overflow",
+      "order": "delegated_order",
+      "state": {
+        "cap": "0",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "18446744073709551615",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ACCEPT_WALLET",
+      "expected_spent": "1000000",
+      "name": "wallet_ignores_expired_grant",
+      "order": "wallet_order",
+      "state": {
+        "cap": "1",
+        "expiry": 1000,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "SEQUENCE_MISMATCH",
+      "expected_spent": "1000000",
+      "name": "consumed_sequence_does_not_charge_again",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 8,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "OWNER_MISMATCH",
+      "expected_spent": "1000000",
+      "name": "wrong_owner",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "c48b812bb43401392c037381aca934f4069c0517",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "LATER_ADMISSION_REJECTED",
+      "expected_spent": "1000000",
+      "later_admission_valid": false,
+      "name": "rejected_later_admission_rolls_back",
+      "order": "delegated_order",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "already_admitted": true,
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ALREADY_ADMITTED",
+      "expected_spent": "1000000",
+      "name": "already_admitted_survives_clear_and_expiry",
+      "order": "delegated_order",
+      "state": {
+        "cap": "0",
+        "expiry": 0,
+        "key": "",
+        "next_sequence": 8,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 0,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "anchor_height": 990,
+      "current_height": 1100,
+      "expected": "ERR_SESSION_KEY_SPEND_CAP_EXCEEDED",
+      "expected_spent": "18446744073709551615",
+      "name": "finite_cap_overflow_rejected",
+      "order": "delegated_order",
+      "state": {
+        "cap": "18446744073709551615",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "18446744073709551615",
+        "status": "ACTIVE"
+      }
+    }
+  ],
+  "delegated_order": {
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "b7a73368af2c3101ea0a2e6f4c7d3668621d2dc7815c75aaf9d7b8943e6e378e",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Order",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "3"
+    },
+    "encode_type": "TaskOrder(string chainId,string user,bytes32 sessionId,uint64 orderSequence,bytes32 modelId,uint32 profileVersion,string maxFee,string feeDenom,uint64 earliestSubmitHeight,uint64 orderExpireHeight,bytes32 taskHash)",
+    "fee_denom_source": "feeDenom is not a TaskOrderV3 field and does not enter taskHash. It must equal the chain business_denom, hub.v1 Params phase0.business_denom; the chain stores and compares amounts only, and the Keeper verifies the signature with feeDenom set to its current business_denom. \"uusdc\" here is that parameter's default.",
+    "hash_struct": "d91df5545b815385b529fa1066ecf61f0aaa76afbfb05a52004da5e3a5bbaae7",
+    "message": {
+      "chainId": "trueopen-golden-1",
+      "earliestSubmitHeight": "1000",
+      "feeDenom": "uusdc",
+      "maxFee": "150000",
+      "modelId": "5555555555555555555555555555555555555555555555555555555555555555",
+      "orderExpireHeight": "2000",
+      "orderSequence": "7",
+      "profileVersion": "1",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskHash": "a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977",
+      "user": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "note": "Order domain version 3 binds a raw bytes32 model ID; earlier order domains have no fresh-genesis decoder.",
+    "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "signature_65": "c24219a14adee38202d14cbe9eb8375c5502e4da75df34a780ab5465d527c8164eea7b235fd930fbb0035fbc51f8d41f61be6a50e063d1fabf36562a5bde770c1b",
+    "signature_chain_id": "424242",
+    "signer": "session_key",
+    "signing_digest": "c824e36f1e94e1c1559bda03b7c83469bcfe81b0cd7142102271453373fea2cb",
+    "type_hash": "0ff134fd58c0e290fba30db564e6b74fced8f9cacbb8c246722d2ee072e3c114"
+  },
+  "notes": [
+    "Only session-key authorization is varied; all other admission conditions, canonical anchor membership and owner public-key availability are assumed valid unless a row explicitly overrides them.",
+    "Amounts are decimal strings; context heights are exact JSON integers. Keys are public deterministic test material. Same-height rows are ordered transactions in one block.",
+    "Requests have sessionGrantHash zero and do not consume spend_cap. The existing off-chain SessionGrant format is unchanged.",
+    "Only ERR_SESSION_KEY_INVALID, ERR_SESSION_KEY_EXPIRED and ERR_SESSION_KEY_SPEND_CAP_EXCEEDED name new public errors; the other expected strings are conformance outcome labels, not additional ABCI codes."
+  ],
+  "order_payload": {
+    "contract_section": "Task order and opening wire contract",
+    "digest_hex": "a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977",
+    "domain": "TRUEOPEN_TASK_ORDER_V3",
+    "fields": [
+      {
+        "name": "schema_version",
+        "type": "uint32",
+        "value": 3
+      },
+      {
+        "name": "chain_id",
+        "type": "string",
+        "utf8": "trueopen-golden-1"
+      },
+      {
+        "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "name": "user_address",
+        "type": "address"
+      },
+      {
+        "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+        "name": "session_id",
+        "type": "bytes"
+      },
+      {
+        "name": "order_sequence",
+        "type": "uint64",
+        "value": 7
+      },
+      {
+        "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+        "name": "model_id",
+        "type": "bytes"
+      },
+      {
+        "name": "profile_version",
+        "type": "uint32",
+        "value": 1
+      },
+      {
+        "name": "task_type",
+        "type": "enum",
+        "value": 2
+      },
+      {
+        "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+        "name": "input_hash",
+        "type": "bytes"
+      },
+      {
+        "name": "input_size_bytes",
+        "type": "uint64",
+        "value": 4096
+      },
+      {
+        "name": "input_bucket",
+        "type": "uint32",
+        "value": 3
+      },
+      {
+        "name": "output_budget_bucket",
+        "type": "uint32",
+        "value": 4
+      },
+      {
+        "fields": [
+          {
+            "name": "generation_params_schema_version",
+            "type": "uint32",
+            "value": 1
+          },
+          {
+            "name": "max_output_tokens",
+            "type": "uint64",
+            "value": 256
+          },
+          {
+            "name": "max_output_duration",
+            "type": "uint64",
+            "value": 30000
+          },
+          {
+            "fields": [
+              {
+                "bool": true,
+                "name": "sampling_enabled",
+                "type": "bool"
+              },
+              {
+                "name": "temperature_milli",
+                "type": "uint32",
+                "value": 700
+              },
+              {
+                "name": "top_p_ppm",
+                "type": "uint32",
+                "value": 950000
+              },
+              {
+                "name": "top_k",
+                "type": "uint32",
+                "value": 40
+              },
+              {
+                "name": "seed",
+                "type": "uint64",
+                "value": 8675309
+              },
+              {
+                "name": "presence_penalty_milli",
+                "type": "int32",
+                "value": -250
+              },
+              {
+                "name": "frequency_penalty_milli",
+                "type": "int32",
+                "value": 125
+              },
+              {
+                "name": "repetition_penalty_ppm",
+                "type": "uint32",
+                "value": 1050000
+              },
+              {
+                "fields": [
+                  {
+                    "name": "count",
+                    "type": "uint32",
+                    "value": 2
+                  },
+                  {
+                    "name": "stop_sequences[0]",
+                    "type": "string",
+                    "utf8": "</s>"
+                  },
+                  {
+                    "name": "stop_sequences[1]",
+                    "type": "string",
+                    "utf8": "STOP"
+                  }
+                ],
+                "name": "stop_sequences",
+                "type": "frame"
+              },
+              {
+                "fields": [
+                  {
+                    "name": "count",
+                    "type": "uint32",
+                    "value": 2
+                  },
+                  {
+                    "name": "stop_token_ids[0]",
+                    "type": "uint32",
+                    "value": 11
+                  },
+                  {
+                    "name": "stop_token_ids[1]",
+                    "type": "uint32",
+                    "value": 220
+                  }
+                ],
+                "name": "stop_token_ids",
+                "type": "frame"
+              }
+            ],
+            "name": "decoding_params",
+            "type": "frame"
+          }
+        ],
+        "name": "generation_params",
+        "type": "frame"
+      },
+      {
+        "fields": [
+          {
+            "name": "atomic_units",
+            "type": "string",
+            "utf8": "4000000"
+          }
+        ],
+        "name": "price_bid",
+        "type": "frame"
+      },
+      {
+        "fields": [
+          {
+            "name": "atomic_units",
+            "type": "string",
+            "utf8": "150000"
+          }
+        ],
+        "name": "max_fee",
+        "type": "frame"
+      },
+      {
+        "fields": [
+          {
+            "name": "atomic_units",
+            "type": "string",
+            "utf8": "0"
+          }
+        ],
+        "name": "assignment_priority_fee",
+        "type": "frame"
+      },
+      {
+        "fields": [
+          {
+            "name": "atomic_units",
+            "type": "string",
+            "utf8": "250"
+          }
+        ],
+        "name": "tx_fee_reserve",
+        "type": "frame"
+      },
+      {
+        "name": "earliest_submit_height",
+        "type": "uint64",
+        "value": 1000
+      },
+      {
+        "name": "order_expire_height",
+        "type": "uint64",
+        "value": 2000
+      },
+      {
+        "fields": [
+          {
+            "name": "latency_class",
+            "type": "uint32",
+            "value": 2
+          }
+        ],
+        "name": "deadline_policy",
+        "type": "frame"
+      },
+      {
+        "name": "timeout_bucket_version",
+        "type": "uint64",
+        "value": 9
+      },
+      {
+        "name": "session_anchor_height",
+        "type": "uint64",
+        "value": 990
+      },
+      {
+        "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+        "name": "session_anchor_block_hash",
+        "type": "bytes"
+      },
+      {
+        "name": "builder_set_id",
+        "type": "string",
+        "utf8": "12"
+      },
+      {
+        "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+        "name": "builder_set_hash",
+        "type": "bytes"
+      },
+      {
+        "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+        "name": "payload_mode",
+        "type": "enum",
+        "value": 1
+      },
+      {
+        "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "name": "input_key_commitment",
+        "type": "bytes"
+      },
+      {
+        "empty": true,
+        "name": "user_recipient_pubkey",
+        "type": "bytes"
+      }
+    ],
+    "framing": "H_FIELDS_V1",
+    "name": "task_order_v3_core",
+    "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000008000000000000000700000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000ed000000000000000400000001000000000000000800000000000001000000000000000008000000000000753000000000000000b90000000000000001010000000000000004000002bc0000000000000004000e7ef000000000000000040000002800000000000000080000000000845fed0000000000000004ffffff0600000000000000040000007d000000000000000400100590000000000000002400000000000000040000000200000000000000043c2f733e000000000000000453544f50000000000000002400000000000000040000000200000000000000040000000b0000000000000004000000dc000000000000000f000000000000000734303030303030000000000000000e00000000000000063135303030300000000000000009000000000000000130000000000000000b0000000000000003323530000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "preimage_size_bytes": 855,
+    "producer": "TaskOrderHash"
+  },
+  "registered_data_request": {
+    "body_digest_source": "registered_output_metadata_body in this document",
+    "contract": "Task data request typed-data signing (TaskDataRequestAuthV1 USER path), version 2, session-key signed",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "4e530b7089d608383d23d0871e81dccc52649854d1e02da2e59d8dc5c555e69e",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Data Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "2"
+    },
+    "encode_type": "TaskDataRequest(uint32 schemaVersion,string chainId,string builderOperatorAddress,string rpcMethod,bytes32 bodyDigest,uint32 requesterKind,string requesterAddress,uint64 serviceAuthorizationNonce,bytes32 requestNonce,uint64 expiryHeight,bytes32 sessionGrantHash)",
+    "hash_struct": "24eb06801c01c6a95e8dc2f8044c216a6439071a0188385e47a2cac58e23065c",
+    "message": {
+      "bodyDigest": "2e81cecd21fc88d0df0bd8ca3a2b9aed57a9dcf92da13e2af49a1fc805a7d056",
+      "builderOperatorAddress": "trueopen1wltmkp6cpvulh9ya7z0hhw0cpgwsvsdccd5man",
+      "chainId": "trueopen-golden-1",
+      "expiryHeight": "2000",
+      "requestNonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "requesterAddress": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "requesterKind": "1",
+      "rpcMethod": "/nexus.v1.IngressAPI/GetTaskDataMetadata",
+      "schemaVersion": "1",
+      "serviceAuthorizationNonce": "0",
+      "sessionGrantHash": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "note": "OUTPUT metadata signed by the registered key without SessionGrant. The local Task identifies the session.",
+    "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "signature_65": "90b4dd6926a828e6d4f9b160653c81e2331c94173d560e6e7bcdc842e69266f42f9f26a413c0b27ca7a2674d023e522a59cb1527d540b0a97aec4f84a86a603a1c",
+    "signature_chain_id": "424242",
+    "signer": "session_key",
+    "signing_digest": "ba8dcef1252cd057180d2492c082350644a6e95146e72cbcc0ec70a6efebad59",
+    "type_hash": "ef9b6875caf865b195517f357fed5eaa344c89c627ca941b6ed633ed220f3a24"
+  },
+  "registered_open_task_body": {
+    "contract_section": "Public wire domain TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
+    "digest_hex": "1fb4a7fb35d18f6d1cff0747580a5f8aa02af96761561270fd6ad5f40311260e",
+    "domain": "TRUEOPEN_SDK_BODY_OPEN_TASK_V1",
+    "fields": [
+      {
+        "hex": "a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977",
+        "name": "task_hash",
+        "type": "bytes"
+      },
+      {
+        "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+        "name": "session_id",
+        "type": "bytes"
+      },
+      {
+        "name": "order_sequence",
+        "type": "uint64",
+        "value": 7
+      },
+      {
+        "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "name": "user_address",
+        "type": "address"
+      },
+      {
+        "name": "input_size_bytes",
+        "type": "uint64",
+        "value": 4096
+      },
+      {
+        "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+        "name": "input_hash",
+        "type": "bytes"
+      },
+      {
+        "name": "input_media_type",
+        "type": "string",
+        "utf8": "application/json"
+      },
+      {
+        "name": "idempotency_key",
+        "type": "string",
+        "utf8": "golden-open-task-1"
+      }
+    ],
+    "framing": "H_FIELDS_V1",
+    "name": "registered_open_task_body",
+    "preimage_hex": "000000000000001e545255454f50454e5f53444b5f424f44595f4f50454e5f5441534b5f56310000000000000020a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000008000000000000000700000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000010000000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000106170706c69636174696f6e2f6a736f6e0000000000000012676f6c64656e2d6f70656e2d7461736b2d31",
+    "preimage_size_bytes": 268,
+    "producer": "User SDK; recomputed by the Builder Ingress from OpenTaskHeader and the order it carries",
+    "transport": {
+      "payload_ref": "nexus://sha256/2222222222222222222222222222222222222222222222222222222222222222",
+      "payload_ref_rule": "OpenTaskHeader.payload_ref must equal \"nexus://sha256/\" || lowercase_hex(input_hash); it is derived from the signed input_hash, checked on the transport and never framed"
+    }
+  },
+  "registered_output_metadata_body": {
+    "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+    "digest_hex": "2e81cecd21fc88d0df0bd8ca3a2b9aed57a9dcf92da13e2af49a1fc805a7d056",
+    "domain": "TRUEOPEN_TASK_DATA_METADATA_BODY_V2",
+    "fields": [
+      {
+        "fields": [
+          {
+            "hex": "a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977",
+            "name": "task_hash",
+            "type": "bytes"
+          },
+          {
+            "hex": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+            "name": "session_id",
+            "type": "bytes"
+          },
+          {
+            "hex": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0",
+            "name": "task_id",
+            "type": "bytes"
+          },
+          {
+            "enum": "TASK_DATA_OBJECT_KIND_OUTPUT",
+            "name": "object_kind",
+            "type": "enum",
+            "value": 2
+          },
+          {
+            "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "name": "content_hash",
+            "type": "bytes"
+          },
+          {
+            "enum": "EVIDENCE_PRODUCER_KIND_V1_UNSPECIFIED",
+            "name": "evidence_producer_kind",
+            "type": "enum",
+            "value": 0
+          },
+          {
+            "name": "verify_round",
+            "type": "uint32",
+            "value": 0
+          },
+          {
+            "name": "producer_operator",
+            "present": false,
+            "type": "optional"
+          },
+          {
+            "enum": "EVIDENCE_KIND_UNSPECIFIED",
+            "name": "evidence_kind",
+            "type": "enum",
+            "value": 0
+          }
+        ],
+        "name": "object_ref",
+        "type": "frame"
+      }
+    ],
+    "framing": "H_FIELDS_V1",
+    "name": "registered_output_metadata_body",
+    "preimage_hex": "0000000000000023545255454f50454e5f5441534b5f444154415f4d455441444154415f424f44595f563200000000000000d90000000000000020a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977000000000000002077625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f70000000000000020bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b000000000000000040000000200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000000000000000000000400000000000000000000000100000000000000000400000000",
+    "preimage_size_bytes": 268,
+    "producer": "TaskDataMetadataBodyDigest"
+  },
+  "registered_request_cases": [
+    {
+      "base": "registered_sdk_request",
+      "expected": "ACCEPT",
+      "name": "sdk_inclusive_expiry",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_INVALID_SIGNATURE",
+      "name": "sdk_state_before_expiry_and_method",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "CLOSED"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_INVALID_SIGNATURE",
+      "name": "sdk_owner_before_expiry",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": false,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_INVALID_SIGNATURE",
+      "name": "sdk_key_before_method",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": false,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_SESSION_GRANT_EXPIRED",
+      "name": "sdk_expiry_before_method",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_SESSION_METHOD_NOT_ALLOWED",
+      "name": "sdk_method_after_valid_state",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_INVALID_SIGNATURE",
+      "name": "sdk_absent_session",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": false,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_sdk_request",
+      "expected": "SDK_AUTH_INVALID_SIGNATURE",
+      "name": "sdk_unavailable_chain",
+      "state": {
+        "chain_available": false,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "ACCEPT",
+      "name": "data_inclusive_expiry",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_INVALID_SIGNATURE",
+      "name": "data_state_before_expiry_and_method",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "CLOSED"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_INVALID_SIGNATURE",
+      "name": "data_owner_before_expiry",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": false,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_INVALID_SIGNATURE",
+      "name": "data_key_before_method",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": false,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_SESSION_GRANT_EXPIRED",
+      "name": "data_expiry_before_method",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED",
+      "name": "data_method_after_valid_state",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": false,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_INVALID_SIGNATURE",
+      "name": "data_absent_session",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": false,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_INVALID_SIGNATURE",
+      "name": "data_unavailable_chain",
+      "state": {
+        "chain_available": false,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_INVALID_SIGNATURE",
+      "name": "data_missing_local_task",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1099,
+        "key_matches": true,
+        "local_task_found": false,
+        "method_allowed": true,
+        "output_object": true,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "base": "registered_data_request",
+      "expected": "DATA_ACCESS_SESSION_METHOD_NOT_ALLOWED",
+      "name": "data_input_object",
+      "state": {
+        "chain_available": true,
+        "current_height": 1100,
+        "expiry_height": 1100,
+        "key_matches": true,
+        "local_task_found": true,
+        "method_allowed": true,
+        "output_object": false,
+        "owner_matches": true,
+        "session_exists": true,
+        "status": "ACTIVE"
+      }
+    }
+  ],
+  "registered_sdk_request": {
+    "body_digest_source": "registered_open_task_body in this document",
+    "contract": "SDK request typed-data signing (SDKRequestEnvelopeV2), wallet signed",
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "94fee2e5657f013ddd184648fd2b056239a5468216aa0cea4a383adcbf18df27",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen SDK Request",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "1"
+    },
+    "encode_type": "SDKRequest(string chainId,string method,string endpoint,bytes32 sessionId,bytes32 taskId,bytes32 requestNonce,uint64 expiryHeightOrTime,bytes32 bodyDigest,bytes32 sessionGrantHash)",
+    "envelope": {
+      "replay_key": "TRUEOPEN_SDK_REQUEST_V2\\x00trueopen-golden-1\\x00trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\\x00000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "request_domain": "TRUEOPEN_SDK_REQUEST_V2",
+      "session_grant": "absent",
+      "signature_chain_id": "424242",
+      "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "hash_struct": "61f54e070b276d448284c191df9fcd38f61094b8b19f6403fd308d7a0907ae72",
+    "message": {
+      "bodyDigest": "1fb4a7fb35d18f6d1cff0747580a5f8aa02af96761561270fd6ad5f40311260e",
+      "chainId": "trueopen-golden-1",
+      "endpoint": "/nexus.v1.IngressAPI/OpenTask",
+      "expiryHeightOrTime": "1010",
+      "method": "OpenTask",
+      "requestNonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "sessionGrantHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskId": "bce966ae829f212a35982bcd85aaea77d8893539afa04f32ea540c46ff8323b0"
+    },
+    "note": "No SessionGrant; the signature is authorized by current on-chain session registration.",
+    "recovered_address": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "signature_65": "e443d09db787f11f2760b7e7fbd62425b5695bf13d0db661a46d824fc9c55da34da4ecbc6752c42e69181cd788f725994faf60240d9f2c3acfb415c14d2b53941b",
+    "signature_chain_id": "424242",
+    "signer": "session_key",
+    "signing_digest": "da7147df3785b38c5cf5f6b9b198a794bcadfa0234c8af59c9bc4cad249bf8f1",
+    "type_hash": "10322f9048e3c9b28f0a95d1acd80fd98e85eb78bbd308304e35a49eff5c57e8"
+  },
+  "schema": "trueopen-session-key-authorization-v1",
+  "session_key": {
+    "address_0x": "0x3325a78425F17a7E487Eb5666b2bFd93aBb06c70",
+    "address_bytes": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "keccak256_pub_uncompressed_xy": "305681a4dc830a58a84c7cdf3325a78425f17a7e487eb5666b2bfd93abb06c70",
+    "note": "Deterministic registered-key test material; never use these keys outside tests.",
+    "private_key": "0303030303030303030303030303030303030303030303030303030303030303",
+    "pub_compressed": "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+    "pub_uncompressed_xy": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe3379e92c265e71e481ba82a84675a47ac705a200fcd524e92d93b0e7386f26a5458"
+  },
+  "update_cases": [
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "renew_uses_current_limit_not_legacy_zero",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "expiry_at_current_height_rejected",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1201,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "expiry_above_current_limit_rejected",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "0000000000000000000000000000000000000000"
+      },
+      "historical_max_blocks": 0,
+      "name": "zero_address_rejected",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "1a642f0e3c3af545e7acbd38b07251b3990914f1"
+      },
+      "historical_max_blocks": 0,
+      "name": "owner_address_rejected",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "ERR_SESSION_KEY_INVALID",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "11111111111111111111111111111111111111"
+      },
+      "historical_max_blocks": 0,
+      "name": "short_address_rejected",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "clear",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "0",
+        "expiry": 0,
+        "key": "",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 0,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "clear_preserves_spent",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "same_key_renewal_preserves_set_height",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "c48b812bb43401392c037381aca934f4069c0517",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 1100,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "c48b812bb43401392c037381aca934f4069c0517"
+      },
+      "historical_max_blocks": 0,
+      "name": "different_key_records_execution_height",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 1100,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "reregister_after_clear_records_new_height",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "0",
+        "expiry": 0,
+        "key": "",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 0,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "1",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "cap_can_be_below_spent",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "APPLIED",
+      "expected_state": {
+        "cap": "0",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "0",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "cap_can_be_unlimited",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "NOOP",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "identical_set_is_noop",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "SESSION_CLOSED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "CLOSED"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "closed_cannot_update",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "CLOSED"
+      }
+    },
+    {
+      "action": "set",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "UNAUTHORIZED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "delegated_key_cannot_update",
+      "signer": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    },
+    {
+      "action": "",
+      "current_height": 1100,
+      "current_max_blocks": 100,
+      "expected": "ACTION_REQUIRED",
+      "expected_state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      },
+      "grant": {
+        "cap": "1150000",
+        "expiry": 1200,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70"
+      },
+      "historical_max_blocks": 0,
+      "name": "missing_action_rejected",
+      "signer": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "state": {
+        "cap": "1150000",
+        "expiry": 1100,
+        "key": "3325a78425f17a7e487eb5666b2bfd93abb06c70",
+        "next_sequence": 7,
+        "owner": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+        "set_height": 980,
+        "spent": "1000000",
+        "status": "ACTIVE"
+      }
+    }
+  ],
+  "wallet_order": {
+    "domain": {
+      "chain_id": "424242",
+      "domain_separator": "b7a73368af2c3101ea0a2e6f4c7d3668621d2dc7815c75aaf9d7b8943e6e378e",
+      "encode_type": "EIP712Domain(string name,string version,uint256 chainId)",
+      "name": "TrueOpen Task Order",
+      "type_hash": "c2f8787176b8ac6bf7215b4adcc1e069bf4ab82d9ab1df05a57a91d425935b6e",
+      "version": "3"
+    },
+    "encode_type": "TaskOrder(string chainId,string user,bytes32 sessionId,uint64 orderSequence,bytes32 modelId,uint32 profileVersion,string maxFee,string feeDenom,uint64 earliestSubmitHeight,uint64 orderExpireHeight,bytes32 taskHash)",
+    "fee_denom_source": "feeDenom is not a TaskOrderV3 field and does not enter taskHash. It must equal the chain business_denom, hub.v1 Params phase0.business_denom; the chain stores and compares amounts only, and the Keeper verifies the signature with feeDenom set to its current business_denom. \"uusdc\" here is that parameter's default.",
+    "hash_struct": "d91df5545b815385b529fa1066ecf61f0aaa76afbfb05a52004da5e3a5bbaae7",
+    "message": {
+      "chainId": "trueopen-golden-1",
+      "earliestSubmitHeight": "1000",
+      "feeDenom": "uusdc",
+      "maxFee": "150000",
+      "modelId": "5555555555555555555555555555555555555555555555555555555555555555",
+      "orderExpireHeight": "2000",
+      "orderSequence": "7",
+      "profileVersion": "1",
+      "sessionId": "77625100ba4faa1306ae6eaf5a872a661443aa94f87c5530c4b178614e3d62f7",
+      "taskHash": "a7d5076b0d1348f0e68939c430f1a06229e406e2a4ca66efa666edf09f211977",
+      "user": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+    },
+    "note": "Order domain version 3 binds a raw bytes32 model ID; earlier order domains have no fresh-genesis decoder.",
+    "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+    "signature_65": "ddf5c61d80784722df88067ac4853b8308987551fc1dc85949633f02857706701bffeb9826d0e0849ccd7d1976e70f6395ce64a487564f64ffe5fcf09e76000b1c",
+    "signature_chain_id": "424242",
+    "signing_digest": "c824e36f1e94e1c1559bda03b7c83469bcfe81b0cd7142102271453373fea2cb",
+    "type_hash": "0ff134fd58c0e290fba30db564e6b74fced8f9cacbb8c246722d2ee072e3c114"
+  },
+  "wrong_key": {
+    "address_0x": "0xc48B812bB43401392c037381AcA934F4069C0517",
+    "address_bytes": "c48b812bb43401392c037381aca934f4069c0517",
+    "keccak256_pub_uncompressed_xy": "a151bc9b5ea30fe3922a9031c48b812bb43401392c037381aca934f4069c0517",
+    "note": "A key that is neither the account nor the session key, used only by negative cases.",
+    "private_key": "0404040404040404040404040404040404040404040404040404040404040404",
+    "pub_compressed": "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+    "pub_uncompressed_xy": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b199c07969f5442000bea455d72ae826a86bfac9089cb18152ed756ebb2a596f5"
+  }
+}

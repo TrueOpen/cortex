@@ -225,10 +225,10 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"v0.5.0",
-		"ebeeb84f640c035d7761ac818ccf4ab79ae254d2",
-		"ef6b506941477df100b703c9f123dd20ee6728f8fb2bc2abfe4b6bdaca2edcf6",
-		"proto/testdata/wire-v0.5.0.binpb",
+		"v0.5.1",
+		"1c9db9b8d45baf28f2963357a963b1403cb4886c",
+		"d0726ab567377a84842f5a273db2ce8b508c86c2a7895aeae49197fd389bd6b4",
+		"proto/testdata/wire-v0.5.1.binpb",
 		// The release asset is a buf build, so the provenance names the buf
 		// version that reproduces it as well as the tag.
 		"buf@v1.71.0",

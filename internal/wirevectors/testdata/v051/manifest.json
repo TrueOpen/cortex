@@ -111,8 +111,8 @@
       "path": "shared/params_v1.json",
       "origin": "wire",
       "contract_section": "Hub and Task parameter commitments and replay separation",
-      "bytes": 58515,
-      "sha256": "14c7a77c5166028c920194d185fe7146689cec4415502d11c2ce301cd61c4e23"
+      "bytes": 58898,
+      "sha256": "58147df091173ec6d05205b11a2da27728789d5e891308db9f68038e7639e525"
     },
     {
         "path": "shared/query_page_v1.json",
@@ -313,6 +313,20 @@
       "contract_section": "Worker value leaves and Merkle root",
       "bytes": 11787,
       "sha256": "4d98003fe3cee9bae3ca49dda1550821b45a2b7d6aaf4562b9ecfcf6bfbdcfaa"
+    },
+    {
+      "path": "task/session_key_authorization_v1.json",
+      "origin": "wire",
+      "contract_section": "Registered session keys: order and request signing, admission and mutation boundaries",
+      "bytes": 60499,
+      "sha256": "570ba791fffc0ed3f5633f18223c185c82aaa2b28c88cf17bed91ba33f8e87be"
+    },
+    {
+      "path": "task/session_key_amino_v1.json",
+      "origin": "wire",
+      "contract_section": "Registered session key Cosmos Amino JSON and Web3 signing",
+      "bytes": 7471,
+      "sha256": "cc31a726291d86eb295303f14acaf5b35050e6126c948650171c170e38abe5cb"
     }
   ]
 }
