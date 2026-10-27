@@ -654,21 +654,6 @@ func outputStreamLimitsWarmRunner(keeper any) runtimeRunner {
 	}
 }
 
-func runtimeRunners(cfg config.Config, rt *daemon.Runtime) ([]runtimeRunner, func(), error) {
-	return runtimeRunnersWithHealth(cfg, rt, nil)
-}
-
-func runtimeRunnersWithHealth(cfg config.Config, rt *daemon.Runtime, health *observability.Health) ([]runtimeRunner, func(), error) {
-	if rt == nil {
-		return nil, func() {}, nil
-	}
-	taskRunner, err := newTaskRunner(cfg, rt)
-	if err != nil {
-		return nil, func() {}, err
-	}
-	return runtimeRunnersWithHealthAndTaskRunner(cfg, rt, health, taskRunner)
-}
-
 func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime, health *observability.Health, taskRunner *daemon.TaskRunner) ([]runtimeRunner, func(), error) {
 	if rt == nil {
 		return nil, func() {}, nil
@@ -1204,7 +1189,6 @@ func logKeeperPollFailure(attempt int, delay time.Duration, err error) {
 		slog.Duration("retry_in", delay),
 		slog.Any("error", err))
 }
-
 
 func intervalFromMillis(ms uint64) time.Duration {
 	interval := time.Duration(ms) * time.Millisecond

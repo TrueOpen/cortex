@@ -52,18 +52,6 @@ func (h *Health) SetWarning(warning string) {
 	}
 }
 
-func NewHealth() *Health {
-	return newHealth([]string{"chain", "model", "store"}, nil)
-}
-
-func NewIntegrationHealth() *Health {
-	return NewIntegrationHealthWithRuntimeRequirements(true, true, true)
-}
-
-func NewIntegrationHealthWithTxRequirement(requireTxBroadcaster bool) *Health {
-	return NewIntegrationHealthWithRuntimeRequirements(requireTxBroadcaster, true, true)
-}
-
 // NewIntegrationHealthWithRuntimeRequirements makes lifecycle-only
 // dependencies optional when the selected runtime does not own that lifecycle.
 // Fake mode, for example, has no dynamically gated Worker/Verifier workload.
@@ -106,15 +94,6 @@ func (h *Health) SetDependency(name string, healthy bool) error {
 	}
 	h.dependencies[name] = healthy
 	return nil
-}
-
-// DependencyReady reports the current readiness of one dependency. It exists so
-// callers and tests can assert on a single lifecycle dependency rather than
-// inferring it from the aggregate /readyz result.
-func (h *Health) DependencyReady(name string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.dependencies[name]
 }
 
 func (h *Health) Apply(statuses []diagnostics.DependencyStatus) error {

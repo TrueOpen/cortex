@@ -30,15 +30,6 @@ type WorkerValueCommitmentV3 struct {
 	WorkerValuesEncodedSizeBytes uint64
 }
 
-// WorkerValueCommitmentV3Preimage frames all eight fields in schema order.
-func WorkerValueCommitmentV3Preimage(value WorkerValueCommitmentV3) ([]byte, error) {
-	fields, err := workerValueCommitmentV3Fields(value)
-	if err != nil {
-		return nil, err
-	}
-	return hfields.Preimage(DomainWorkerValueCommitmentV3, fields...)
-}
-
 // WorkerValueCommitmentV3Digest returns the evidence digest and the element's
 // encoded_size_bytes, which is the worker_values artifact size.
 func WorkerValueCommitmentV3Digest(value WorkerValueCommitmentV3) (codec.Hash, uint64, error) {

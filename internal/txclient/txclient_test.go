@@ -1,58 +1,10 @@
 package txclient
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 )
-
-func TestFakeRecordsAcceptedAndRejectedSelfRescueSettlementAndProofTxs(t *testing.T) {
-	ctx := context.Background()
-	fake := NewFake()
-	kinds := []Kind{
-		MsgSubmitInferReceipt,
-		MsgSubmitVerifyCommit,
-		MsgSubmitVerifyResult,
-		MsgSettleTask,
-		MsgSweepDeadline,
-		MsgDeclareModelSupport,
-		MsgBatchConfirmModelSupport,
-	}
-
-	for _, kind := range kinds {
-		obs, err := fake.Submit(ctx, Request{
-			TaskID:  "task-1",
-			Kind:    kind,
-			Payload: validPayload(t, kind),
-		})
-		if err != nil {
-			t.Fatalf("submit %s: %v", kind, err)
-		}
-		if !obs.Accepted || obs.Kind != kind || obs.TxHash == "" {
-			t.Fatalf("accepted observation for %s = %#v", kind, obs)
-		}
-	}
-
-	fake.RejectNext(MsgSubmitVerifyCommit, "deadline expired")
-	rejected, err := fake.Submit(ctx, Request{
-		TaskID:  "task-1",
-		Kind:    MsgSubmitVerifyCommit,
-		Payload: validPayload(t, MsgSubmitVerifyCommit),
-	})
-	if err != nil {
-		t.Fatalf("submit rejected observation: %v", err)
-	}
-	if rejected.Accepted || rejected.RejectReason != "deadline expired" {
-		t.Fatalf("rejected observation = %#v", rejected)
-	}
-	if got := fake.Accepted(MsgSubmitVerifyCommit); len(got) != 1 {
-		t.Fatalf("accepted commits = %d, want only first accepted commit", len(got))
-	}
-	if got := fake.Rejected(MsgSubmitVerifyCommit); len(got) != 1 {
-		t.Fatalf("rejected commits = %d, want 1", len(got))
-	}
-}
 
 func validPayload(t testing.TB, kind Kind) []byte {
 	t.Helper()
@@ -213,16 +165,5 @@ func TestMarshalSettleTaskCarriesOnlyTaskAndSubmitter(t *testing.T) {
 	}
 	if _, err := MarshalMessage(MsgSettleTask, SettleTaskMessage{TaskID: hash}); err == nil {
 		t.Fatal("MarshalMessage() accepted a missing submitter_address")
-	}
-}
-
-func TestFakeRejectsUnknownTxKind(t *testing.T) {
-	fake := NewFake()
-	if _, err := fake.Submit(context.Background(), Request{
-		TaskID:  "task-1",
-		Kind:    Kind("MsgUnknownTx"),
-		Payload: []byte("payload"),
-	}); err == nil {
-		t.Fatalf("unknown tx kind accepted")
 	}
 }

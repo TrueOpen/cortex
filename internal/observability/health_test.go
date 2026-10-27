@@ -89,7 +89,7 @@ func TestReadyzDisplaysSecurityWarning(t *testing.T) {
 }
 
 func TestIntegrationHealthRequiresKeeperIdentityNexusAndTxBroadcaster(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity"} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
@@ -160,7 +160,7 @@ func TestIntegrationHealthRequiresKeeperIdentityNexusAndTxBroadcaster(t *testing
 // workload has stopped still reaches all of them, so without this /readyz
 // answers 200 for a node that cannot take any work.
 func TestIntegrationHealthReportsNotReadyWhenWorkloadStops(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "builder_descriptor", "tx_broadcaster", DependencyChainSync, DependencyWorkload} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
@@ -203,7 +203,7 @@ func TestIntegrationHealthAllowsOptionalTxBroadcasterToBeUnready(t *testing.T) {
 }
 
 func TestHealthApplyDependencyStatuses(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	err := health.Apply([]diagnostics.DependencyStatus{
 		{Name: "chain", Ready: true},
 		{Name: "model_service", Ready: true},
@@ -226,7 +226,7 @@ func TestHealthApplyDependencyStatuses(t *testing.T) {
 }
 
 func TestHealthApplyRejectsUnknownDependencyStatus(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 
 	err := health.Apply([]diagnostics.DependencyStatus{{Name: "builder", Ready: true}})
 
@@ -239,7 +239,7 @@ func TestHealthApplyRejectsUnknownDependencyStatus(t *testing.T) {
 }
 
 func TestHealthApplyRejectsUnknownDependencyWithoutPartialUpdate(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 
 	err := health.Apply([]diagnostics.DependencyStatus{
 		{Name: "chain", Ready: true},
@@ -281,7 +281,7 @@ func TestHealthApplyRejectsUnknownDependencyWithoutPartialUpdate(t *testing.T) {
 // readiness-only dependencies (workload, chain_sync) do not appear in
 // cortexctl diagnostics, which reports the boundaries resolved at startup.
 func TestReadyzNamesTheBlockingDependencies(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "tx_broadcaster"} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)

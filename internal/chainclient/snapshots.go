@@ -571,26 +571,12 @@ type ChallengeCommitSnapshot struct {
 	Status          string       `json:"status"`
 }
 
-func (s ChallengeCommitSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.VerifierAddress == "" || s.CommitHash.IsZero() || s.CommitHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper challenge commit is incomplete")
-	}
-	return nil
-}
-
 type ChallengeResultReceiptSnapshot struct {
 	ChallengeID      string       `json:"challenge_id"`
 	VerifierAddress  string       `json:"verifier_address"`
 	ResultRevealHash HexHash      `json:"result_reveal_hash"`
 	AcceptedHeight   Uint64String `json:"accepted_height"`
 	Status           string       `json:"status"`
-}
-
-func (s ChallengeResultReceiptSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.VerifierAddress == "" || s.ResultRevealHash.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper challenge result receipt is incomplete")
-	}
-	return nil
 }
 
 type ChallengeFullResultRevealSnapshot struct {

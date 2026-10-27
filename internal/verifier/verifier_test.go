@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -1053,7 +1054,7 @@ type harness struct {
 	model       *countingModel
 	builder     *builderclient.FakeClient
 	persistence *recordingPersistence
-	tx          *txclient.Fake
+	tx          *txclienttest.Fake
 	verifier    *Verifier
 }
 
@@ -1062,7 +1063,7 @@ func newHarness(t *testing.T) harness {
 	model := &countingModel{FakeService: modelservice.NewFakeService()}
 	builder := builderclient.NewFakeClient()
 	persistence := &recordingPersistence{}
-	tx := txclient.NewFake()
+	tx := txclienttest.NewFake()
 	v := New(Config{
 		EvidencePublisher:         evidencePublisherStub{},
 		VerifierAddress:           fixtureVerifierAddress,

@@ -224,18 +224,6 @@ func UpsertChallenge(ctx context.Context, s *store.Store, taskHash StoredHash, c
 	})
 }
 
-// PutDelivery stores a Builder storage confirmation for one data kind. It is
-// idempotent by (taskHash, dataKind).
-func PutDelivery(ctx context.Context, s *store.Store, taskHash StoredHash, dataKind string, confirmation StorageConfirmation) error {
-	key := DeliveryKey(taskHash, dataKind)
-	confirmation.SchemaVersion = defaultSchemaVersion(confirmation.SchemaVersion)
-	encoded, err := json.Marshal(confirmation)
-	if err != nil {
-		return fmt.Errorf("encode delivery: %w", err)
-	}
-	return s.PutRaw(ctx, key, encoded)
-}
-
 // AdmissionBatch atomically commits candidate creation or replacement, plus any
 // superseded-candidate deletion.
 func AdmissionBatch(ctx context.Context, s *store.Store, sessionID string, orderSequence uint64, taskHash StoredHash, admission CandidateAdmission) error {

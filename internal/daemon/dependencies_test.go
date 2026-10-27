@@ -13,7 +13,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/modelservice"
-	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 )
 
 type fakeModelTransport struct{}
@@ -118,7 +118,7 @@ func TestBuildDependenciesRealModeReportsConfiguredIntegrationEndpoints(t *testi
 		NexusPublisher:  fakePublisher{},
 		NexusSubscriber: fakeSubscriber{},
 		NexusToken:      "token-1",
-		TxClient:        txclient.NewFake(),
+		TxClient:        txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -164,7 +164,7 @@ func TestBuildDependenciesRealModeReportsConfiguredIntegrationEndpoints(t *testi
 func TestBuildDependenciesReportsInjectedNexusEnvelopeAuthenticationReady(t *testing.T) {
 	cfg := realConfig()
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{}, TxClient: txclient.NewFake(),
+		ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{}, TxClient: txclienttest.NewFake(),
 		NexusEnvelopeAuthenticator: builderclient.BusEnvelopeAuthenticatorFunc(func(context.Context, string, builderclient.BusEnvelope) error { return nil }),
 		NexusEnvelopeSigner: builderclient.BusEnvelopeSignerFunc(func(builderclient.BusEnvelope) ([]byte, error) {
 			return []byte("test-envelope-signature"), nil
@@ -219,7 +219,7 @@ func TestBuildDependenciesRealModeUsesInjectedModelClient(t *testing.T) {
 		ModelClient:     model,
 		NexusPublisher:  fakePublisher{},
 		NexusSubscriber: fakeSubscriber{},
-		TxClient:        txclient.NewFake(),
+		TxClient:        txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -247,7 +247,7 @@ func TestBuildDependenciesRealModeUsesLocalModelService(t *testing.T) {
 		Keeper:          keeper,
 		NexusPublisher:  fakePublisher{},
 		NexusSubscriber: fakeSubscriber{},
-		TxClient:        txclient.NewFake(),
+		TxClient:        txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -305,7 +305,7 @@ func TestBuildDependenciesRefusesATypedNilKeeper(t *testing.T) {
 				Keeper:          injected,
 				NexusPublisher:  fakePublisher{},
 				NexusSubscriber: fakeSubscriber{},
-				TxClient:        txclient.NewFake(),
+				TxClient:        txclienttest.NewFake(),
 			})
 			if !errors.Is(err, ErrTypedNilKeeperClient) {
 				t.Fatalf("BuildDependencies() error = %v, want ErrTypedNilKeeperClient", err)
@@ -360,7 +360,7 @@ func TestBuildDependenciesRealModeUsesSharedFakeModelService(t *testing.T) {
 	deps, err := BuildDependencies(cfg, DependencyOptions{
 		NexusPublisher:  fakePublisher{},
 		NexusSubscriber: fakeSubscriber{},
-		TxClient:        txclient.NewFake(),
+		TxClient:        txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -614,7 +614,7 @@ func TestBuildDependenciesIntegrationModeWiresTheSameSetAsRealMode(t *testing.T)
 			NexusPublisher:  fakePublisher{},
 			NexusSubscriber: fakeSubscriber{},
 			NexusToken:      "token-1",
-			TxClient:        txclient.NewFake(),
+			TxClient:        txclienttest.NewFake(),
 		}
 	}
 	realCfg := realConfig()
@@ -669,7 +669,7 @@ func TestBuildDependenciesIntegrationModeReportsItsRelaxations(t *testing.T) {
 
 	deps, err := BuildDependencies(cfg, DependencyOptions{
 		ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{},
-		NexusSubscriber: fakeSubscriber{}, NexusToken: "token-1", TxClient: txclient.NewFake(),
+		NexusSubscriber: fakeSubscriber{}, NexusToken: "token-1", TxClient: txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -700,7 +700,7 @@ func TestBuildDependenciesReportsEveryOutboundBusPublish(t *testing.T) {
 		NexusPublisher:  fakePublisher{},
 		NexusSubscriber: fakeSubscriber{},
 		NexusToken:      "token-1",
-		TxClient:        txclient.NewFake(),
+		TxClient:        txclienttest.NewFake(),
 		NexusPublishObserver: func(completion builderclient.PublishCompletion) {
 			completions = append(completions, completion)
 		},

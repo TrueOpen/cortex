@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/TrueOpen/cortex/internal/metric"
 	"math"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/TrueOpen/cortex/internal/metric"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -40,9 +41,6 @@ type productionInferExecutor struct {
 }
 type productionVerifyExecutor struct{ cfg TaskRunnerConfig }
 
-func newProductionInferExecutor(cfg TaskRunnerConfig, persist func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error) InferExecutor {
-	return &productionInferExecutor{cfg: cfg, persist: persist}
-}
 func newProductionVerifyExecutor(cfg TaskRunnerConfig) VerifyExecutor {
 	return &productionVerifyExecutor{cfg: cfg}
 }

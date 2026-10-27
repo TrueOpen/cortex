@@ -135,7 +135,7 @@ signer:
 	t.Setenv("CORTEX_NEXUS_NATS_CA_FILE", "/etc/cortex/nats-ca.pem")
 	t.Setenv("CORTEX_NEXUS_NATS_CREDS_FILE", "/etc/cortex/nats.creds")
 	t.Setenv("CORTEX_MODEL_SERVICE_TLS_PUBKEY_HASH", strings.Repeat("cd", 32))
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
 	}
@@ -237,7 +237,7 @@ store:
 signer:
   uri: file:///tmp/cortex/signer.key
 `)
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
 	}
@@ -246,7 +246,7 @@ signer:
 	}
 
 	t.Setenv("CORTEX_NODE_TLS_PUBKEY_HASH", strings.Repeat("cd", 32))
-	cfg, err = LoadFile(path)
+	cfg, err = LoadFileWithOverrides(path, nil)
 	if err != nil {
 		t.Fatalf("LoadFile with CORTEX_NODE_TLS_PUBKEY_HASH: %v", err)
 	}
@@ -257,7 +257,7 @@ signer:
 	// Setting the other field through the environment on top of a YAML pin is the
 	// "both set" mistake, reported as such.
 	t.Setenv("CORTEX_NODE_TLS_CA_FILE", "/etc/cortex/node-ca.pem")
-	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "node.tls: set ca_file or pubkey_hash, not both") {
+	if _, err := LoadFileWithOverrides(path, nil); err == nil || !strings.Contains(err.Error(), "node.tls: set ca_file or pubkey_hash, not both") {
 		t.Fatalf("LoadFile with both node.tls fields = %v, want the both-set refusal", err)
 	}
 

@@ -791,12 +791,6 @@ func (c *Client) CurrentModelRegister(ctx context.Context, req modelregistry.Cur
 	return out, err
 }
 
-func (c *Client) ModelStatus(ctx context.Context, req modelregistry.StatusRequest) (modelregistry.ModelStatus, error) {
-	var out modelregistry.ModelStatus
-	err := c.post(ctx, "/v1/model/status", req, &out)
-	return out, err
-}
-
 func (c *Client) ModelStatusProjection(ctx context.Context, req modelregistry.StatusRequest) (modelregistry.StatusProjection, error) {
 	var out modelregistry.StatusProjection
 	err := c.post(ctx, "/v1/model/status-projection", req, &out)

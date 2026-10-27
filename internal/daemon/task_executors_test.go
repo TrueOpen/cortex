@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/TrueOpen/cortex/internal/modelservice"
-	"github.com/TrueOpen/cortex/internal/nodewire"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/modelservice"
+	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -55,7 +57,7 @@ func TestProductionVerifyExecutorUsesKeeperInferReceiptDigest(t *testing.T) {
 		// A real node's verify path resolves its commit exit before it spends a
 		// GPU on verification, so the fixture carries the tx client and the
 		// service address that exit signs as.
-		Tx:            txclient.NewFake(),
+		Tx:            txclienttest.NewFake(),
 		SignerAddress: "service-1",
 		TxFeeCap:      txclient.Coin{Amount: 25, Denom: "utrueopen"},
 		VerifierMemberReader: fixedVerifierMemberReader{snapshot: chainclient.VerifierCandidateMemberSnapshot{
@@ -142,7 +144,7 @@ func TestVerifyExecutorReadsTheFrozenWindowRatherThanTheHandraiseWindow(t *testi
 		// A real node's verify path resolves its commit exit before it spends a
 		// GPU on verification, so the fixture carries the tx client and the
 		// service address that exit signs as.
-		Tx:                   txclient.NewFake(),
+		Tx:                   txclienttest.NewFake(),
 		SignerAddress:        "service-1",
 		TxFeeCap:             txclient.Coin{Amount: 25, Denom: "utrueopen"},
 		VerifierMemberReader: reader,

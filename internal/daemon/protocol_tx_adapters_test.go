@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 	"github.com/TrueOpen/cortex/internal/verifier"
 )
 
 func TestProtocolTxAdaptersInjectSettlementTxAndFeePolicy(t *testing.T) {
-	tx := txclient.NewFake()
+	tx := txclienttest.NewFake()
 	adapters := NewProtocolTxAdapters(ProtocolTxAdapterConfig{
 		Tx: tx, ServiceAddress: "trueopen1service", GasPayer: "trueopen1service", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},
 	})

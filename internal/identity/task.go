@@ -18,16 +18,6 @@ type TaskIdentity struct {
 	TaskID        codec.Hash
 }
 
-func NewTaskIdentity(chainID, sessionID string, orderSequence uint64, orderDigest codec.Hash) TaskIdentity {
-	return TaskIdentity{
-		ChainID:       chainID,
-		SessionID:     sessionID,
-		OrderSequence: orderSequence,
-		OrderDigest:   orderDigest,
-		TaskID:        TaskID(sessionID, orderSequence),
-	}
-}
-
 // TaskID derives the frozen V1 task identity from a raw Hash32 session and a
 // uint64 order sequence. External JSON carries session_id as canonical
 // lowercase hex; it is decoded before H_FIELDS_V1 framing.

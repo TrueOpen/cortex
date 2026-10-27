@@ -1,42 +1,45 @@
-package txclient
+// Package txclienttest provides an in-memory txclient for tests. It is only
+// imported by tests, so it never ships in a binary.
+package txclienttest
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
 type Fake struct {
-	observations []Observation
-	requests     []Request
-	rejectNext   map[Kind]string
+	observations []txclient.Observation
+	requests     []txclient.Request
+	rejectNext   map[txclient.Kind]string
 	sequence     uint64
 }
 
 func NewFake() *Fake {
-	return &Fake{rejectNext: make(map[Kind]string)}
+	return &Fake{rejectNext: make(map[txclient.Kind]string)}
 }
 
 func (f *Fake) Probe(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (f *Fake) RejectNext(kind Kind, reason string) {
+func (f *Fake) RejectNext(kind txclient.Kind, reason string) {
 	f.rejectNext[kind] = reason
 }
 
-func (f *Fake) Submit(ctx context.Context, req Request) (Observation, error) {
+func (f *Fake) Submit(ctx context.Context, req txclient.Request) (txclient.Observation, error) {
 	if err := ctx.Err(); err != nil {
-		return Observation{}, err
+		return txclient.Observation{}, err
 	}
-	if err := ValidateRequest(req); err != nil {
-		return Observation{}, err
+	if err := txclient.ValidateRequest(req); err != nil {
+		return txclient.Observation{}, err
 	}
 	f.requests = append(f.requests, req)
 	f.sequence++
 	digest := codec.HashWithDomain("TRUEOPEN_TXCLIENT_REQUEST_V1", []byte(req.TaskID), []byte(req.Kind), req.Payload)
-	obs := Observation{
+	obs := txclient.Observation{
 		TaskID:          req.TaskID,
 		Kind:            req.Kind,
 		PayloadDigest:   digest,
@@ -58,20 +61,20 @@ func (f *Fake) Submit(ctx context.Context, req Request) (Observation, error) {
 	return obs, nil
 }
 
-func (f *Fake) Accepted(kind Kind) []Observation {
+func (f *Fake) Accepted(kind txclient.Kind) []txclient.Observation {
 	return f.filter(kind, true)
 }
 
-func (f *Fake) Rejected(kind Kind) []Observation {
+func (f *Fake) Rejected(kind txclient.Kind) []txclient.Observation {
 	return f.filter(kind, false)
 }
 
-func (f *Fake) Requests() []Request {
-	return append([]Request(nil), f.requests...)
+func (f *Fake) Requests() []txclient.Request {
+	return append([]txclient.Request(nil), f.requests...)
 }
 
-func (f *Fake) filter(kind Kind, accepted bool) []Observation {
-	var out []Observation
+func (f *Fake) filter(kind txclient.Kind, accepted bool) []txclient.Observation {
+	var out []txclient.Observation
 	for _, obs := range f.observations {
 		if obs.Kind != kind {
 			continue

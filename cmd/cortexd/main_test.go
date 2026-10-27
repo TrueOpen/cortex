@@ -40,6 +40,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 	bussharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
@@ -120,10 +121,10 @@ func TestReadinessObserverLogsTheModuleAndReasonThatHoldTheWorkloadDown(t *testi
 			t.Fatalf("readiness log missing %q:\n%s", want, joined)
 		}
 	}
-	if health.DependencyReady("model_service") {
+	if dependencyReady(health, "model_service") {
 		t.Fatal("health reports model_service ready after a not-ready snapshot")
 	}
-	if !health.DependencyReady("keeper_identity") || !health.DependencyReady("chain") {
+	if !dependencyReady(health, "keeper_identity") || !dependencyReady(health, "chain") {
 		t.Fatal("health lost a ready dependency the snapshot reported")
 	}
 }
@@ -141,7 +142,7 @@ func TestRealModeReadinessControllerLogsTheDependencyHoldingTheWorkloadDown(t *t
 		NexusSubscriber:             &lifecycleNexusSubscriber{},
 		NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		KeeperEvents:                keeper,
 		ChainStatus:                 keeper,
@@ -623,7 +624,7 @@ func TestDaemonRealModeExposesBoundaryBackedModelRegistry(t *testing.T) {
 
 func TestDaemonDegradedModeStillRejectsOnlineOperatorRegistration(t *testing.T) {
 	keeper := newTransitionKeeperClient(false)
-	tx := txclient.NewFake()
+	tx := txclienttest.NewFake()
 	socketPath := startDaemonWithRuntimeBuilder(t, realDaemonConfig("__ADMIN_SOCKET__"), func(ctx context.Context, cfg config.Config) (*daemon.Runtime, error) {
 		return daemon.BuildRuntimeWithOptions(ctx, cfg, daemon.RuntimeOptions{
 			SigningClient:               stubSigner{},
@@ -669,7 +670,7 @@ func TestRuntimeRunnersGateAndRestartWorkloadWhileKeepingReadinessCurrent(t *tes
 		NexusSubscriber:             subscriber,
 		NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		KeeperEvents:                keeper,
 		ChainStatus:                 keeper,
@@ -681,7 +682,7 @@ func TestRuntimeRunnersGateAndRestartWorkloadWhileKeepingReadinessCurrent(t *tes
 		t.Fatalf("model health service id = %q, want %q", got, cfg.LocalIdentity.ModelServiceID)
 	}
 	t.Cleanup(func() { _ = rt.Close() })
-	health := observability.NewIntegrationHealth()
+	health := observability.NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	if err := health.Apply(rt.Dependencies.Diagnostics.Dependencies); err != nil {
 		t.Fatalf("health.Apply returned error: %v", err)
 	}
@@ -799,7 +800,7 @@ func TestDaemonRealModeAdmitsIncomingOrderAsCandidate(t *testing.T) {
 			NexusSubscriber:             subscriber,
 			NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 			NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-			TxClient:                    txclient.NewFake(),
+			TxClient:                    txclienttest.NewFake(),
 			Keeper:                      keeper,
 			KeeperEvents:                keeper,
 			ChainStatus:                 keeper,
@@ -883,7 +884,7 @@ func TestDaemonRealModeStartsKeeperPoller(t *testing.T) {
 			ModelTransport:              fakeModelTransport{},
 			NexusPublisher:              &recordingNexusPublisher{},
 			NexusSubscriber:             &recordingNexusSubscriber{},
-			TxClient:                    txclient.NewFake(),
+			TxClient:                    txclienttest.NewFake(),
 			Keeper:                      keeper,
 			KeeperEvents:                keeper,
 			TaskInputResolver:           mainTaskInputResolver{},
@@ -971,7 +972,6 @@ func TestKeeperPollerAppliesAssignmentEffect(t *testing.T) {
 	}
 }
 
-
 func TestDaemonRealModeReportsUnavailableNexus(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "runtime.db")
@@ -979,7 +979,7 @@ func TestDaemonRealModeReportsUnavailableNexus(t *testing.T) {
 		return daemon.BuildRuntimeWithOptions(ctx, cfg, daemon.RuntimeOptions{
 			SigningClient:               stubSigner{},
 			TrustInjectedSignerForTests: true,
-			TxClient:                    txclient.NewFake(),
+			TxClient:                    txclienttest.NewFake(),
 			Keeper:                      &recordingKeeperClient{},
 			KeeperEvents:                &recordingKeeperClient{},
 		})
@@ -1014,7 +1014,7 @@ func TestDaemonRealModePollsKeeperWhenNexusUnavailable(t *testing.T) {
 			SigningClient:               stubSigner{},
 			TrustInjectedSignerForTests: true,
 			ModelTransport:              fakeModelTransport{},
-			TxClient:                    txclient.NewFake(),
+			TxClient:                    txclienttest.NewFake(),
 			Keeper:                      keeper,
 			KeeperEvents:                keeper,
 		})
@@ -1074,7 +1074,7 @@ func TestNewTaskRunnerRestoresCompactActiveInferDocument(t *testing.T) {
 		Dependencies: daemon.Dependencies{
 			Model:   modelservice.NewFakeService(),
 			Builder: builderclient.NewFakeClient(),
-			Tx:      txclient.NewFake(),
+			Tx:      txclienttest.NewFake(),
 		},
 	})
 	if err != nil {
@@ -1167,7 +1167,7 @@ func TestRuntimeRunnersFailWhenTaskRunnerEvidenceStoreCannotOpen(t *testing.T) {
 		Dependencies: daemon.Dependencies{
 			Model:   modelservice.NewFakeService(),
 			Builder: builderclient.NewFakeClient(),
-			Tx:      txclient.NewFake(),
+			Tx:      txclienttest.NewFake(),
 		},
 	}
 
@@ -1222,7 +1222,7 @@ func TestNewTaskRunnerAllowsWorkerHandraiseWithSelfRescueDisabledAndNoFeeCap(t *
 		NexusSubscriber:             &recordingNexusSubscriber{},
 		NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		KeeperEvents:                keeper,
 		ChainStatus:                 keeper,
@@ -1343,7 +1343,7 @@ func startDaemonWithConfig(t *testing.T, contents string) string {
 			SigningClient:               stubSigner{},
 			TrustInjectedSignerForTests: true,
 			NexusSubscriber:             &recordingNexusSubscriber{},
-			TxClient:                    txclient.NewFake(),
+			TxClient:                    txclienttest.NewFake(),
 			Keeper:                      keeper,
 			KeeperEvents:                keeper,
 			ChainStatus:                 keeper,
@@ -1653,9 +1653,6 @@ func (s *lifecycleSubscription) Unsubscribe() error {
 	return nil
 }
 
-
-
-
 func (k *recordingKeeperClient) FinalizedEvents(_ context.Context, position chainclient.EventPosition) (chainclient.KeeperEventsPage, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -1882,7 +1879,7 @@ func realConfigForRunnerTest(t *testing.T) config.Config {
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
-	cfg, err := config.LoadFile(path)
+	cfg, err := config.LoadFileWithOverrides(path, nil)
 	if err != nil {
 		t.Fatalf("config.LoadFile returned error: %v", err)
 	}
@@ -2164,7 +2161,7 @@ func TestWorkloadReadinessWaitsForSubscriptionsToSucceed(t *testing.T) {
 		NexusSubscriber:             subscriber,
 		NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		KeeperEvents:                keeper,
 		ChainStatus:                 keeper,
@@ -2204,7 +2201,7 @@ func TestWorkloadReadinessWaitsForSubscriptionsToSucceed(t *testing.T) {
 	}
 	// Subscribe is still in flight: no subscription exists yet, so the node is
 	// not serving and must not be reported as running.
-	if health.DependencyReady(observability.DependencyWorkload) {
+	if dependencyReady(health, observability.DependencyWorkload) {
 		t.Fatal("workload was reported as running before its subscriptions were established")
 	}
 	close(subscriber.release)
@@ -2229,7 +2226,7 @@ func TestWorkloadReadinessReportedOnceSubscriptionsSucceed(t *testing.T) {
 		NexusSubscriber:             &lifecycleNexusSubscriber{},
 		NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		KeeperEvents:                keeper,
 		ChainStatus:                 keeper,
@@ -2258,7 +2255,7 @@ func TestWorkloadReadinessReportedOnceSubscriptionsSucceed(t *testing.T) {
 	}()
 
 	deadline := time.After(5 * time.Second)
-	for !health.DependencyReady(observability.DependencyWorkload) {
+	for !dependencyReady(health, observability.DependencyWorkload) {
 		select {
 		case <-deadline:
 			t.Fatal("workload was never reported as running despite successful subscriptions")
@@ -2353,7 +2350,7 @@ func TestReadinessObserverPublishesBuilderDescriptorFailureToHealth(t *testing.T
 		NexusSubscriber:             &lifecycleNexusSubscriber{},
 		NexusEnvelopeAuthenticator:  mainTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         mainTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		KeeperEvents:                keeper,
 		ChainStatus:                 keeper,
@@ -2393,7 +2390,7 @@ func TestReadinessObserverPublishesBuilderDescriptorFailureToHealth(t *testing.T
 	// Without the observer publishing it, health would keep reporting the stale
 	// ready value while the descriptor check already stopped the workload.
 	deadline := time.Now().Add(3 * time.Second)
-	for health.DependencyReady("builder_descriptor") {
+	for dependencyReady(health, "builder_descriptor") {
 		if time.Now().After(deadline) {
 			t.Fatal("health never learned that the Builder descriptor check failed")
 		}

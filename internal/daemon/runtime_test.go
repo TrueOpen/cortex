@@ -25,6 +25,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
@@ -522,7 +523,7 @@ func TestRuntimeReadinessTracksNexusAndTxBroadcasterLoss(t *testing.T) {
 		NexusSubscriber:             fakeSubscriber{},
 		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
@@ -596,7 +597,7 @@ func TestRuntimeTrustedNATSDevRefusedInRealMode(t *testing.T) {
 	cfg.LocalIdentity.ServiceKeyRef = "service.json"
 	if _, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient: modelservice.NewFakeService(), NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{},
-		TxClient: txclient.NewFake(), Keeper: keeper, SigningClient: signingClient, TrustInjectedSignerForTests: true,
+		TxClient: txclienttest.NewFake(), Keeper: keeper, SigningClient: signingClient, TrustInjectedSignerForTests: true,
 		ChainStatus: staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	}); err == nil || !strings.Contains(err.Error(), "nexus.envelope_auth_mode must not be trusted_nats_dev in real mode") {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v, want real mode refusal of trusted_nats_dev", err)
@@ -875,7 +876,7 @@ func TestRuntimeRealModeFakeModelWiresFixtureDependencies(t *testing.T) {
 		NexusSubscriber:             fakeSubscriber{},
 		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      confirmationKeeperReader{staticKeeperIdentityReader: identityReader},
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
@@ -1328,7 +1329,7 @@ func TestWorkloadReadinessBlocksOnLocalServiceKey(t *testing.T) {
 			NexusSubscriber:            fakeSubscriber{},
 			NexusEnvelopeAuthenticator: runtimeTestEnvelopeAuthenticator(),
 			NexusEnvelopeSigner:        runtimeTestEnvelopeSigner(),
-			TxClient:                   txclient.NewFake(),
+			TxClient:                   txclienttest.NewFake(),
 			Keeper:                     readyKeeperIdentityReader(),
 			ChainStatus:                staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 			NexusReadinessProbe:        healthy,
@@ -1515,7 +1516,7 @@ func TestReadinessReportsChainLossInsteadOfStartupConstant(t *testing.T) {
 		NexusSubscriber:             fakeSubscriber{},
 		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
@@ -1577,7 +1578,7 @@ func TestReadinessReportsStoreLossWhenDatabaseIsClosed(t *testing.T) {
 		NexusSubscriber:             fakeSubscriber{},
 		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
@@ -1618,7 +1619,7 @@ func TestReadinessReportsStoreNotReadyWhenReadOnly(t *testing.T) {
 		NexusSubscriber:             fakeSubscriber{},
 		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
 		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
-		TxClient:                    txclient.NewFake(),
+		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,

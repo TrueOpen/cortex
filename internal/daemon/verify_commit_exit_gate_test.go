@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 )
 
 // The gate in front of the commit exit, asserted from the devnet symptom it
@@ -46,7 +46,7 @@ func TestCommitSubmitterYieldsToTheRelayWhenTheNodeCannotSelfSubmit(t *testing.T
 func TestCommitSubmitterKeepsTheDirectFallbackBesideTheRelay(t *testing.T) {
 	withTx := &productionVerifyExecutor{cfg: TaskRunnerConfig{
 		LocalVerifierAddress: "trueopen1verifier",
-		Tx:                   txclient.NewFake(),
+		Tx:                   txclienttest.NewFake(),
 	}}
 
 	submitter, err := withTx.commitSubmitter("trueopen1service", true)

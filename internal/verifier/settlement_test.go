@@ -8,11 +8,12 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 )
 
 func TestDeadlineRisksSubmitCanonicalSelfRescueMessages(t *testing.T) {
 	ctx := context.Background()
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{Tx: client, VerifierAddress: "verifier-1", WorkerAddress: "worker-1", SubmitterAddress: "trueopen1service", GasPayer: "trueopen1service", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"}})
 	tests := []struct {
 		name string
@@ -57,7 +58,7 @@ func TestFullResultAvailabilityRiskHasNoSelfRescueMessage(t *testing.T) {
 	if kind, ok := deadlineRiskTxKind(DeadlineRiskType("full_result_availability")); ok {
 		t.Fatalf("deadlineRiskTxKind(full_result_availability) = %s, want no frozen Msg", kind)
 	}
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{Tx: client, VerifierAddress: "verifier-1", SubmitterAddress: "trueopen1service"})
 	obs, err := manager.HandleDeadlineRisk(context.Background(), DeadlineRisk{
 		TaskID: testTaskID, Type: DeadlineRiskType("full_result_availability"),
@@ -78,7 +79,7 @@ func TestFullResultAvailabilityRiskHasNoSelfRescueMessage(t *testing.T) {
 // and Cortex does not read. Plaintext material must still be refused first, so a
 // caller that mistakenly attaches W_i learns that before the contract reason.
 func TestWorkerRevealDeadlineRiskFailsClosed(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{Tx: client, WorkerAddress: "worker-1", SubmitterAddress: "trueopen1service"})
 	reveal := testReceiptOnlyWorkerReveal()
 	reveal.FullResultPlaintext = []byte("W_i: plaintext")
@@ -96,7 +97,7 @@ func TestWorkerRevealDeadlineRiskFailsClosed(t *testing.T) {
 }
 
 func TestNonUrgentDeadlineRiskDoesNotSubmit(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{Tx: client})
 	obs, err := manager.HandleDeadlineRisk(context.Background(), DeadlineRisk{TaskID: "task-1", Type: CommitDeadlineRisk, CurrentHeight: 90, DeadlineHeight: 100, Margin: 2})
 	if err != nil || obs.Submitted || len(client.Requests()) != 0 {
@@ -141,7 +142,7 @@ func TestSettlementEnvelopeUsesExactTypedMessageAndExcludesPlaintext(t *testing.
 }
 
 func TestStage3BuilderFailureFailsClosedWithoutAuthoritativeKeeperState(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{Tx: client, SubmitterAddress: "settler-1", GasPayer: "cortex1operator", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"}})
 	message, root := testSettleMessage()
 	input := SettlementInput{Message: message, LocalRoot: root, OpeningsValid: true}
@@ -160,7 +161,7 @@ func TestStage3BuilderFailureFailsClosedWithoutAuthoritativeKeeperState(t *testi
 // WORKER_ASSIGNMENT and refuses every verify and finality kind: Cortex must fail
 // closed on those instead of paying gas for a guaranteed rejection.
 func TestVerifyDeadlineSweepMapsOntoFrozenDeadlineKind(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{Tx: client, SubmitterAddress: "settler-1", GasPayer: "cortex1operator", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"}})
 	input := VerifyDeadlineInput{SessionID: "session-1", TaskID: testTaskID, CurrentHeight: 500, DeadlineHeight: 500, SweepKind: "INFER_DEADLINE", ChainVerdict: "worker_failed", FailureClass: "missing_settlement"}
 	obs, err := manager.HandleVerifyDeadline(context.Background(), input)

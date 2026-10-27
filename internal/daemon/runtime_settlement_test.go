@@ -8,6 +8,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 )
 
 type settlementRuntimeKeeper struct {
@@ -21,7 +22,7 @@ func (k settlementRuntimeKeeper) SettlementContext(context.Context, string) (cha
 
 func TestRuntimeSettlementUsesActiveServiceIdentityAndFeeCap(t *testing.T) {
 	taskID := strings.Repeat("ab", 32)
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	runtime := &Runtime{
 		Dependencies: Dependencies{Keeper: settlementRuntimeKeeper{state: chainclient.SettlementContext{
 			TaskID: taskID, SessionID: strings.Repeat("12", 32), Phase: 7,

@@ -38,15 +38,6 @@ type WorkerTokenCommitmentV1 struct {
 	GeneratedTokenIDsSizeBytes uint64
 }
 
-// WorkerTokenCommitmentPreimage frames all sixteen fields in schema order.
-func WorkerTokenCommitmentPreimage(value WorkerTokenCommitmentV1) ([]byte, error) {
-	fields, _, err := workerTokenCommitmentFields(value)
-	if err != nil {
-		return nil, err
-	}
-	return hfields.Preimage(DomainWorkerTokenCommitmentV1, fields...)
-}
-
 // WorkerTokenCommitment returns the evidence digest and the checked sum of the
 // two token-id artifact sizes, which is the element's encoded_size_bytes.
 func WorkerTokenCommitment(value WorkerTokenCommitmentV1) (codec.Hash, uint64, error) {

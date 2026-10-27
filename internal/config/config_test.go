@@ -27,9 +27,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 
 	if cfg.ChainID != "trueopen-devnet-1" {
@@ -65,9 +65,9 @@ store:
   sqlite_path: /tmp/cortex/cortex.kv
 `)
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), `unknown store field "sqlite_path"`) {
-		t.Fatalf("LoadFile() error = %v, want clean-cutover rejection of store.sqlite_path", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want clean-cutover rejection of store.sqlite_path", err)
 	}
 }
 
@@ -76,9 +76,9 @@ func TestLoadFileRejectsInterimKVPathAlias(t *testing.T) {
 store:
   kv_path: /tmp/cortex/legacy.kv
 `)
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), `unknown store field "kv_path"`) {
-		t.Fatalf("LoadFile() error = %v, want clean-cutover rejection of store.kv_path", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want clean-cutover rejection of store.kv_path", err)
 	}
 }
 
@@ -98,9 +98,9 @@ signer:
 `)
 	t.Setenv("CORTEX_STORE_PATH", "/tmp/cortex/from-env.kv")
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.Store.Path != "/tmp/cortex/from-env.kv" {
 		t.Fatalf("Store.Path = %q, want environment override", cfg.Store.Path)
@@ -122,7 +122,7 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 	t.Setenv("CORTEX_STORE_KV_PATH", "/tmp/cortex/legacy-alias")
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,9 +193,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.ChallengeVerifier.Enabled {
 		t.Fatalf("ChallengeVerifier.Enabled = true, want false")
@@ -221,9 +221,9 @@ challenge_verifier:
   enabled: true
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if !cfg.ChallengeVerifier.Enabled {
 		t.Fatalf("ChallengeVerifier.Enabled = false, want true")
@@ -249,9 +249,9 @@ challenge_verifier:
   enabled: ture
 `)
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "challenge_verifier.enabled") {
-		t.Fatalf("LoadFile() error = %v, want challenge_verifier.enabled error", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want challenge_verifier.enabled error", err)
 	}
 }
 
@@ -272,9 +272,9 @@ signer:
   uri: "file:///tmp/cortex/signer.key#v1"
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.Signer.URI != "file:///tmp/cortex/signer.key#v1" {
 		t.Fatalf("Signer.URI = %q", cfg.Signer.URI)
@@ -299,9 +299,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "unknown_setting"`) {
-		t.Fatalf("LoadFile() error = %v, want strict unknown-field rejection", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want strict unknown-field rejection", err)
 	}
 }
 
@@ -325,9 +325,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `, removedKey))
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "`+removedKey+`"`) {
-		t.Fatalf("LoadFile() error = %v, want removed %s to fail strict YAML decoding", err, removedKey)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want removed %s to fail strict YAML decoding", err, removedKey)
 	}
 }
 
@@ -383,9 +383,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if got := strings.Join(cfg.Nexus.SubscribeModels, ","); got != "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2,embed-small" {
 		t.Fatalf("subscribe models = %q", got)
@@ -448,9 +448,9 @@ signer:
 `)
 	t.Setenv("CORTEX_NEXUS_ENVELOPE_AUTH_MODE", NexusEnvelopeAuthTrustedDev)
 
-	fromEnv, err := LoadFile(path)
+	fromEnv, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if !fromEnv.Nexus.TrustedNATSDev() {
 		t.Fatalf("environment EnvelopeAuthMode = %q, want trusted_nats_dev", fromEnv.Nexus.EnvelopeAuthMode)
@@ -604,9 +604,9 @@ signer:
 `)
 	t.Setenv("CORTEX_NEXUS_ENVELOPE_TTL_MS", "not-a-number")
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "CORTEX_NEXUS_ENVELOPE_TTL_MS") || !strings.Contains(err.Error(), "unsigned integer") {
-		t.Fatalf("LoadFile() error = %v, want environment parse error", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want environment parse error", err)
 	}
 }
 
@@ -631,9 +631,9 @@ signer:
 `)
 
 	t.Run("yaml", func(t *testing.T) {
-		cfg, err := LoadFile(path)
+		cfg, err := LoadFileWithOverrides(path, nil)
 		if err != nil {
-			t.Fatalf("LoadFile() error = %v", err)
+			t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 		}
 		assertEnvelopeBounds(t, cfg.Nexus, 30*time.Second, 2*time.Second)
 	})
@@ -642,9 +642,9 @@ signer:
 		t.Setenv("CORTEX_NEXUS_ENVELOPE_TTL_MS", "20000")
 		t.Setenv("CORTEX_NEXUS_ENVELOPE_CLOCK_SKEW_MS", "1000")
 
-		cfg, err := LoadFile(path)
+		cfg, err := LoadFileWithOverrides(path, nil)
 		if err != nil {
-			t.Fatalf("LoadFile() error = %v", err)
+			t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 		}
 		assertEnvelopeBounds(t, cfg.Nexus, 20*time.Second, time.Second)
 	})
@@ -682,12 +682,12 @@ func envelopeBoundMS(value uint64) *uint64 {
 func TestLoadFileEmptyYAMLUsesDefaultsThenValidates(t *testing.T) {
 	path := writeConfig(t, "")
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "chain_id") {
-		t.Fatalf("LoadFile(empty) error = %v, want validation error", err)
+		t.Fatalf("LoadFileWithOverrides(empty, nil) error = %v, want validation error", err)
 	}
 	if strings.Contains(err.Error(), "EOF") {
-		t.Fatalf("LoadFile(empty) returned decoder EOF instead of validation: %v", err)
+		t.Fatalf("LoadFileWithOverrides(empty, nil) returned decoder EOF instead of validation: %v", err)
 	}
 }
 
@@ -710,9 +710,9 @@ signer:
 	t.Setenv("CORTEX_MODEL_ID", "alias-model")
 	t.Setenv("CORTEX_NEXUS_SUBSCRIBE_MODELS", "explicit-a,explicit-b")
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if got := strings.Join(cfg.Nexus.SubscribeModels, ","); got != "explicit-a,explicit-b" {
 		t.Fatalf("Nexus.SubscribeModels = %q, want explicit environment value", got)
@@ -737,9 +737,9 @@ signer:
 `)
 	t.Setenv("CORTEX_CHAIN_ID", "")
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.ChainID != "from-yaml" {
 		t.Fatalf("ChainID = %q, want YAML value", cfg.ChainID)
@@ -765,12 +765,12 @@ signer:
 	secret := "not-a-bool-secret-value"
 	t.Setenv("CORTEX_SIGNER_PASSWORD_STDIN", secret)
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "CORTEX_SIGNER_PASSWORD_STDIN") {
-		t.Fatalf("LoadFile() error = %v, want invalid environment error", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want invalid environment error", err)
 	}
 	if strings.Contains(err.Error(), secret) {
-		t.Fatalf("LoadFile() leaked environment value: %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) leaked environment value: %v", err)
 	}
 }
 
@@ -791,9 +791,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.Mode != ModeFake {
 		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeFake)
@@ -1077,9 +1077,9 @@ signer:
   readiness_proof_interval_ms: 45000
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.Mode != ModeReal {
 		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeReal)
@@ -1117,9 +1117,9 @@ signer:
 }
 
 func TestRealExampleConfigLoadsProductionBoundaries(t *testing.T) {
-	cfg, err := LoadFile(filepath.Join("..", "..", "configs", "real.example.yaml"))
+	cfg, err := LoadFileWithOverrides(filepath.Join("..", "..", "configs", "real.example.yaml"), nil)
 	if err != nil {
-		t.Fatalf("LoadFile(real.example.yaml) error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(real.example.yaml, nil) error = %v", err)
 	}
 
 	if cfg.Mode != ModeReal {
@@ -1165,9 +1165,9 @@ func TestRealExampleConfigLoadsProductionBoundaries(t *testing.T) {
 func TestIntegrationRoleExamplesUseSharedFakeFixtureBoundary(t *testing.T) {
 	for _, name := range []string{"integration.worker.example.yaml", "integration.verifier.example.yaml"} {
 		t.Run(name, func(t *testing.T) {
-			cfg, err := LoadFile(filepath.Join("..", "..", "configs", name))
+			cfg, err := LoadFileWithOverrides(filepath.Join("..", "..", "configs", name), nil)
 			if err != nil {
-				t.Fatalf("LoadFile(%s) error = %v", name, err)
+				t.Fatalf("LoadFileWithOverrides(%s, nil) error = %v", name, err)
 			}
 			if err := cfg.Validate(); err != nil {
 				t.Fatalf("Validate(%s) error = %v", name, err)
@@ -1255,9 +1255,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.TaskExecution.RetryDelayMS != 30000 {
 		t.Fatalf("TaskExecution defaults = %#v", cfg.TaskExecution)
@@ -1294,9 +1294,9 @@ signer:
   uri: file:///tmp/cortex/signer.key
 `)
 
-	_, err := LoadFile(path)
+	_, err := LoadFileWithOverrides(path, nil)
 	if err == nil || !strings.Contains(err.Error(), "unknown task_execution field") {
-		t.Fatalf("LoadFile() error = %v, want obsolete deadline field rejection", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want obsolete deadline field rejection", err)
 	}
 }
 
@@ -1475,7 +1475,7 @@ func TestLoadFileRejectsLegacyIdentityAndOperatorKeyFields(t *testing.T) {
 		"local_identity:\n  cortex_node_id: trueopen1node\n",
 		"local_identity:\n  expected_service_key_version: 1\n",
 	} {
-		if _, err := LoadFile(writeConfig(t, legacy)); err == nil {
+		if _, err := LoadFileWithOverrides(writeConfig(t, legacy), nil); err == nil {
 			t.Fatalf("LoadFile accepted removed identity/key field in %q", legacy)
 		}
 	}
@@ -1749,9 +1749,9 @@ health: {}
 	t.Setenv("CORTEX_TASK_INPUT_RESOLVER", "fixture")
 	t.Setenv("CORTEX_TASK_FIXTURE_ROOT", "/opt/cortex/fixtures")
 
-	cfg, err := LoadFile(path)
+	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
 	if cfg.ModelManagement.Transport != "fake" || cfg.TaskExecution.InputResolver != "fixture" ||
 		cfg.TaskExecution.FixtureRoot != "/opt/cortex/fixtures" {

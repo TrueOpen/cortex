@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -44,38 +43,12 @@ func (e *CursorAheadOfChainError) Error() string {
 		e.CursorHeight, e.ChainID, e.ChainHeight)
 }
 
-// IsCursorAheadOfChain reports whether err is the cursor-above-tip refusal.
-func IsCursorAheadOfChain(err error) bool {
-	var target *CursorAheadOfChainError
-	return errors.As(err, &target)
-}
-
 func BlockEndPosition(height uint64) EventPosition {
 	return EventPosition{Height: height, TxIndex: ^uint32(0), MsgIndex: ^uint32(0), EventIndex: ^uint32(0)}
 }
 
 func (p EventPosition) String() string {
 	return fmt.Sprintf("%d:%d:%d:%d", p.Height, p.TxIndex, p.MsgIndex, p.EventIndex)
-}
-
-func ParseEventPosition(raw string) (EventPosition, error) {
-	parts := strings.Split(raw, ":")
-	if len(parts) != 4 {
-		return EventPosition{}, fmt.Errorf("event position must contain height, tx, message, and event indexes")
-	}
-	height, err := strconv.ParseUint(parts[0], 10, 64)
-	if err != nil {
-		return EventPosition{}, fmt.Errorf("invalid event position height: %w", err)
-	}
-	indexes := make([]uint32, 3)
-	for i, part := range parts[1:] {
-		value, err := strconv.ParseUint(part, 10, 32)
-		if err != nil {
-			return EventPosition{}, fmt.Errorf("invalid event position index: %w", err)
-		}
-		indexes[i] = uint32(value)
-	}
-	return EventPosition{Height: height, TxIndex: indexes[0], MsgIndex: indexes[1], EventIndex: indexes[2]}, nil
 }
 
 type CometEventClientConfig struct {
