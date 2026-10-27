@@ -30,7 +30,7 @@ func TestDevnetRendererProducesValidSingleIdentityConfig(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("rendered config mode = %v, err = %v", info, err)
 	}
-	cfg, err := config.LoadFile(renderedPath)
+	cfg, err := config.LoadFileWithOverrides(renderedPath, nil)
 	if err != nil {
 		t.Fatalf("load rendered config: %v", err)
 	}

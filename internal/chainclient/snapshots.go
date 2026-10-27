@@ -117,60 +117,6 @@ type ServiceKeySnapshot struct {
 	Status                   string       `json:"status"`
 }
 
-type TaskLiabilitySnapshot struct {
-	SessionID         string         `json:"session_id"`
-	TaskID            string         `json:"task_id"`
-	OperatorAddress   string         `json:"operator_address"`
-	Duty              string         `json:"duty"`
-	BondVersion       Uint64String   `json:"bond_version"`
-	CapabilityVersion Uint64String   `json:"capability_version"`
-	ReservedAmount    Uint64String   `json:"reserved_amount"`
-	Status            string         `json:"status"`
-	CreatedHeight     Uint64String   `json:"created_height"`
-	ReleasedHeight    Uint64String   `json:"released_height"`
-	ConsumedAmount    Uint64String   `json:"consumed_amount"`
-	ModelID           string         `json:"model_id"`
-	ProfileVersion    ProfileVersion `json:"profile_version"`
-}
-
-func (s TaskLiabilitySnapshot) Validate() error {
-	for _, field := range []struct{ name, value string }{
-		{name: "session id", value: s.SessionID}, {name: "task id", value: s.TaskID},
-		{name: "operator address", value: s.OperatorAddress},
-		{name: "model id", value: s.ModelID},
-	} {
-		if field.value == "" || field.value != strings.TrimSpace(field.value) {
-			return fmt.Errorf("Keeper task liability %s must be canonical", field.name)
-		}
-	}
-	if s.Duty != "WORKER" && s.Duty != "VERIFIER" {
-		return fmt.Errorf("Keeper task liability duty must be WORKER or VERIFIER")
-	}
-	if s.ProfileVersion.Uint32() == 0 || s.BondVersion.Uint64() == 0 || s.CapabilityVersion.Uint64() == 0 || s.ReservedAmount.Uint64() == 0 || s.CreatedHeight.Uint64() == 0 {
-		return fmt.Errorf("Keeper task liability profile, bond/capability versions, amount, and creation height are required")
-	}
-	if s.ConsumedAmount.Uint64() > s.ReservedAmount.Uint64() {
-		return fmt.Errorf("Keeper task liability consumed amount exceeds reservation")
-	}
-	switch s.Status {
-	case "RESERVED":
-		if s.ReleasedHeight.Uint64() != 0 || s.ConsumedAmount.Uint64() == s.ReservedAmount.Uint64() {
-			return fmt.Errorf("Keeper reserved task liability must remain open")
-		}
-	case "RELEASED":
-		if s.ReleasedHeight.Uint64() < s.CreatedHeight.Uint64() || s.ConsumedAmount.Uint64() == s.ReservedAmount.Uint64() {
-			return fmt.Errorf("Keeper released task liability is inconsistent")
-		}
-	case "CONSUMED":
-		if s.ReleasedHeight.Uint64() < s.CreatedHeight.Uint64() || s.ConsumedAmount.Uint64() != s.ReservedAmount.Uint64() {
-			return fmt.Errorf("Keeper consumed task liability is inconsistent")
-		}
-	default:
-		return fmt.Errorf("Keeper task liability status %q is unsupported", s.Status)
-	}
-	return nil
-}
-
 type ModelSnapshot struct {
 	ModelID                  string       `json:"model_id"`
 	Status                   string       `json:"status"`
@@ -217,11 +163,6 @@ func (s ProfileSnapshot) Validate() error {
 		return fmt.Errorf("Keeper profile execution hashes are required")
 	}
 	return nil
-}
-
-type ModelProfileSnapshot struct {
-	Model   ModelSnapshot   `json:"model"`
-	Profile ProfileSnapshot `json:"profile"`
 }
 
 // CurrentModelSnapshot is the current Node model aggregate state. It is kept
@@ -430,19 +371,6 @@ func (s CurrentModelProfileSnapshot) Validate() error {
 	return nil
 }
 
-func (s ModelProfileSnapshot) Validate() error {
-	if err := s.Model.Validate(); err != nil {
-		return err
-	}
-	if err := s.Profile.Validate(); err != nil {
-		return err
-	}
-	if s.Model.ModelID != s.Profile.ModelID {
-		return fmt.Errorf("Keeper model/profile identity mismatch")
-	}
-	return nil
-}
-
 // ModelCapabilitySnapshot is ModelCapabilityState: one row per (operator,
 // model), independent of profile version.
 type ModelCapabilitySnapshot struct {
@@ -619,66 +547,6 @@ type SettlementSnapshot struct {
 	SettlementHeight Uint64String `json:"settlement_height"`
 }
 
-type TaskFailureClassSnapshot struct {
-	SessionID               string       `json:"session_id"`
-	TaskID                  string       `json:"task_id"`
-	SettlementID            string       `json:"settlement_id"`
-	FailureClass            string       `json:"failure_class"`
-	FreezeSignalEligible    bool         `json:"freeze_signal_eligible"`
-	ClassificationSource    string       `json:"classification_source"`
-	ClassifiedHeight        Uint64String `json:"classified_height"`
-	SupersededByChallengeID string       `json:"superseded_by_challenge_id"`
-	EvidenceDigest          string       `json:"evidence_digest"`
-}
-
-func (s TaskFailureClassSnapshot) Validate() error {
-	if s.SessionID == "" || s.TaskID == "" || s.FailureClass == "" || s.ClassificationSource == "" || s.ClassifiedHeight.Uint64() == 0 {
-		return fmt.Errorf("Keeper task failure classification is incomplete")
-	}
-	return nil
-}
-
-type SettlementFinalitySnapshot struct {
-	OptimisticFinalityStatus          string       `json:"optimistic_finality_status"`
-	ChallengeCloseHeight              Uint64String `json:"challenge_close_height"`
-	MaxChallengeResolveDeadlineHeight Uint64String `json:"max_challenge_resolve_deadline_height"`
-	TaskFinalityHeight                Uint64String `json:"task_finality_height"`
-	ClaimableAfterHeight              Uint64String `json:"claimable_after_height"`
-	ChallengeRefsHash                 string       `json:"challenge_refs_hash"`
-}
-
-type CommitSnapshot struct {
-	TaskID          string       `json:"task_id"`
-	VerifyRound     Uint64String `json:"verify_round"`
-	VerifierAddress string       `json:"verifier_address"`
-	CommitHash      HexHash      `json:"commit_hash"`
-	CommitHeight    Uint64String `json:"commit_height"`
-	Status          string       `json:"status"`
-}
-
-func (s CommitSnapshot) Validate() error {
-	if s.TaskID == "" || s.VerifyRound.Uint64() == 0 || s.VerifierAddress == "" || s.CommitHash.IsZero() || s.CommitHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper commit is incomplete")
-	}
-	return nil
-}
-
-type ResultReceiptSnapshot struct {
-	TaskID           string       `json:"task_id"`
-	VerifyRound      Uint64String `json:"verify_round"`
-	VerifierAddress  string       `json:"verifier_address"`
-	ResultRevealHash HexHash      `json:"result_reveal_hash"`
-	AcceptedHeight   Uint64String `json:"accepted_height"`
-	Status           string       `json:"status"`
-}
-
-func (s ResultReceiptSnapshot) Validate() error {
-	if s.TaskID == "" || s.VerifyRound.Uint64() == 0 || s.VerifierAddress == "" || s.ResultRevealHash.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper result receipt is incomplete")
-	}
-	return nil
-}
-
 type TaskSettlementSnapshot struct {
 	SessionID          string       `json:"session_id"`
 	TaskID             string       `json:"task_id"`
@@ -703,26 +571,12 @@ type ChallengeCommitSnapshot struct {
 	Status          string       `json:"status"`
 }
 
-func (s ChallengeCommitSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.VerifierAddress == "" || s.CommitHash.IsZero() || s.CommitHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper challenge commit is incomplete")
-	}
-	return nil
-}
-
 type ChallengeResultReceiptSnapshot struct {
 	ChallengeID      string       `json:"challenge_id"`
 	VerifierAddress  string       `json:"verifier_address"`
 	ResultRevealHash HexHash      `json:"result_reveal_hash"`
 	AcceptedHeight   Uint64String `json:"accepted_height"`
 	Status           string       `json:"status"`
-}
-
-func (s ChallengeResultReceiptSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.VerifierAddress == "" || s.ResultRevealHash.IsZero() || s.AcceptedHeight.Uint64() == 0 || s.Status == "" {
-		return fmt.Errorf("Keeper challenge result receipt is incomplete")
-	}
-	return nil
 }
 
 type ChallengeFullResultRevealSnapshot struct {
@@ -734,106 +588,10 @@ type ChallengeFullResultRevealSnapshot struct {
 	Status          string       `json:"status"`
 }
 
-type ChallengeSnapshot struct {
-	ChallengeID                       string       `json:"challenge_id"`
-	SessionID                         string       `json:"session_id"`
-	TaskID                            string       `json:"task_id"`
-	ChallengerAddress                 string       `json:"challenger_address"`
-	ChallengeKind                     string       `json:"challenge_kind"`
-	Status                            string       `json:"status"`
-	OpenedHeight                      Uint64String `json:"opened_height"`
-	ChallengeDeadlineHeight           Uint64String `json:"challenge_deadline_height"`
-	BondAmount                        Uint64String `json:"bond_amount"`
-	EvidenceDigest                    HexHash      `json:"evidence_digest"`
-	SettlementID                      string       `json:"settlement_id"`
-	ChallengeOutcome                  string       `json:"challenge_outcome"`
-	AffectsSettlementVerdict          bool         `json:"affects_settlement_verdict"`
-	AffectsRewardEligibility          bool         `json:"affects_reward_eligibility"`
-	ChallengeCloseHeightSnapshot      Uint64String `json:"challenge_close_height_snapshot"`
-	OpenEvidenceRequestCount          Uint64String `json:"open_evidence_request_count"`
-	MaxEvidenceResponseDeadlineHeight Uint64String `json:"max_evidence_response_deadline_height"`
-	ResolveDeadlineHeight             Uint64String `json:"resolve_deadline_height"`
-	BondLockedAmount                  Uint64String `json:"bond_locked_amount"`
-	BondSource                        string       `json:"bond_source"`
-	BondStatus                        string       `json:"bond_status"`
-	ProofID                           string       `json:"proof_id"`
-	RecomputedVerdict                 string       `json:"recomputed_verdict"`
-	AffectedAddresses                 []string     `json:"affected_addresses"`
-	EconomicEffectRoot                HexHash      `json:"economic_effect_root"`
-	SummaryApplied                    bool         `json:"summary_applied"`
-	EconomicEffectStatus              string       `json:"economic_effect_status"`
-	ChallengeEffectPoolAmount         Uint64String `json:"challenge_effect_pool_amount"`
-	ClosedHeight                      Uint64String `json:"closed_height"`
-	DebugRuleVersion                  string       `json:"debug_rule_version"`
-}
-
 type TaskChallengeSummarySnapshot struct {
 	SessionID          string `json:"session_id"`
 	TaskID             string `json:"task_id"`
 	OpenChallengeCount uint64 `json:"open_challenge_count"`
-}
-
-func (s ChallengeSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.SessionID == "" || s.TaskID == "" || s.ChallengerAddress == "" || s.ChallengeKind == "" || s.Status == "" {
-		return fmt.Errorf("Keeper challenge identity and status are required")
-	}
-	if s.OpenedHeight.Uint64() == 0 || s.ChallengeDeadlineHeight.Uint64() == 0 || s.ResolveDeadlineHeight.Uint64() == 0 {
-		return fmt.Errorf("Keeper challenge deadlines are required")
-	}
-	return nil
-}
-
-type ChallengeAssignmentSnapshot struct {
-	ChallengeID               string       `json:"challenge_id"`
-	ChallengeVerifiers        []string     `json:"challenge_verifiers"`
-	ChallengeSampleSeed       HexHash      `json:"challenge_sample_seed"`
-	ChallengeSeedHeight       Uint64String `json:"challenge_seed_height"`
-	ChallengeSampleSeedStatus string       `json:"challenge_sample_seed_status"`
-	OriginalCheckpointRefHash HexHash      `json:"original_checkpoint_ref_hash"`
-	OriginalVerifierSetHash   HexHash      `json:"original_verifier_set_hash"`
-	ExcludedVerifierSetHash   HexHash      `json:"excluded_verifier_set_hash"`
-	CommitDeadlineHeight      Uint64String `json:"commit_deadline_height"`
-	RevealDeadlineHeight      Uint64String `json:"reveal_deadline_height"`
-	ParamVersion              string       `json:"param_version"`
-	ChallengeVerifierCount    Uint64String `json:"challenge_verifier_count"`
-	SeedRetryDelayBlocks      Uint64String `json:"seed_retry_delay_blocks"`
-	CommitWindowBlocks        Uint64String `json:"commit_window_blocks"`
-	RevealWindowBlocks        Uint64String `json:"reveal_window_blocks"`
-}
-
-func (s ChallengeAssignmentSnapshot) Validate() error {
-	if s.ChallengeID == "" || s.ChallengeSampleSeedStatus == "" || s.ParamVersion == "" {
-		return fmt.Errorf("Keeper challenge assignment identity and parameter snapshot are required")
-	}
-	if s.OriginalCheckpointRefHash.IsZero() || s.OriginalVerifierSetHash.IsZero() || s.ExcludedVerifierSetHash.IsZero() {
-		return fmt.Errorf("Keeper challenge assignment source hashes are required")
-	}
-	if s.ChallengeSeedHeight.Uint64() == 0 || s.ChallengeVerifierCount.Uint64() == 0 || s.SeedRetryDelayBlocks.Uint64() == 0 || s.CommitWindowBlocks.Uint64() == 0 || s.RevealWindowBlocks.Uint64() == 0 {
-		return fmt.Errorf("Keeper challenge assignment parameter values are required")
-	}
-	switch s.ChallengeSampleSeedStatus {
-	case "PENDING":
-		if len(s.ChallengeVerifiers) != 0 || !s.ChallengeSampleSeed.IsZero() || s.CommitDeadlineHeight.Uint64() != 0 || s.RevealDeadlineHeight.Uint64() != 0 {
-			return fmt.Errorf("Keeper pending challenge assignment contains ready-only fields")
-		}
-	case "READY":
-		if s.ChallengeVerifierCount.Uint64() != uint64(len(s.ChallengeVerifiers)) {
-			return fmt.Errorf("Keeper challenge verifier count does not match assignment")
-		}
-		if s.ChallengeSampleSeed.IsZero() || s.CommitDeadlineHeight.Uint64() == 0 || s.RevealDeadlineHeight.Uint64() < s.CommitDeadlineHeight.Uint64() {
-			return fmt.Errorf("Keeper ready challenge assignment is incomplete")
-		}
-	default:
-		return fmt.Errorf("Keeper challenge sample seed status %q is unsupported", s.ChallengeSampleSeedStatus)
-	}
-	return nil
-}
-
-func (s SettlementFinalitySnapshot) Validate() error {
-	if s.OptimisticFinalityStatus == "" {
-		return fmt.Errorf("Keeper settlement finality status is required")
-	}
-	return nil
 }
 
 type TaskSnapshot struct {

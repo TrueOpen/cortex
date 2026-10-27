@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -88,7 +89,7 @@ func TestReadyzDisplaysSecurityWarning(t *testing.T) {
 }
 
 func TestIntegrationHealthRequiresKeeperIdentityNexusAndTxBroadcaster(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity"} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
@@ -159,7 +160,7 @@ func TestIntegrationHealthRequiresKeeperIdentityNexusAndTxBroadcaster(t *testing
 // workload has stopped still reaches all of them, so without this /readyz
 // answers 200 for a node that cannot take any work.
 func TestIntegrationHealthReportsNotReadyWhenWorkloadStops(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "builder_descriptor", "tx_broadcaster", DependencyChainSync, DependencyWorkload} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
@@ -202,7 +203,7 @@ func TestIntegrationHealthAllowsOptionalTxBroadcasterToBeUnready(t *testing.T) {
 }
 
 func TestHealthApplyDependencyStatuses(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	err := health.Apply([]diagnostics.DependencyStatus{
 		{Name: "chain", Ready: true},
 		{Name: "model_service", Ready: true},
@@ -225,7 +226,7 @@ func TestHealthApplyDependencyStatuses(t *testing.T) {
 }
 
 func TestHealthApplyRejectsUnknownDependencyStatus(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 
 	err := health.Apply([]diagnostics.DependencyStatus{{Name: "builder", Ready: true}})
 
@@ -238,7 +239,7 @@ func TestHealthApplyRejectsUnknownDependencyStatus(t *testing.T) {
 }
 
 func TestHealthApplyRejectsUnknownDependencyWithoutPartialUpdate(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 
 	err := health.Apply([]diagnostics.DependencyStatus{
 		{Name: "chain", Ready: true},
@@ -280,7 +281,7 @@ func TestHealthApplyRejectsUnknownDependencyWithoutPartialUpdate(t *testing.T) {
 // readiness-only dependencies (workload, chain_sync) do not appear in
 // cortexctl diagnostics, which reports the boundaries resolved at startup.
 func TestReadyzNamesTheBlockingDependencies(t *testing.T) {
-	health := NewIntegrationHealth()
+	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
 	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "tx_broadcaster"} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
@@ -300,12 +301,13 @@ func TestReadyzNamesTheBlockingDependencies(t *testing.T) {
 	}
 }
 
-// Operators had no way to read the registry because nothing served it.
-func TestMetricsRouteServesAttachedRegistry(t *testing.T) {
+func TestMetricsRouteServesAttachedMetricsWithReadiness(t *testing.T) {
 	health := NewHealth()
-	metrics := NewMetricsRegistry()
-	metrics.ObserveSnapshot(MetricsSnapshot{TaskQueueFailed: 2})
-	health.AttachMetrics(metrics)
+	_ = health.SetDependency("chain", true)
+	health.AttachMetrics(NewMetricsHandler(func(context.Context) (NodeState, error) {
+		ready, deps := health.Readiness()
+		return NodeState{Ready: ready, Dependencies: deps}, nil
+	}))
 
 	rec := httptest.NewRecorder()
 	health.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -313,14 +315,15 @@ func TestMetricsRouteServesAttachedRegistry(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/metrics code = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "cortex_task_queue_failed 2") {
-		t.Fatalf("/metrics body = %q, want the observed queue failure count", rec.Body.String())
+	for _, want := range []string{"cortex_ready 0", `cortex_dependency_ready{dependency="chain"} 1`, `cortex_dependency_ready{dependency="store"} 0`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("/metrics missing %q; body:\n%s", want, rec.Body.String())
+		}
 	}
 }
 
-// Fake mode runs no projector, so no registry is attached. The route must stay a
-// valid scrape target rather than 404 differently per mode.
-func TestMetricsRouteIsEmptyWithoutRegistry(t *testing.T) {
+// The route must stay a valid scrape target before metrics are attached.
+func TestMetricsRouteIsEmptyWithoutMetrics(t *testing.T) {
 	rec := httptest.NewRecorder()
 	NewHealth().Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 

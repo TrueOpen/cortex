@@ -186,11 +186,6 @@ type TaskOrderFacts struct {
 	SignatureChainID uint64
 }
 
-func TaskOrderHashJSON(value string) (codec.Hash, error) {
-	digest, _, err := TaskOrderHashAndFactsJSON(value)
-	return digest, err
-}
-
 // TaskOrderHashAndFactsEnvelope reads whichever of the two order_envelope
 // carriers a frame holds. Nexus decides between them by first byte and so does
 // this: a canonical JSON document always opens with '{', and a proto-encoded

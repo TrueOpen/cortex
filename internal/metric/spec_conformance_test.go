@@ -54,7 +54,6 @@ func specHFields(domain string, values ...[]byte) codec.Hash {
 // §4.3 scalar encodings, written out one per function so a misreading of any
 // single row is visible.
 func specU32(v uint32) []byte { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); return b }
-func specU64(v uint64) []byte { b := make([]byte, 8); binary.BigEndian.PutUint64(b, v); return b }
 
 func specBool(v bool) []byte {
 	if v {

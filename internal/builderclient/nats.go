@@ -467,13 +467,6 @@ func NATSDedupID(req PublishRequest) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// OutputAvailableDedupID returns a stable dedup ID for an OUTPUT_AVAILABLE event.
-func OutputAvailableDedupID(taskID, outputHash string) string {
-	material := strings.Join([]string{"output-available", taskID, outputHash}, "\x00")
-	sum := sha256.Sum256([]byte(material))
-	return hex.EncodeToString(sum[:])
-}
-
 // WorkerHandraiseDedupID returns a stable dedup ID for a worker handraise.
 func WorkerHandraiseDedupID(taskID, handraiseDigest string) string {
 	material := strings.Join([]string{"worker-handraise", taskID, handraiseDigest}, "\x00")
@@ -768,12 +761,6 @@ func jetStreamConsumerConfig(durable string, subject string) *nats.ConsumerConfi
 // retain the durable's unlimited delivery budget and are delayed below.
 func jetStreamSubscribeOptions(stream string, durable string) []nats.SubOpt {
 	return []nats.SubOpt{nats.Bind(stream, durable), nats.ManualAck()}
-}
-
-// NewNATSSubscriber connects with a token (dev); production uses
-// NewNATSSubscriberWithAuth with creds and CA files.
-func NewNATSSubscriber(natsURL string, token string, jetStreamStream string, durablePrefix ...string) (Subscriber, error) {
-	return NewNATSSubscriberWithAuth(NATSAuth{URL: natsURL, Token: token}, jetStreamStream, durablePrefix...)
 }
 
 func NewNATSSubscriberWithAuth(auth NATSAuth, jetStreamStream string, durablePrefix ...string) (Subscriber, error) {

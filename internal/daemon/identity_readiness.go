@@ -18,25 +18,6 @@ type KeeperIdentityReader interface {
 	ModelSupport(context.Context, string, string) (chainclient.ModelSupportSnapshot, error)
 }
 
-func checkKeeperIdentity(ctx context.Context, identity config.LocalIdentityConfig, reader KeeperIdentityReader, currentHeight uint64) (string, error) {
-	serviceAddress, err := checkKeeperCoreIdentity(ctx, identity, reader, currentHeight)
-	if err != nil {
-		return "", err
-	}
-	if err := checkKeeperModelReadiness(ctx, identity, reader); err != nil {
-		return "", err
-	}
-	return serviceAddress, nil
-}
-
-func checkKeeperCoreIdentity(ctx context.Context, identity config.LocalIdentityConfig, reader KeeperIdentityReader, currentHeight uint64) (string, error) {
-	key, err := checkKeeperCoreServiceKey(ctx, identity, reader, currentHeight)
-	if err != nil {
-		return "", err
-	}
-	return key.ServiceAddress, nil
-}
-
 func checkKeeperCoreServiceKey(ctx context.Context, identity config.LocalIdentityConfig, reader KeeperIdentityReader, currentHeight uint64) (chainclient.ServiceKeySnapshot, error) {
 	if reader == nil {
 		return chainclient.ServiceKeySnapshot{}, fmt.Errorf("Keeper identity query client is required")

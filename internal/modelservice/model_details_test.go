@@ -42,17 +42,6 @@ func TestFakeGetModelDetailsReturnsStructuredNotFound(t *testing.T) {
 	}
 }
 
-func TestStaticClientDelegatesGetModelDetails(t *testing.T) {
-	client := StaticClient{Backend: NewFakeService()}
-	resp, err := client.GetModelDetails(context.Background(), GetModelDetailsRequest{ModelID: FakeModelID})
-	if err != nil {
-		t.Fatalf("GetModelDetails returned error: %v", err)
-	}
-	if resp.Details.Identity.ModelID != FakeModelID {
-		t.Fatalf("GetModelDetails details = %#v", resp.Details)
-	}
-}
-
 func testModelDetailsFixture(modelID string) ModelDetails {
 	return ModelDetails{
 		Artifacts: ModelArtifacts{

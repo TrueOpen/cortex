@@ -228,10 +228,6 @@ type readinessProbeFunc func(context.Context) error
 
 func (f readinessProbeFunc) Probe(ctx context.Context) error { return f(ctx) }
 
-func BuildRuntime(ctx context.Context, cfg config.Config) (*Runtime, error) {
-	return BuildRuntimeWithOptions(ctx, cfg, RuntimeOptions{})
-}
-
 func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts RuntimeOptions) (*Runtime, error) {
 	db, err := store.Open(ctx, cfg.Store.Path)
 	if err != nil {

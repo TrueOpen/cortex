@@ -270,22 +270,6 @@ func busSubjectSpecForWireKind(kind busv1.BusMessageKind) (busSubjectSpec, bool)
 	return busSubjectSpec{}, false
 }
 
-// BusSubjectSendersForKind returns the participant-type column of the frozen
-// table for a kind: the domains that may sign it. It exists so the inbound
-// authenticator can derive its admissible set from the contract instead of
-// keeping a second, narrower copy in configuration — which is how the
-// Worker-published half of OUTPUT_AVAILABLE became unauthenticable.
-//
-// The returned slice is a copy: the table is the contract and a caller must not
-// be able to edit it.
-func BusSubjectSendersForKind(kind BusMessageKind) ([]BusParticipantType, bool) {
-	spec, ok := busSubjectSpecForKind(kind)
-	if !ok {
-		return nil, false
-	}
-	return append([]BusParticipantType(nil), spec.senders...), true
-}
-
 // validateSenderParticipant refuses a (kind, participant type) pair that is not
 // a row of the sender table.
 func validateSenderParticipant(kind BusMessageKind, participant BusParticipantType) error {

@@ -1,7 +1,6 @@
 package modelservice
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,14 +16,6 @@ type RuntimeTransportConfig struct {
 
 type NoopTransport struct {
 	Reason string
-}
-
-func (t NoopTransport) Invoke(_ context.Context, _ string, _ any, _ any) error {
-	reason := strings.TrimSpace(t.Reason)
-	if reason == "" {
-		return ErrRuntimeTransportUnavailable
-	}
-	return fmt.Errorf("%w: %s", ErrRuntimeTransportUnavailable, reason)
 }
 
 func NewTransport(cfg RuntimeTransportConfig) (Transport, error) {

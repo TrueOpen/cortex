@@ -828,16 +828,6 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	return layout.CompleteVerifyAdmission(ctx, r.cfg.Store, verifyTaskHash, verifyRound, completedAdmission)
 }
 
-// ValidateNexusMessage remains a read-only validation seam for callers being
-// migrated to HandleNexusMessage. It never admits or persists a frame.
-func (r *TaskRunner) ValidateNexusMessage(ctx context.Context, msg builderclient.NATSMessage) (string, error) {
-	envelope, _, _, err := r.validateNexusMessage(ctx, msg)
-	if err != nil {
-		return "", err
-	}
-	return envelope.Subject, nil
-}
-
 func (r *TaskRunner) validateNexusMessage(ctx context.Context, msg builderclient.NATSMessage) (builderclient.BusEnvelope, builderclient.BusMessageKind, proto.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return builderclient.BusEnvelope{}, "", nil, err

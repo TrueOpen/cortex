@@ -265,12 +265,6 @@ func validateServiceKey(key chainclient.ServiceKeySnapshot, operator string, hei
 	return nil
 }
 
-// CheckEndpointTransport is the exported transport rule, for callers that hold
-// an endpoint they did not resolve through Resolve.
-func CheckEndpointTransport(endpoint chainclient.ServiceEndpointSnapshot, allowInsecure bool) error {
-	return checkEndpointTransport(endpoint, allowInsecure)
-}
-
 // checkEndpointTransport decides whether Cortex may dial an endpoint.
 //
 // Upstream has ONE endpoint validator, and it admits four schemes on every

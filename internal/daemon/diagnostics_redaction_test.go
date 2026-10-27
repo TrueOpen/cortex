@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/diagnostics"
-	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 )
 
 // The top-level nexus_nats field has been redacted since it was added, and
@@ -22,7 +22,7 @@ func TestDiagnosticsDependencyEndpointsCarryNoCredentials(t *testing.T) {
 	cfg.Nexus.NATSURL = "tls://nexus-user:" + password + "@nats.devnet.trueopen.xyz:4222" // a remote NATS in real mode must be tls://; the password is still in the URL, which is what redaction is tested on
 	deps, err := BuildDependencies(cfg, DependencyOptions{
 		ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{},
-		NexusToken: "token-1", TxClient: txclient.NewFake(),
+		NexusToken: "token-1", TxClient: txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)

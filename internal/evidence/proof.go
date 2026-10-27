@@ -1,9 +1,7 @@
 package evidence
 
 import (
-	"context"
 	"errors"
-	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/codec"
 )
@@ -71,107 +69,4 @@ type ProofEvidenceRecorder struct {
 type ProofStore struct {
 	raw       map[string]RawEvidence
 	generated map[string]ProofMaterial
-}
-
-func NewProofStore() *ProofStore {
-	return &ProofStore{
-		raw:       make(map[string]RawEvidence),
-		generated: make(map[string]ProofMaterial),
-	}
-}
-
-func (s *ProofStore) StoreRawEvidence(ctx context.Context, evidence RawEvidence) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if evidence.FaultID == "" {
-		return fmt.Errorf("fault_id is required")
-	}
-	if evidence.TaskID == "" {
-		return fmt.Errorf("task_id is required")
-	}
-	if _, ok := s.raw[evidence.FaultID]; ok {
-		return ErrDuplicateFaultID
-	}
-	s.raw[evidence.FaultID] = RawEvidence{
-		FaultID: evidence.FaultID,
-		TaskID:  evidence.TaskID,
-		Kind:    evidence.Kind,
-		Data:    append([]byte(nil), evidence.Data...),
-	}
-	return nil
-}
-
-func (s *ProofStore) RawEvidence(faultID string) (RawEvidence, bool) {
-	raw, ok := s.raw[faultID]
-	if !ok {
-		return RawEvidence{}, false
-	}
-	raw.Data = append([]byte(nil), raw.Data...)
-	return raw, true
-}
-
-func (s *ProofStore) Generate(ctx context.Context, req ProofRequest) (ProofMaterial, error) {
-	if err := ctx.Err(); err != nil {
-		return ProofMaterial{}, err
-	}
-	if _, ok := s.generated[req.FaultID]; ok {
-		return ProofMaterial{}, ErrDuplicateFaultID
-	}
-	raw, ok := s.raw[req.FaultID]
-	if !ok || raw.TaskID != req.TaskID {
-		return ProofMaterial{}, ErrRawEvidenceMissing
-	}
-	if !knownProofKind(req.Kind) {
-		return ProofMaterial{}, fmt.Errorf("unsupported proof kind %q", req.Kind)
-	}
-	rawDigest := codec.HashBytes(raw.Data)
-	payload := append([]byte(nil), raw.Data...)
-	material := ProofMaterial{
-		FaultID:         req.FaultID,
-		TaskID:          req.TaskID,
-		Kind:            req.Kind,
-		RawEvidenceRef:  "sha256:" + fmt.Sprintf("%x", rawDigest[:]),
-		EvidenceDigest:  codec.HashWithDomain("TRUEOPEN_PROOF_MATERIAL_V1", []byte(req.FaultID), []byte(req.TaskID), []byte(req.Kind), rawDigest[:]),
-		EvidencePayload: payload,
-	}
-	s.generated[req.FaultID] = material
-	return material, nil
-}
-
-func knownProofKind(kind ProofKind) bool {
-	switch kind {
-	case ProofOutputHashMismatch, ProofReceiptDeliveryMismatch, ProofCommitRevealMismatch,
-		ProofPayloadMismatch, ProofWorkUnitMismatch, ProofCommitDoubleSign, ProofVerdictFraud:
-		return true
-	default:
-		return false
-	}
-}
-
-func NewProofEvidenceRecorder(store *ProofStore) *ProofEvidenceRecorder {
-	return &ProofEvidenceRecorder{store: store}
-}
-
-func (r *ProofEvidenceRecorder) Record(ctx context.Context, req RecordProofEvidenceRequest) (ProofEvidenceRecord, error) {
-	if r == nil || r.store == nil {
-		return ProofEvidenceRecord{}, fmt.Errorf("proof store is required")
-	}
-	if err := r.store.StoreRawEvidence(ctx, RawEvidence{
-		FaultID: req.FaultID,
-		TaskID:  req.TaskID,
-		Kind:    req.RawKind,
-		Data:    append([]byte(nil), req.RawEvidence...),
-	}); err != nil {
-		return ProofEvidenceRecord{}, err
-	}
-	material, err := r.store.Generate(ctx, ProofRequest{
-		FaultID: req.FaultID,
-		Kind:    req.Kind,
-		TaskID:  req.TaskID,
-	})
-	if err != nil {
-		return ProofEvidenceRecord{}, err
-	}
-	return ProofEvidenceRecord{Material: material}, nil
 }

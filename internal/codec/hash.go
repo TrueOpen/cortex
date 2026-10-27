@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
-	"reflect"
 	"strings"
 )
 
@@ -59,20 +57,6 @@ func HashV1(domain string, payload []byte) Hash {
 	return HashBytes(material.Bytes())
 }
 
-func ProtocolHash(domain string, input any) (Hash, error) {
-	if strings.TrimSpace(domain) == "" {
-		return Hash{}, fmt.Errorf("protocol hash domain is required")
-	}
-	if isMap(input) {
-		return Hash{}, fmt.Errorf("protocol hash input must not be map/JSON material")
-	}
-	field, ok := input.([]byte)
-	if !ok {
-		return Hash{}, fmt.Errorf("protocol hash input must be canonical []byte, got %T", input)
-	}
-	return HashWithDomain(domain, field), nil
-}
-
 func Uint64Bytes(value uint64) []byte {
 	var out [8]byte
 	binary.BigEndian.PutUint64(out[:], value)
@@ -84,11 +68,4 @@ func writeLengthPrefixed(buf *bytes.Buffer, value []byte) {
 	binary.BigEndian.PutUint64(lenBuf[:], uint64(len(value)))
 	buf.Write(lenBuf[:])
 	buf.Write(value)
-}
-
-func isMap(input any) bool {
-	if input == nil {
-		return false
-	}
-	return reflect.TypeOf(input).Kind() == reflect.Map
 }

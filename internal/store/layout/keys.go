@@ -66,16 +66,6 @@ func TaskIDVerifyKey(taskID string) []byte {
 	return []byte(taskIDVerifyPrefix + taskID)
 }
 
-// DeliveryKey returns a delivery/ key. For INPUT/OUTPUT there is no selector.
-// For EVIDENCE a selector is appended: delivery/<taskHash>/<dataKind>[/<selector>]
-func DeliveryKey(taskHash StoredHash, dataKind string, selector ...string) []byte {
-	parts := [][]byte{[]byte(deliveryPrefix), taskHash[:], slash(), []byte(dataKind)}
-	for _, s := range selector {
-		parts = append(parts, slash(), []byte(s))
-	}
-	return join(parts...)
-}
-
 // EvidenceKey returns the evidence/ key: evidence/<taskHash:32>
 func EvidenceKey(taskHash StoredHash) []byte {
 	return join([]byte(evidencePrefix), taskHash[:])

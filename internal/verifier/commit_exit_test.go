@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/TrueOpen/cortex/internal/policy"
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/policy"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 
 	"github.com/TrueOpen/cortex/internal/observability"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
@@ -156,7 +158,7 @@ func TestTransientRelayFailureDoesNotSelfSubmit(t *testing.T) {
 // (TestRealModeStillRejectsDeadlineRiskSelfRescue), which is where the gate now
 // lives.
 func TestDeadlineRiskSelfRescueTriggerIsUnchangedByTheCommitExit(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{
 		Tx: client, VerifierAddress: "verifier-1", SubmitterAddress: "trueopen1service",
 		GasPayer: "trueopen1service", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},
@@ -206,7 +208,7 @@ func TestCommitSelfSubmissionRefusesAForeignSignerIdentity(t *testing.T) {
 		"another operator's commit": {submitter: service, operator: "trueopen1someoneelse", want: "verifier_operator_address"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client := txclient.NewFake()
+			client := txclienttest.NewFake()
 			manager := NewSettlementManager(SettlementConfig{
 				Tx: client, VerifierAddress: operator, SubmitterAddress: service,
 				GasPayer: service, FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},
@@ -233,7 +235,7 @@ func TestCommitSelfSubmissionRefusesAForeignSignerIdentity(t *testing.T) {
 // transaction with no timeout can be included after the commit window shut, at
 // this node's expense.
 func TestCommitSelfSubmissionRequiresTheCommitDeadline(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{
 		Tx: client, VerifierAddress: "verifier-1", SubmitterAddress: "trueopen1service",
 		GasPayer: "trueopen1service", FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},

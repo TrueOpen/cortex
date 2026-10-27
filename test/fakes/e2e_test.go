@@ -31,6 +31,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/taskfsm"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 	"github.com/TrueOpen/cortex/internal/verifier"
 	"github.com/TrueOpen/cortex/internal/worker"
 	"github.com/TrueOpen/cortex/test/internal/generationfixture"
@@ -70,7 +71,7 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		builder: builder,
 	}
 	outputFixture := newE2EWorkerOutputFixture(t, builder, "chain-fake", "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc", "trueopen1j7r6u8nwvw93l2tc0wd75v07vu89lxyfqf8fut", 120)
-	txs := txclient.NewFake()
+	txs := txclienttest.NewFake()
 	registry := modelregistry.NewRegistry(modelregistry.RegistryConfig{
 		NowHeight:  func() (uint64, error) { return 100, nil },
 		Treasury:   "treasury-1",
@@ -157,7 +158,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 	if err := layout.MergeTask(ctx, kvStore, layout.StoredHash(orderDigest), tr); err != nil {
 		t.Fatalf("seed task record: %v", err)
 	}
-	node := chainclient.NewFakeClient()
 	assignment := chainclient.AssignmentFinalized{
 		TaskID:                 taskID,
 		SessionID:              sessionID,
@@ -172,7 +172,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		Input:                  []byte("summarize cortex fake mvp"),
 		BuilderOperatorAddress: "trueopen1j7r6u8nwvw93l2tc0wd75v07vu89lxyfqf8fut",
 	}
-	node.AddAssignmentFinalized(assignment)
 	generation := generationfixture.New(t, taskID, assignment.ModelID, "E2E_ACCEPTED_TASK_HASH_V1")
 	evidenceSchemaHash := codec.Hash(fakeLockedProfile().Profile.VerificationProfile.EvidenceSchemaHash)
 	workerNode := worker.New(worker.Config{

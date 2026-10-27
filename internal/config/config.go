@@ -563,10 +563,6 @@ type HealthConfig struct {
 	Bind string `yaml:"bind"`
 }
 
-func LoadFile(path string) (Config, error) {
-	return LoadFileWithOverrides(path, nil)
-}
-
 // LoadFileWithOverrides resolves defaults < YAML < environment < flags and
 // validates only the final effective configuration.
 func LoadFileWithOverrides(path string, overrides map[string]string) (Config, error) {

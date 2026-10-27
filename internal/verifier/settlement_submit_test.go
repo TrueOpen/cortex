@@ -9,6 +9,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 )
 
 type settlementReaderFunc func(context.Context, string) (chainclient.SettlementContext, error)
@@ -25,7 +26,7 @@ func readySettlementContext() chainclient.SettlementContext {
 }
 
 func TestSettlementSubmissionCarriesOnlyTaskAndCurrentSubmitter(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	manager := NewSettlementManager(SettlementConfig{
 		Tx: client, SubmitterAddress: "trueopen1service", GasPayer: "trueopen1service",
 		FeeCap: txclient.Coin{Amount: 25, Denom: "utrueopen"},
@@ -79,7 +80,7 @@ func TestSettlementSubmissionRefusesWrongIdentityAndUnsafeWindow(t *testing.T) {
 		{name: "query failed", readerErr: errors.New("keeper unavailable")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client := txclient.NewFake()
+			client := txclienttest.NewFake()
 			state := readySettlementContext()
 			if test.mutate != nil {
 				test.mutate(&state)
@@ -103,7 +104,7 @@ func TestSettlementSubmissionRefusesWrongIdentityAndUnsafeWindow(t *testing.T) {
 }
 
 func TestSettlementSubmissionIsNoopForTerminalTask(t *testing.T) {
-	client := txclient.NewFake()
+	client := txclienttest.NewFake()
 	state := readySettlementContext()
 	state.Phase = 8
 	manager := NewSettlementManager(SettlementConfig{

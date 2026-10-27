@@ -1,11 +1,8 @@
 package builderclient
 
 import (
-	"encoding/hex"
 	"strings"
 	"testing"
-
-	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 type taskDataGoldenField struct {
@@ -19,16 +16,6 @@ type taskDataGoldenField struct {
 	Fields  []taskDataGoldenField `json:"fields"`
 }
 
-func goldenField(t *testing.T, fields []taskDataGoldenField, name string) taskDataGoldenField {
-	t.Helper()
-	for _, field := range fields {
-		if field.Name == name {
-			return field
-		}
-	}
-	t.Fatalf("missing field %s", name)
-	return taskDataGoldenField{}
-}
 func TestObjectRefAndRangePresenceCannotBeConfused(t *testing.T) {
 	key := TaskDataKey{TaskHash: strings.Repeat("11", 32), SessionID: strings.Repeat("22", 32), TaskID: strings.Repeat("33", 32), Kind: DataKindOutput, ContentHash: strings.Repeat("44", 32)}
 	whole, err := TaskDataFetchBodyDigest(key, nil)
@@ -62,22 +49,4 @@ func TestObjectRefAndRangePresenceCannotBeConfused(t *testing.T) {
 			}
 		})
 	}
-}
-
-// The fixtures (task/task_data_auth_v1.json and
-// task/builder_confirmation_v1.json) spell the c0..d3 raw address fields as
-// trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe. The annotation is
-// well-formed, so it is verified like any other published address instead of
-// being whitelisted as a known-malformed exception.
-func goldenAddress(t *testing.T, field taskDataGoldenField) string {
-	t.Helper()
-	address := field.Bech32
-	raw, err := nodewire.CanonicalOperatorAddressBytes(field.Name, address)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hex.EncodeToString(raw) != field.Hex {
-		t.Fatalf("address annotation does not match raw fixture bytes: %s", field.Name)
-	}
-	return address
 }

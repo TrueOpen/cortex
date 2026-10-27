@@ -139,16 +139,6 @@ func (a *Authenticator) SignFetch(ctx context.Context, key builderclient.TaskDat
 	return a.SignRequest(ctx, "FetchTaskData", key, builderOperator, digest)
 }
 
-// currentIdentity re-reads the node's current service key and returns the expiry
-// height that read licenses. Key material, expiry, and the revocation bound all
-// come from one committed read: the height is the height Keeper served the binding
-// at, so a binding revoked exactly there is refused and the expiry cannot be
-// anchored to a block the chain has not committed.
-func (a *Authenticator) currentIdentity(ctx context.Context) (uint64, error) {
-	_, _, expiry, err := a.committedIdentity(ctx)
-	return expiry, err
-}
-
 // CommittedBusEnvelopeIdentity returns the two values this node's own committed
 // chain view supplies to every outbound frozen wire: the
 // service_authorization_nonce Keeper currently holds for this Cortex node, and

@@ -159,16 +159,6 @@ func Bool(value bool) Field {
 	return field
 }
 
-// Enum frames a protobuf enum field as its uint32 big-endian number. Generated
-// Go enums are ~int32; a negative number has no uint32 encoding and is
-// rejected instead of wrapping.
-func Enum[E ~int32](value E) Field {
-	if value < 0 {
-		return Field{err: fmt.Errorf("enum value %d is negative and has no uint32 encoding", int32(value))}
-	}
-	return Uint32(uint32(value))
-}
-
 // Frame frames a nested field group as a single field: the inner fields are
 // length-prefixed the same way, with no domain prefix, and the whole inner
 // frame then takes its own length prefix in the outer frame. An empty group

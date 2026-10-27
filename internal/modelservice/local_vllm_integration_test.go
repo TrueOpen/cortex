@@ -40,14 +40,6 @@ type keeperVLLMProfileResolver struct {
 	keeper *chainclient.KeeperABCIClient
 }
 
-func (r keeperVLLMProfileResolver) ResolveLocalProfile(ctx context.Context, modelID string, profileVersion string) (chainclient.CurrentProfileSnapshot, error) {
-	snapshot, err := r.keeper.CurrentModelProfile(ctx, modelID, profileVersion)
-	if err != nil {
-		return chainclient.CurrentProfileSnapshot{}, err
-	}
-	return snapshot.Profile, nil
-}
-
 // realVLLMChatInput builds the OpenAI chat request body the chat integration test
 // sends. envTestVLLMChatInput supplies a full body verbatim; otherwise the prompt
 // (envTestVLLMPrompt or its default) is wrapped in a single user message. Either

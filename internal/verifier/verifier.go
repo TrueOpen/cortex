@@ -1395,14 +1395,6 @@ func (v *Verifier) signResultReceipt(ctx context.Context, receipt *nodewire.Resu
 	return nil
 }
 
-func optionalProtoUint32(value nodewire.OptionalUint32) *txclient.ProtoUint32 {
-	if !value.Present {
-		return nil
-	}
-	encoded := txclient.ProtoUint32(value.Value)
-	return &encoded
-}
-
 func byteStrings(values [][]byte) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -1414,19 +1406,6 @@ func byteStrings(values [][]byte) []string {
 func evidenceRef(data []byte) string {
 	digest := codec.HashBytes(data)
 	return "sha256:" + fmt.Sprintf("%x", digest[:])
-}
-
-func (v *Verifier) signEnvelope(ctx context.Context, envelope *identity.SignedEnvelope) error {
-	digest, err := envelope.SigningHash()
-	if err != nil {
-		return err
-	}
-	signature, err := v.signDigest(ctx, digest)
-	if err != nil {
-		return err
-	}
-	envelope.Signature = signature
-	return envelope.Validate()
 }
 
 func (v *Verifier) signDigest(ctx context.Context, digest codec.Hash) ([]byte, error) {

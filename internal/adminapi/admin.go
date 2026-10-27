@@ -738,16 +738,6 @@ func NewClient(socketPath string) *Client {
 	}
 }
 
-func (c *Client) ModelManifestGenerate(ctx context.Context, input modelregistry.ManifestInput) (modelregistry.Manifest, error) {
-	var out modelregistry.Manifest
-	err := c.post(ctx, "/v1/model/manifest/legacy/generate", input, &out)
-	return out, err
-}
-
-func (c *Client) ModelManifestValidate(ctx context.Context, manifest modelregistry.Manifest) error {
-	return c.post(ctx, "/v1/model/manifest/legacy/validate", manifest, &struct{}{})
-}
-
 func (c *Client) CurrentModelManifestGenerate(ctx context.Context, input modelregistry.CurrentManifestInput) (modelregistry.CurrentManifest, error) {
 	var out modelregistry.CurrentManifest
 	err := c.post(ctx, "/v1/model/manifest/generate", input, &out)
@@ -756,12 +746,6 @@ func (c *Client) CurrentModelManifestGenerate(ctx context.Context, input modelre
 
 func (c *Client) CurrentModelManifestValidate(ctx context.Context, manifest modelregistry.CurrentManifest) error {
 	return c.post(ctx, "/v1/model/manifest/validate", manifest, &struct{}{})
-}
-
-func (c *Client) ModelSelfTest(ctx context.Context, manifest modelregistry.Manifest) (modelregistry.RegistrationMaterial, error) {
-	var out modelregistry.RegistrationMaterial
-	err := c.post(ctx, "/v1/model/self-test-legacy", manifest, &out)
-	return out, err
 }
 
 func (c *Client) CurrentModelSelfTest(ctx context.Context, manifest modelregistry.CurrentManifest) (modelregistry.CurrentSelfTestResult, error) {
@@ -804,24 +788,6 @@ func (c *Client) ModelRegister(ctx context.Context, req modelregistry.RegisterRe
 func (c *Client) CurrentModelRegister(ctx context.Context, req modelregistry.CurrentRegisterRequest) (modelregistry.CurrentRegisterResult, error) {
 	var out modelregistry.CurrentRegisterResult
 	err := c.post(ctx, "/v1/model/register", req, &out)
-	return out, err
-}
-
-func (c *Client) ModelStatus(ctx context.Context, req modelregistry.StatusRequest) (modelregistry.ModelStatus, error) {
-	var out modelregistry.ModelStatus
-	err := c.post(ctx, "/v1/model/status", req, &out)
-	return out, err
-}
-
-func (c *Client) ModelList(ctx context.Context, req modelregistry.ListRequest) ([]modelregistry.ModelStatus, error) {
-	var out []modelregistry.ModelStatus
-	err := c.post(ctx, "/v1/model/list", req, &out)
-	return out, err
-}
-
-func (c *Client) ModelShow(ctx context.Context, req modelregistry.ShowRequest) (modelregistry.ModelDetails, error) {
-	var out modelregistry.ModelDetails
-	err := c.post(ctx, "/v1/model/show", req, &out)
 	return out, err
 }
 
