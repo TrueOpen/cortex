@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -300,12 +301,13 @@ func TestReadyzNamesTheBlockingDependencies(t *testing.T) {
 	}
 }
 
-// Operators had no way to read the registry because nothing served it.
-func TestMetricsRouteServesAttachedRegistry(t *testing.T) {
+func TestMetricsRouteServesAttachedMetricsWithReadiness(t *testing.T) {
 	health := NewHealth()
-	metrics := NewMetricsRegistry()
-	metrics.ObserveSnapshot(MetricsSnapshot{TaskQueueFailed: 2})
-	health.AttachMetrics(metrics)
+	_ = health.SetDependency("chain", true)
+	health.AttachMetrics(NewMetricsHandler(func(context.Context) (NodeState, error) {
+		ready, deps := health.Readiness()
+		return NodeState{Ready: ready, Dependencies: deps}, nil
+	}))
 
 	rec := httptest.NewRecorder()
 	health.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -313,14 +315,15 @@ func TestMetricsRouteServesAttachedRegistry(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/metrics code = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "cortex_task_queue_failed 2") {
-		t.Fatalf("/metrics body = %q, want the observed queue failure count", rec.Body.String())
+	for _, want := range []string{"cortex_ready 0", `cortex_dependency_ready{dependency="chain"} 1`, `cortex_dependency_ready{dependency="store"} 0`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("/metrics missing %q; body:\n%s", want, rec.Body.String())
+		}
 	}
 }
 
-// Fake mode runs no projector, so no registry is attached. The route must stay a
-// valid scrape target rather than 404 differently per mode.
-func TestMetricsRouteIsEmptyWithoutRegistry(t *testing.T) {
+// The route must stay a valid scrape target before metrics are attached.
+func TestMetricsRouteIsEmptyWithoutMetrics(t *testing.T) {
 	rec := httptest.NewRecorder()
 	NewHealth().Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 

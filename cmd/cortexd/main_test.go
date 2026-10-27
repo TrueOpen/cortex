@@ -157,7 +157,7 @@ func TestRealModeReadinessControllerLogsTheDependencyHoldingTheWorkloadDown(t *t
 	if err := health.Apply(rt.Dependencies.Diagnostics.Dependencies); err != nil {
 		t.Fatalf("health.Apply returned error: %v", err)
 	}
-	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, nil, health)
+	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, health)
 	if err != nil {
 		t.Fatalf("runtimeRunnersWithHealth returned error: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestRuntimeRunnersGateAndRestartWorkloadWhileKeepingReadinessCurrent(t *tes
 		t.Fatalf("health.Apply returned error: %v", err)
 	}
 	captured := captureCortexdLogs(t)
-	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, nil, health)
+	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, health)
 	if err != nil {
 		t.Fatalf("runtimeRunnersWithHealth returned error: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestDaemonRealModeStartsKeeperPoller(t *testing.T) {
 	}
 }
 
-func TestKeeperPollerAppliesAssignmentEffectAndRunsProjector(t *testing.T) {
+func TestKeeperPollerAppliesAssignmentEffect(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	db, err := store.Open(ctx, filepath.Join(dir, "runtime.db"))
@@ -913,7 +913,6 @@ func TestKeeperPollerAppliesAssignmentEffectAndRunsProjector(t *testing.T) {
 		t.Fatalf("store.Open returned error: %v", err)
 	}
 	defer db.Close()
-	projector := &countingProjector{}
 	const sessionID = "0d72bed1a2308510efdf635cdca46136d4679f216f5d93432fea034f19d153c7"
 	const taskID = "projected-task"
 	orderDigest := codec.HashWithDomain("PROJECTOR_EFFECT_ORDER", []byte(taskID))
@@ -950,7 +949,7 @@ func TestKeeperPollerAppliesAssignmentEffectAndRunsProjector(t *testing.T) {
 		Keeper: config.KeeperConfig{
 			PollIntervalMS: 10,
 		},
-	}, rt, projector, manager)
+	}, rt, manager)
 	if poller == nil {
 		t.Fatalf("newKeeperPoller returned nil")
 	}
@@ -959,9 +958,6 @@ func TestKeeperPollerAppliesAssignmentEffectAndRunsProjector(t *testing.T) {
 		t.Fatalf("RunOnce returned error: %v", err)
 	}
 
-	if got := projector.Count(); got != 1 {
-		t.Fatalf("projector RunOnce count = %d, want 1 after Keeper effect", got)
-	}
 	infer, err := layout.GetInferRecord(ctx, db, layout.StoredHash(taskHash))
 	if err != nil {
 		t.Fatalf("GetInferRecord returned error: %v", err)
@@ -975,21 +971,6 @@ func TestKeeperPollerAppliesAssignmentEffectAndRunsProjector(t *testing.T) {
 	}
 }
 
-func TestRunProjectorRefreshesPeriodically(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	projector := &countingProjector{after: func(count int) {
-		if count >= 2 {
-			cancel()
-		}
-	}}
-
-	if err := runProjector(ctx, projector, time.Millisecond); err != nil {
-		t.Fatalf("runProjector returned error: %v", err)
-	}
-	if got := projector.Count(); got < 2 {
-		t.Fatalf("projector RunOnce count = %d, want at least 2", got)
-	}
-}
 
 func TestDaemonRealModeReportsUnavailableNexus(t *testing.T) {
 	dir := t.TempDir()
@@ -1190,7 +1171,7 @@ func TestRuntimeRunnersFailWhenTaskRunnerEvidenceStoreCannotOpen(t *testing.T) {
 		},
 	}
 
-	_, _, err = runtimeRunners(cfg, rt, nil)
+	_, _, err = runtimeRunners(cfg, rt)
 	if err == nil || !strings.Contains(err.Error(), "task runner evidence store") {
 		t.Fatalf("runtimeRunners error = %v, want task runner evidence store failure", err)
 	}
@@ -1672,29 +1653,8 @@ func (s *lifecycleSubscription) Unsubscribe() error {
 	return nil
 }
 
-type countingProjector struct {
-	mu    sync.Mutex
-	count int
-	after func(int)
-}
 
-func (p *countingProjector) RunOnce(context.Context) error {
-	p.mu.Lock()
-	p.count++
-	count := p.count
-	after := p.after
-	p.mu.Unlock()
-	if after != nil {
-		after(count)
-	}
-	return nil
-}
 
-func (p *countingProjector) Count() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.count
-}
 
 func (k *recordingKeeperClient) FinalizedEvents(_ context.Context, position chainclient.EventPosition) (chainclient.KeeperEventsPage, error) {
 	k.mu.Lock()
@@ -2219,7 +2179,7 @@ func TestWorkloadReadinessWaitsForSubscriptionsToSucceed(t *testing.T) {
 		t.Fatalf("health.Apply returned error: %v", err)
 	}
 	captured := captureCortexdLogs(t)
-	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, nil, health)
+	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, health)
 	if err != nil {
 		t.Fatalf("runtimeRunnersWithHealth returned error: %v", err)
 	}
@@ -2283,7 +2243,7 @@ func TestWorkloadReadinessReportedOnceSubscriptionsSucceed(t *testing.T) {
 	if err := health.Apply(rt.Dependencies.Diagnostics.Dependencies); err != nil {
 		t.Fatalf("health.Apply returned error: %v", err)
 	}
-	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, nil, health)
+	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, health)
 	if err != nil {
 		t.Fatalf("runtimeRunnersWithHealth returned error: %v", err)
 	}
@@ -2414,7 +2374,7 @@ func TestReadinessObserverPublishesBuilderDescriptorFailureToHealth(t *testing.T
 			t.Fatalf("SetDependency(%s) returned error: %v", name, err)
 		}
 	}
-	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, nil, health)
+	runners, cleanup, err := runtimeRunnersWithHealth(cfg, rt, health)
 	if err != nil {
 		t.Fatalf("runtimeRunnersWithHealth returned error: %v", err)
 	}

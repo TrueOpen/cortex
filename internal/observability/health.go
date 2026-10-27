@@ -36,7 +36,7 @@ type Health struct {
 	order        []string
 	required     map[string]bool
 	warnings     []string
-	metrics      *MetricsRegistry
+	metrics      http.Handler
 }
 
 func (h *Health) SetWarning(warning string) {
@@ -132,11 +132,22 @@ func (h *Health) Apply(statuses []diagnostics.DependencyStatus) error {
 	return nil
 }
 
-// AttachMetrics exposes a registry on the health server's /metrics route. Until
-// this existed the registry was unreachable: the projector filled it in on every
-// pass and no surface could read it, so an operator had no way to see counts such
-// as cortex_task_queue_failed from the process health endpoint.
-func (h *Health) AttachMetrics(metrics *MetricsRegistry) {
+// Readiness reports what /readyz would answer and the state of every
+// dependency, for the metrics exporter.
+func (h *Health) Readiness() (ready bool, dependencies map[string]bool) {
+	ready = len(h.blockingDependencies()) == 0
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	dependencies = make(map[string]bool, len(h.dependencies))
+	for name, healthy := range h.dependencies {
+		dependencies[name] = healthy
+	}
+	return ready, dependencies
+}
+
+// AttachMetrics serves metrics, normally NewMetricsHandler, on the health
+// server's /metrics route.
+func (h *Health) AttachMetrics(metrics http.Handler) {
 	h.mu.Lock()
 	h.metrics = metrics
 	h.mu.Unlock()
@@ -150,19 +161,18 @@ func (h *Health) Handler() http.Handler {
 	return mux
 }
 
-func (h *Health) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+func (h *Health) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	metrics := h.metrics
 	h.mu.RUnlock()
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if metrics == nil {
-		// Fake mode runs no projector. Report an empty body rather than 404 so a
-		// scrape target stays valid across modes.
+		// Report an empty body rather than 404 so the scrape target stays valid
+		// before metrics are attached.
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, metrics.Render())
+	metrics.ServeHTTP(w, r)
 }
 
 func (h *Health) handleHealthz(w http.ResponseWriter, _ *http.Request) {

@@ -65,10 +65,6 @@ func logNexusPublishCompletion(completion builderclient.PublishCompletion) {
 // service or a key file.
 var signerForRuntime = func(rt *daemon.Runtime) signer.Signer { return rt.SigningClient() }
 
-type projectionRunner interface {
-	RunOnce(context.Context) error
-}
-
 func main() {
 	observability.SetDefaultLogger(os.Stderr)
 	if err := run(context.Background(), os.Args[1:]); err != nil {
@@ -347,10 +343,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 	if err := health.Apply(dependencies.Diagnostics.Dependencies); err != nil {
 		return err
 	}
-	// Keeper reconciliation updates the in-memory model registry directly.
-	// Do not attach an empty projector: an absent authoritative observation
-	// source must not publish zero-valued operational state.
-	var projector projectionRunner
+	health.AttachMetrics(observability.NewMetricsHandler(nodeStateSource(runtime, health, taskManager)))
 	server := newHealthHTTPServer(cfg.Health.Bind, health.Handler())
 
 	errCh := make(chan error, 1)
@@ -366,7 +359,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 		<-runtimeDone
 	}()
 	runtimeErrCh := make(chan error, 1)
-	runners, cleanupRuntime, err := runtimeRunnersWithHealthAndTaskRunner(cfg, runtime, projector, health, taskManager)
+	runners, cleanupRuntime, err := runtimeRunnersWithHealthAndTaskRunner(cfg, runtime, health, taskManager)
 	if err != nil {
 		stopRuntime()
 		close(runtimeDone)
@@ -444,6 +437,35 @@ func newHealthHTTPServer(bind string, handler http.Handler) *http.Server {
 		Addr:     bind,
 		Handler:  handler,
 		ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+	}
+}
+
+// nodeStateSource reads what /metrics reports from the same state the admin
+// socket serves: the diagnostics snapshot (chain cursor and tip), the readiness
+// dependencies behind /readyz, and the task queue cortexctl task list shows.
+func nodeStateSource(rt *daemon.Runtime, health *observability.Health, tasks *daemon.TaskRunner) observability.NodeStateSource {
+	return func(ctx context.Context) (observability.NodeState, error) {
+		report := rt.DiagnosticsSnapshot()
+		ready, dependencies := health.Readiness()
+		state := observability.NodeState{
+			Version:           buildinfo.Current(),
+			ChainCursorHeight: report.ChainCursorHeight,
+			ChainTipHeight:    report.ChainTipHeight,
+			ChainLagBlocks:    report.ChainLagBlocks,
+			Ready:             ready,
+			Dependencies:      dependencies,
+		}
+		if tasks == nil {
+			return state, nil
+		}
+		records, err := tasks.ListActiveTasks(ctx)
+		if err != nil {
+			return observability.NodeState{}, fmt.Errorf("read task queue: %w", err)
+		}
+		for _, record := range records {
+			state.TaskQueue = append(state.TaskQueue, observability.TaskQueueRow{Role: record.Role, Status: record.Status, AutoHalted: record.AutoHalted})
+		}
+		return state, nil
 	}
 }
 
@@ -632,11 +654,11 @@ func outputStreamLimitsWarmRunner(keeper any) runtimeRunner {
 	}
 }
 
-func runtimeRunners(cfg config.Config, rt *daemon.Runtime, projector projectionRunner) ([]runtimeRunner, func(), error) {
-	return runtimeRunnersWithHealth(cfg, rt, projector, nil)
+func runtimeRunners(cfg config.Config, rt *daemon.Runtime) ([]runtimeRunner, func(), error) {
+	return runtimeRunnersWithHealth(cfg, rt, nil)
 }
 
-func runtimeRunnersWithHealth(cfg config.Config, rt *daemon.Runtime, projector projectionRunner, health *observability.Health) ([]runtimeRunner, func(), error) {
+func runtimeRunnersWithHealth(cfg config.Config, rt *daemon.Runtime, health *observability.Health) ([]runtimeRunner, func(), error) {
 	if rt == nil {
 		return nil, func() {}, nil
 	}
@@ -644,16 +666,16 @@ func runtimeRunnersWithHealth(cfg config.Config, rt *daemon.Runtime, projector p
 	if err != nil {
 		return nil, func() {}, err
 	}
-	return runtimeRunnersWithHealthAndTaskRunner(cfg, rt, projector, health, taskRunner)
+	return runtimeRunnersWithHealthAndTaskRunner(cfg, rt, health, taskRunner)
 }
 
-func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime, projector projectionRunner, health *observability.Health, taskRunner *daemon.TaskRunner) ([]runtimeRunner, func(), error) {
+func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime, health *observability.Health, taskRunner *daemon.TaskRunner) ([]runtimeRunner, func(), error) {
 	if rt == nil {
 		return nil, func() {}, nil
 	}
 	var runners []runtimeRunner
 	cleanup := func() {}
-	poller := newKeeperPollerWithTaskRunner(cfg, rt, projector, taskRunner)
+	poller := newKeeperPollerWithTaskRunner(cfg, rt, taskRunner)
 	if poller != nil {
 		runners = append(runners, poller.Run)
 	}
@@ -664,11 +686,6 @@ func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime
 		if warm := outputStreamLimitsWarmRunner(rt.Dependencies.Keeper); warm != nil {
 			runners = append(runners, warm)
 		}
-	}
-	if projector != nil && cfg.UsesRealDependencies() {
-		runners = append(runners, func(ctx context.Context) error {
-			return runProjector(ctx, projector, intervalFromMillis(cfg.Keeper.PollIntervalMS))
-		})
 	}
 	if cfg.UsesRealDependencies() && rt.SupportsDynamicReadiness() {
 		controller := daemon.NewReadinessController(daemon.ReadinessControllerConfig{
@@ -1099,7 +1116,7 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 	}), nil
 }
 
-func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, projector projectionRunner, taskRunner *daemon.TaskRunner) *daemon.KeeperPoller {
+func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, taskRunner *daemon.TaskRunner) *daemon.KeeperPoller {
 	if !cfg.UsesRealDependencies() || rt == nil || rt.Store == nil || rt.Reconciler == nil || rt.KeeperEvents == nil {
 		return nil
 	}
@@ -1121,9 +1138,6 @@ func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, projec
 				if err := taskRunner.ApplyReconcilerEffects(ctx, effects); err != nil {
 					return err
 				}
-			}
-			if projector != nil {
-				return projector.RunOnce(ctx)
 			}
 			return nil
 		},
@@ -1191,31 +1205,6 @@ func logKeeperPollFailure(attempt int, delay time.Duration, err error) {
 		slog.Any("error", err))
 }
 
-func runProjector(ctx context.Context, projector projectionRunner, interval time.Duration) error {
-	if projector == nil {
-		return nil
-	}
-	if interval <= 0 {
-		interval = time.Second
-	}
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil
-		}
-		if err := projector.RunOnce(ctx); err != nil {
-			return err
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return nil
-		case <-timer.C:
-		}
-	}
-}
 
 func intervalFromMillis(ms uint64) time.Duration {
 	interval := time.Duration(ms) * time.Millisecond
