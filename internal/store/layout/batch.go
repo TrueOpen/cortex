@@ -236,18 +236,6 @@ func PutDelivery(ctx context.Context, s *store.Store, taskHash StoredHash, dataK
 	return s.PutRaw(ctx, key, encoded)
 }
 
-// PutDeliveryWithSelector stores a Builder storage confirmation for one evidence
-// selector. It is idempotent by (taskHash, dataKind, selector).
-func PutDeliveryWithSelector(ctx context.Context, s *store.Store, taskHash StoredHash, dataKind, selector string, confirmation StorageConfirmation) error {
-	key := DeliveryKey(taskHash, dataKind, selector)
-	confirmation.SchemaVersion = defaultSchemaVersion(confirmation.SchemaVersion)
-	encoded, err := json.Marshal(confirmation)
-	if err != nil {
-		return fmt.Errorf("encode delivery: %w", err)
-	}
-	return s.PutRaw(ctx, key, encoded)
-}
-
 // AdmissionBatch atomically commits candidate creation or replacement, plus any
 // superseded-candidate deletion.
 func AdmissionBatch(ctx context.Context, s *store.Store, sessionID string, orderSequence uint64, taskHash StoredHash, admission CandidateAdmission) error {
@@ -960,14 +948,6 @@ func GetCandidateAdmission(ctx context.Context, s *store.Store, taskHash StoredH
 	var record CandidateAdmission
 	err := getJSON(ctx, s, CandidateKey(taskHash), &record)
 	return record, err
-}
-
-// ListChallenges returns the challenge IDs that are currently open for a task.
-// DeleteChallenges removes all challenge lifecycle rows for a task.
-func DeleteChallenges(ctx context.Context, s *store.Store, taskHash StoredHash) error {
-	return s.ApplyBatch(ctx, func(b *store.Batch) error {
-		return deletePrefixedKeysInBatch(b, []byte(challengePrefixForTask(taskHash)))
-	})
 }
 
 // ListChallenges returns the challenge IDs that are currently open for a task.

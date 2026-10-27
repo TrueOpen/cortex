@@ -37,13 +37,6 @@ type signedOrderV2 struct {
 	signatureChainID uint64
 }
 
-// TaskOrderHashSignedOrderHex is TaskOrderHashAndFactsSignedOrderHex without the
-// facts, for callers that only need the identity.
-func TaskOrderHashSignedOrderHex(value string) (codec.Hash, error) {
-	digest, _, err := TaskOrderHashAndFactsSignedOrderHex(value)
-	return digest, err
-}
-
 // TaskOrderHashAndFactsSignedOrderHex decodes the SignedOrderV2 carrier and
 // returns the canonical task_hash of the order it wraps, plus the facts the
 // caller cross-checks the surrounding payload against. The returned facts carry

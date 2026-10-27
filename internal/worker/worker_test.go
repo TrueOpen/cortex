@@ -1250,20 +1250,6 @@ func workerTestHandraiseTaskHash(orderDigest codec.Hash) codec.Hash {
 	return codec.HashWithDomain("TEST_TASK_ORDER_HASH_V1", orderDigest[:])
 }
 
-func workerTestAcceptedTaskHash(taskID string) string {
-	return workerTestServedTaskFacts(taskID).AcceptedTaskHash.Hex()
-}
-
-// workerTestGenerationParamsDigest stands in for
-// TaskAssignmentViewV1.generation_params_digest, field 16 of the frozen view. It
-// is deliberately non-zero, and that is load-bearing rather than decorative: the
-// task-facts seam, the receipt signer and the recovery boundary all refuse an
-// all-zero generation_params_digest, so a zero fixture would make every seeded
-// test fail instead of exercising the seeded path.
-func workerTestGenerationParamsDigest(taskID string) string {
-	return workerTestServedTaskFacts(taskID).GenerationParamsDigest.Hex()
-}
-
 // workerTestTaskFacts is the honest reader: it answers for the task it was asked
 // about. It records every id it was asked for, so a test can pin that the Worker
 // queried the assignment it is acting on rather than something it invented.
@@ -1722,19 +1708,6 @@ func (r *recordingPersistence) CheckpointStorageConfirmation(_ context.Context, 
 type nondeterministicModel struct {
 	*modelservice.FakeService
 	calls int
-}
-
-func (m *nondeterministicModel) Infer(ctx context.Context, request modelservice.InferRequest) (modelservice.InferResponse, error) {
-	m.calls++
-	response, err := m.FakeService.Infer(ctx, request)
-	if err != nil {
-		return modelservice.InferResponse{}, err
-	}
-	suffix := fmt.Sprintf("-%d", m.calls)
-	response.OutputRef = m.PutArtifactForTest([]byte("varying output" + suffix))
-	response.TokenIDsRef = m.PutArtifactForTest([]byte("varying trace" + suffix))
-	response.PositionValuesRef = m.PutArtifactForTest([]byte("varying checkpoint" + suffix))
-	return response, nil
 }
 
 func (r *recordingPersistence) StorageConfirmations(_ context.Context, taskID string) ([]StorageConfirmationCheckpoint, error) {

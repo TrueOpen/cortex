@@ -36,16 +36,6 @@ type generationRecordingServer struct {
 	verify chan *cortexv1.VerifyRequest
 }
 
-func (s *generationRecordingServer) Infer(ctx context.Context, req *cortexv1.InferRequest) (*cortexv1.InferResponse, error) {
-	s.infer <- req
-	return s.recordingModelManagementServer.Infer(ctx, req)
-}
-
-func (s *generationRecordingServer) Verify(ctx context.Context, req *cortexv1.VerifyRequest) (*cortexv1.VerifyResponse, error) {
-	s.verify <- req
-	return s.recordingModelManagementServer.Verify(ctx, req)
-}
-
 type generationEchoTransport struct {
 	called       bool
 	echo         []byte

@@ -1473,17 +1473,6 @@ func (e staticProofEndpoint) ResolveBuilderEndpoint(_ context.Context, operator 
 	}, nil
 }
 
-type staticLiability struct {
-	liability chainclient.TaskLiabilitySnapshot
-}
-
-func (s staticLiability) TaskLiability(_ context.Context, sessionID, taskID, operator, duty string) (chainclient.TaskLiabilitySnapshot, error) {
-	if sessionID != s.liability.SessionID || taskID != s.liability.TaskID || operator != s.liability.OperatorAddress || duty != s.liability.Duty {
-		return chainclient.TaskLiabilitySnapshot{}, fmt.Errorf("unexpected task liability lookup")
-	}
-	return s.liability, nil
-}
-
 type proofModel struct {
 	modelservice.Client
 	mu                sync.Mutex

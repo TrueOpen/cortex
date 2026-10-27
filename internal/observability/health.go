@@ -192,10 +192,6 @@ func (h *Health) handleReadyz(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, "ready %s\n", warnings[0])
 }
 
-func (h *Health) ready() bool {
-	return len(h.blockingDependencies()) == 0
-}
-
 // blockingDependencies lists the required dependencies that are not ready, in
 // declaration order.
 func (h *Health) blockingDependencies() []string {

@@ -19,19 +19,6 @@ func enableEvidenceSchema(h *harness) {
 	h.worker.cfg.RequiredTopK = workerTestRequiredTopK
 }
 
-// NoKeysRemainForTaskID is a shared assertion for crash/cleanup tests. It fails
-// if the persistence still holds any receipt record for the given task ID.
-func NoKeysRemainForTaskID(t *testing.T, p Persistence, taskID string) {
-	t.Helper()
-	receipts, err := p.InferReceipts(context.Background(), taskID)
-	if err != nil {
-		t.Fatalf("InferReceipts: %v", err)
-	}
-	if len(receipts) != 0 {
-		t.Fatalf("receipt keys remain for %s", taskID)
-	}
-}
-
 // TestCrashAfterReceiptCommitRecoversSameSignedReceipt runs the prepared-output
 // path to completion once to obtain the golden signed receipt, then simulates a
 // crash immediately after the canonical receipt is persisted and verifies that a

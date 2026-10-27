@@ -184,20 +184,6 @@ func ResultReceiptProto(receipt nodewire.ResultReceiptV3) (*bustaskv1.ResultRece
 	}, nil
 }
 
-// DecodePersistedWorkerHandraise decodes a handraise payload this binary wrote
-// (the exact proto bytes carried inside the persisted envelope frame) and
-// checks the frozen digest fields are decodable.
-func DecodePersistedWorkerHandraise(payload []byte, dst *bustaskv1.WorkerHandraiseV1) error {
-	envelope := BusEnvelope{Kind: KindWorkerHandraise, Payload: payload}
-	if err := envelope.DecodePayload(dst); err != nil {
-		return err
-	}
-	if _, err := WorkerHandraiseFromProto(dst); err != nil {
-		return fmt.Errorf("decode persisted worker handraise: %w", err)
-	}
-	return nil
-}
-
 // CandidateMemberRefMessage is the task-plane carrier of the Keeper candidate
 // locator, with the snapshot id in canonical Hash32 hex exactly as the chain
 // queries serve it. It is not a wire shape: the bus and the chain both carry

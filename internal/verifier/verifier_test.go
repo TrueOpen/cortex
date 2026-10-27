@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/TrueOpen/cortex/internal/evidence"
 	"math"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/evidence"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -777,19 +778,6 @@ func revealLocally(t *testing.T, h harness, state TaskState) RevealResult {
 	return result
 }
 
-// revealRefused is the opposite helper: it runs the reveal and requires the
-// frozen input gap. Tests use it to pin the cases that MUST still refuse - a
-// node with no locked profile, a model service that returned no metric samples -
-// so "the gate stopped refusing" and "the gate was removed" cannot look alike.
-func revealRefused(t *testing.T, h harness, state TaskState) error {
-	t.Helper()
-	_, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
-	if !errors.Is(err, ErrResultReceiptInputUnavailable) {
-		t.Fatalf("HandleRevealPhaseStarted error = %v, want the frozen result-receipt input gap", err)
-	}
-	return err
-}
-
 // TestCommitHalfPublishesNoRevealAtAll is the boundary this split exists to
 // create, asserted as a COUNT rather than as "no error".
 //
@@ -830,11 +818,6 @@ func TestCommitHalfPublishesNoRevealAtAll(t *testing.T) {
 // countingTaskFacts answers like fixtureTaskFacts and counts how many times the
 // verify path needed the consensus read only the result body uses.
 type countingTaskFacts struct{ reads int }
-
-func (c *countingTaskFacts) TaskFacts(_ context.Context, taskID string) (taskfacts.Facts, error) {
-	c.reads++
-	return servedTaskFacts(taskID), nil
-}
 
 // TestRevealRefusesUntilThePhaseStarts is FR3/AC2 and AC4 together: with the
 // reveal phase unopened the reveal is refused, and refused as a WAIT rather than
@@ -1513,101 +1496,6 @@ func (r *recordingPersistence) CheckpointModelJob(_ context.Context, record Mode
 func (r *recordingPersistence) record(event string) {
 	if r.events != nil {
 		*r.events = append(*r.events, event)
-	}
-}
-
-// completeResultReceipt is a frozen ResultReceiptV2 with all twelve signed
-// fields populated. Production cannot build one yet - five of the values have no
-// Cortex producer - so the signing and submission halves of the path are
-// exercised from here. The four Hash32 fields carry deliberately distinct
-// patterns so a swap between any two of them changes the digest.
-func completeResultReceipt(t *testing.T) nodewire.ResultReceiptV3 {
-	t.Helper()
-	taskID, err := hex.DecodeString(canonicalTaskID("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 9))
-	if err != nil {
-		t.Fatalf("decode canonical task id: %v", err)
-	}
-	return nodewire.ResultReceiptV3{
-		SchemaVersion:             nodewire.ResultReceiptSchemaVersionV3,
-		ChainID:                   "chain-A",
-		TaskID:                    taskID,
-		VerifyRound:               1,
-		VerifierOperatorAddress:   fixtureVerifierAddress,
-		ServiceAuthorizationNonce: 11,
-		GenerationParamsDigest:    bytes.Repeat([]byte{0x71}, 32),
-		MetricRoot:                bytes.Repeat([]byte{0x72}, 32),
-		MetricSummary: nodewire.MetricSummaryV1{
-			FiniteCount:               1024,
-			MissingComparedCount:      7,
-			MeanAbsLogprobDiffFP1e6:   250000,
-			AbsLogprobDiffP95FP1e6:    900000,
-			AbsLogprobDiffP99FP1e6:    990000,
-			RankDeltaNonzeroRateFP1e6: 125000,
-			TopkJaccardMeanFP1e6:      nodewire.PresentUint32(333333),
-			UnionJSP99FP1e6:           nodewire.PresentUint32(444444),
-			ComparedTopkCount:         512,
-			ComparedRankCount:         768,
-		},
-		AggregateProofHash:                bytes.Repeat([]byte{0x73}, 32),
-		VerifierEvidenceBundleHash:        bytes.Repeat([]byte{0x74}, 32),
-		VerifierEvidenceManifestSizeBytes: 123,
-		Salt:                              bytes.Repeat([]byte{0x75}, 32),
-		ExpiryHeight:                      300,
-		VerifierValueRoot:                 bytes.Repeat([]byte{0x76}, 32),
-		MetricLeafCount:                   1031,
-		VerifierEvidenceKeyCommitment:     make([]byte, 32),
-	}
-}
-
-// frozenResultFromSubmitted rebuilds the frozen wire from the ProtoJSON body
-// alone. Like frozenCommitFromSubmitted it deliberately shares no production
-// helper: the point is to derive the digest from what was SUBMITTED, not from
-// what was signed, so the two can be compared.
-func frozenResultFromSubmitted(t *testing.T, receipt txclient.ResultReceiptMessage) nodewire.ResultReceiptV3 {
-	t.Helper()
-	decode := func(name string, value txclient.ProtoBytes32) []byte {
-		raw, err := hex.DecodeString(value.Hex())
-		if err != nil {
-			t.Fatalf("decode submitted %s: %v", name, err)
-		}
-		return raw
-	}
-	optional := func(value *txclient.ProtoUint32) nodewire.OptionalUint32 {
-		if value == nil {
-			return nodewire.OptionalUint32{}
-		}
-		return nodewire.PresentUint32(uint32(*value))
-	}
-	summary := receipt.MetricSummary
-	return nodewire.ResultReceiptV3{
-		SchemaVersion:             uint32(receipt.SchemaVersion),
-		ChainID:                   receipt.ChainID,
-		TaskID:                    decode("task_id", receipt.TaskID),
-		VerifyRound:               uint32(receipt.VerifyRound),
-		VerifierOperatorAddress:   receipt.VerifierOperatorAddress,
-		ServiceAuthorizationNonce: uint64(receipt.ServiceAuthorizationNonce),
-		GenerationParamsDigest:    decode("generation_params_digest", receipt.GenerationParamsDigest),
-		MetricRoot:                decode("metric_root", receipt.MetricRoot),
-		MetricSummary: nodewire.MetricSummaryV1{
-			FiniteCount:               uint32(summary.FiniteCount),
-			MissingComparedCount:      uint32(summary.MissingComparedCount),
-			MeanAbsLogprobDiffFP1e6:   uint32(summary.MeanAbsLogprobDiffFP1e6),
-			AbsLogprobDiffP95FP1e6:    uint32(summary.AbsLogprobDiffP95FP1e6),
-			AbsLogprobDiffP99FP1e6:    uint32(summary.AbsLogprobDiffP99FP1e6),
-			RankDeltaNonzeroRateFP1e6: uint32(summary.RankDeltaNonzeroRateFP1e6),
-			TopkJaccardMeanFP1e6:      optional(summary.TopkJaccardMeanFP1e6),
-			UnionJSP99FP1e6:           optional(summary.UnionJSP99FP1e6),
-			ComparedTopkCount:         uint32(summary.ComparedTopkCount),
-			ComparedRankCount:         uint32(summary.ComparedRankCount),
-		},
-		AggregateProofHash:                decode("aggregate_proof_hash", receipt.AggregateProofHash),
-		VerifierEvidenceBundleHash:        decode("verifier_evidence_bundle_hash", receipt.VerifierEvidenceBundleHash),
-		VerifierEvidenceManifestSizeBytes: uint64(receipt.VerifierEvidenceManifestSizeBytes),
-		Salt:                              decode("salt", receipt.Salt),
-		ExpiryHeight:                      uint64(receipt.ExpiryHeight),
-		VerifierValueRoot:                 decode("verifier_value_root", receipt.VerifierValueRoot),
-		MetricLeafCount:                   uint32(receipt.MetricLeafCount),
-		VerifierEvidenceKeyCommitment:     decode("verifier_evidence_key_commitment", receipt.VerifierEvidenceKeyCommitment),
 	}
 }
 

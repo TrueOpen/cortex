@@ -1333,16 +1333,6 @@ type defaultFeeTx struct {
 	feeCap   txclient.Coin
 }
 
-func (t defaultFeeTx) Submit(ctx context.Context, req txclient.Request) (txclient.Observation, error) {
-	if req.GasPayer == "" {
-		req.GasPayer = t.gasPayer
-	}
-	if req.FeeCap == (txclient.Coin{}) {
-		req.FeeCap = t.feeCap
-	}
-	return t.base.Submit(ctx, req)
-}
-
 type natsBackedBuilder struct {
 	nats              *memoryNATS
 	validatedPackages []builderclient.OutputPackage

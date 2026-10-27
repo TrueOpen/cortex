@@ -3,7 +3,6 @@ package chainclient
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"sort"
 	"strings"
 )
 
@@ -130,24 +129,3 @@ func abciEventTypeRecognized(abciType string) bool {
 // so the ABCI type is the protobuf fully qualified message name. There is no
 // snake-case mirror and no raw-attribute fallback to fall back on.
 var keeperABCIEventTypes = releasedEventTypes()
-
-// KnownKeeperEventTypes returns the unique current raw event classifications.
-// Reconciler tests use this to require an explicit runtime disposition whenever
-// the identification layer's allowlist grows.
-//
-// It derives from the shipped message-name layer, and so does
-// abciEventTypeRecognized below. A second identifier that recognises kinds this
-// map does not name would not widen either, so the migration must re-express
-// both over the active identifier rather than this map.
-func KnownKeeperEventTypes() []KeeperEventType {
-	seen := make(map[KeeperEventType]struct{}, len(keeperABCIEventTypes))
-	for _, eventType := range keeperABCIEventTypes {
-		seen[eventType] = struct{}{}
-	}
-	out := make([]KeeperEventType, 0, len(seen))
-	for eventType := range seen {
-		out = append(out, eventType)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out
-}

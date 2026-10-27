@@ -467,13 +467,6 @@ func emergencyFreezeReason(obs StatusObservation) string {
 	return ""
 }
 
-func defaultString(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
-}
-
 func normalizeChainState(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "registered", "registration_submitted", "pending":

@@ -49,11 +49,6 @@ const (
 	envelopeTestSourceSnapshotHeight = uint64(122681)
 )
 
-// envelopeTestBuilderSetHash is envelope field 12. It is a bytes32, so a short
-// or absent value is a refusal rather than a zero fill; a fresh slice per call
-// keeps a mutating test from reaching into another envelope's hash.
-func envelopeTestBuilderSetHash() []byte { return bytes.Repeat([]byte{0x5a}, 32) }
-
 // envelopeTestTaskIDHex is the canonical task id every auth-test frame binds:
 // payload task_id bytes, subject placeholder and store records all agree.
 const envelopeTestTaskIDHex = "0101010101010101010101010101010101010101010101010101010101010101"
