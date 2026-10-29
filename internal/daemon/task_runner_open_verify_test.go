@@ -33,14 +33,9 @@ func (f *outputAvailableFixture) deliverOpenVerify(t *testing.T, message *nexusv
 }
 
 // OPEN_VERIFY is the Verifier-side counterpart of OPEN_TASK (interface-and-topic-list.md
-// §5.6): receiving it has to reach the Verifier precheck and publish on
-// trueopen.handraise.verifier.<task_id>, or a node subscribed to the call can never
-// appear in the assignment the call is collecting candidates for.
-//
-// Before the v1 vocabulary Cortex had no OPEN_VERIFY at all - the pre-v1 bus
-// merged the call and the selection into VERIFY_SELECT_NOTIFY, and the only
-// thing that could start a Verifier handraise here was the OUTPUT_AVAILABLE
-// hint, a message §5.8 says triggers nothing.
+// §5.6): receiving it has to reach the Verifier precheck and send the
+// handraise, or a node that received the call can never appear in the
+// assignment the call is collecting candidates for.
 func TestOpenVerifyReachesTheVerifierPrecheckAndPublishesTheHandraise(t *testing.T) {
 	fixture := newOutputAvailableFixture(t)
 
@@ -66,8 +61,8 @@ func TestOpenVerifyAndOutputAvailableRaiseOneHandBetweenThem(t *testing.T) {
 	fixture.assertHandraised(t)
 }
 
-// infer_receipt_hash is the one commitment OPEN_VERIFY carries that the
-// OUTPUT_AVAILABLE hint does not, and it is the whole point of the message: a
+// infer_receipt_hash is the commitment OPEN_VERIFY carries, and it is the whole
+// point of the message: a
 // Builder calling for verification of a receipt the chain does not hold is
 // calling for verification of nothing. Nothing may be published on that call.
 func TestOpenVerifyRefusesAnInferReceiptHashTheChainDoesNotHold(t *testing.T) {

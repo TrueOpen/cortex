@@ -426,9 +426,8 @@ type verifyRoundIdentity struct {
 
 func (e *productionVerifyExecutor) verifyRoundIdentity(ctx context.Context, taskHash codec.Hash, task store.VerifyTask) (verifyRoundIdentity, error) {
 	signerAddress, _ := resolveSigningIdentity(e.cfg, e.cfg.LocalVerifierAddress)
-	// TRUEOPEN_BUS_ENVELOPE_V1 field 7, and preimage field 6 of every frozen §5.14
-	// verifier stage wire: one committed read of this node's current ServiceKey
-	// binding serves both (interface-and-topic-list.md §5.2 field 7).
+	// Preimage field 6 of every frozen §5.14 verifier stage wire: one committed
+	// read of this node's current ServiceKey binding.
 	authorizationNonce, _, err := e.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
 	if err != nil {
 		return verifyRoundIdentity{}, builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the verifier envelopes: %w", err))
@@ -572,9 +571,8 @@ func (e *productionVerifyExecutor) commitSubmitter(serviceAddress string, relayW
 
 // verifyTaskCommitments are the facts a verify responsibility carries into
 // output confirmation. Every one of them was copied out of the Keeper snapshot
-// when the chain admitted the responsibility, so a task admitted from
-// OPEN_VERIFY alone confirms exactly as well as one whose OUTPUT_AVAILABLE hint
-// arrived: the hint contributes nothing to this set.
+// when the chain admitted the responsibility; no inbound frame contributes to
+// this set.
 func verifyTaskCommitments(task store.VerifyTask) (OutputCommitments, error) {
 	var keeperReceipt *chainclient.InferReceiptSnapshot
 	if len(task.KeeperReceiptJSON) > 0 {
@@ -640,7 +638,7 @@ func (p *evidenceWorkerPersistence) commitManifest(ctx context.Context) error {
 	// bytes are already durable in the evidence store, and the manifest they
 	// would have been referenced from was deleted by a terminal Keeper effect.
 	// Reporting it would abort the step the caller is in the middle of, which is
-	// how a relayed-and-uploaded round used to lose its OUTPUT_AVAILABLE.
+	// how a relayed-and-uploaded round used to lose its remaining steps.
 	if err := p.persist(ctx, p.taskHash, *p.task, ev); err != nil && !errors.Is(err, errInferCheckpointOrphaned) {
 		return err
 	}

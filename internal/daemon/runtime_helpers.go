@@ -15,18 +15,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 )
 
-// nexusDurablePrefix is the JetStream durable identity for this node: the
-// operator address alone.
-//
-// Duties used to be folded in. A JetStream durable stores its own ack position,
-// so adding or removing a duty renamed every durable -- the old consumers were
-// orphaned server-side and the new ones restarted from DeliverAll, replaying
-// the whole retention window. Duty is already expressed by which subjects the
-// node subscribes to, so it does not belong in the consumer name as well.
-func nexusDurablePrefix(cfg config.Config) string {
-	return strings.TrimSpace(cfg.LocalIdentity.OperatorAddress)
-}
-
 func (r *Runtime) SupportsDynamicReadiness() bool {
 	return r != nil && r.cfg.UsesRealDependencies()
 }

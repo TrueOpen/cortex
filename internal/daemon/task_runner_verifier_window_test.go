@@ -75,8 +75,8 @@ func TestVerifierWindowStillFrozenIsTracedAsAWaitNotAFailure(t *testing.T) {
 // It counts blocks, not frames. Every source that drives one task-round is
 // gated to one attempt per block (repeatedHandraiseBlockWait), so a rising
 // count is a rising number of blocks the Beacon has been missing for -- which
-// is the quantity that distinguishes the two, and which a redelivery rate that
-// depends on JetStream backoff never was.
+// is the quantity that distinguishes the two, and which a redelivery rate never
+// was.
 func TestVerifierWindowWaitCountsTheBlocksItHasBeenWaiting(t *testing.T) {
 	fixture := newOutputAvailableFixture(t)
 	fixture.runner.cfg.VerifierMemberReader = &pendingVerifierWindow{}

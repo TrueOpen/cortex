@@ -57,7 +57,7 @@ func TestTransportProtocolMismatchIsPermanent(t *testing.T) {
 				t.Fatalf("classifyConnectError(%v) is retryable, want a permanent verdict", got)
 			}
 			if !IsPermanent(got) {
-				t.Fatalf("classifyConnectError(%v) is not asserted permanent; the subject-keyed inbox dispositions need the assertion, not the default", got)
+				t.Fatalf("classifyConnectError(%v) is not asserted permanent; callers that would retry need the assertion, not the default", got)
 			}
 			if !errors.Is(got, tc.err) {
 				t.Fatalf("classifyConnectError dropped the cause: %v", got)

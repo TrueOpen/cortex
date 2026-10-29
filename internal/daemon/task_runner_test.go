@@ -89,7 +89,7 @@ func TestInferReceiptCheckpointSurvivesReopenBeforeRunOnceCompletes(t *testing.T
 
 // outputAvailableFixture is one Verifier-side world: a Keeper snapshot that is
 // the sole authority on what the task committed, and a runner wired to raise a
-// Verifier hand off it. Tests vary only the OUTPUT_AVAILABLE hint.
+// Verifier hand off it. Tests vary only the OPEN_VERIFY call.
 type outputAvailableFixture struct {
 	runner    *TaskRunner
 	builder   *outputAdmissionBuilder
@@ -216,8 +216,7 @@ func (w openVerifierWindow) FrozenVerifierWindowMember(context.Context, string, 
 	return w.snapshot, nil
 }
 
-// Two OUTPUT_AVAILABLE messages for the same task with different message_ids
-// produce one verifier handraise (and one output confirmation) because the
+// Two OPEN_VERIFY calls for the same task produce one verifier handraise (and one output confirmation) because the
 // durable verify-candidate claim suppresses the duplicate.
 func TestOpenVerifyDuplicateSuppressed(t *testing.T) {
 	fixture := newOutputAvailableFixture(t)
@@ -229,7 +228,7 @@ func TestOpenVerifyDuplicateSuppressed(t *testing.T) {
 
 	hint2 := fixture.openVerifyCall()
 	if err := fixture.deliverOpenVerify(t, hint2); err != nil {
-		t.Fatalf("second OUTPUT_AVAILABLE: %v", err)
+		t.Fatalf("second OPEN_VERIFY: %v", err)
 	}
 	// Still only one handraise.
 	if len(fixture.sender.handraises) != 1 {
@@ -310,9 +309,9 @@ func TestOpenVerifyContradictingTheKeeperSnapshotIsStillRefused(t *testing.T) {
 	}
 }
 
-// A hint can outrun the chain. Before Keeper has the infer receipt there is no
-// authority to read the commitments from, and that has to be a "not yet" the
-// inbox redelivers rather than a permanent refusal that strands the task.
+// A call can outrun the chain. Before Keeper has the infer receipt there is no
+// authority to read the commitments from, and that has to be a retryable
+// "not yet" rather than a permanent refusal that strands the task.
 func TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable(t *testing.T) {
 	fixture := newOutputAvailableFixture(t)
 	snapshot := fixture.snapshot
@@ -326,8 +325,7 @@ func TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable(t *testing.T) {
 }
 
 // Verifiability is decided by OPEN_VERIFY plus the Keeper snapshot, so a
-// Verifier that never receives an OUTPUT_AVAILABLE frame -- lost, filtered, or
-// simply never sent -- still gets the responsibility and can still confirm the
+// Verifier needs no other frame to get the responsibility and confirm the
 // output. Both halves run production code: the chain admits the task, and the
 // real Nexus confirmer resolves the package from the chain-committed canonical
 // package hash with no locator anywhere in the path.
@@ -906,24 +904,18 @@ func (f verifyExecutorFunc) RunVerify(ctx context.Context, hash codec.Hash, task
 }
 
 type staticEligibility struct {
-	input         policy.WorkerPrecheckInput
 	verifierInput policy.VerifierPrecheckInput
-	expiry        uint64
 	err           error
 }
 
-func (e staticEligibility) Worker(context.Context, WorkerHandraiseCandidate) (policy.WorkerPrecheckInput, uint64, error) {
-	return e.input, e.expiry, e.err
-}
 func (e staticEligibility) Verifier(context.Context, VerifierHandraiseCandidate) (policy.VerifierPrecheckInput, error) {
 	return e.verifierInput, e.err
 }
 
-// taskRunnerTaskDataAuth is the committed current-binding reader admitOrder
-// uses for TRUEOPEN_BUS_ENVELOPE_V1 field 7: the outbound handraise's
-// service_authorization_nonce comes from one committed read of this node's own
-// ServiceKey binding (interface-and-topic-list.md §5.2 field 7), so a runner that admits
-// an order cannot have a nil one.
+// taskRunnerTaskDataAuth is the committed current-binding reader: the outbound
+// handraise's service_authorization_nonce comes from one committed read of this
+// node's own ServiceKey binding, so a runner that raises a hand cannot have a
+// nil one.
 func taskRunnerTaskDataAuth(t *testing.T) *taskdataauth.Authenticator {
 	t.Helper()
 	signing, binding := localInputServiceSigner(t)
@@ -1021,11 +1013,10 @@ func TestVerifierHandraiseSucceedsWhenKeeperCommitsNoPackageHash(t *testing.T) {
 
 // The precheck's mutual-exclusion skip has to come before any fetch (the
 // cortex-detailed-design.md timing red line). The winning Worker receiving its own task's
-// OPEN_VERIFY is the normal case -- once duty selection retired every node
-// subscribes to both subject groups -- so this path runs once per task. It used to
+// OPEN_VERIFY is the normal case, so this path runs once per task. It used to
 // pull the node's own output back from the Builder in full before the L1 mutual
-// exclusion refused it; and even refusing early, returning an error would have left
-// OUTPUT_AVAILABLE NAKed forever.
+// exclusion refused it; and even refusing early, returning an error would only
+// make the Builder retry it.
 func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *testing.T) {
 	fixture := newOutputAvailableFixture(t)
 	fixture.runner.cfg.LocalVerifierAddress = fixture.snapshot.Assignment.SelectedWorker
@@ -1033,7 +1024,7 @@ func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *t
 	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
 
 	if err != nil {
-		t.Fatalf("self-winner OUTPUT_AVAILABLE error = %v, want nil so JetStream ACKs", err)
+		t.Fatalf("self-winner OPEN_VERIFY error = %v, want nil", err)
 	}
 	if len(fixture.confirmer.received) != 0 {
 		t.Fatalf("task-data plane calls = %#v, want none: the skip precedes every fetch", fixture.confirmer.received)

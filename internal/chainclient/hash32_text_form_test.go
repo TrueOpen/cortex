@@ -12,7 +12,7 @@ import (
 // The text form of a Hash32 is a coupling between three places that do not
 // reference each other, and wire is moving it: TrueOpen/wire#44 respells the
 // REST projection and the Nexus ingress as "0x" followed by 64 lowercase hex,
-// while leaving NATS subjects, preimages and stored hex alone.
+// while leaving preimages and stored hex alone.
 //
 // Cortex keeps its own copy of the REST spelling -- restProtoJSON renders a
 // Keeper protobuf response the way the projection does, so the typed snapshots
@@ -20,11 +20,9 @@ import (
 // spelling therefore means editing cortex, and the edit is one line.
 //
 // These tests exist so that the line cannot be changed alone. The decoder tells
-// the two forms apart by length, and the model id is carried as text straight
-// into a NATS subject that wire is deliberately NOT respelling, so a respelled
-// encoder either stops decoding or starts subscribing to a subject nobody
-// publishes to. The first is loud; the second is a node that simply never
-// receives a task.
+// the two forms apart by length, and the model id is carried as bare text into
+// places wire is deliberately NOT respelling, so a respelled encoder either
+// stops decoding or silently keys on a value nothing else produces.
 
 const hash32TestHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
@@ -40,7 +38,7 @@ func TestKeeperRESTSpellingIsBareHex(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(encoded), `"`+hash32TestHex+`"`) {
-		t.Fatalf("Keeper REST JSON = %s, want the bare spelling this decoder and the NATS subjects still expect", encoded)
+		t.Fatalf("Keeper REST JSON = %s, want the bare spelling this decoder still expects", encoded)
 	}
 }
 

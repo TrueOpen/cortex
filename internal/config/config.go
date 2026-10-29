@@ -420,12 +420,11 @@ type ChallengeVerifierConfig struct {
 // working broadcaster must hold the whole node down.
 //
 // Only the two scheduled direct paths do. Everything the protocol asks of a
-// Worker travels through Nexus, which relays it as its own transaction: worker
-// handraise (MsgSubmitWorkerHandraises), infer receipt (MsgSubmitInferReceipt),
-// verifier handraise (MsgSubmitVerifierHandraises) and, since nexus opened it,
-// the Verifier result receipt (MsgSubmitVerifyResult over the VERIFY_RESULT bus
-// subject). A node whose signer cannot produce Cosmos transactions can still do
-// all of that.
+// Worker travels through Nexus, which relays it as its own transaction: infer
+// receipt (MsgSubmitInferReceipt), verifier handraise
+// (MsgSubmitVerifierHandraises) and the Verifier result receipt
+// (MsgSubmitVerifyResult). A node whose signer cannot produce Cosmos
+// transactions can still do all of that.
 //
 // This condition used to include UsesRealDependencies(), because a selected
 // Verifier's commit was self-submission or nothing

@@ -235,8 +235,8 @@ func TestAuthenticatorBindsExpiryToTheServedHeight(t *testing.T) {
 	}
 }
 
-// CommittedBusEnvelopeIdentity feeds TRUEOPEN_BUS_ENVELOPE_V1 fields 7 and 14. Field
-// 14, source_snapshot_height, is the sender's own chain view: the block Keeper
+// CommittedBusEnvelopeIdentity returns the nonce and this node's own chain view:
+// the block Keeper
 // served the binding at, and not that height plus the task-data request window
 // the very same read also produces. Returning the expiry would overstate the
 // sender's view by ExpiryBlocks, which is exactly the slack a receiver's

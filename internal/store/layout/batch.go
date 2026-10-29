@@ -223,7 +223,7 @@ func UpsertChallenge(ctx context.Context, s *store.Store, taskHash StoredHash, c
 // VerifyAdmissionBatch writes a verifier pre-assignment handraise for one
 // verify round, idempotent by (taskHash, verifyRound). It is used to prevent
 // duplicate output fetches and repeated handraises on a duplicate
-// OUTPUT_AVAILABLE hint. It reports true only when a *completed* claim already
+// OPEN_VERIFY. It reports true only when a *completed* claim already
 // exists, which is the one case where the work must not be redone. A conflicting
 // existing record returns an error.
 //

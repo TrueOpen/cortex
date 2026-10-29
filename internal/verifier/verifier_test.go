@@ -1262,8 +1262,7 @@ func (h harness) validTask() TaskState {
 		FutureBeaconID:              "proposer-vrf-epoch-12",
 		CommitDeadlineHeight:        260,
 		RevealDeadlineHeight:        300,
-		// TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12. Every verifier-stage message is
-		// OPEN_VERIFY, so the admissible authority is the Task's locked reference.
+		// The Task's locked BuilderSet reference.
 	}
 }
 

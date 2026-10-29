@@ -27,9 +27,8 @@ type OutputCommitments struct {
 	// WorkerOperatorAddress is the Keeper-confirmed winner. The Builder's signed
 	// receipt has to name the same Worker.
 	WorkerOperatorAddress string
-	// There is deliberately no locator field. OUTPUT_AVAILABLE's output_cid is
-	// an auxiliary hint with no authoritative source -- Keeper commits no
-	// locator and GetTaskDataMetadata returns none by contract.
+	// There is deliberately no locator field: Keeper commits no locator and
+	// GetTaskDataMetadata returns none by contract.
 	//
 	// OutputHash is V1's ONLY output content commitment
 	// (keeper-service-design-appendix.md item 50, keeper-data-structure-contract.md:1881), and

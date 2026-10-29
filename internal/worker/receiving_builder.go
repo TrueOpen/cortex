@@ -13,8 +13,8 @@ import (
 // resolved. It deliberately carries the task identity beside the current
 // single-Builder compatibility source. The frozen contract carries the
 // authoritative per-task list in TaskBuilderSelectionState.selected_task_builders;
-// until that Query is serveable, Worker input uses an authenticated ORDER_BROADCAST
-// sender and Verifier output uses an authenticated data-ready OPEN_VERIFY sender.
+// until that Query is serveable, Worker input uses the Builder the task record
+// names and Verifier output uses an authenticated data-ready OPEN_VERIFY sender.
 // When the read path lands, only the provider implementation changes and
 // AssignedBuilderOperator goes away; nothing in the relay path has to change.
 type ReceivingBuilderRef struct {

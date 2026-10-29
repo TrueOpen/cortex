@@ -52,9 +52,8 @@ func (r *TaskRunner) applyVerifierAssignment(ctx context.Context, message *nexus
 	for _, selected := range message.GetVerifiers() {
 		verifiers = append(verifiers, selected.GetOperatorAddress())
 	}
-	// Not being selected is not a failure, exactly as for a WORKER_ASSIGNMENT_NOTIFY
-	// loser: this notice goes out on the per-task subject every candidate subscribes to
-	// (§5.9), this node has nothing to record, so normal terminal state, ack, no error.
+	// Not being selected is not a failure: this notice reaches every candidate
+	// (§5.9), this node has nothing to record, so normal terminal state, no error.
 	//
 	// Judging by the list the message itself asserts is safe: this message's only job is
 	// to wake the node early, the obligation of being selected is written by the Keeper
@@ -86,10 +85,9 @@ func (r *TaskRunner) applyVerifierAssignment(ctx context.Context, message *nexus
 	if err := snapshot.Validate(); err != nil {
 		return fmt.Errorf("validate Keeper task %s: %w", taskID, err)
 	}
-	// No redelivery of this frame can grow an output hash, and the subject it
-	// arrived on is redelivered by subject rather than by verdict
-	// (outbox.verifierFrame), so the verdict has to be asserted or the frame
-	// NAKs until the envelope expires. Two of the three Builders in a proposal
+	// No redelivery of this frame can grow an output hash, so the verdict is
+	// asserted permanent rather than left for a retry loop. Two of the three
+	// Builders in a proposal
 	// group publish this notify without ever having held the Worker's receipt
 	// (nexus#67), so on devnet that cost every Verifier 50 refusals over 32
 	// seconds -- on top of the real failure they were already reporting.
@@ -124,12 +122,9 @@ func (r *TaskRunner) applyVerifierAssignment(ctx context.Context, message *nexus
 // hand on trueopen.handraise.verifier.<task_id>, and the selected set is decided on
 // chain afterwards.
 //
-// Before the v1 vocabulary this subject did not exist on Cortex at all. The
-// pre-v1 bus merged the call and the selection into one VERIFY_SELECT_NOTIFY,
-// which meant the only thing that could start a Verifier handraise here was the
-// OUTPUT_AVAILABLE hint - a message §5.8 explicitly says triggers nothing. Both
-// paths now converge on raiseVerifierHand and share its at-most-once claim, so a
-// task that receives the call and the hint still raises its hand exactly once.
+// Every delivery converges on raiseVerifierHand and shares its at-most-once
+// claim, so a task that receives the call more than once still raises its hand
+// exactly once.
 func (r *TaskRunner) admitOpenVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
 	return r.builderFrameVerdict("nexus_open_verify", message.GetTaskId(), r.openVerify(ctx, builderOperator, message))
 }
@@ -196,34 +191,32 @@ func (r *TaskRunner) openVerify(ctx context.Context, builderOperator string, mes
 const supportedVerifyRound = uint32(1)
 
 // verifierHandraiseTrigger is the part of an inbound frame that decides whether
-// this node should raise a Verifier hand. Both OPEN_VERIFY and the
-// OUTPUT_AVAILABLE hint reduce to it, and neither is an authority: every field
-// is cross-checked against the Keeper snapshot below.
+// this node should raise a Verifier hand. OPEN_VERIFY reduces to it and is not
+// an authority: every field is cross-checked against the Keeper snapshot below.
 type verifierHandraiseTrigger struct {
 	Kind       string
 	TaskID     string
 	Worker     string
 	OutputHash []byte
 	ModelID    string
-	// ProfileVersion and VerifyRound are carried only by OPEN_VERIFY. The
-	// OUTPUT_AVAILABLE compatibility trigger leaves them zero.
+	// ProfileVersion and VerifyRound are carried by OPEN_VERIFY; a zero round is
+	// read as the supported first round.
 	ProfileVersion uint32
 	VerifyRound    uint32
-	// InferReceiptHash is carried by OPEN_VERIFY (§5.6) and absent on the
-	// OUTPUT_AVAILABLE hint. When present it must equal the Keeper receipt: a
+	// InferReceiptHash is carried by OPEN_VERIFY (§5.6). When present it must
+	// equal the Keeper receipt: a
 	// Builder calling for verification of a receipt the chain does not hold is
 	// calling for verification of nothing.
 	InferReceiptHash codec.Hash
-	// TaskHash is carried by OPEN_VERIFY (§5.8) and absent on the OUTPUT_AVAILABLE
-	// hint. When present it must equal the Keeper's accepted task hash: it is a
-	// frame-level restatement, never the authority.
+	// TaskHash is carried by OPEN_VERIFY (§5.8). When present it must equal the
+	// Keeper's accepted task hash: it is a frame-level restatement, never the
+	// authority.
 	TaskHash codec.Hash
 	// SenderOperatorAddress is the frame's already-authenticated sender and is
 	// retained for diagnostics.
 	SenderOperatorAddress string
-	// DataReadyBuilderOperator is set only by OPEN_VERIFY. A Builder may relay
-	// OUTPUT_AVAILABLE, but only OPEN_VERIFY carries the protocol's local
-	// data-ready declaration.
+	// DataReadyBuilderOperator is the Builder whose OPEN_VERIFY carried the
+	// protocol's local data-ready declaration.
 	DataReadyBuilderOperator string
 	// Redrivable marks a trigger whose transport will not bring it back. Nothing
 	// else about the attempt changes; what changes is that a retryable refusal
@@ -244,9 +237,8 @@ type verifierHandraiseTrigger struct {
 // querying the chain by task_id breaks the cycle without the message having to carry
 // a single extra field.
 //
-// The task_hash OPEN_VERIFY always carries must equal the chain's accepted value;
-// OUTPUT_AVAILABLE does not carry that field. A frame is always a restatement, and
-// the chain is the authority.
+// The task_hash OPEN_VERIFY carries must equal the chain's accepted value. A frame
+// is always a restatement, and the chain is the authority.
 func (r *TaskRunner) verifyTaskBinding(ctx context.Context, message verifierHandraiseTrigger) (layout.StoredHash, string, error) {
 	verifyTaskHash, _, findErr := layout.FindVerifyRecordByTaskID(ctx, r.cfg.Store, message.TaskID)
 	if findErr == nil {
@@ -285,10 +277,10 @@ func (r *TaskRunner) verifyTaskBinding(ctx context.Context, message verifierHand
 // raiseVerifierHand runs one handraise attempt and then decides whether this
 // task-round is still owed another one.
 //
-// The split exists because OPEN_VERIFY is Core tier (interface-and-topic-list.md §5.1) and
-// Core is fire-and-forget: a handler that returns builderclient.Retryable on
-// that subject is asserting a redelivery nobody performs, so before this the
-// wait lived on one handler's stack and died with it. Measured on
+// The split exists because nothing redelivers OPEN_VERIFY on this node's
+// behalf: a handler that returns builderclient.Retryable is asserting a
+// redelivery nobody performs, so before this the wait lived on one handler's
+// stack and died with it. Measured on
 // trueopen-localnet-1: the Builder's four frames all landed in h0..h0+4, the
 // candidate window turned READY at h0+5, and the eight blocks it was open for
 // went by with no handraise on a node that was in the window -- six tasks in a
@@ -309,11 +301,9 @@ func (r *TaskRunner) raiseVerifierHand(ctx context.Context, message verifierHand
 		r.recordHandraiseBlockWait(message.TaskID, message.VerifyRound, tip, err)
 	}
 	// Bookkeeping runs on a suppressed attempt too. The re-drive is armed by the
-	// first frame that reaches this function for a task-round, and that frame is
-	// often the second one this block: OPEN_VERIFY is the only trigger with no
-	// transport behind it, and the JetStream hint frequently arrives first.
-	// Skipping the arming would trade a redundant Keeper query for a lost
-	// handraise.
+	// first redrivable frame that reaches this function for a task-round, and
+	// that frame can be the second one this block. Skipping the arming would
+	// trade a redundant Keeper query for a lost handraise.
 	if message.Redrivable {
 		r.updateVerifierHandraiseRedrive(message, tip, err)
 	}
@@ -338,11 +328,10 @@ type handraiseBlockWait struct {
 // disagrees with Keeper belongs to the frame that carried it, and reusing it
 // would refuse a different, correct frame that arrived in the same block.
 //
-// Three schedulers drive one task-round independently -- the Builder re-sends
-// OPEN_VERIFY, JetStream redelivers the OUTPUT_AVAILABLE hint about once a
-// second after a NAK, and the re-drive fires on the poll interval -- and only
-// the re-drive had a gate of its own. The other two turned a five-block wait
-// into 28 identical `verifier_window_pending` lines and 29 Keeper queries.
+// More than one scheduler drives a task-round -- the Builder re-sends
+// OPEN_VERIFY and the re-drive fires on the poll interval -- and only the
+// re-drive has a gate of its own. Without this, a five-block wait turned into
+// dozens of identical `verifier_window_pending` lines and Keeper queries.
 func (r *TaskRunner) repeatedHandraiseBlockWait(taskID string, verifyRound uint32, tip chainTip) (error, bool) {
 	if !tip.readable {
 		return nil, false
@@ -426,9 +415,9 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	}
 	// Worker/Verifier mutual exclusion is judged against the Keeper winner before
 	// the metadata round trip, candidate-window query and any signature. Every
-	// node subscribes to the Verifier subjects, so the winning Worker receiving
-	// its own task is an expected no-op, not a delivery failure: returning an
-	// error here makes the JetStream OUTPUT_AVAILABLE frame NAK forever.
+	// node may receive the call for verification, so the winning Worker
+	// receiving its own task is an expected no-op, not a delivery failure, and
+	// returning an error here would only make the Builder retry it.
 	if r.cfg.LocalVerifierAddress != "" && r.cfg.LocalVerifierAddress == assigned.SelectedWorker {
 		r.cfg.Trace.Event("verifier_trigger_skipped",
 			tasktrace.Str("kind", message.Kind), tasktrace.Str("task", message.TaskID),
@@ -514,9 +503,7 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	// The on-chain task snapshot does not say which Builder holds the output.
 	// interface-and-topic-list.md §5.8's "publishes only when it holds the data the protocol requires
 	// locally" guarantees the sender of OPEN_VERIFY holds it, so the sender is used as the
-	// fetch target - the same thing the Worker side does when it fills BroadcastingBuilder
-	// from the sender of ORDER_BROADCAST. OUTPUT_AVAILABLE is published by the Worker and
-	// does not apply.
+	// fetch target.
 	dataReadyBuilder := strings.TrimSpace(message.DataReadyBuilderOperator)
 	holdingBuilder := assigned.BuilderOperatorAddress
 	if holdingBuilder == "" {
@@ -529,9 +516,9 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 		DataReadyBuilderOperator: dataReadyBuilder,
 	}
 	if alreadyClaimed {
-		// A handraise completed from another valid trigger (normally
-		// OUTPUT_AVAILABLE). The authenticated OPEN_VERIFY still supplies the
-		// data-ready Builder, but only after its receipt/output facts matched Keeper.
+		// A handraise already completed for this round. The OPEN_VERIFY still
+		// supplies the data-ready Builder, but only after its receipt/output
+		// facts matched Keeper.
 		return layout.CompleteVerifyAdmission(ctx, r.cfg.Store, verifyTaskHash, verifyRound, completedAdmission)
 	}
 	r.cfg.Trace.Event("output_metadata_confirmed",
@@ -584,11 +571,11 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 		return fmt.Errorf("production Verifier handraise eligibility resolver is required")
 	}
 	signerAddress, _ := resolveSigningIdentity(r.cfg, r.cfg.LocalVerifierAddress)
-	// Envelope field 7 from this node's own current ServiceKey binding (§5.2 field 7),
-	// the same committed read admitOrder performs for the WorkerHandraise.
+	// service_authorization_nonce from one committed read of this node's own
+	// current ServiceKey binding.
 	authorizationNonce, _, err := r.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
 	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the VerifierHandraise envelope: %w", err))
+		return builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the VerifierHandraise: %w", err))
 	}
 	v := verifier.New(verifier.Config{VerifierAddress: r.cfg.LocalVerifierAddress, Builder: r.cfg.Builder, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, VerifyDeadlineDeltaHeight: r.cfg.VerifyDeadlineDeltaHeight, FakeOutput: r.cfg.FakeOutput, Sender: r.cfg.VerifierSender, ServiceAuthorizationNonce: authorizationNonce, MaxOutputBytes: r.cfg.MaxOutputBytes, Trace: r.cfg.Trace})
 	result, err := v.EvaluateAndHandraise(ctx, state)

@@ -120,7 +120,7 @@ func (c *KeeperABCIClient) VerifierCandidateMember(ctx context.Context, taskID s
 // have returned inside the interval.
 //
 // Nothing verify signs comes from here: keeper-interface-contract.md §4.1 puts
-// CandidateMemberRefV1 in WorkerHandraiseV1/VerifierHandraiseV1 alone, and the
+// CandidateMemberRefV1 in VerifierHandraiseV1 alone, and the
 // §5.14 VerifyCommitV1 / ResultReceiptV1 / FullResultRevealV1 bodies carry no
 // member. The values serve identity checks on a responsibility the Keeper
 // snapshot already established.

@@ -6,7 +6,7 @@ import "fmt"
 //
 // On the IngressAPI a Hash32 carried as a string is "0x" followed by exactly 64
 // lowercase hex characters, 66 in all. Inside Cortex the same value stays bare:
-// it is a NATS subject component, a store key, and an input to signature
+// it is a store key and an input to signature
 // preimages, none of which wire respelled when it respelled the ingress. So the
 // two spellings meet only here, at the messages that cross the boundary, and
 // the prefix never reaches anything that hashes or routes on the value.

@@ -18,11 +18,10 @@ import (
 // materializes when the Beacon at h_window = h0 + delta_w lands
 // (keeper-interface-contract §4.4). So the ordinary timeline puts the call BEFORE the state
 // the call cannot be answered without, and interface-and-topic-list.md §5.9 tells the
-// candidate to wait. But `trueopen.verify.open.*` is Core tier (§5.1), and Core is
-// fire-and-forget: the handler's builderclient.Retryable verdict promises a
-// redelivery that no transport performs (internal/outbox/inbox_runner.go names
-// this: "OPEN_VERIFY is Core (§5.1) and has no redelivery"). The wait therefore
-// lived on one handler's stack and was lost when the function returned.
+// candidate to wait. But nothing redelivers OPEN_VERIFY on this node's behalf:
+// the handler's builderclient.Retryable verdict promises a redelivery that no
+// transport performs. The wait therefore lived on one handler's stack and was
+// lost when the function returned.
 //
 // Measured on trueopen-localnet-1 at devnet heights 46055-46085: delta_w = 5, the
 // Builder re-sent OPEN_VERIFY four times inside h0..h0+4, the window turned

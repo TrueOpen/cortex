@@ -46,7 +46,7 @@ const (
 
 // VerifierAdmission records a Verifier's pre-assignment handraise for one
 // verify round. It prevents duplicate output fetches and second handraises on a
-// duplicate OUTPUT_AVAILABLE hint.
+// duplicate OPEN_VERIFY.
 type VerifierAdmission struct {
 	SchemaVersion uint16 `json:"schema_version"`
 

@@ -155,11 +155,10 @@ func Retryable(err error) error {
 }
 
 // permanentError marks a refusal that no redelivery can fix. Permanent is
-// already the default for an unmarked error, so this exists for one reason:
-// some inbox dispositions redeliver by subject rather than by classification
-// (outbox.verifierFrame), and against those the verdict has to be assertable
-// rather than merely implied. Marking it is how a handler says "acknowledge
-// this and surface it" instead of letting the frame NAK forever.
+// already the default for an unmarked error, so this exists for one reason: a
+// caller that would otherwise retry has to be able to read the verdict as
+// asserted rather than merely implied. Marking it is how a handler says
+// "acknowledge this and surface it" instead of being retried forever.
 type permanentError struct {
 	err error
 }

@@ -811,9 +811,8 @@ func newHarnessWithConfig(t *testing.T, mutate func(*Config)) harness {
 		// SnapshotReader re-reads the canonical assignment before the worker
 		// accepts an event. Tests use a fixed snapshot that matches the event.
 		SnapshotReader: snapshotReader,
-		// Fields 11 and 12 of every envelope this Worker publishes on the
-		// OUTPUT_AVAILABLE path. It is Task state the daemon copies out of the
-		// admitted task record, and an absent reference is a refusal (§5.2).
+		// The Task's locked BuilderSet reference, which the daemon copies out of
+		// the admitted task record.
 	}
 	if mutate != nil {
 		mutate(&cfg)
@@ -848,8 +847,8 @@ const workerTestModelID = "01010101010101010101010101010101010101010101010101010
 const workerTestHandraiseNonce = uint64(23)
 
 // seedPreparedOutput runs the inference+receipt path and persists the resulting
-// artifacts, descriptor and signed receipt, but stops short of publishing
-// OUTPUT_AVAILABLE or relaying to a Builder. This simulates the state a crashed
+// artifacts, descriptor and signed receipt, but stops short of relaying to a
+// Builder. This simulates the state a crashed
 // predecessor would leave behind so that the finalize pass can recover from
 // durable storage rather than re-running inference.
 func (h harness) seedPreparedOutput(t *testing.T, event chainclient.AssignmentFinalized) builderclient.SignedInferReceipt {

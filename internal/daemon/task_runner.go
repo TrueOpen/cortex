@@ -215,8 +215,8 @@ type TaskRunner struct {
 	// task-round must not overlap: the at-most-once claim only suppresses a
 	// duplicate once the first attempt has *completed* it, so overlapping
 	// attempts would both find the claim incomplete and both publish a
-	// candidacy. Two sources reach here independently - the inbox runner and the
-	// poll loop's re-drive - so ordering them is not optional.
+	// candidacy. Two sources reach here independently - inbound Builder frames
+	// and the poll loop's re-drive - so ordering them is not optional.
 	//
 	// handraiseMu also guards handraiseBlockWaits, the per-task-round record of
 	// the block at which this round last refused with a chain-state wait. See

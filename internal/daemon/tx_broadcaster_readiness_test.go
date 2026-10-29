@@ -116,8 +116,8 @@ func notReadyTxStatus() diagnostics.DependencyStatus {
 // TestDependencyReadinessScrubsCredentialsFromTheProbeReason is the constraint
 // that made the reason a fixed string in the first place.
 //
-// A probe error can quote the endpoint it dialled, and a NATS URL may carry
-// userinfo. Discarding the whole
+// A probe error can quote the endpoint it dialled, and an endpoint URL may
+// carry userinfo. Discarding the whole
 // message was one way to guarantee no credential reached the log; keeping the
 // message and scrubbing the userinfo is the other, and it is the one that also
 // tells an operator what failed. The host stays: it is already published in

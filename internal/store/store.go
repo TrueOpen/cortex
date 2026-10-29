@@ -73,14 +73,9 @@ type InferTask struct {
 	// InputSizeBytes is the user-signed input size from the accepted TaskOrderV1.
 	// Zero means unknown and forces a metadata round trip before fetching.
 	InputSizeBytes uint64 `json:"input_size_bytes,omitempty"`
-	// BuilderSetID and BuilderSetHash are TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12
-	// for this task (interface-and-topic-list.md §5.2 fields 11-12). After the first proposal is
-	// accepted the authority is the Task's locked BuilderSet reference, which is
-	// Task state on the chain and not something Cortex derives; the runner copies
-	// it out of the authenticated WORKER_ASSIGNMENT_NOTIFY frame that named this node the
-	// winner. Absent until such a frame arrives, and absent is a refusal at
-	// publish time rather than an empty envelope field: §5.2 forbids an empty
-	// builder_set_id on a task-control message.
+	// BuilderSetID and BuilderSetHash are the Task's locked BuilderSet
+	// reference, which is Task state on the chain and not something Cortex
+	// derives. Absent until a source supplies them.
 	//
 	// The hash is []byte rather than codec.Hash so absent stays distinguishable
 	// from 32 zero bytes.
@@ -133,13 +128,9 @@ type VerifyTask struct {
 	OutputRef                  string     `json:"output_ref"`
 	TokenIDsRef                string     `json:"token_ids_ref"`
 	PositionValuesRef          string     `json:"position_values_ref"`
-	// BuilderSetID and BuilderSetHash are TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12
-	// for this task (interface-and-topic-list.md §5.2 fields 11-12). A verify
-	// responsibility exists only after the first proposal was accepted, so the
-	// authority is always the Task's locked BuilderSet reference (§5.2 field 12);
-	// the runner copies it out of the authenticated VERIFIER_ASSIGNMENT_NOTIFY
-	// frame. Absent is a refusal at publish time, never an
-	// empty envelope field (§5.2).
+	// BuilderSetID and BuilderSetHash are the Task's locked BuilderSet
+	// reference. A verify responsibility exists only after the first proposal
+	// was accepted, so the authority is always that locked reference.
 	BuilderSetID   string `json:"builder_set_id,omitempty"`
 	BuilderSetHash []byte `json:"builder_set_hash,omitempty"`
 }

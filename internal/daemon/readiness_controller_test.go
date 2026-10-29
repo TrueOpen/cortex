@@ -328,7 +328,7 @@ func waitForWorkloadReport(t *testing.T, reports <-chan bool, want bool) {
 }
 
 // The workload can exit on its own while every dependency stays ready — a
-// JetStream durable already bound elsewhere does exactly this. That is the case
+// transport still bound to a previous instance does exactly this. That is the case
 // where stale readiness is most misleading, because nothing else changes.
 func TestReadinessControllerReportsWorkloadThatExitsOnItsOwn(t *testing.T) {
 	var mu sync.Mutex
@@ -406,7 +406,7 @@ func TestReadinessControllerRetriesRetryableWorkloadFailure(t *testing.T) {
 			if attempt == 1 {
 				// The subscribe failed, so startup never completes: the
 				// workload must not be reported as running for this attempt.
-				return builderclient.Retryable(errors.New(`nats subscribe "trueopen.worker-assignment.*": consumer is already bound to a subscription`))
+				return builderclient.Retryable(errors.New("stream session is already bound to a previous instance"))
 			}
 			markStarted()
 			<-ctx.Done()
@@ -423,7 +423,7 @@ func TestReadinessControllerRetriesRetryableWorkloadFailure(t *testing.T) {
 	select {
 	case err := <-reported:
 		if !strings.Contains(err.Error(), "already bound") {
-			t.Fatalf("reported error = %v, want the durable binding conflict", err)
+			t.Fatalf("reported error = %v, want the binding conflict", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("retryable workload failure was not reported")
@@ -499,7 +499,7 @@ func TestReadinessControllerCombinesChainSyncWorkloadAndRetry(t *testing.T) {
 			attempt := attempts
 			mu.Unlock()
 			if attempt == 1 {
-				return builderclient.Retryable(errors.New(`nats subscribe "trueopen.worker-assignment.*": consumer is already bound to a subscription`))
+				return builderclient.Retryable(errors.New("stream session is already bound to a previous instance"))
 			}
 			markStarted()
 			<-ctx.Done()
@@ -529,7 +529,7 @@ func TestReadinessControllerCombinesChainSyncWorkloadAndRetry(t *testing.T) {
 	select {
 	case err := <-retryable:
 		if !strings.Contains(err.Error(), "already bound") {
-			t.Fatalf("retryable error = %v, want the durable binding conflict", err)
+			t.Fatalf("retryable error = %v, want the binding conflict", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("retryable workload failure was not reported")

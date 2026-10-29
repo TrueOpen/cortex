@@ -291,10 +291,9 @@ var recordingKeeperServiceAddress = func() string {
 }()
 
 // mainTestTaskDataAuth builds the authenticator the runtime owns in production.
-// The outbound WorkerHandraise envelope carries service_authorization_nonce
-// (field 7) and source_snapshot_height (field 14), and the only admissible
-// source for both is one committed read of this node's own ServiceKey binding,
-// so a runtime assembled with an injected task-input resolver - which skips the
+// Signed Worker and Verifier material carries service_authorization_nonce, and
+// the only admissible source for it is one committed read of this node's own
+// ServiceKey binding, so a runtime assembled with an injected task-input resolver - which skips the
 // authenticator the real wiring would have built - still needs one here.
 func mainTestTaskDataAuth(t *testing.T, cfg config.Config) *taskdataauth.Authenticator {
 	t.Helper()
@@ -726,8 +725,8 @@ func TestNewTaskRunnerRestoresCompactActiveInferDocument(t *testing.T) {
 		TaskID: identity.TaskIDString("0465d9d63a04057e9f6896371452af72510ed64ce158f94eab22453120955629", 1), SessionID: "0465d9d63a04057e9f6896371452af72510ed64ce158f94eab22453120955629",
 		OrderSequence: 1, AssignmentDigest: codec.HashBytes([]byte("assignment")), ModelID: modelservice.FakeModelID,
 		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140, Stage: "queued",
-		// Fields 11 and 12 of the task's TRUEOPEN_BUS_ENVELOPE_V1 identity are task
-		// state, so a restored document that lost them could not publish.
+		// The BuilderSet identity is task state, so a restored document must keep
+		// it.
 		BuilderSetID: "7", BuilderSetHash: bytes.Repeat([]byte{0x5a}, 32),
 	}
 	if err := seedInferTask(ctx, db, taskHash, task); err != nil {
@@ -1067,51 +1066,10 @@ type recordingKeeperClient struct {
 	tasks     map[string]chainclient.TaskSnapshot
 }
 
-type workerHandraiseWiringKeeper struct{ *recordingKeeperClient }
-
-func (*workerHandraiseWiringKeeper) TaskReceiptFacts(context.Context, string) (chainclient.TaskReceiptFactsAnswer, error) {
-	return chainclient.TaskReceiptFactsAnswer{}, chainclient.ErrNotFound
-}
-
-func (*workerHandraiseWiringKeeper) CurrentCandidateMember(context.Context, string) (chainclient.CandidateMemberRefSnapshot, error) {
-	return chainclient.CandidateMemberRefSnapshot{
-		CandidatePoolSnapshotID: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x31}, 32)),
-		Slot:                    1, SlotVersion: 1, OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-	}, nil
-}
-
-func (*workerHandraiseWiringKeeper) VerifierCandidateMember(context.Context, string, uint32, string) (chainclient.VerifierCandidateMemberSnapshot, error) {
-	return chainclient.VerifierCandidateMemberSnapshot{
-		CandidateMemberRefSnapshot: chainclient.CandidateMemberRefSnapshot{
-			CandidatePoolSnapshotID: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x31}, 32)),
-			Slot:                    1, SlotVersion: 1, OperatorAddress: "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
-		},
-		InferReceiptHash: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x41}, 32)), ExpiryHeight: 220,
-	}, nil
-}
-
 // daemonTestOperator is local_identity.operator_address in the real-mode test
 // configs. The fake profiles name it as their proposer: the node serves its
 // own registrations, which need no fetched manifest.
 const daemonTestOperator = "trueopen1n76x6eelp8s6nx737vnmp29rdme7peaypql50k"
-
-func (*workerHandraiseWiringKeeper) CurrentModelProfile(context.Context, string, string) (chainclient.CurrentModelProfileSnapshot, error) {
-	return chainclient.CurrentModelProfileSnapshot{
-		Model: chainclient.CurrentModelSnapshot{ModelID: modelservice.FakeModelID, Status: "ACTIVE"},
-		Profile: chainclient.CurrentProfileSnapshot{
-			ModelID: modelservice.FakeModelID, ProfileVersion: chainclient.NewProfileVersion(1), Status: "ACTIVE", MinStake: chainclient.NewUint64String(50),
-			ProposerAddress: daemonTestOperator,
-		},
-	}, nil
-}
-
-func (*workerHandraiseWiringKeeper) ModelSupport(_ context.Context, operatorAddress, modelID string) (chainclient.ModelSupportSnapshot, error) {
-	return chainclient.ModelSupportSnapshot{
-		OperatorAddress: operatorAddress, ModelID: modelID,
-		DeclaredSupport: true, SupportActive: true, SupportVersion: chainclient.NewUint64String(1),
-		LastRefreshHeight: chainclient.NewUint64String(199), ActiveSupportStakeSnapshot: chainclient.NewUint64String(100),
-	}, nil
-}
 
 type transitionKeeperClient struct {
 	*recordingKeeperClient
@@ -1617,7 +1575,7 @@ func TestWorkloadNotReportedWhenAnotherRunnerHasFailed(t *testing.T) {
 				defer close(failed)
 				return errors.New("builder runner failed during startup")
 			},
-			// Stands in for the inbox runner subscribing successfully, after
+			// Stands in for a runner finishing its startup phase, after
 			// the sibling failure has had time to reach the group.
 			func(ctx context.Context) error {
 				<-failed

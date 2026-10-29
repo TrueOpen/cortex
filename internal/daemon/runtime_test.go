@@ -302,8 +302,6 @@ func TestBuildRuntimeFakeModeOpensStoreAndCreatesFakeDependencies(t *testing.T) 
 func TestBuildRuntimeRealModeUnavailableTransportReportsDiagnostic(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{Keeper: readyKeeperIdentityReader()})
 	if err != nil {
@@ -333,8 +331,6 @@ func TestBuildRuntimeRealModeUnavailableTransportReportsDiagnostic(t *testing.T)
 func TestBuildRuntimeRealModeReportsModelServiceHealth(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
 	cfg.ModelManagement.Endpoint = "127.0.0.1:19001" // a loopback name: real mode allows plaintext only on the same host; the dial still goes through bufnet
 	newDaemonGRPCTestServer(t, cfg.ModelManagement.Endpoint, &daemonModelManagementServer{healthy: true})
 
@@ -388,8 +384,6 @@ func TestBuildRuntimeRealModeLocalModelServiceSkipsGRPCHealthProbe(t *testing.T)
 func TestBuildRuntimeRealModeReportsUnhealthyModelService(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
 	cfg.ModelManagement.Endpoint = "127.0.0.1:19002" // as above
 	newDaemonGRPCTestServer(t, cfg.ModelManagement.Endpoint, &daemonModelManagementServer{
 		healthy: false,

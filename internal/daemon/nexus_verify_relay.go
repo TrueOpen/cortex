@@ -1,12 +1,13 @@
 package daemon
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/TrueOpen/cortex/internal/verifier"
 	"strings"
+
+	"connectrpc.com/connect"
+	"github.com/TrueOpen/cortex/internal/verifier"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/nodewire"

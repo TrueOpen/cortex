@@ -14,10 +14,9 @@ import (
 // turning READY -- materializes at a block boundary, so every extra attempt
 // inside one block re-asks a question whose answer cannot have changed. The
 // re-drive has had that gate since it was written
-// (takeVerifierHandraiseRedrives); the inbound path had none, and three
-// independent sources drive the same task-round: OPEN_VERIFY is re-broadcast by
-// the Builder, the OUTPUT_AVAILABLE hint is NAKed and redelivered by JetStream
-// about once a second, and the re-drive fires on the poll interval. Measured on
+// (takeVerifierHandraiseRedrives); the inbound path had none, and independent
+// sources drive the same task-round: OPEN_VERIFY is re-sent by the Builder and
+// the re-drive fires on the poll interval. Measured on
 // trueopen-localnet-1: 28 verifier_window_pending lines and 29 Keeper receipt
 // queries across five blocks of one task.
 func TestVerifierHandraiseAsksTheChainOncePerBlockForOneTaskRound(t *testing.T) {
@@ -46,7 +45,7 @@ func TestVerifierHandraiseAsksTheChainOncePerBlockForOneTaskRound(t *testing.T) 
 
 // The operator-facing half of the same gate. A suppressed attempt reports
 // nothing: the line it would print is the line the first frame of this block
-// already printed, and repeating it once per JetStream redelivery is what made
+// already printed, and repeating it once per redelivery is what made
 // a five-block wait look like a node in trouble.
 func TestVerifierHandraiseReportsOneWaitPerBlock(t *testing.T) {
 	fixture := newOutputAvailableFixture(t)

@@ -126,8 +126,7 @@ func Uint(key string, value uint64) Field {
 }
 
 // Millis renders an elapsed duration as whole milliseconds, the unit every
-// other latency this daemon reports already uses (the publish observer and the
-// inbox runner both spell theirs duration_ms). A negative duration -- a clock
+// other latency this daemon reports already uses (duration_ms). A negative duration -- a clock
 // that moved backwards between two reads -- is reported as 0 rather than as a
 // negative latency no reader would believe.
 func Millis(key string, d time.Duration) Field {

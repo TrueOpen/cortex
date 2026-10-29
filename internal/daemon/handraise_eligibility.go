@@ -9,7 +9,6 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/policy"
 )
@@ -22,7 +21,6 @@ type KeeperHandraiseEligibilityConfig struct {
 	OperatorAddress     string
 	ModelServiceID      string
 	VerifyDeadlineDelta uint64
-	SelfRescueGasBudget uint64
 }
 
 type KeeperHandraiseReader interface {
@@ -43,33 +41,6 @@ func NewKeeperHandraiseEligibility(cfg KeeperHandraiseEligibilityConfig) Handrai
 		cfg.VerifyDeadlineDelta = 40
 	}
 	return keeperHandraiseEligibility{cfg: cfg}
-}
-
-func (e keeperHandraiseEligibility) Worker(ctx context.Context, candidate WorkerHandraiseCandidate) (policy.WorkerPrecheckInput, uint64, error) {
-	// order_sequence 0 is a session's first order, not a missing field - see
-	// validateNexusOrderBroadcast for why a zero check has nothing to detect. The
-	// identity equation is what binds the sequence, and it applies at zero too.
-	if candidate.SessionID == "" || candidate.TaskID != identity.TaskIDString(candidate.SessionID, candidate.OrderSequence) {
-		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("Worker handraise candidate identity is not canonical")
-	}
-	if candidate.ModelID == "" || candidate.ProfileVersion == 0 || strings.TrimSpace(candidate.Capability) == "" || candidate.DeadlineHeight == 0 {
-		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("Worker handraise model, profile, capability, and deadline are required")
-	}
-	height, support, supportState, freshnessWindow, capacityRef, availableSlots, err := e.facts(ctx, candidate.ModelID, candidate.ProfileVersion, candidate.Capability, "WORKER")
-	if err != nil {
-		return policy.WorkerPrecheckInput{}, 0, err
-	}
-	input := policy.WorkerPrecheckInput{
-		ChainSynced: true, CurrentHeight: height, SupportState: supportState,
-		SupportLastConfirmedHeight: support.LastRefreshHeight.Uint64(), SupportFreshnessWindow: freshnessWindow, Profile: candidate.Capability,
-		SupportedProfiles: []string{candidate.Capability}, AvailableSlots: availableSlots, CapacitySnapshotRef: capacityRef,
-		P30ColdStartCandidate:  supportState == policy.SupportDeclaredBootstrap,
-		SelfRescueGasAvailable: e.cfg.SelfRescueGasBudget > 0, SelfRescueGasBudgetNanoTRUEOPEN: e.cfg.SelfRescueGasBudget,
-	}
-	if candidate.DeadlineHeight <= height {
-		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("Worker handraise deadline %d is not above current height %d", candidate.DeadlineHeight, height)
-	}
-	return input, candidate.DeadlineHeight, nil
 }
 
 func (e keeperHandraiseEligibility) Verifier(ctx context.Context, candidate VerifierHandraiseCandidate) (policy.VerifierPrecheckInput, error) {
@@ -234,9 +205,8 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	// now", and that answer changes the moment a task finishes.
 	//
 	// Left unmarked they were permanent verdicts, and a permanent verdict is the
-	// harshest disposition in the pipeline: the inbox records admissionRefused
-	// for the frame, the envelope's replay claim stays consumed, and the Verifier
-	// re-drive drops the round (updateVerifierHandraiseRedrive re-arms on a
+	// harshest disposition in the pipeline: the frame is refused for good and
+	// the Verifier re-drive drops the round (updateVerifierHandraiseRedrive re-arms on a
 	// retryable refusal and on nothing else). A node that was briefly full
 	// therefore refused the round for good and went quiet.
 	//

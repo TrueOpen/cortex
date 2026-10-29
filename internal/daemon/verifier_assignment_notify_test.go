@@ -16,13 +16,11 @@ import (
 
 const notifyTestTaskID = "abababababababababababababababababababababababababababababababab"
 
-// §5.9 puts VERIFIER_ASSIGNMENT_NOTIFY on one per-task subject that every
-// candidate is subscribed to, so a node the chain did not select receives the
-// announcement of a duty it does not hold. Not being selected is a normal
-// terminal state -- the losing-Worker half of WORKER_ASSIGNMENT_NOTIFY has
-// always been acknowledged this way -- and refusing instead costs a JetStream
+// §5.9 sends VERIFIER_ASSIGNMENT_NOTIFY to every candidate, so a node the chain
+// did not select receives the announcement of a duty it does not hold. Not
+// being selected is a normal terminal state, and refusing instead costs a
 // redelivery loop: measured on trueopen-localnet-1, 78 refusals over 36 seconds
-// per task until the envelope expired.
+// per task.
 func TestVerifierAssignmentNotifyIsAcknowledgedByANodeTheChainDidNotSelect(t *testing.T) {
 	ctx := context.Background()
 	runner := notifyTestRunner(t, "verifier-9")
@@ -54,9 +52,8 @@ func TestVerifierAssignmentNotifyNamesTheLocalRecordItIsWaitingFor(t *testing.T)
 
 // A notify with no output_hash cannot be reconciled against the Keeper
 // snapshot, so it is refused -- but the refusal has to assert that no
-// redelivery can fix it. verifier-assignment is in outbox.verifierFrame, whose
-// blanket redelivery is by subject rather than by verdict, so an unmarked
-// refusal NAKs until the envelope expires: measured on devnet 2026-09-07,
+// redelivery can fix it, or an unmarked refusal is retried: measured on devnet
+// 2026-09-07,
 // 50/50/51 refusals per Verifier over 32 seconds for task 3a29ef28..., because
 // two of the three Builders in the proposal group publish this frame without
 // ever having held the Worker's receipt (nexus#67). The obligation itself is

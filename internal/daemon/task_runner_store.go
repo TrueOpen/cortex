@@ -22,7 +22,7 @@ import (
 // before any merge is attempted, and the merge target is gone precisely because
 // nobody will read it again. Returning a plain error here reported one
 // successful infer round as failed and - far worse - aborted the caller mid-step,
-// which is how a Worker lost its OUTPUT_AVAILABLE publication. Callers treat
+// which is how a Worker lost the rest of its round. Callers treat
 // this as a no-op success; see commitManifest.
 var errInferCheckpointOrphaned = errors.New("infer checkpoint has no owning record")
 

@@ -18,15 +18,14 @@ import (
 )
 
 // TestInferReceiptAcceptedKeepsTheInferResponsibility covers the race that cost
-// a devnet Worker its OUTPUT_AVAILABLE message on a round it had otherwise
-// completed.
+// a devnet Worker the end of a round it had otherwise completed.
 //
 // The chain accepts the infer receipt about a second before the Worker finishes
 // uploading the output, so EventInferReceiptAccepted lands while the executor
-// is still inside ensureOutputAvailable. When that event mapped to
+// is still inside the upload step (now ensureOutputUploaded). When that event mapped to
 // ReconcilerEffectInferTerminal, the infer record was deleted underneath the
 // running step, the next checkpoint returned store.ErrNotFound, and the step
-// returned before publishing OUTPUT_AVAILABLE -- with no retry left, since the
+// returned before finishing -- with no retry left, since the
 // deleted record was also the only carrier of the restart obligation.
 //
 // The event is now a projection: it emits no effect, is not quarantined, and
@@ -82,8 +81,7 @@ func TestInferReceiptAcceptedKeepsTheInferResponsibility(t *testing.T) {
 // (WorkerTimeout, and the task-terminal batch).
 //
 // CheckpointStorageConfirmation is the exact call that failed on devnet, and it
-// sits between the output upload and the OUTPUT_AVAILABLE publication inside
-// ensureOutputAvailable. Its bytes are already durable in the evidence store
+// sits between the output upload and the end of ensureOutputUploaded. Its bytes are already durable in the evidence store
 // before any merge is attempted, so a missing merge target means "nobody will
 // read this again", not "the round failed" -- and reporting it aborted the rest
 // of the step.

@@ -172,13 +172,11 @@ func (c *ReadinessController) Run(ctx context.Context) error {
 			case err == nil || cleanShutdown:
 			case builderclient.IsRetryable(err):
 				// A retryable workload failure must not take the daemon down.
-				// The common case is a JetStream durable still bound to a
-				// previous instance of this operator, which the server releases
-				// on its own within tens of seconds. Deleting the consumer to
-				// force the issue would discard its ack position and replay the
-				// whole retention window, so the correct response is to wait and
-				// retry -- while /readyz reports the node as not serving, so a
-				// genuine double-start is visible rather than silent.
+				// A transport still bound to a previous instance of this
+				// operator is released on its own, so the correct response is
+				// to wait and retry -- while /readyz reports the node as not
+				// serving, so a genuine double-start is visible rather than
+				// silent.
 				if c.cfg.OnRetryableFailure != nil {
 					c.cfg.OnRetryableFailure(err)
 				}

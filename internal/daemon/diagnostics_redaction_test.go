@@ -8,21 +8,20 @@ import (
 )
 
 // Every dependency row in this package is built by one of three constructors,
-// and the readiness pass rebuilds rows from the same config after startup
-// (runtime_workload.go re-derives nexus_envelope_auth from Nexus.NATSURL). So
+// and the readiness pass rebuilds rows from the same config after startup. So
 // the redaction belongs to the constructors rather than to one call site: a row
 // added later gets it without anyone having to remember.
 func TestDependencyStatusConstructorsRedactEndpointCredentials(t *testing.T) {
-	const raw = "nats://nexus-user:s3cr3t-nats-password@nats.devnet.trueopen.xyz:4222"
+	const raw = "https://keeper-user:s3cr3t-keeper-password@keeper.devnet.trueopen.xyz:443"
 	for name, status := range map[string]diagnostics.DependencyStatus{
-		"unprobed":     unprobed("nexus", raw),
-		"realStatus":   realStatus("nexus", raw, false, "not ready"),
-		"fixtureReady": fixtureReady("nexus", raw),
+		"unprobed":     unprobed("keeper", raw),
+		"realStatus":   realStatus("keeper", raw, false, "not ready"),
+		"fixtureReady": fixtureReady("keeper", raw),
 	} {
-		if strings.Contains(status.Endpoint, "s3cr3t-nats-password") {
+		if strings.Contains(status.Endpoint, "s3cr3t-keeper-password") {
 			t.Errorf("%s endpoint = %q, want the credential removed", name, status.Endpoint)
 		}
-		if !strings.Contains(status.Endpoint, "nats.devnet.trueopen.xyz:4222") || !status.Configured {
+		if !strings.Contains(status.Endpoint, "keeper.devnet.trueopen.xyz:443") || !status.Configured {
 			t.Errorf("%s status = %#v, want the host kept and the row still configured", name, status)
 		}
 	}

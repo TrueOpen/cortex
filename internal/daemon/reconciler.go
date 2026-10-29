@@ -79,7 +79,7 @@ const (
 // snapshot below - and is the sole idempotency key; no effect queue or dedup row
 // is persisted by the reconciler. It is NOT the accepted order payload digest:
 // TaskRecord.AssignmentOrderDigest holds that other field, and conflating the
-// two is what made the winner refuse every WORKER_ASSIGNMENT_NOTIFY.
+// two once made the winning Worker refuse its own assignment.
 type ReconcilerEffect struct {
 	TaskHash         codec.Hash
 	TaskID           string
@@ -288,15 +288,14 @@ func reconcilerEffectFor(eventType chainclient.KeeperEventType) (ReconcilerEffec
 	case chainclient.KeeperEventRevealPhaseStarted:
 		return ReconcilerEffectRevealReady, true
 	// Keeper accepting the infer receipt releases nothing, because the Worker
-	// responsibility does not end there. Three steps come after the receipt is
-	// relayed: the output upload, the durable Builder storage confirmation, and
-	// the OUTPUT_AVAILABLE publication (`ensureOutputAvailable` in
-	// internal/worker). The receipt reaches the chain roughly a second before
-	// the last of them, so treating this event as ReconcilerEffectInferTerminal
-	// deleted the infer record from under the executor still running: the next
-	// checkpoint hit store.ErrNotFound, the whole step returned, and
-	// OUTPUT_AVAILABLE was never published for that round - permanently, since
-	// the deleted record was also the only carrier of a restart obligation.
+	// responsibility does not end there. Steps come after the receipt is
+	// relayed: the output upload and the durable Builder storage confirmation
+	// (`ensureOutputUploaded` in internal/worker). The receipt reaches the chain
+	// before the last of them, so treating this event as
+	// ReconcilerEffectInferTerminal would delete the infer record from under the
+	// executor still running: the next checkpoint hits store.ErrNotFound, the
+	// step returns, and the upload is never finished - permanently, since the
+	// deleted record is also the only carrier of a restart obligation.
 	// It is now a projection (keeperEventDispositionFor), and nothing leaks:
 	// a completed infer record is inert (`loadActiveTasks` skips a succeeded
 	// stage) and TaskTerminalBatch deletes both records when the task settles,
@@ -508,8 +507,8 @@ func keeperEventDispositionFor(eventType chainclient.KeeperEventType) (keeperEve
 		chainclient.KeeperEventDispatchChallengeOpened,
 		chainclient.KeeperEventDispatchChallengeResolved,
 		// The two "the chain took your submission" events, and neither one ends
-		// the responsibility that produced it: a Worker still has to upload the
-		// output and publish OUTPUT_AVAILABLE after the receipt is accepted,
+		// the responsibility that produced it: a Worker still has to upload and
+		// finalize the output after the receipt is accepted,
 		// exactly as a Verifier still owes a reveal after its commit is.
 		chainclient.KeeperEventInferReceiptAccepted,
 		chainclient.KeeperEventCommitAccepted,

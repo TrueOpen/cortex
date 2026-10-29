@@ -717,9 +717,9 @@ func quoteNexusLogValue(value string) string {
 
 // startupBarrier releases once every runner with a startup phase has reported
 // that phase complete. Workload readiness waits on it, because spawning a
-// runner goroutine is not the same as the runner having done its job: the Nexus
-// inbox runner establishes its subscriptions inside its goroutine, and a node
-// with no subscriptions is not serving no matter how many goroutines are alive.
+// runner goroutine is not the same as the runner having done its job: a runner
+// that establishes its connections inside its goroutine is not serving until
+// they exist, no matter how many goroutines are alive.
 type startupBarrier struct {
 	mu      sync.Mutex
 	pending int
@@ -903,7 +903,6 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 			handraiseEligibility = daemon.NewKeeperHandraiseEligibility(daemon.KeeperHandraiseEligibilityConfig{
 				ChainStatus: rt, Keeper: keeper, Model: rt.Dependencies.Model,
 				ChainID: cfg.ChainID, OperatorAddress: cfg.LocalIdentity.OperatorAddress, ModelServiceID: cfg.LocalIdentity.ModelServiceID,
-				SelfRescueGasBudget: cfg.SelfRescue.MaxFeeAmount,
 			})
 		}
 	}
