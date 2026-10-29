@@ -40,6 +40,9 @@ type Inclusion struct {
 // on the root, recomputes this node's leaf and walks the path. The caller must
 // also check that proof.leaf.handraise is a handraise this node signed for
 // this Builder (digest equality with its send log).
+// A root signature failure is returned as ErrBuilderSignature or
+// ErrNotBuilderSigned (from VerifyBuilderSigned), not as an ErrInclusion*
+// sentinel.
 func VerifyInclusion(root *taskv1.SignedHandraiseRootV1, proof *taskv1.HandraiseInclusionProofV1, c InclusionContext) (Inclusion, error) {
 	if root.GetChainId() != c.ChainID {
 		return Inclusion{}, fmt.Errorf("%w: root chain_id %q, want %q", ErrInclusionChain, root.GetChainId(), c.ChainID)

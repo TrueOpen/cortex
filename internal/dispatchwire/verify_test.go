@@ -1,6 +1,7 @@
 package dispatchwire
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -8,7 +9,9 @@ import (
 	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/TrueOpen/cortex/internal/wirevectors"
 )
@@ -101,37 +104,126 @@ func TestVerifyBuilderSignedVectors(t *testing.T) {
 	}
 }
 
-// A duplicated singular field is accepted by proto.Unmarshal (last wins) but
-// is not what the Builder signed; the raw path must refuse it.
-func TestVerifyBuilderSignedRawRejectsDuplicatedField(t *testing.T) {
+// withoutField re-encodes raw with every occurrence of field num dropped.
+func withoutField(t *testing.T, raw []byte, num protowire.Number) []byte {
+	t.Helper()
+	var out []byte
+	for b := raw; len(b) > 0; {
+		n, _, l := protowire.ConsumeField(b)
+		if l < 0 {
+			t.Fatalf("malformed vector bytes: %v", protowire.ParseError(l))
+		}
+		if n != num {
+			out = append(out, b[:l]...)
+		}
+		b = b[l:]
+	}
+	return out
+}
+
+// Byte-level attacks on Builder-signed raw input. Each mutated encoding is one
+// proto.Unmarshal accepts, yet it is not what the Builder signed: the raw path
+// must refuse it, with a strict-decode error where the shape is illegal and a
+// signature error where the shape is legal but the signature is missing.
+func TestVerifyBuilderSignedRawRejectsSignatureFieldAttacks(t *testing.T) {
 	rows, err := wirevectors.DispatchVectors()
 	if err != nil {
 		t.Fatal(err)
 	}
-	checked := 0
+	attacks := []struct {
+		name   string
+		mutate func(t *testing.T, raw []byte, sigNumber protowire.Number) []byte
+		want   error
+	}{
+		{"duplicated first field", func(t *testing.T, raw []byte, sigNumber protowire.Number) []byte {
+			num, _, n := protowire.ConsumeField(raw)
+			if n < 0 || num == sigNumber {
+				t.Fatalf("unexpected first field %d (%d)", num, n)
+			}
+			return append(append([]byte(nil), raw...), raw[:n]...)
+		}, dispatch.ErrDecode},
+		{"second signature field", func(_ *testing.T, raw []byte, sigNumber protowire.Number) []byte {
+			out := append([]byte(nil), raw...)
+			out = protowire.AppendTag(out, sigNumber, protowire.BytesType)
+			return protowire.AppendBytes(out, bytes.Repeat([]byte{0x5a}, 64))
+		}, dispatch.ErrDecode},
+		{"signature as varint", func(_ *testing.T, raw []byte, sigNumber protowire.Number) []byte {
+			out := append([]byte(nil), raw...)
+			out = protowire.AppendTag(out, sigNumber, protowire.VarintType)
+			return protowire.AppendVarint(out, 7)
+		}, dispatch.ErrDecode},
+		{"signature removed", func(t *testing.T, raw []byte, sigNumber protowire.Number) []byte {
+			out := withoutField(t, raw, sigNumber)
+			if len(out) == len(raw) {
+				t.Fatal("vector carries no signature field to remove")
+			}
+			return out
+		}, ErrBuilderSignature},
+	}
+
+	builderNames := map[string]bool{}
+	for _, name := range builderSignedNames {
+		builderNames[name] = true
+	}
+	wantRows, checked := 0, 0
 	for _, row := range rows {
+		if builderNames[row.MessageName] {
+			wantRows++
+		}
 		msg := newMessage(t, row.MessageName)
 		sigNumber, err := builderSignatureNumber(msg.ProtoReflect().Descriptor())
 		if err != nil {
-			continue // not Builder-signed; covered above
+			continue // not Builder-signed; covered in TestVerifyBuilderSignedVectors
 		}
 		raw := mustHex(t, row.ProtobufHex)
-		num, _, n := protowire.ConsumeField(raw)
-		if n < 0 || num == sigNumber {
-			t.Fatalf("%s: unexpected first field %d (%d)", row.Name, num, n)
-		}
-		dup := append(append([]byte(nil), raw...), raw[:n]...)
-		if err := proto.Unmarshal(dup, msg); err != nil {
-			t.Fatalf("%s: proto.Unmarshal refused the duplicate, test premise broken: %v", row.Name, err)
-		}
-		err = VerifyBuilderSignedRaw(row.MessageName, dup, mustHex(t, row.PublicKeyHex))
-		if !errors.Is(err, dispatch.ErrDecode) {
-			t.Fatalf("%s: duplicated field err = %v, want dispatch.ErrDecode", row.Name, err)
+		pub := mustHex(t, row.PublicKeyHex)
+		for _, a := range attacks {
+			t.Run(row.Name+"/"+a.name, func(t *testing.T) {
+				mutated := a.mutate(t, raw, sigNumber)
+				if err := proto.Unmarshal(mutated, newMessage(t, row.MessageName)); err != nil {
+					t.Fatalf("proto.Unmarshal refused the attack, test premise broken: %v", err)
+				}
+				if err := VerifyBuilderSignedRaw(row.MessageName, mutated, pub); !errors.Is(err, a.want) {
+					t.Fatalf("err = %v, want %v", err, a.want)
+				}
+			})
 		}
 		checked++
 	}
-	if checked != len(builderSignedNames)+1 { // + open_verify_conflicting_output
-		t.Fatalf("checked %d Builder-signed rows", checked)
+	if checked == 0 || checked != wantRows {
+		t.Fatalf("attacked %d Builder-signed rows, the vectors hold %d", checked, wantRows)
+	}
+}
+
+// builderSignatureNumber refuses a builder_service_signature that is not a
+// singular bytes field.
+func TestBuilderSignatureNumberRefusesWrongShape(t *testing.T) {
+	for name, field := range map[string]*descriptorpb.FieldDescriptorProto{
+		"uint64": {
+			Name: proto.String(builderSignatureField), Number: proto.Int32(1),
+			Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			Type:  descriptorpb.FieldDescriptorProto_TYPE_UINT64.Enum(),
+		},
+		"repeated bytes": {
+			Name: proto.String(builderSignatureField), Number: proto.Int32(1),
+			Label: descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+			Type:  descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fd, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+				Name:        proto.String("dispatchwire_test/" + strings.ReplaceAll(name, " ", "_") + ".proto"),
+				Package:     proto.String("dispatchwiretest"),
+				Syntax:      proto.String("proto3"),
+				MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Fake"), Field: []*descriptorpb.FieldDescriptorProto{field}}},
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := builderSignatureNumber(fd.Messages().Get(0)); !errors.Is(err, ErrNotBuilderSigned) {
+				t.Fatalf("err = %v, want ErrNotBuilderSigned", err)
+			}
+		})
 	}
 }
 
