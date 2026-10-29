@@ -12,52 +12,78 @@ import (
 // Named ticket rejections, so callers can map each to a reject code.
 var (
 	ErrTicketChain           = errors.New("dispatch ticket: wrong chain")
+	ErrTicketBuilder         = errors.New("dispatch ticket: not the stream's Builder")
 	ErrTicketSignature       = errors.New("dispatch ticket: Builder signature")
 	ErrTicketEpoch           = errors.New("dispatch ticket: vrf epoch")
 	ErrTicketReferenceHeight = errors.New("dispatch ticket: reference height")
 	ErrTicketVRF             = errors.New("dispatch ticket: vrf")
-	ErrTicketRoster          = errors.New("dispatch ticket: roster hash")
 	ErrTicketRoot            = errors.New("dispatch ticket: handraise root")
 	ErrTicketTarget          = errors.New("dispatch ticket: target")
 )
 
-// EpochBeacon is the committed beacon at the epoch start, as read from chain
-// authority. Verified must come from that authority, never from the ticket.
+// EpochBeacon is the committed beacon at an epoch start. Its fields are
+// unexported so a verified beacon can only be made by NewVerifiedBeacon; the
+// zero value is unverified and fails closed.
 type EpochBeacon struct {
-	Height     uint64
-	Randomness []byte // raw R_h, 32 bytes
-	Verified   bool
+	height     uint64
+	randomness []byte // raw R_h, 32 bytes
+	verified   bool
 }
 
-// TicketContext is what the node must already know from chain authority and
-// from its own records before it may trust a ticket (CD §5.1 check 1).
+// NewVerifiedBeacon records a beacon read from chain authority as committed
+// and verified. Only the chain-authority path may call it; never construct a
+// beacon from a ticket, an offer or a peer's assertion.
+func NewVerifiedBeacon(height uint64, randomness []byte) EpochBeacon {
+	return EpochBeacon{height: height, randomness: append([]byte(nil), randomness...), verified: true}
+}
+
+// TicketContext is what the node must already know before it may trust a
+// ticket. Every field comes from the stream's authenticated Builder, chain
+// authority or this node's own records -- never from the ticket itself.
 type TicketContext struct {
-	ChainID              string
+	ChainID string
+	// BuilderOperator is the operator the stream peer authenticated as; the
+	// ticket must name it.
+	BuilderOperator      string
 	SelfOperator         string
-	BuilderServicePubKey []byte // QueryCurrentServiceKey(BUILDER, ticket.builder_address)
-	BuilderVRFPubKey     []byte // Hub VrfKey for the Builder; 32 bytes
+	BuilderServicePubKey []byte // current service key of BuilderOperator, from chain
+	BuilderVRFPubKey     []byte // Hub VrfKey of BuilderOperator; 32 bytes
 	EpochLengthBlocks    uint64
 	EarliestSubmitHeight uint64 // from the SignedOrderV2 in the same offer
 	// Beacon is the verified beacon at the epoch start that
 	// EarliestSubmitHeight implies; wire's ResolveEpochSeed checks it.
 	Beacon          EpochBeacon
-	HeldRootDigests map[[32]byte]bool // roots this node holds from this Builder
+	HeldRootDigests map[[32]byte]bool // roots this node holds from BuilderOperator
 }
 
 // CheckTicket runs the ticket-legitimacy checks that need no live state:
-// Builder signature, epoch/reference height, VRF, root reference and target.
+// chain and Builder identity, Builder signature, root reference, target,
+// epoch/reference height and VRF.
 // Rank is deliberately not checked -- the Worker cannot see the roster.
-// Deadlines are not checked here either (accept_deadline_ms is the Builder's
-// clock; see plan C4).
+// Deadlines are not checked either: accept_deadline_ms is on the Builder's
+// clock, so it is never a protocol judgment for this node.
 func CheckTicket(t *taskv1.DispatchTicketV1, c TicketContext) error {
 	if t.GetChainId() != c.ChainID {
 		return fmt.Errorf("%w: ticket chain_id %q, want %q", ErrTicketChain, t.GetChainId(), c.ChainID)
 	}
+	if t.GetBuilderAddress() != c.BuilderOperator {
+		return fmt.Errorf("%w: ticket names %s, stream Builder is %s", ErrTicketBuilder, t.GetBuilderAddress(), c.BuilderOperator)
+	}
 	if err := VerifyBuilderSigned(t, c.BuilderServicePubKey); err != nil {
 		return fmt.Errorf("%w: %w", ErrTicketSignature, err)
 	}
+	// roster_hash and handraise_root_digest are exactly 32 bytes here: wire's
+	// signing projection, checked by the signature above, requires raw32.
+	var root [32]byte
+	copy(root[:], t.GetHandraiseRootDigest())
+	if !c.HeldRootDigests[root] {
+		return fmt.Errorf("%w: ticket references a handraise root this node does not hold", ErrTicketRoot)
+	}
+	if t.GetTarget().GetOperatorAddress() != c.SelfOperator {
+		return fmt.Errorf("%w: ticket targets %s, not this node", ErrTicketTarget, t.GetTarget().GetOperatorAddress())
+	}
 	seed, err := dispatch.ResolveEpochSeed(c.EarliestSubmitHeight, c.EpochLengthBlocks,
-		c.Beacon.Height, c.Beacon.Randomness, c.Beacon.Verified)
+		c.Beacon.height, c.Beacon.randomness, c.Beacon.verified)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTicketEpoch, err)
 	}
@@ -80,20 +106,6 @@ func CheckTicket(t *taskv1.DispatchTicketV1, c TicketContext) error {
 	}
 	if err := dispatch.VerifyDispatchVRF(c.BuilderVRFPubKey, alpha[:], t.GetVrfProof(), t.GetVrfOutput()); err != nil {
 		return fmt.Errorf("%w: %w", ErrTicketVRF, err)
-	}
-	if len(t.GetRosterHash()) != 32 {
-		return fmt.Errorf("%w: roster_hash is %d bytes", ErrTicketRoster, len(t.GetRosterHash()))
-	}
-	if len(t.GetHandraiseRootDigest()) != 32 {
-		return fmt.Errorf("%w: handraise_root_digest is %d bytes", ErrTicketRoot, len(t.GetHandraiseRootDigest()))
-	}
-	var root [32]byte
-	copy(root[:], t.GetHandraiseRootDigest())
-	if !c.HeldRootDigests[root] {
-		return fmt.Errorf("%w: ticket references a handraise root this node does not hold", ErrTicketRoot)
-	}
-	if t.GetTarget().GetOperatorAddress() != c.SelfOperator {
-		return fmt.Errorf("%w: ticket targets %s, not this node", ErrTicketTarget, t.GetTarget().GetOperatorAddress())
 	}
 	return nil
 }

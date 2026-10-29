@@ -54,6 +54,7 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		"task/builder_confirmation_v1.json",
 		"task/canonical_json_v1.json",
 		"task/task_domains_v1.json",
+		"task/dispatch_v1.json",
 		"hub/model_id_v1.json",
 		"hub/model_manifest_v4.json",
 		"hub/model_profile_canonical_v3.json",
@@ -99,5 +100,20 @@ func TestDispatchVectorsLoadSignedRows(t *testing.T) {
 		if !ok {
 			t.Fatalf("vector %s missing or incomplete", name)
 		}
+	}
+}
+
+func TestParseDispatchVectorsRefusesHalfPopulatedRows(t *testing.T) {
+	for name, doc := range map[string]string{
+		"name without bytes": `{"vectors":[{"name":"a","message_name":"task.v1.X","digest_hex":"00"}]}`,
+		"bytes without name": `{"vectors":[{"name":"a","protobuf_hex":"08","digest_hex":"00"}]}`,
+	} {
+		if _, err := parseDispatchVectors([]byte(doc)); err == nil {
+			t.Fatalf("%s: half-populated row accepted", name)
+		}
+	}
+	rows, err := parseDispatchVectors([]byte(`{"vectors":[{"name":"d","digest_hex":"00"},{"name":"m","message_name":"task.v1.X","protobuf_hex":"08"}]}`))
+	if err != nil || len(rows) != 1 || rows[0].Name != "m" {
+		t.Fatalf("rows=%v err=%v", rows, err)
 	}
 }

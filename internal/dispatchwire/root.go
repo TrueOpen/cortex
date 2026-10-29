@@ -1,6 +1,7 @@
 package dispatchwire
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -8,9 +9,21 @@ import (
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-// VerifyLeafPath is wire's handraise Merkle path check.
-func VerifyLeafPath(root, leaf [32]byte, index, count uint32, siblings [][32]byte) bool {
-	return dispatch.VerifyHandraiseProof(root, leaf, index, count, siblings)
+// Named inclusion rejections.
+var (
+	ErrInclusionChain     = errors.New("handraise inclusion: wrong chain")
+	ErrInclusionBuilder   = errors.New("handraise inclusion: wrong Builder")
+	ErrInclusionMalformed = errors.New("handraise inclusion: malformed proof")
+	ErrInclusionProof     = errors.New("handraise inclusion: path does not reach the signed root")
+)
+
+// InclusionContext identifies the Builder a root notice arrived from. All of
+// it comes from the stream's authenticated peer and chain authority, never
+// from the notice itself.
+type InclusionContext struct {
+	ChainID         string
+	BuilderOperator string // the stream's authenticated Builder operator
+	BuilderPubKey   []byte // its current service key, resolved from chain
 }
 
 // Inclusion is what a verified HandraiseRootNoticeV1 tells this node.
@@ -22,40 +35,53 @@ type Inclusion struct {
 	RTTMillis      uint64
 }
 
-// VerifyInclusion checks the Builder signature on the root, recomputes this
-// node's leaf from the standing handraise it carries, and walks the path. The
-// caller must also check that proof.leaf.handraise is a handraise this node
-// signed for this Builder (digest equality with its send log).
-func VerifyInclusion(root *taskv1.SignedHandraiseRootV1, proof *taskv1.HandraiseInclusionProofV1, builderPubKey []byte) (Inclusion, error) {
-	if err := VerifyBuilderSigned(root, builderPubKey); err != nil {
+// VerifyInclusion checks that the root and the carried standing handraise
+// both belong to the stream's Builder and chain, checks the Builder signature
+// on the root, recomputes this node's leaf and walks the path. The caller must
+// also check that proof.leaf.handraise is a handraise this node signed for
+// this Builder (digest equality with its send log).
+func VerifyInclusion(root *taskv1.SignedHandraiseRootV1, proof *taskv1.HandraiseInclusionProofV1, c InclusionContext) (Inclusion, error) {
+	if root.GetChainId() != c.ChainID {
+		return Inclusion{}, fmt.Errorf("%w: root chain_id %q, want %q", ErrInclusionChain, root.GetChainId(), c.ChainID)
+	}
+	if root.GetBuilderAddress() != c.BuilderOperator {
+		return Inclusion{}, fmt.Errorf("%w: root signed for %s, stream Builder is %s", ErrInclusionBuilder, root.GetBuilderAddress(), c.BuilderOperator)
+	}
+	if err := VerifyBuilderSigned(root, c.BuilderPubKey); err != nil {
 		return Inclusion{}, err
 	}
 	leaf := proof.GetLeaf()
-	if leaf.GetHandraise() == nil {
-		return Inclusion{}, fmt.Errorf("handraise inclusion proof carries no standing handraise")
+	handraise := leaf.GetHandraise()
+	if handraise == nil {
+		return Inclusion{}, fmt.Errorf("%w: no standing handraise", ErrInclusionMalformed)
 	}
-	standing, err := Digest(leaf.GetHandraise())
+	if handraise.GetChainId() != c.ChainID {
+		return Inclusion{}, fmt.Errorf("%w: handraise chain_id %q, want %q", ErrInclusionChain, handraise.GetChainId(), c.ChainID)
+	}
+	if handraise.GetBuilderAddress() != c.BuilderOperator {
+		return Inclusion{}, fmt.Errorf("%w: handraise is for %s, stream Builder is %s", ErrInclusionBuilder, handraise.GetBuilderAddress(), c.BuilderOperator)
+	}
+	standing, err := Digest(handraise)
 	if err != nil {
-		return Inclusion{}, err
+		return Inclusion{}, fmt.Errorf("%w: %w", ErrInclusionMalformed, err)
 	}
 	leafDigest, err := dispatch.HandraiseLeafDigest(standing, leaf.GetAdmitted(), uint32(leaf.GetAdmitRejectReason()), leaf.GetBuilderMeasuredRttMs())
 	if err != nil {
-		return Inclusion{}, fmt.Errorf("handraise leaf: %w", err)
+		return Inclusion{}, fmt.Errorf("%w: %w", ErrInclusionMalformed, err)
 	}
 	siblings := make([][32]byte, len(proof.GetSiblings()))
 	for i, s := range proof.GetSiblings() {
 		if len(s) != 32 {
-			return Inclusion{}, fmt.Errorf("sibling %d is %d bytes", i, len(s))
+			return Inclusion{}, fmt.Errorf("%w: sibling %d is %d bytes", ErrInclusionMalformed, i, len(s))
 		}
 		copy(siblings[i][:], s)
 	}
-	if len(root.GetRoot()) != 32 {
-		return Inclusion{}, fmt.Errorf("root is %d bytes", len(root.GetRoot()))
-	}
+	// root is exactly 32 bytes: wire's signing projection (checked above)
+	// requires raw32 for it.
 	var r [32]byte
 	copy(r[:], root.GetRoot())
 	if !dispatch.VerifyHandraiseProof(r, leafDigest, proof.GetLeafIndex(), root.GetLeafCount(), siblings) {
-		return Inclusion{}, fmt.Errorf("handraise inclusion proof does not reach the signed root")
+		return Inclusion{}, ErrInclusionProof
 	}
 	rootDigest, err := Digest(root)
 	if err != nil {

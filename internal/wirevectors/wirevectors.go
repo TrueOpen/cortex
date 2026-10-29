@@ -2,8 +2,10 @@
 // vectors to the tests that check this repository's digests against them.
 //
 // It exists because those vectors are consumed from more than one package --
-// internal/keepercontract derives three Hub domains and internal/chainclient
-// derives a fourth -- and a copy per package would be 80 KB of duplicated
+// internal/keepercontract derives three Hub domains, internal/chainclient
+// derives a fourth, and internal/dispatchwire pins every Phase 1 dispatch
+// digest, signature, inclusion proof and ticket VRF check to
+// task/dispatch_v1.json -- and a copy per package would be 80 KB of duplicated
 // fixture whose two halves could silently drift apart. The bytes are embedded
 // rather than read from disk so a caller's working directory cannot change
 // which file is checked.
@@ -174,6 +176,13 @@ func DispatchVectors() ([]DispatchVector, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseDispatchVectors(data)
+}
+
+// parseDispatchVectors keeps the rows that carry a message. A row with only
+// one of message_name/protobuf_hex is malformed and fails the whole file
+// rather than being silently dropped.
+func parseDispatchVectors(data []byte) ([]DispatchVector, error) {
 	var file struct {
 		Vectors []DispatchVector `json:"vectors"`
 	}
@@ -182,7 +191,12 @@ func DispatchVectors() ([]DispatchVector, error) {
 	}
 	var out []DispatchVector
 	for _, v := range file.Vectors {
-		if v.MessageName != "" && v.ProtobufHex != "" {
+		hasName, hasBytes := v.MessageName != "", v.ProtobufHex != ""
+		if hasName != hasBytes {
+			return nil, fmt.Errorf("wire %s dispatch vector %s is half populated (message_name=%q, protobuf_hex set=%v)",
+				WireVersion, v.Name, v.MessageName, hasBytes)
+		}
+		if hasName {
 			out = append(out, v)
 		}
 	}

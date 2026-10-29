@@ -122,15 +122,19 @@ func TestSignRejectsMissingOrMisshapedSigner(t *testing.T) {
 		BuilderOperator:           "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
 		CortexOperator:            "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
 		ServiceAuthorizationNonce: 1, StreamNonce: bytes.Repeat([]byte{7}, 32)}
-	if err := SignBinding(ctx, b, nil); err == nil {
-		t.Fatal("nil signer accepted")
+	stale := bytes.Repeat([]byte{0xee}, 64)
+	b.ServiceSignature = stale
+	if err := SignBinding(ctx, b, nil); err == nil || b.ServiceSignature != nil {
+		t.Fatalf("nil signer: err=%v sig=%x", err, b.ServiceSignature)
 	}
+	b.ServiceSignature = stale
 	der := DigestSigner(func(context.Context, [32]byte) ([]byte, error) { return make([]byte, 71), nil })
 	if err := SignBinding(ctx, b, der); err == nil || b.ServiceSignature != nil {
 		t.Fatalf("non-raw64 signature accepted: err=%v sig=%x", err, b.ServiceSignature)
 	}
+	b.ServiceSignature = stale
 	failing := DigestSigner(func(context.Context, [32]byte) ([]byte, error) { return nil, errors.New("hsm down") })
-	if err := SignBinding(ctx, b, failing); err == nil {
-		t.Fatal("signer error swallowed")
+	if err := SignBinding(ctx, b, failing); err == nil || b.ServiceSignature != nil {
+		t.Fatalf("failing signer: err=%v sig=%x", err, b.ServiceSignature)
 	}
 }

@@ -77,8 +77,10 @@ func TestDigestMatchesWireVectors(t *testing.T) {
 			t.Fatalf("%s: digest %x, want %s", row.Name, got, row.DigestHex)
 		}
 	}
-	if len(rows) < 15 {
-		t.Fatalf("only %d message vectors checked", len(rows))
+	// wire 916e393 publishes exactly 19 message rows; a change in that count
+	// is a fixture change this test must be revisited for.
+	if len(rows) != 19 {
+		t.Fatalf("%d message vectors checked, want 19", len(rows))
 	}
 }
 

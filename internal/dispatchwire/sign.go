@@ -18,10 +18,10 @@ type DigestSigner func(context.Context, [32]byte) ([]byte, error)
 // sign clears the signature field, takes the projection digest and stores the
 // signer's raw64 result. On any failure the field is left empty, never stale.
 func sign(ctx context.Context, msg proto.Message, s DigestSigner, set func([]byte)) error {
+	set(nil)
 	if s == nil {
 		return fmt.Errorf("sign %s: no signer", Name(msg))
 	}
-	set(nil)
 	d, err := Digest(msg)
 	if err != nil {
 		return err
