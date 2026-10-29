@@ -10,7 +10,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/store"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
@@ -28,7 +28,7 @@ func TestVerifierAssignmentNotifyIsAcknowledgedByANodeTheChainDidNotSelect(t *te
 	runner := notifyTestRunner(t, "verifier-9")
 	message := notifyTestMessage()
 
-	if err := runner.recordVerifierAssignment(ctx, notifyTestEnvelope(t, message), message); err != nil {
+	if err := runner.recordVerifierAssignment(ctx, message); err != nil {
 		t.Fatalf("recordVerifierAssignment() error = %v, want an acknowledged no-op for an unselected node", err)
 	}
 }
@@ -43,7 +43,7 @@ func TestVerifierAssignmentNotifyNamesTheLocalRecordItIsWaitingFor(t *testing.T)
 	runner := notifyTestRunner(t, "verifier-1")
 	message := notifyTestMessage()
 
-	err := runner.recordVerifierAssignment(ctx, notifyTestEnvelope(t, message), message)
+	err := runner.recordVerifierAssignment(ctx, message)
 	if err == nil || !builderclient.IsRetryable(err) {
 		t.Fatalf("recordVerifierAssignment() error = %v, want a retryable wait for the selected node", err)
 	}
@@ -68,7 +68,7 @@ func TestVerifierAssignmentNotifyWithoutAnOutputHashIsRefusedPermanently(t *test
 	incomplete := fixture.keeperVerifierAssignment()
 	incomplete.OutputHash = nil
 
-	err := fixture.runner.recordVerifierAssignment(ctx, fixture.verifierAssignmentEnvelope(t, incomplete), incomplete)
+	err := fixture.runner.recordVerifierAssignment(ctx, incomplete)
 	if err == nil {
 		t.Fatal("recordVerifierAssignment() = nil, want a refusal for a notify with no output hash")
 	}
@@ -96,9 +96,9 @@ func notifyTestRunner(t *testing.T, localVerifier string) *TaskRunner {
 	})
 }
 
-func notifyTestMessage() *busv1.VerifierAssignmentNotifyV1 {
+func notifyTestMessage() *nexusv1.VerifierAssignmentNotifyV1 {
 	taskID, _ := hex.DecodeString(notifyTestTaskID)
-	return &busv1.VerifierAssignmentNotifyV1{
+	return &nexusv1.VerifierAssignmentNotifyV1{
 		TaskId: taskID, VerifyRound: 1,
 		Verifiers: []*bustaskv1.SelectedVerifierV1{
 			{OperatorAddress: "verifier-1"}, {OperatorAddress: "verifier-2"}, {OperatorAddress: "verifier-3"},
@@ -106,10 +106,4 @@ func notifyTestMessage() *busv1.VerifierAssignmentNotifyV1 {
 		OutputHash:       make([]byte, 32),
 		OpenVerifyHeight: 22, CommitDeadlineHeight: 30, RevealDeadlineHeight: 50, VerifyDeadlineHeight: 60,
 	}
-}
-
-func notifyTestEnvelope(t *testing.T, message *busv1.VerifierAssignmentNotifyV1) builderclient.BusEnvelope {
-	t.Helper()
-	return testBusEnvelope(t, builderclient.KindVerifierAssignmentNotify, builderclient.ParticipantBuilder,
-		builderclient.NATSVerifierAssignmentSubject(notifyTestTaskID), message)
 }

@@ -36,7 +36,7 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// Every v0.5.1 file this repository derives must be registered in the
+// Every 916e393 file this repository derives must be registered in the
 // release manifest.
 func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{
@@ -64,7 +64,7 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		}
 	}
 	if _, err := File("task/infer_receipt_v2.json"); err == nil {
-		t.Fatal("File() error = nil for a file wire v0.5.1 does not publish")
+		t.Fatal("File() error = nil for a file wire 916e393 does not publish")
 	}
 }
 

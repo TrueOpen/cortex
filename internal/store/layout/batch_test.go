@@ -1,7 +1,6 @@
 package layout
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -249,116 +248,12 @@ func TestUpsertChallengeRespectsPosition(t *testing.T) {
 	}
 }
 
-func TestAdmissionBatchRejectsStaleReplacement(t *testing.T) {
-	ctx := context.Background()
-	s := openTestLayout(t)
-	sessionID := "session-1"
-	orderSequence := uint64(7)
-
-	firstHash := hash("first-task")
-	first := CandidateAdmission{SignedOrder: []byte("order1"), HandraiseDigest: firstHash, PublishTS: 100}
-	if err := AdmissionBatch(ctx, s, sessionID, orderSequence, firstHash, first); err != nil {
-		t.Fatalf("admission: %v", err)
-	}
-
-	secondHash := hash("second-task")
-	second := CandidateAdmission{SignedOrder: []byte("order2"), HandraiseDigest: secondHash, PublishTS: 50}
-	if err := AdmissionBatch(ctx, s, sessionID, orderSequence, secondHash, second); !errors.Is(err, ErrStaleCandidateReplacement) {
-		t.Fatalf("stale replacement err = %v, want ErrStaleCandidateReplacement", err)
-	}
-
-	// Locator and first candidate should remain.
-	locator, err := s.GetRaw(ctx, CandidateCurrentKey(sessionID, orderSequence))
-	if err != nil || !bytes.Equal(locator, firstHash[:]) {
-		t.Fatalf("locator = %x, want %x", locator, firstHash[:])
-	}
-	if _, err := s.GetRaw(ctx, CandidateKey(firstHash)); err != nil {
-		t.Fatalf("first candidate should remain: %v", err)
-	}
-}
-
-func TestAdmissionBatchAllowsCandidateSchemaUpgradeAtSamePublishTime(t *testing.T) {
-	ctx := context.Background()
-	s := openTestLayout(t)
-	taskHash := hash("candidate-schema-upgrade")
-	legacy := CandidateAdmission{
-		SchemaVersion: 1, SignedOrder: []byte("order"), HandraisePayload: []byte("legacy-base64-frame"),
-		HandraiseDigest: hash("legacy-base64-frame"), PublishTS: 100, DedupID: "stable-dedup",
-	}
-	if err := AdmissionBatch(ctx, s, "session-1", 1, taskHash, legacy); err != nil {
-		t.Fatalf("write legacy candidate: %v", err)
-	}
-	current := legacy
-	current.SchemaVersion = 2
-	current.HandraisePayload = []byte("current-hex-frame")
-	current.HandraiseDigest = hash("current-hex-frame")
-	if err := AdmissionBatch(ctx, s, "session-1", 1, taskHash, current); err != nil {
-		t.Fatalf("upgrade candidate schema at the same publish time: %v", err)
-	}
-	stored, err := GetCandidateAdmission(ctx, s, taskHash)
-	if err != nil {
-		t.Fatalf("read upgraded candidate: %v", err)
-	}
-	if !candidateAdmissionsEqual(stored, current) {
-		t.Fatalf("stored candidate = %#v, want schema-upgraded %#v", stored, current)
-	}
-}
-
-func TestAdmissionBatchRejectsFutureCandidateSchema(t *testing.T) {
-	ctx := context.Background()
-	s := openTestLayout(t)
-	err := AdmissionBatch(ctx, s, "session-1", 1, hash("future-candidate"), CandidateAdmission{
-		SchemaVersion: CandidateAdmissionSchemaVersion + 1,
-	})
-	if err == nil {
-		t.Fatal("AdmissionBatch accepted a future candidate schema")
-	}
-}
-
-func TestAdmissionBatchRepointsLocator(t *testing.T) {
-	ctx := context.Background()
-	s := openTestLayout(t)
-	sessionID := "session-1"
-	orderSequence := uint64(7)
-
-	oldHash := hash("old-task")
-	admission1 := CandidateAdmission{SignedOrder: []byte("order1"), HandraiseDigest: oldHash, PublishTS: 100}
-	if err := AdmissionBatch(ctx, s, sessionID, orderSequence, oldHash, admission1); err != nil {
-		t.Fatalf("admission1: %v", err)
-	}
-
-	newHash := hash("new-task")
-	admission2 := CandidateAdmission{SignedOrder: []byte("order2"), HandraiseDigest: newHash, PublishTS: 200}
-	if err := AdmissionBatch(ctx, s, sessionID, orderSequence, newHash, admission2); err != nil {
-		t.Fatalf("admission2: %v", err)
-	}
-
-	// Old candidate should be deleted.
-	if _, err := s.GetRaw(ctx, CandidateKey(oldHash)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("old candidate should be deleted: %v", err)
-	}
-
-	// Locator should point to new task.
-	locator, err := s.GetRaw(ctx, CandidateCurrentKey(sessionID, orderSequence))
-	if err != nil {
-		t.Fatalf("locator: %v", err)
-	}
-	if !bytes.Equal(locator, newHash[:]) {
-		t.Fatalf("locator points to wrong hash")
-	}
-}
-
 func TestAssignmentTransferBatch(t *testing.T) {
 	ctx := context.Background()
 	s := openTestLayout(t)
 	sessionID := "session-1"
 	orderSequence := uint64(7)
 	taskHash := hash("task")
-
-	admission := CandidateAdmission{SignedOrder: []byte("order"), HandraiseDigest: taskHash}
-	if err := AdmissionBatch(ctx, s, sessionID, orderSequence, taskHash, admission); err != nil {
-		t.Fatalf("admission: %v", err)
-	}
 
 	task := TaskRecord{SessionID: sessionID, OrderSequence: orderSequence, ModelID: "model"}
 	infer := InferRecord{Stage: StageQueued, TaskID: "task-1"}
@@ -371,13 +266,6 @@ func TestAssignmentTransferBatch(t *testing.T) {
 	}
 	if _, err := GetInferRecord(ctx, s, taskHash); err != nil {
 		t.Fatalf("infer missing: %v", err)
-	}
-	// With terminal-only admission cleanup, candidate/locator are left intact.
-	if _, err := s.GetRaw(ctx, CandidateKey(taskHash)); err != nil {
-		t.Fatalf("candidate should remain until terminal: %v", err)
-	}
-	if _, err := s.GetRaw(ctx, CandidateCurrentKey(sessionID, orderSequence)); err != nil {
-		t.Fatalf("locator should remain until terminal: %v", err)
 	}
 
 	// Idempotent replay succeeds.
@@ -644,29 +532,6 @@ func TestMergeInferRejectsConflictingWriteOnceFields(t *testing.T) {
 	}
 }
 
-func TestAdmissionBatchRefusesConflictingSameHash(t *testing.T) {
-	ctx := context.Background()
-	s := openTestLayout(t)
-	taskHash := hash("task")
-	admission := CandidateAdmission{SignedOrder: []byte("order-1"), HandraiseDigest: taskHash, PublishTS: 100}
-	if err := AdmissionBatch(ctx, s, "session-1", 1, taskHash, admission); err != nil {
-		t.Fatalf("admission: %v", err)
-	}
-	// Identical replay succeeds.
-	if err := AdmissionBatch(ctx, s, "session-1", 1, taskHash, admission); err != nil {
-		t.Fatalf("identical replay: %v", err)
-	}
-	// Same hash, different content, same PublishTS is refused.
-	conflict := admission
-	conflict.SignedOrder = []byte("order-2")
-	if err := AdmissionBatch(ctx, s, "session-1", 1, taskHash, conflict); err == nil {
-		t.Fatal("expected conflicting admission with same hash to fail")
-	}
-}
-
-// The claim marks completed work, not an attempt. An incomplete row means an
-// earlier delivery took the claim and then died, and suppressing on that would
-// strand the task with no confirmation and no handraise.
 func TestVerifyAdmissionSuppressesOnlyACompletedClaim(t *testing.T) {
 	ctx := context.Background()
 	s := openTestLayout(t)

@@ -151,8 +151,8 @@ func TestOpenVerifyBeforeTheWindowStillRaisesItsHandOnceTheWindowOpens(t *testin
 		}
 		chain.advance(1)
 	}
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published = %#v, want nothing while the draw does not exist", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published = %#v, want nothing while the draw does not exist", fixture.sender.handraises)
 	}
 
 	// The Beacon lands. No further frame arrives -- the Builder is done sending.
@@ -172,8 +172,8 @@ func TestOpenVerifyBeforeTheWindowStillRaisesItsHandOnceTheWindowOpens(t *testin
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("a late frame after the re-driven handraise: %v", err)
 	}
-	if len(fixture.builder.published) != 1 {
-		t.Fatalf("published = %d, want the one handraise", len(fixture.builder.published))
+	if len(fixture.sender.handraises) != 1 {
+		t.Fatalf("published = %d, want the one handraise", len(fixture.sender.handraises))
 	}
 }
 
@@ -232,8 +232,8 @@ func TestVerifierHandraiseRedriveStopsWhenTheWindowCloses(t *testing.T) {
 	requireTraceFields(t, fixture.trace.event(t, "verifier_window_closed"),
 		`task="`+fixture.taskID+`"`, "verify_round=1", "waits=1", "current_height=11")
 	requireTraceLevel(t, fixture.trace, "verifier_window_closed", slog.LevelError)
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published = %#v, want nothing after the window closed", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published = %#v, want nothing after the window closed", fixture.sender.handraises)
 	}
 
 	// Nothing is owed any more: the round is not re-driven at the next height.
@@ -302,30 +302,6 @@ func TestVerifierHandraiseRedriveIsAbandonedAtTheVerifyDeadlineBound(t *testing.
 	}
 }
 
-// The OUTPUT_AVAILABLE hint arrives on a JetStream subject, which redelivers it
-// (inboxWillRedeliver). Arming the local re-drive for it as well would run two
-// attempts at one task-round from two schedulers, and the at-most-once claim
-// does not suppress a duplicate until the first attempt has completed it.
-func TestOutputAvailableHintIsNotRedrivenBecauseItsTransportRedeliversIt(t *testing.T) {
-	fixture, chain, window := newRedriveFixture(t)
-
-	if err := fixture.deliver(t, fixture.fullHint()); err == nil {
-		t.Fatal("the hint was admitted, want a wait")
-	}
-	if window.queries() != 1 {
-		t.Fatalf("window queries after the hint = %d, want 1", window.queries())
-	}
-	window.becomeReady()
-	chain.advance(1)
-	if err := fixture.runner.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce() error = %v", err)
-	}
-	if window.queries() != 1 || len(fixture.builder.published) != 0 {
-		t.Fatalf("queries = %d published = %d, want the hint left to its own transport",
-			window.queries(), len(fixture.builder.published))
-	}
-}
-
 // Only a retryable refusal is owed another attempt. A frame contradicting the
 // Keeper snapshot is not a wait at any height, and re-driving it would mean
 // re-deciding a question the chain has already answered - on a schedule, with no
@@ -344,9 +320,9 @@ func TestVerifierHandraiseRedriveIgnoresAFrameTheChainContradicts(t *testing.T) 
 	if err := fixture.runner.RunOnce(context.Background()); err != nil {
 		t.Fatalf("RunOnce() error = %v", err)
 	}
-	if window.queries() != 0 || len(fixture.builder.published) != 0 {
+	if window.queries() != 0 || len(fixture.sender.handraises) != 0 {
 		t.Fatalf("queries = %d published = %d, want a contradicted frame dropped for good",
-			window.queries(), len(fixture.builder.published))
+			window.queries(), len(fixture.sender.handraises))
 	}
 }
 
@@ -364,8 +340,8 @@ func TestVerifierHandraiseRedriveRetriesAPrecheckRejection(t *testing.T) {
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err == nil {
 		t.Fatal("OpenVerify was admitted with no free slot, want the precheck rejection")
 	}
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published = %#v, want nothing from a rejected precheck", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published = %#v, want nothing from a rejected precheck", fixture.sender.handraises)
 	}
 	requireTraceLevel(t, fixture.trace, "verifier_handraise", slog.LevelError)
 

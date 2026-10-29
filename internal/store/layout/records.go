@@ -3,10 +3,6 @@ package layout
 import "github.com/TrueOpen/cortex/internal/codec"
 
 const (
-	// Admission schema v2 marks handraises whose service_signature is canonical
-	// lowercase hex. Schema v1 records contain the retired base64 wire spelling
-	// and must be re-signed rather than replayed after an upgrade.
-	CandidateAdmissionSchemaVersion = uint16(2)
 	// Verifier admission schema v3 retains the authenticated OPEN_VERIFY sender
 	// that declared its local task data ready. V2 handraises remain valid, but a
 	// v2 row has no Builder to use if this node is later selected as a Verifier.
@@ -47,45 +43,6 @@ const (
 	ArtifactWorkerOutputDescriptor       ArtifactKind = "worker-output-descriptor"
 	ArtifactWorkerResult                 ArtifactKind = "worker-result"
 )
-
-// CandidateAdmission records a Worker's pre-assignment handraise. It is written
-// only after this node decides to handraise for a pre-assignment order.
-type CandidateAdmission struct {
-	SchemaVersion uint16 `json:"schema_version"`
-
-	// SignedOrder is the order_envelope carrier exactly as the OPEN_TASK frame
-	// spelled it: hex-encoded proto task.v1.SignedOrderV1 from a contract-v1
-	// Builder, or the legacy proto3 JSON TaskOrderV1 from the pre-contract path.
-	// Storing the received document keeps Cortex from maintaining a mirror of the
-	// frozen field set, which would silently compute a wrong digest on drift - and
-	// keeps the stored bytes re-derivable into the same task_hash whichever
-	// carrier they came in on.
-	SignedOrder []byte `json:"signed_order"`
-
-	// Signed WorkerHandraise BusEnvelope bytes. Admission schema upgrades decide
-	// whether these exact bytes remain replayable or must be re-signed first.
-	HandraisePayload []byte     `json:"handraise_payload"`
-	HandraiseDigest  StoredHash `json:"handraise_digest"`
-	PublishTS        int64      `json:"publish_ts"`
-
-	// InputSizeBytes is the user-signed input size from the accepted TaskOrderV1.
-	// Zero means the size was not available at admission time.
-	InputSizeBytes uint64 `json:"input_size_bytes,omitempty"`
-
-	// DedupID is the stable transport dedup ID for this handraise. It survives
-	// envelope regeneration and must be used when republishing.
-	DedupID string `json:"dedup_id,omitempty"`
-
-	// BroadcastingBuilder is the operator address of the Builder that broadcast this
-	// order, taken from the verified sender field of the ORDER_BROADCAST envelope. It
-	// is the reliable answer to "who to fetch the input from": only a Builder that
-	// accepted the order broadcasts it, so the sender necessarily holds that input.
-	//
-	// Keeper's task snapshot does not currently serve builder_operator_address, and
-	// the chain has no field saying which Builder is the receiver, so without this
-	// source the Worker cannot get its input.
-	BroadcastingBuilder string `json:"broadcasting_builder,omitempty"`
-}
 
 // VerifierAdmission records a Verifier's pre-assignment handraise for one
 // verify round. It prevents duplicate output fetches and second handraises on a

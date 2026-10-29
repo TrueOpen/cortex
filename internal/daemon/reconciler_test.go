@@ -14,12 +14,12 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 )
 
-func TestReconcilerEmitsReplayStableAssignmentEffectsByTaskHash(t *testing.T) {
+func TestReconcilerEmitsReplayStableEffectsByTaskHash(t *testing.T) {
 	ctx := context.Background()
 	hash := codec.HashWithDomain("TEST_ORDER", []byte("task-1"))
 	snapshot := validTaskSnapshot("session-1", "task-1", hash)
 	r := NewReconciler(ReconcilerOptions{TaskReader: staticKeeperTaskReader{snapshot: snapshot}})
-	event := chainclient.KeeperEvent{Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "task-1", SessionID: "session-1", Worker: "worker-1", Height: 12}
+	event := chainclient.KeeperEvent{Type: chainclient.KeeperEventWorkerTimeout, TaskID: "task-1", SessionID: "session-1", Worker: "worker-1", Height: 12}
 
 	first, err := r.Apply(ctx, []chainclient.KeeperEvent{event})
 	if err != nil {
@@ -32,7 +32,7 @@ func TestReconcilerEmitsReplayStableAssignmentEffectsByTaskHash(t *testing.T) {
 	if !reflect.DeepEqual(second, first) {
 		t.Fatalf("replayed effects = %#v, want stable %#v", second, first)
 	}
-	if len(first) != 1 || first[0].Type != ReconcilerEffectAssignment || first[0].TaskHash != hash || first[0].TaskID != "task-1" {
+	if len(first) != 1 || first[0].Type != ReconcilerEffectInferTerminal || first[0].TaskHash != hash || first[0].TaskID != "task-1" {
 		t.Fatalf("effects = %#v, want task-hash-keyed assignment", first)
 	}
 	if first[0].AssignmentDigest == (codec.Hash{}) {
@@ -106,7 +106,7 @@ func TestReconcilerNeverEmitsTerminalEffectWithoutAuthoritativeTaskSnapshot(t *t
 	var quarantined []chainclient.KeeperEvent
 	r := NewReconciler(ReconcilerOptions{OnQuarantinedEvent: func(event chainclient.KeeperEvent) { quarantined = append(quarantined, event) }})
 	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{{
-		Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-terminal", SessionID: "session-1", OrderDigest: hash, Height: 30,
+		Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-terminal", SessionID: "session-1", OrderDigest: hash, Height: 30,
 	}})
 	if err != nil || len(effects) != 0 {
 		t.Fatalf("Apply() effects=%#v error=%v, want no unverified terminal deletion", effects, err)
@@ -149,7 +149,7 @@ func TestReconcilerRequiresTaskHashForDurableEffect(t *testing.T) {
 		TaskReader:         staticKeeperTaskReader{snapshot: snapshot},
 		OnQuarantinedEvent: func(event chainclient.KeeperEvent) { quarantined = append(quarantined, event) },
 	})
-	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-no-hash", SessionID: "session-1", Height: 10}})
+	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-no-hash", SessionID: "session-1", Height: 10}})
 	if err != nil || len(effects) != 0 {
 		t.Fatalf("Apply() effects=%#v error=%v, want no effect keyed by a hash that does not exist", effects, err)
 	}
@@ -163,8 +163,8 @@ func TestReconcilerSkipsQuarantinedEventAndContinues(t *testing.T) {
 	var quarantined []chainclient.KeeperEvent
 	r := NewReconciler(ReconcilerOptions{TaskReader: staticKeeperTaskReader{snapshot: validTaskSnapshot("session-1", "good", hash)}, OnQuarantinedEvent: func(event chainclient.KeeperEvent) { quarantined = append(quarantined, event) }})
 	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{
-		{Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "bad", Height: 10, Quarantined: true},
-		{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "good", SessionID: "session-1", OrderDigest: hash, Height: 10},
+		{Type: chainclient.KeeperEventWorkerTimeout, TaskID: "bad", Height: 10, Quarantined: true},
+		{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "good", SessionID: "session-1", OrderDigest: hash, Height: 10},
 	})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -209,7 +209,7 @@ func TestReconcilerEffectTaskHashFromAcceptedTaskHash(t *testing.T) {
 	snapshot := validTaskSnapshot("session-1", "task-1", acceptedHash)
 	r := NewReconciler(ReconcilerOptions{TaskReader: staticKeeperTaskReader{snapshot: snapshot}})
 	event := chainclient.KeeperEvent{
-		Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "task-1", SessionID: "session-1",
+		Type: chainclient.KeeperEventWorkerTimeout, TaskID: "task-1", SessionID: "session-1",
 		Worker: "worker-1", Height: 12, OrderDigest: orderDigest,
 	}
 	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{event})
@@ -259,7 +259,7 @@ func TestReconcilerEffectTaskHashFromGoldenFixture(t *testing.T) {
 	snapshot := validTaskSnapshot("session-1", "task-1", accepted)
 	r := NewReconciler(ReconcilerOptions{TaskReader: staticKeeperTaskReader{snapshot: snapshot}})
 	event := chainclient.KeeperEvent{
-		Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "task-1", SessionID: "session-1",
+		Type: chainclient.KeeperEventWorkerTimeout, TaskID: "task-1", SessionID: "session-1",
 		Worker: "worker-1", Height: 12, OrderDigest: orderDigestHash,
 	}
 	effects, err := r.Apply(ctx, []chainclient.KeeperEvent{event})
@@ -383,7 +383,7 @@ func TestNonTerminalEventDoesNotFallBackToLocalState(t *testing.T) {
 		LocalTaskHash:      func(context.Context, string) (codec.Hash, bool) { return hash, true },
 	})
 	effects, err := r.Apply(context.Background(), []chainclient.KeeperEvent{{
-		Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "assigned-task", SessionID: "session-1",
+		Type: chainclient.KeeperEventWorkerTimeout, TaskID: "assigned-task", SessionID: "session-1",
 		Worker: "worker-1", Height: 12,
 	}})
 	if err != nil || len(effects) != 0 || len(quarantined) != 1 {
@@ -441,9 +441,9 @@ func TestReconcilerReplaysPhaseEventsOfSettledTasksWithoutStalling(t *testing.T)
 			},
 		},
 		{
-			name: "assignment finalized with a compacted infer deadline",
+			name: "worker timeout with a compacted infer deadline",
 			event: chainclient.KeeperEvent{
-				Type: chainclient.KeeperEventAssignmentFinalized, TaskID: "settled-task", SessionID: "session-1", Height: 15011,
+				Type: chainclient.KeeperEventWorkerTimeout, TaskID: "settled-task", SessionID: "session-1", Height: 15011,
 				Worker: "worker-1", InferDeadlineHeight: 115011,
 			},
 		},

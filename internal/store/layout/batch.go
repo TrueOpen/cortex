@@ -29,10 +29,6 @@ var (
 	// ErrInvalidFinishReason is returned when an infer record references an
 	// unknown FinishReasonV1.
 	ErrInvalidFinishReason = errors.New("invalid finish reason")
-
-	// ErrStaleCandidateReplacement is returned when a candidate replacement does
-	// not advance the publish time.
-	ErrStaleCandidateReplacement = errors.New("candidate replacement does not advance publish time")
 )
 
 // MergeTask merges an authoritative Keeper task record into the store. Every
@@ -224,127 +220,6 @@ func UpsertChallenge(ctx context.Context, s *store.Store, taskHash StoredHash, c
 	})
 }
 
-// AdmissionBatch atomically commits candidate creation or replacement, plus any
-// superseded-candidate deletion.
-func AdmissionBatch(ctx context.Context, s *store.Store, sessionID string, orderSequence uint64, taskHash StoredHash, admission CandidateAdmission) error {
-	admission.SchemaVersion = defaultSchemaVersion(admission.SchemaVersion)
-	if admission.SchemaVersion > CandidateAdmissionSchemaVersion {
-		return fmt.Errorf("candidate admission schema_version %d is newer than supported %d", admission.SchemaVersion, CandidateAdmissionSchemaVersion)
-	}
-	locatorKey := CandidateCurrentKey(sessionID, orderSequence)
-	candidateKey := CandidateKey(taskHash)
-	encoded, err := json.Marshal(admission)
-	if err != nil {
-		return fmt.Errorf("encode candidate admission: %w", err)
-	}
-
-	return s.ApplyBatch(ctx, func(b *store.Batch) error {
-		locatorValue, err := b.Get(locatorKey)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("read locator: %w", err)
-		}
-
-		// Validate the locator value is well-formed.
-		if len(locatorValue) != 0 && len(locatorValue) != len(taskHash) {
-			return fmt.Errorf("candidate locator is corrupt")
-		}
-
-		if len(locatorValue) == len(taskHash) && bytes.Equal(locatorValue, taskHash[:]) {
-			// Same taskHash already at this locator. Accept only identical replay; a
-			// different order for the same hash must advance PublishTS.
-			existing, err := candidateAdmissionFromBatch(b, taskHash)
-			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("read candidate: %w", err)
-			}
-			if err == nil {
-				if candidateAdmissionsEqual(existing, admission) {
-					// Identical replay: leave locator and candidate untouched.
-					return nil
-				}
-				if existing.SchemaVersion < admission.SchemaVersion {
-					if !candidateAdmissionUpgradeCompatible(existing, admission) {
-						return fmt.Errorf("%w: candidate schema upgrade changes stable identity", ErrConflict)
-					}
-					if err := b.Set(candidateKey, encoded); err != nil {
-						return fmt.Errorf("set schema-upgraded candidate: %w", err)
-					}
-					return nil
-				}
-				if existing.PublishTS != 0 && admission.PublishTS <= existing.PublishTS {
-					return ErrStaleCandidateReplacement
-				}
-			}
-			if err := b.Set(candidateKey, encoded); err != nil {
-				return fmt.Errorf("set candidate: %w", err)
-			}
-			return nil
-		}
-
-		// If the locator points at a different task hash, require PublishTS advance.
-		if len(locatorValue) == len(taskHash) {
-			prevHash := StoredHash(locatorValue)
-			prevAdmission, err := candidateAdmissionFromBatch(b, prevHash)
-			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("read superseded candidate: %w", err)
-			}
-			if err == nil {
-				if admission.PublishTS <= prevAdmission.PublishTS {
-					return ErrStaleCandidateReplacement
-				}
-			}
-			if err := b.Delete(CandidateKey(prevHash)); err != nil {
-				return fmt.Errorf("delete superseded candidate: %w", err)
-			}
-		}
-
-		if err := b.Set(candidateKey, encoded); err != nil {
-			return fmt.Errorf("set candidate: %w", err)
-		}
-		if err := b.Set(locatorKey, taskHash[:]); err != nil {
-			return fmt.Errorf("set locator: %w", err)
-		}
-		return nil
-	})
-}
-
-// ReleaseCandidateAdmission drops the candidate rows of an order this node is
-// no longer obliged to serve — the chain finalized the assignment to another
-// Worker.
-//
-// It is the counterpart AdmissionBatch never had. The candidate row exists so a
-// restart mid-handraise can still publish the signed document it already
-// committed to; once the winner is decided that obligation is discharged, and
-// this store holds restart obligations and nothing else. Without a release,
-// every order a node bids on and loses leaves a permanent row.
-//
-// The locator is only removed while it still points at this task hash: a newer
-// candidate may already have replaced this one at the same (session, order),
-// and taking its locator would orphan a live obligation. Both deletes land in
-// one batch, and releasing an already-released candidate is a no-op, because a
-// redelivered notification arrives at exactly that state.
-func ReleaseCandidateAdmission(ctx context.Context, s *store.Store, sessionID string, orderSequence uint64, taskHash StoredHash) error {
-	locatorKey := CandidateCurrentKey(sessionID, orderSequence)
-	return s.ApplyBatch(ctx, func(b *store.Batch) error {
-		if err := b.Delete(CandidateKey(taskHash)); err != nil {
-			return fmt.Errorf("delete candidate: %w", err)
-		}
-		locatorValue, err := b.Get(locatorKey)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return nil
-			}
-			return fmt.Errorf("read locator: %w", err)
-		}
-		if len(locatorValue) != len(taskHash) || !bytes.Equal(locatorValue, taskHash[:]) {
-			return nil
-		}
-		if err := b.Delete(locatorKey); err != nil {
-			return fmt.Errorf("delete locator: %w", err)
-		}
-		return nil
-	})
-}
-
 // VerifyAdmissionBatch writes a verifier pre-assignment handraise for one
 // verify round, idempotent by (taskHash, verifyRound). It is used to prevent
 // duplicate output fetches and repeated handraises on a duplicate
@@ -510,27 +385,8 @@ func storedHashesCompatible(a, b StoredHash) bool {
 	return a.IsZero() || b.IsZero() || a == b
 }
 
-// inferRecordsEqual compares two InferRecord values for idempotency.
-func candidateAdmissionsEqual(a, b CandidateAdmission) bool {
-	return a.PublishTS == b.PublishTS &&
-		a.SchemaVersion == b.SchemaVersion &&
-		string(a.SignedOrder) == string(b.SignedOrder) &&
-		string(a.HandraisePayload) == string(b.HandraisePayload) &&
-		a.HandraiseDigest == b.HandraiseDigest &&
-		a.InputSizeBytes == b.InputSizeBytes &&
-		a.DedupID == b.DedupID
-}
-
-func candidateAdmissionUpgradeCompatible(a, b CandidateAdmission) bool {
-	inputSizeCompatible := a.InputSizeBytes == 0 || a.InputSizeBytes == b.InputSizeBytes
-	return a.PublishTS == b.PublishTS &&
-		string(a.SignedOrder) == string(b.SignedOrder) &&
-		inputSizeCompatible &&
-		a.DedupID == b.DedupID
-}
-
 // InferAssignmentBatch atomically creates task/ and infer/ for a Worker assignment.
-// Candidate admission is left intact; it is deleted by TaskTerminalBatch. Replays
+// Replays
 // with identical records are idempotent; a conflicting existing record returns an error.
 func InferAssignmentBatch(ctx context.Context, s *store.Store, taskHash StoredHash, task TaskRecord, infer InferRecord) error {
 	task.SchemaVersion = defaultSchemaVersion(task.SchemaVersion)
@@ -684,16 +540,6 @@ func TaskTerminalBatch(ctx context.Context, s *store.Store, taskHash StoredHash,
 				return err
 			}
 		}
-		if err := b.Delete(CandidateKey(taskHash)); err != nil {
-			return err
-		}
-
-		// Delete every new-layout candidate-current locator that points to this
-		// task hash. This scans only the v2 candidate-current prefix, so it does
-		// not touch legacy locators.
-		if err := deleteLocatorForTaskHash(b, taskHash); err != nil {
-			return fmt.Errorf("delete candidate-current locators: %w", err)
-		}
 		if err := deletePrefixedKeysInBatch(b, []byte(verifyCandidatePrefixForTask(taskHash))); err != nil {
 			return fmt.Errorf("delete verify-candidate: %w", err)
 		}
@@ -802,12 +648,6 @@ func verifyRecordFromBatch(b *store.Batch, taskHash StoredHash) (VerifyRecord, e
 func evidenceRecordFromBatch(b *store.Batch, taskHash StoredHash) (Evidence, error) {
 	var record Evidence
 	err := getBatchJSON(b, EvidenceKey(taskHash), &record)
-	return record, err
-}
-
-func candidateAdmissionFromBatch(b *store.Batch, taskHash StoredHash) (CandidateAdmission, error) {
-	var record CandidateAdmission
-	err := getBatchJSON(b, CandidateKey(taskHash), &record)
 	return record, err
 }
 
@@ -930,12 +770,6 @@ func DeleteEvidence(ctx context.Context, s *store.Store, taskHash StoredHash) er
 	return s.ApplyBatch(ctx, func(b *store.Batch) error {
 		return b.Delete(EvidenceKey(taskHash))
 	})
-}
-
-func GetCandidateAdmission(ctx context.Context, s *store.Store, taskHash StoredHash) (CandidateAdmission, error) {
-	var record CandidateAdmission
-	err := getJSON(ctx, s, CandidateKey(taskHash), &record)
-	return record, err
 }
 
 // ListChallenges returns the challenge IDs that are currently open for a task.
@@ -1081,22 +915,6 @@ func GetChallengeLifecycle(ctx context.Context, s *store.Store, taskHash StoredH
 	var record ChallengeLifecycle
 	err := getJSON(ctx, s, ChallengeKey(taskHash, challengeID), &record)
 	return record, err
-}
-
-func deleteLocatorForTaskHash(b *store.Batch, taskHash StoredHash) error {
-	iter, err := b.NewIter([]byte(candidateCurrentPrefix))
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		if bytes.Equal(iter.Value(), taskHash[:]) {
-			if err := b.Delete(append([]byte(nil), iter.Key()...)); err != nil {
-				return err
-			}
-		}
-	}
-	return iter.Close()
 }
 
 func deletePrefixedKeysInBatch(b *store.Batch, prefix []byte) error {

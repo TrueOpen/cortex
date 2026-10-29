@@ -35,9 +35,6 @@ const (
 const (
 	// IngressAPIOpenTaskProcedure is the fully-qualified name of the IngressAPI's OpenTask RPC.
 	IngressAPIOpenTaskProcedure = "/nexus.v1.IngressAPI/OpenTask"
-	// IngressAPIConfirmOpenTaskProcedure is the fully-qualified name of the IngressAPI's
-	// ConfirmOpenTask RPC.
-	IngressAPIConfirmOpenTaskProcedure = "/nexus.v1.IngressAPI/ConfirmOpenTask"
 	// IngressAPISubscribeOutputProcedure is the fully-qualified name of the IngressAPI's
 	// SubscribeOutput RPC.
 	IngressAPISubscribeOutputProcedure = "/nexus.v1.IngressAPI/SubscribeOutput"
@@ -79,23 +76,21 @@ const (
 	// IngressAPISubmitVerifyResultProcedure is the fully-qualified name of the IngressAPI's
 	// SubmitVerifyResult RPC.
 	IngressAPISubmitVerifyResultProcedure = "/nexus.v1.IngressAPI/SubmitVerifyResult"
-	// IngressAPISubmitOrderProcedure is the fully-qualified name of the IngressAPI's SubmitOrder RPC.
-	IngressAPISubmitOrderProcedure = "/nexus.v1.IngressAPI/SubmitOrder"
-	// IngressAPIFetchOutputRefProcedure is the fully-qualified name of the IngressAPI's FetchOutputRef
+	// IngressAPIDispatchStreamProcedure is the fully-qualified name of the IngressAPI's DispatchStream
 	// RPC.
-	IngressAPIFetchOutputRefProcedure = "/nexus.v1.IngressAPI/FetchOutputRef"
-	// IngressAPIRefreshCredentialProcedure is the fully-qualified name of the IngressAPI's
-	// RefreshCredential RPC.
-	IngressAPIRefreshCredentialProcedure = "/nexus.v1.IngressAPI/RefreshCredential"
+	IngressAPIDispatchStreamProcedure = "/nexus.v1.IngressAPI/DispatchStream"
+	// IngressAPIResumeOutputProcedure is the fully-qualified name of the IngressAPI's ResumeOutput RPC.
+	IngressAPIResumeOutputProcedure = "/nexus.v1.IngressAPI/ResumeOutput"
+	// IngressAPIGetDispatchRosterProcedure is the fully-qualified name of the IngressAPI's
+	// GetDispatchRoster RPC.
+	IngressAPIGetDispatchRosterProcedure = "/nexus.v1.IngressAPI/GetDispatchRoster"
 )
 
 // IngressAPIClient is a client for the nexus.v1.IngressAPI service.
 type IngressAPIClient interface {
 	// OpenTask executes the OpenTask operation.
 	OpenTask(context.Context) *connect.ClientStreamForClient[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	// ConfirmOpenTask is not callable in V1: FailedPrecondition, NEXUS_INGRESS_CONTRACT_NOT_FROZEN.
-	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
-	// SubscribeOutput executes the SubscribeOutput operation.
+	// SubscribeOutput binds delivery to an optional dispatch attempt commitment.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest]) (*connect.ServerStreamForClient[v1.SubscribeOutputResponse], error)
 	// AckOutput executes the AckOutput operation.
 	AckOutput(context.Context, *connect.Request[v1.AckOutputRequest]) (*connect.Response[v1.AckOutputResponse], error)
@@ -123,27 +118,12 @@ type IngressAPIClient interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// SubmitOrder executes the SubmitOrder operation.
-	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
-	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
-	// verifying any signature. No body domain is defined for it.
-	//
-	// Deprecated: do not use.
-	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// FetchOutputRef executes the FetchOutputRef operation.
-	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
-	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
-	// verifying any signature. No body domain is defined for it.
-	//
-	// Deprecated: do not use.
-	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// RefreshCredential executes the RefreshCredential operation.
-	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
-	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
-	// verifying any signature. No body domain is defined for it.
-	//
-	// Deprecated: do not use.
-	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)
+	// DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
+	DispatchStream(context.Context) *connect.BidiStreamForClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
+	// ResumeOutput resumes one authenticated output attempt.
+	ResumeOutput(context.Context, *connect.Request[v1.ResumeOutputRequest]) (*connect.ServerStreamForClient[v1.ResumeOutputResponse], error)
+	// GetDispatchRoster returns every round's roster and its bound signed root.
+	GetDispatchRoster(context.Context, *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error)
 }
 
 // NewIngressAPIClient constructs a client for the nexus.v1.IngressAPI service. By default, it uses
@@ -161,12 +141,6 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+IngressAPIOpenTaskProcedure,
 			connect.WithSchema(ingressAPIMethods.ByName("OpenTask")),
-			connect.WithClientOptions(opts...),
-		),
-		confirmOpenTask: connect.NewClient[v1.ConfirmOpenTaskRequest, v1.ConfirmOpenTaskResponse](
-			httpClient,
-			baseURL+IngressAPIConfirmOpenTaskProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("ConfirmOpenTask")),
 			connect.WithClientOptions(opts...),
 		),
 		subscribeOutput: connect.NewClient[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse](
@@ -253,22 +227,22 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(ingressAPIMethods.ByName("SubmitVerifyResult")),
 			connect.WithClientOptions(opts...),
 		),
-		submitOrder: connect.NewClient[v1.SubmitOrderRequest, v1.SubmitOrderResponse](
+		dispatchStream: connect.NewClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse](
 			httpClient,
-			baseURL+IngressAPISubmitOrderProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("SubmitOrder")),
+			baseURL+IngressAPIDispatchStreamProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("DispatchStream")),
 			connect.WithClientOptions(opts...),
 		),
-		fetchOutputRef: connect.NewClient[v1.FetchOutputRefRequest, v1.FetchOutputRefResponse](
+		resumeOutput: connect.NewClient[v1.ResumeOutputRequest, v1.ResumeOutputResponse](
 			httpClient,
-			baseURL+IngressAPIFetchOutputRefProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("FetchOutputRef")),
+			baseURL+IngressAPIResumeOutputProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("ResumeOutput")),
 			connect.WithClientOptions(opts...),
 		),
-		refreshCredential: connect.NewClient[v1.RefreshCredentialRequest, v1.RefreshCredentialResponse](
+		getDispatchRoster: connect.NewClient[v1.GetDispatchRosterRequest, v1.GetDispatchRosterResponse](
 			httpClient,
-			baseURL+IngressAPIRefreshCredentialProcedure,
-			connect.WithSchema(ingressAPIMethods.ByName("RefreshCredential")),
+			baseURL+IngressAPIGetDispatchRosterProcedure,
+			connect.WithSchema(ingressAPIMethods.ByName("GetDispatchRoster")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -277,7 +251,6 @@ func NewIngressAPIClient(httpClient connect.HTTPClient, baseURL string, opts ...
 // ingressAPIClient implements IngressAPIClient.
 type ingressAPIClient struct {
 	openTask                 *connect.Client[v1.OpenTaskRequest, v1.OpenTaskResponse]
-	confirmOpenTask          *connect.Client[v1.ConfirmOpenTaskRequest, v1.ConfirmOpenTaskResponse]
 	subscribeOutput          *connect.Client[v1.SubscribeOutputRequest, v1.SubscribeOutputResponse]
 	ackOutput                *connect.Client[v1.AckOutputRequest, v1.AckOutputResponse]
 	getTaskStatus            *connect.Client[v1.GetTaskStatusRequest, v1.GetTaskStatusResponse]
@@ -292,19 +265,14 @@ type ingressAPIClient struct {
 	submitInferReceipt       *connect.Client[v1.SubmitInferReceiptRequest, v1.SubmitInferReceiptResponse]
 	submitVerifyCommit       *connect.Client[v1.SubmitVerifyCommitRequest, v1.SubmitVerifyCommitResponse]
 	submitVerifyResult       *connect.Client[v1.SubmitVerifyResultRequest, v1.SubmitVerifyResultResponse]
-	submitOrder              *connect.Client[v1.SubmitOrderRequest, v1.SubmitOrderResponse]
-	fetchOutputRef           *connect.Client[v1.FetchOutputRefRequest, v1.FetchOutputRefResponse]
-	refreshCredential        *connect.Client[v1.RefreshCredentialRequest, v1.RefreshCredentialResponse]
+	dispatchStream           *connect.Client[v1.DispatchStreamRequest, v1.DispatchStreamResponse]
+	resumeOutput             *connect.Client[v1.ResumeOutputRequest, v1.ResumeOutputResponse]
+	getDispatchRoster        *connect.Client[v1.GetDispatchRosterRequest, v1.GetDispatchRosterResponse]
 }
 
 // OpenTask calls nexus.v1.IngressAPI.OpenTask.
 func (c *ingressAPIClient) OpenTask(ctx context.Context) *connect.ClientStreamForClient[v1.OpenTaskRequest, v1.OpenTaskResponse] {
 	return c.openTask.CallClientStream(ctx)
-}
-
-// ConfirmOpenTask calls nexus.v1.IngressAPI.ConfirmOpenTask.
-func (c *ingressAPIClient) ConfirmOpenTask(ctx context.Context, req *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error) {
-	return c.confirmOpenTask.CallUnary(ctx, req)
 }
 
 // SubscribeOutput calls nexus.v1.IngressAPI.SubscribeOutput.
@@ -377,34 +345,26 @@ func (c *ingressAPIClient) SubmitVerifyResult(ctx context.Context, req *connect.
 	return c.submitVerifyResult.CallUnary(ctx, req)
 }
 
-// SubmitOrder calls nexus.v1.IngressAPI.SubmitOrder.
-//
-// Deprecated: do not use.
-func (c *ingressAPIClient) SubmitOrder(ctx context.Context, req *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error) {
-	return c.submitOrder.CallUnary(ctx, req)
+// DispatchStream calls nexus.v1.IngressAPI.DispatchStream.
+func (c *ingressAPIClient) DispatchStream(ctx context.Context) *connect.BidiStreamForClient[v1.DispatchStreamRequest, v1.DispatchStreamResponse] {
+	return c.dispatchStream.CallBidiStream(ctx)
 }
 
-// FetchOutputRef calls nexus.v1.IngressAPI.FetchOutputRef.
-//
-// Deprecated: do not use.
-func (c *ingressAPIClient) FetchOutputRef(ctx context.Context, req *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error) {
-	return c.fetchOutputRef.CallUnary(ctx, req)
+// ResumeOutput calls nexus.v1.IngressAPI.ResumeOutput.
+func (c *ingressAPIClient) ResumeOutput(ctx context.Context, req *connect.Request[v1.ResumeOutputRequest]) (*connect.ServerStreamForClient[v1.ResumeOutputResponse], error) {
+	return c.resumeOutput.CallServerStream(ctx, req)
 }
 
-// RefreshCredential calls nexus.v1.IngressAPI.RefreshCredential.
-//
-// Deprecated: do not use.
-func (c *ingressAPIClient) RefreshCredential(ctx context.Context, req *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error) {
-	return c.refreshCredential.CallUnary(ctx, req)
+// GetDispatchRoster calls nexus.v1.IngressAPI.GetDispatchRoster.
+func (c *ingressAPIClient) GetDispatchRoster(ctx context.Context, req *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error) {
+	return c.getDispatchRoster.CallUnary(ctx, req)
 }
 
 // IngressAPIHandler is an implementation of the nexus.v1.IngressAPI service.
 type IngressAPIHandler interface {
 	// OpenTask executes the OpenTask operation.
 	OpenTask(context.Context, *connect.ClientStream[v1.OpenTaskRequest]) (*connect.Response[v1.OpenTaskResponse], error)
-	// ConfirmOpenTask is not callable in V1: FailedPrecondition, NEXUS_INGRESS_CONTRACT_NOT_FROZEN.
-	ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error)
-	// SubscribeOutput executes the SubscribeOutput operation.
+	// SubscribeOutput binds delivery to an optional dispatch attempt commitment.
 	SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest], *connect.ServerStream[v1.SubscribeOutputResponse]) error
 	// AckOutput executes the AckOutput operation.
 	AckOutput(context.Context, *connect.Request[v1.AckOutputRequest]) (*connect.Response[v1.AckOutputResponse], error)
@@ -432,27 +392,12 @@ type IngressAPIHandler interface {
 	SubmitVerifyCommit(context.Context, *connect.Request[v1.SubmitVerifyCommitRequest]) (*connect.Response[v1.SubmitVerifyCommitResponse], error)
 	// SubmitVerifyResult executes the SubmitVerifyResult operation.
 	SubmitVerifyResult(context.Context, *connect.Request[v1.SubmitVerifyResultRequest]) (*connect.Response[v1.SubmitVerifyResultResponse], error)
-	// SubmitOrder executes the SubmitOrder operation.
-	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
-	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
-	// verifying any signature. No body domain is defined for it.
-	//
-	// Deprecated: do not use.
-	SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error)
-	// FetchOutputRef executes the FetchOutputRef operation.
-	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
-	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
-	// verifying any signature. No body domain is defined for it.
-	//
-	// Deprecated: do not use.
-	FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error)
-	// RefreshCredential executes the RefreshCredential operation.
-	// Retired. Once Nexus switches to SDKRequestEnvelopeV2, this RPC always returns
-	// Unimplemented with NEXUS_INGRESS_METHOD_RETIRED, before parsing the request or
-	// verifying any signature. No body domain is defined for it.
-	//
-	// Deprecated: do not use.
-	RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error)
+	// DispatchStream carries authenticated, cursor-scoped Builder/Cortex messages.
+	DispatchStream(context.Context, *connect.BidiStream[v1.DispatchStreamRequest, v1.DispatchStreamResponse]) error
+	// ResumeOutput resumes one authenticated output attempt.
+	ResumeOutput(context.Context, *connect.Request[v1.ResumeOutputRequest], *connect.ServerStream[v1.ResumeOutputResponse]) error
+	// GetDispatchRoster returns every round's roster and its bound signed root.
+	GetDispatchRoster(context.Context, *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error)
 }
 
 // NewIngressAPIHandler builds an HTTP handler from the service implementation. It returns the path
@@ -466,12 +411,6 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 		IngressAPIOpenTaskProcedure,
 		svc.OpenTask,
 		connect.WithSchema(ingressAPIMethods.ByName("OpenTask")),
-		connect.WithHandlerOptions(opts...),
-	)
-	ingressAPIConfirmOpenTaskHandler := connect.NewUnaryHandler(
-		IngressAPIConfirmOpenTaskProcedure,
-		svc.ConfirmOpenTask,
-		connect.WithSchema(ingressAPIMethods.ByName("ConfirmOpenTask")),
 		connect.WithHandlerOptions(opts...),
 	)
 	ingressAPISubscribeOutputHandler := connect.NewServerStreamHandler(
@@ -558,30 +497,28 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(ingressAPIMethods.ByName("SubmitVerifyResult")),
 		connect.WithHandlerOptions(opts...),
 	)
-	ingressAPISubmitOrderHandler := connect.NewUnaryHandler(
-		IngressAPISubmitOrderProcedure,
-		svc.SubmitOrder,
-		connect.WithSchema(ingressAPIMethods.ByName("SubmitOrder")),
+	ingressAPIDispatchStreamHandler := connect.NewBidiStreamHandler(
+		IngressAPIDispatchStreamProcedure,
+		svc.DispatchStream,
+		connect.WithSchema(ingressAPIMethods.ByName("DispatchStream")),
 		connect.WithHandlerOptions(opts...),
 	)
-	ingressAPIFetchOutputRefHandler := connect.NewUnaryHandler(
-		IngressAPIFetchOutputRefProcedure,
-		svc.FetchOutputRef,
-		connect.WithSchema(ingressAPIMethods.ByName("FetchOutputRef")),
+	ingressAPIResumeOutputHandler := connect.NewServerStreamHandler(
+		IngressAPIResumeOutputProcedure,
+		svc.ResumeOutput,
+		connect.WithSchema(ingressAPIMethods.ByName("ResumeOutput")),
 		connect.WithHandlerOptions(opts...),
 	)
-	ingressAPIRefreshCredentialHandler := connect.NewUnaryHandler(
-		IngressAPIRefreshCredentialProcedure,
-		svc.RefreshCredential,
-		connect.WithSchema(ingressAPIMethods.ByName("RefreshCredential")),
+	ingressAPIGetDispatchRosterHandler := connect.NewUnaryHandler(
+		IngressAPIGetDispatchRosterProcedure,
+		svc.GetDispatchRoster,
+		connect.WithSchema(ingressAPIMethods.ByName("GetDispatchRoster")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/nexus.v1.IngressAPI/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case IngressAPIOpenTaskProcedure:
 			ingressAPIOpenTaskHandler.ServeHTTP(w, r)
-		case IngressAPIConfirmOpenTaskProcedure:
-			ingressAPIConfirmOpenTaskHandler.ServeHTTP(w, r)
 		case IngressAPISubscribeOutputProcedure:
 			ingressAPISubscribeOutputHandler.ServeHTTP(w, r)
 		case IngressAPIAckOutputProcedure:
@@ -610,12 +547,12 @@ func NewIngressAPIHandler(svc IngressAPIHandler, opts ...connect.HandlerOption) 
 			ingressAPISubmitVerifyCommitHandler.ServeHTTP(w, r)
 		case IngressAPISubmitVerifyResultProcedure:
 			ingressAPISubmitVerifyResultHandler.ServeHTTP(w, r)
-		case IngressAPISubmitOrderProcedure:
-			ingressAPISubmitOrderHandler.ServeHTTP(w, r)
-		case IngressAPIFetchOutputRefProcedure:
-			ingressAPIFetchOutputRefHandler.ServeHTTP(w, r)
-		case IngressAPIRefreshCredentialProcedure:
-			ingressAPIRefreshCredentialHandler.ServeHTTP(w, r)
+		case IngressAPIDispatchStreamProcedure:
+			ingressAPIDispatchStreamHandler.ServeHTTP(w, r)
+		case IngressAPIResumeOutputProcedure:
+			ingressAPIResumeOutputHandler.ServeHTTP(w, r)
+		case IngressAPIGetDispatchRosterProcedure:
+			ingressAPIGetDispatchRosterHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -627,10 +564,6 @@ type UnimplementedIngressAPIHandler struct{}
 
 func (UnimplementedIngressAPIHandler) OpenTask(context.Context, *connect.ClientStream[v1.OpenTaskRequest]) (*connect.Response[v1.OpenTaskResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.OpenTask is not implemented"))
-}
-
-func (UnimplementedIngressAPIHandler) ConfirmOpenTask(context.Context, *connect.Request[v1.ConfirmOpenTaskRequest]) (*connect.Response[v1.ConfirmOpenTaskResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.ConfirmOpenTask is not implemented"))
 }
 
 func (UnimplementedIngressAPIHandler) SubscribeOutput(context.Context, *connect.Request[v1.SubscribeOutputRequest], *connect.ServerStream[v1.SubscribeOutputResponse]) error {
@@ -689,14 +622,14 @@ func (UnimplementedIngressAPIHandler) SubmitVerifyResult(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitVerifyResult is not implemented"))
 }
 
-func (UnimplementedIngressAPIHandler) SubmitOrder(context.Context, *connect.Request[v1.SubmitOrderRequest]) (*connect.Response[v1.SubmitOrderResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.SubmitOrder is not implemented"))
+func (UnimplementedIngressAPIHandler) DispatchStream(context.Context, *connect.BidiStream[v1.DispatchStreamRequest, v1.DispatchStreamResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.DispatchStream is not implemented"))
 }
 
-func (UnimplementedIngressAPIHandler) FetchOutputRef(context.Context, *connect.Request[v1.FetchOutputRefRequest]) (*connect.Response[v1.FetchOutputRefResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.FetchOutputRef is not implemented"))
+func (UnimplementedIngressAPIHandler) ResumeOutput(context.Context, *connect.Request[v1.ResumeOutputRequest], *connect.ServerStream[v1.ResumeOutputResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.ResumeOutput is not implemented"))
 }
 
-func (UnimplementedIngressAPIHandler) RefreshCredential(context.Context, *connect.Request[v1.RefreshCredentialRequest]) (*connect.Response[v1.RefreshCredentialResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.RefreshCredential is not implemented"))
+func (UnimplementedIngressAPIHandler) GetDispatchRoster(context.Context, *connect.Request[v1.GetDispatchRosterRequest]) (*connect.Response[v1.GetDispatchRosterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("nexus.v1.IngressAPI.GetDispatchRoster is not implemented"))
 }

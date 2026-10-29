@@ -31,8 +31,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/txclient"
-	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
-	"github.com/TrueOpen/wire/bus"
 )
 
 func TestAssignmentAcceptedDoesNotStartInfer(t *testing.T) {
@@ -47,310 +45,6 @@ func TestAssignmentAcceptedDoesNotStartInfer(t *testing.T) {
 
 	if h.model.InferCalls != 0 {
 		t.Fatalf("infer calls = %d, want 0", h.model.InferCalls)
-	}
-}
-
-func TestEvaluateAndHandraisePersistsBeforePublishingWorkerHandraise(t *testing.T) {
-	h := newHarness(t)
-	events := []string{}
-	h.builder.Events = &events
-	recorder := &recordingPersistence{events: &events}
-	h.worker.cfg.Persistence = recorder
-	event := finalizedTask()
-
-	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID,
-		SessionID:     event.SessionID,
-		OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120,
-		HandraiseExpireHeight:     150,
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
-		Precheck:                  validWorkerPrecheck()})
-	if err != nil {
-		t.Fatalf("worker handraise: %v", err)
-	}
-
-	if !result.Signed {
-		t.Fatalf("worker handraise was not signed")
-	}
-	if len(recorder.evidence) != 1 {
-		t.Fatalf("evidence writes = %d, want worker handraise evidence", len(recorder.evidence))
-	}
-	if recorder.evidence[0].Kind != "worker-handraise" {
-		t.Fatalf("evidence kind = %q, want worker-handraise", recorder.evidence[0].Kind)
-	}
-	if len(recorder.outbox) != 1 {
-		t.Fatalf("outbox writes = %d, want worker handraise outbox", len(recorder.outbox))
-	}
-	wantSubject := builderclient.NATSWorkerHandraiseSubject(event.TaskID)
-	if recorder.outbox[0].Subject != wantSubject {
-		t.Fatalf("outbox subject = %q, want %q", recorder.outbox[0].Subject, wantSubject)
-	}
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("published messages = %d, want durable outbox ownership", len(h.builder.Published))
-	}
-	nexusEnvelope, err := builderclient.DecodeBusEnvelope(result.Payload)
-	if err != nil {
-		t.Fatalf("decode worker handraise envelope: %v", err)
-	}
-	var handraise bustaskv1.WorkerHandraiseV1
-	if err := nexusEnvelope.DecodePayload(&handraise); err != nil {
-		t.Fatalf("decode worker handraise payload: %v", err)
-	}
-	wantTaskHash := workerTestHandraiseTaskHash(event.OrderDigest)
-	wantMember := workerTestCandidateMember()
-	if nexusEnvelope.Kind != builderclient.KindWorkerHandraise || nexusEnvelope.SenderOperatorAddress != workerTestOperatorAddress ||
-		handraise.GetSchemaVersion() != 1 || handraise.GetChainId() != h.worker.cfg.ChainID ||
-		hex.EncodeToString(handraise.GetTaskId()) != event.TaskID ||
-		!bytes.Equal(handraise.GetTaskHash(), wantTaskHash[:]) || hex.EncodeToString(handraise.GetModelId()) != workerTestModelID || handraise.GetProfileVersion() != 1 ||
-		hex.EncodeToString(handraise.GetMember().GetCandidatePoolSnapshotId()) != wantMember.CandidatePoolSnapshotID ||
-		handraise.GetMember().GetOperatorAddress() != wantMember.OperatorAddress ||
-		handraise.GetDuty() != 1 ||
-		handraise.GetServiceAuthorizationNonce() != workerTestHandraiseNonce || handraise.GetExpiryHeight() != 150 || len(handraise.GetServiceSignature()) != 64 {
-		t.Fatalf("worker handraise = %#v", &handraise)
-	}
-	// The signed handraise digest must verify against the recomputed frozen
-	// preimage of the carried fields: what travels is what was signed.
-	back, err := builderclient.WorkerHandraiseFromProto(&handraise)
-	if err != nil {
-		t.Fatalf("worker handraise from proto: %v", err)
-	}
-	if _, err := nodewire.WorkerHandraiseSigningDigest(back); err != nil {
-		t.Fatalf("recompute worker handraise digest: %v", err)
-	}
-	if nexusEnvelope.SenderParticipantType != builderclient.ParticipantCortex ||
-		nexusEnvelope.ServiceAuthorizationNonce != workerTestHandraiseNonce {
-		t.Fatalf("worker handraise envelope identity = %#v", nexusEnvelope)
-	}
-	if digest := bus.PayloadDigest(nexusEnvelope.Payload); !bytes.Equal(nexusEnvelope.PayloadDigest, digest[:]) {
-		t.Fatalf("payload_digest does not commit the transmitted payload bytes")
-	}
-	wantEvents := []string{
-		"evidence:worker-handraise",
-		"outbox:" + wantSubject,
-	}
-	if strings.Join(events, "|") != strings.Join(wantEvents, "|") {
-		t.Fatalf("events = %#v, want %#v", events, wantEvents)
-	}
-}
-
-func TestEvaluateAndHandraiseRejectDoesNotPersistOrPublish(t *testing.T) {
-	h := newHarness(t)
-	recorder := &recordingPersistence{}
-	h.worker.cfg.Persistence = recorder
-	event := finalizedTask()
-	precheck := validWorkerPrecheck()
-	precheck.ChainSynced = false
-
-	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID,
-		SessionID:     event.SessionID,
-		OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120,
-		HandraiseExpireHeight:     150,
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-		Precheck:                  precheck})
-	if err != nil {
-		t.Fatalf("worker handraise reject: %v", err)
-	}
-
-	if result.Signed {
-		t.Fatalf("worker handraise signed rejected precheck")
-	}
-	if result.Decision.RejectCode != "L0_CHAIN_NOT_SYNCED" {
-		t.Fatalf("reject code = %q, want L0_CHAIN_NOT_SYNCED", result.Decision.RejectCode)
-	}
-	if len(recorder.evidence) != 0 || len(recorder.outbox) != 0 || len(h.builder.Published) != 0 {
-		t.Fatalf("side effects on rejected handraise: evidence=%d outbox=%d publish=%d", len(recorder.evidence), len(recorder.outbox), len(h.builder.Published))
-	}
-}
-
-// The published handraise must not carry payload_keyring_hash at all. Node's
-// frozen WorkerHandraiseV1 and nexus's msgbus.WorkerHandraise have no such
-// field, and Cortex used to emit it -- empty on every real order -- and commit
-// it into its own signing preimage.
-func TestEvaluateAndHandraiseEmitsNoPayloadKeyringHash(t *testing.T) {
-	h := newHarness(t)
-	recorder := &recordingPersistence{}
-	h.worker.cfg.Persistence = recorder
-	event := finalizedTask()
-
-	result, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
-		Precheck:                  validWorkerPrecheck()})
-	if err != nil {
-		t.Fatalf("EvaluateAndHandraise() error = %v", err)
-	}
-	if !result.Signed || result.Decision.RejectCode != "" {
-		t.Fatalf("result = %#v, want a signed handraise for the real Builder shape", result)
-	}
-	if len(recorder.outbox) != 1 || recorder.outbox[0].Subject != builderclient.NATSWorkerHandraiseSubject(event.TaskID) {
-		t.Fatalf("outbox = %#v, want one persisted WorkerHandraise", recorder.outbox)
-	}
-	nexusEnvelope, err := builderclient.DecodeBusEnvelope(result.Payload)
-	if err != nil {
-		t.Fatalf("DecodeBusEnvelope() error = %v", err)
-	}
-	if bytes.Contains(nexusEnvelope.Payload, []byte("payload_keyring_hash")) {
-		t.Fatalf("published payload carries payload_keyring_hash: %s", nexusEnvelope.Payload)
-	}
-	var handraise bustaskv1.WorkerHandraiseV1
-	if err := nexusEnvelope.DecodePayload(&handraise); err != nil {
-		t.Fatalf("DecodePayload() error = %v", err)
-	}
-	if handraise.GetExpiryHeight() != 150 || len(handraise.GetServiceSignature()) != 64 {
-		t.Fatalf("handraise = %#v, want a signed handraise for the real Builder shape", &handraise)
-	}
-}
-
-// The rest of validateWorkerHandraiseRequest must stay closed. Dropping the
-// payload_keyring_hash clause must not have relaxed identity or the height
-// window, both of which still gate signing.
-func TestEvaluateAndHandraiseStillRefusesBrokenIdentityAndHeightWindow(t *testing.T) {
-	event := finalizedTask()
-	valid := WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
-		Precheck:                  validWorkerPrecheck()}
-	for name, mutate := range map[string]func(*WorkerHandraiseRequest){
-		"missing session_id":    func(req *WorkerHandraiseRequest) { req.SessionID = "" },
-		"missing task_id":       func(req *WorkerHandraiseRequest) { req.TaskID = "" },
-		"non-canonical task_id": func(req *WorkerHandraiseRequest) { req.TaskID = "task-from-payload" },
-		// order_sequence 0 is the first order of every session, not "the caller
-		// did not state one", so the identity equation must be applied to it
-		// like any other value. Guarding the check with `req.OrderSequence != 0`
-		// made the session-first order the one order whose task_id nothing
-		// checked: this task_id is canonical Hash32 hex, so nothing downstream
-		// catches it either - it simply derives from a different sequence.
-		"task_id from another sequence at sequence zero": func(req *WorkerHandraiseRequest) {
-			req.OrderSequence, req.TaskID = 0, identity.TaskIDString(req.SessionID, 7)
-		},
-		"zero task_hash":       func(req *WorkerHandraiseRequest) { req.TaskHash = codec.Hash{} },
-		"zero current height":  func(req *WorkerHandraiseRequest) { req.CurrentHeight = 0 },
-		"zero expire height":   func(req *WorkerHandraiseRequest) { req.HandraiseExpireHeight = 0 },
-		"expiry below current": func(req *WorkerHandraiseRequest) { req.HandraiseExpireHeight = req.CurrentHeight - 1 },
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newHarness(t)
-			recorder := &recordingPersistence{}
-			h.worker.cfg.Persistence = recorder
-			candidate := valid
-			mutate(&candidate)
-			result, err := h.worker.EvaluateAndHandraise(context.Background(), candidate)
-			if err != nil {
-				t.Fatalf("EvaluateAndHandraise() error = %v", err)
-			}
-			if result.Signed || result.Decision.RejectCode != "L2_TASK_IDENTITY_MISSING" {
-				t.Fatalf("result = %#v, want refusal", result)
-			}
-			if len(recorder.outbox) != 0 {
-				t.Fatalf("outbox = %#v, want no persisted handraise", recorder.outbox)
-			}
-		})
-	}
-}
-
-// The two envelope identity values a handraise cannot derive -- field 7's
-// service_authorization_nonce and fields 11/12's BuilderSet reference -- are
-// caller-supplied, and §5.2/:368 forbid an empty one on a task-control message.
-// Their absence must therefore stop the publish outright rather than put a field
-// on the wire that authenticates nothing.
-func TestEvaluateAndHandraiseRefusesMissingEnvelopeIdentity(t *testing.T) {
-	event := finalizedTask()
-	valid := WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
-		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-		Precheck:                  validWorkerPrecheck()}
-	for name, tc := range map[string]struct {
-		mutate   func(*WorkerHandraiseRequest)
-		contains string
-	}{
-		"zero service authorization nonce": {
-			// Refused at envelope encode now: a zero nonce is the absent value
-			// and cannot appear on the wire.
-			mutate:   func(req *WorkerHandraiseRequest) { req.ServiceAuthorizationNonce = 0 },
-			contains: "service_authorization_nonce is required",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newHarness(t)
-			recorder := &recordingPersistence{}
-			h.worker.cfg.Persistence = recorder
-			candidate := valid
-			tc.mutate(&candidate)
-
-			result, err := h.worker.EvaluateAndHandraise(context.Background(), candidate)
-			if err == nil || !strings.Contains(err.Error(), tc.contains) {
-				t.Fatalf("EvaluateAndHandraise() error = %v, want a refusal naming %q", err, tc.contains)
-			}
-			if result.Signed || len(result.Payload) != 0 {
-				t.Fatalf("result = %#v, want no handraise material at all", result)
-			}
-			if len(recorder.evidence) != 0 || len(recorder.outbox) != 0 || len(h.builder.Published) != 0 {
-				t.Fatalf("refused handraise had side effects: evidence=%d outbox=%d publish=%d",
-					len(recorder.evidence), len(recorder.outbox), len(h.builder.Published))
-			}
-		})
-	}
-}
-
-func TestEvaluateAndHandraiseRequiresEnvelopeSignerOutsideFixtures(t *testing.T) {
-	h := newHarness(t)
-	h.worker.cfg.NexusEnvelopeSigner = nil
-	h.worker.cfg.FakeOutput = false
-	recorder := &recordingPersistence{}
-	h.worker.cfg.Persistence = recorder
-	event := finalizedTask()
-
-	_, err := h.worker.EvaluateAndHandraise(context.Background(), WorkerHandraiseRequest{TaskID: event.TaskID, SessionID: event.SessionID, OrderSequence: event.OrderSequence, TaskHash: workerTestHandraiseTaskHash(event.OrderDigest), ModelID: workerTestModelID, ProfileVersion: 1, Member: workerTestCandidateMember(), CurrentHeight: 120, HandraiseExpireHeight: 150,
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-		BuilderSelectionDigest:    codec.HashWithDomain("TEST_BUILDER_SELECTION", []byte("stage1")),
-		Precheck:                  validWorkerPrecheck()})
-	if !errors.Is(err, builderclient.ErrBusEnvelopeAuthenticationUnavailable) {
-		t.Fatalf("EvaluateAndHandraise error = %v, want envelope authentication unavailable", err)
-	}
-	if len(recorder.evidence) != 0 || len(recorder.outbox) != 0 || len(h.builder.Published) != 0 {
-		t.Fatalf("side effects before authenticated envelope: evidence=%d outbox=%d publish=%d", len(recorder.evidence), len(recorder.outbox), len(h.builder.Published))
-	}
-}
-
-func TestTrustedNATSDevEncodesUnsignedEnvelopeWithoutWeakeningWireShape(t *testing.T) {
-	w := New(Config{TrustedNATSDev: true})
-	input := builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindWorkerHandraise, ChainID: "chain-A", Subject: builderclient.NATSWorkerHandraiseSubject("task-1"),
-		SenderOperatorAddress: workerTestOperatorAddress, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: workerTestHandraiseNonce,
-	}
-	message, err := builderclient.WorkerHandraiseProto(nodewireTestHandraise())
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := w.encodeNexusMessage(input, message)
-	if err != nil {
-		t.Fatalf("encodeNexusMessage error = %v", err)
-	}
-	envelope, err := builderclient.DecodeBusEnvelope(encoded)
-	if err != nil {
-		t.Fatalf("DecodeBusEnvelope error = %v", err)
-	}
-	// The wire shape stays intact under the trusted transport: only the
-	// signature is absent.
-	if len(envelope.Signature) != 0 || envelope.ChainID != "chain-A" || envelope.Subject != input.Subject {
-		t.Fatalf("trusted envelope = %#v", envelope)
-	}
-}
-
-// nodewireTestHandraise is a fully populated digest-authority handraise for
-// envelope-shape tests.
-func nodewireTestHandraise() nodewire.WorkerHandraiseV1 {
-	return nodewire.WorkerHandraiseV1{
-		SchemaVersion: 1, ChainID: "chain-A",
-		TaskID: bytes.Repeat([]byte{0xab}, 32), TaskHash: bytes.Repeat([]byte{0xcd}, 32),
-		ModelID: bytes.Repeat([]byte{0x01}, 32), ProfileVersion: 1,
-		Member: nodewire.CandidateMemberRefV1{
-			CandidatePoolSnapshotID: bytes.Repeat([]byte{0x11}, 32),
-			Slot:                    1, SlotVersion: 1, OperatorAddress: workerTestOperatorAddress,
-		},
-		Duty: nodewire.DutyWorker, ServiceAuthorizationNonce: workerTestHandraiseNonce, ExpiryHeight: 150,
-		ServiceSignature: bytes.Repeat([]byte{0x22}, 64),
 	}
 }
 
@@ -679,7 +373,7 @@ func TestWorkerRelaysReceiptBeforeEvidenceUploadCompletes(t *testing.T) {
 	if len(h.taskData.relays) != 1 {
 		t.Fatalf("receipt relays = %d, want relay completed before blocked upload", len(h.taskData.relays))
 	}
-	if len(h.persistence.confirmations) != 0 || pendingOutputAvailable(h.persistence.outbox) {
+	if len(h.persistence.confirmations) != 0 {
 		t.Fatal("confirmation or availability persisted before upload completed")
 	}
 	close(release)
@@ -730,55 +424,22 @@ func TestWorkerRetriesWithStableReceiptAndOutputMaterial(t *testing.T) {
 	}
 }
 
-func TestWorkerPublishesOutputAvailableOnlyAfterValidConfirmation(t *testing.T) {
+func TestWorkerRestartAfterConfirmationDoesNotRepeatUpload(t *testing.T) {
 	h := newHarness(t)
 	event := finalizedTask()
 	h.seedPreparedOutput(t, event)
-	events := []string{}
-	h.taskData.events = &events
-	h.persistence.events = &events
-
 	if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err != nil {
-		t.Fatalf("HandleAssignmentFinalized: %v", err)
+		t.Fatalf("first HandleAssignmentFinalized: %v", err)
 	}
-	confirmationIndex := slicesIndex(events, "confirmation:persist")
-	pendingIndex := slicesIndex(events, "outbox:pending")
-	if confirmationIndex < 0 || pendingIndex < 0 || confirmationIndex >= pendingIndex {
-		t.Fatalf("events = %#v, want verified confirmation persisted before availability release", events)
-	}
-	// Finalization confirms the OUTPUT and the complete evidence manifest.
-	if len(h.persistence.confirmations) != 3 || !pendingOutputAvailable(h.persistence.outbox) {
-		t.Fatalf("confirmation/outbox = %d/%#v", len(h.persistence.confirmations), h.persistence.outbox)
-	}
-}
-func TestWorkerRestartAfterAvailabilityReleaseDoesNotDowngradeOrRepublish(t *testing.T) {
-	for _, status := range []string{"pending", "sent"} {
-		t.Run(status, func(t *testing.T) {
-			h := newHarness(t)
-			event := finalizedTask()
-			h.seedPreparedOutput(t, event)
-			if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err != nil {
-				t.Fatalf("first HandleAssignmentFinalized: %v", err)
-			}
-			h.persistence.outbox[0].Status = status
-			writesBefore := len(h.persistence.outboxWriteStatuses)
 
-			if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
-				t.Fatalf("restarted HandleAssignmentFinalized: %v", err)
-			}
-			// The stored output and manifest confirmations avoid repeating any of
-			// the six uploads or the finalization request after restart.
-			if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 6 || len(h.persistence.confirmations) != 3 {
-				t.Fatalf("restart duplicated relay/upload/confirmation = %d/%d/%d",
-					len(h.taskData.relays), len(h.taskData.uploads), len(h.persistence.confirmations))
-			}
-			if len(h.persistence.outboxWriteStatuses) != writesBefore {
-				t.Fatalf("restart outbox writes = %#v, want no duplicate availability write", h.persistence.outboxWriteStatuses)
-			}
-			if len(h.persistence.outbox) != 1 || h.persistence.outbox[0].Status != status {
-				t.Fatalf("restarted outbox = %#v, want preserved %s", h.persistence.outbox, status)
-			}
-		})
+	if _, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event); err != nil {
+		t.Fatalf("restarted HandleAssignmentFinalized: %v", err)
+	}
+	// The stored output and manifest confirmations avoid repeating any of
+	// the six uploads or the finalization request after restart.
+	if len(h.taskData.relays) != 1 || len(h.taskData.uploads) != 6 || len(h.persistence.confirmations) != 3 {
+		t.Fatalf("restart duplicated relay/upload/confirmation = %d/%d/%d",
+			len(h.taskData.relays), len(h.taskData.uploads), len(h.persistence.confirmations))
 	}
 }
 
@@ -808,8 +469,8 @@ func TestWorkerRejectsStorageConfirmationMismatch(t *testing.T) {
 			if builderclient.IsRetryable(err) {
 				t.Fatalf("confirmation mismatch classified retryable: %v", err)
 			}
-			if len(h.persistence.confirmations) != 0 || pendingOutputAvailable(h.persistence.outbox) {
-				t.Fatalf("confirmation mismatch released output: confirmations=%d outbox=%#v", len(h.persistence.confirmations), h.persistence.outbox)
+			if len(h.persistence.confirmations) != 0 {
+				t.Fatalf("confirmation mismatch persisted: confirmations=%d", len(h.persistence.confirmations))
 			}
 		})
 	}
@@ -827,9 +488,6 @@ func TestWorkerRejectsStorageConfirmationAtCurrentHeight(t *testing.T) {
 	}
 	if len(h.persistence.confirmations) != 0 {
 		t.Fatal("storage confirmation at current height was persisted")
-	}
-	if pendingOutputAvailable(h.persistence.outbox) {
-		t.Fatal("availability was published for storage expiring at current height")
 	}
 }
 
@@ -1140,7 +798,6 @@ func newHarnessWithConfig(t *testing.T, mutate func(*Config)) harness {
 		// is synthetic and says nothing about the node's identity. The harness must provide
 		// a signer, or the test exercises an "unsigned" path that exists in no real
 		// deployment.
-		NexusEnvelopeSigner: testEnvelopeSigner(),
 		ReceivingBuilder: ReceivingBuilderFunc(func(context.Context, ReceivingBuilderRef) (BuilderEndpoint, error) {
 			return endpoint, nil
 		}),
@@ -1506,15 +1163,6 @@ func slicesIndex(values []string, target string) int {
 	return -1
 }
 
-func pendingOutputAvailable(records []OutboxRecord) bool {
-	for _, record := range records {
-		if record.Status == "pending" && record.Subject == builderclient.NATSOutputAvailableSubject(record.TaskID) {
-			return true
-		}
-	}
-	return false
-}
-
 type countingModel struct {
 	*modelservice.FakeService
 	InferCalls         int
@@ -1522,16 +1170,13 @@ type countingModel struct {
 }
 
 type recordingPersistence struct {
-	evidenceWriteError  func(EvidenceRecord) error
-	evidence            []EvidenceRecord
-	outbox              []OutboxRecord
-	outboxErrors        map[string][]error
-	outboxWriteStatuses []string
-	jobs                []ModelJobCheckpoint
-	receipts            []InferReceiptCheckpoint
-	confirmations       []StorageConfirmationCheckpoint
-	events              *[]string
-	bundles             map[string]recordedBundle
+	evidenceWriteError func(EvidenceRecord) error
+	evidence           []EvidenceRecord
+	jobs               []ModelJobCheckpoint
+	receipts           []InferReceiptCheckpoint
+	confirmations      []StorageConfirmationCheckpoint
+	events             *[]string
+	bundles            map[string]recordedBundle
 	// publishErrors fails the next PublishWorkerBundle of a kind once each.
 	publishErrors map[nodewire.EvidenceKind][]error
 }
@@ -1651,33 +1296,6 @@ func (r *recordingPersistence) CheckpointInferOutput(_ context.Context, taskID s
 	return nil
 }
 
-func (r *recordingPersistence) WriteBuilderOutbox(_ context.Context, record OutboxRecord) error {
-	r.outboxWriteStatuses = append(r.outboxWriteStatuses, record.Status)
-	if queued := r.outboxErrors[record.Status]; len(queued) > 0 {
-		err := queued[0]
-		r.outboxErrors[record.Status] = queued[1:]
-		return err
-	}
-	key := record.DedupID
-	if key == "" {
-		key = hex.EncodeToString(record.Digest[:])
-	}
-	for i, existing := range r.outbox {
-		existingKey := existing.DedupID
-		if existingKey == "" {
-			existingKey = hex.EncodeToString(existing.Digest[:])
-		}
-		if existingKey == key {
-			r.outbox[i] = record
-			r.recordOutbox(record)
-			return nil
-		}
-	}
-	r.outbox = append(r.outbox, record)
-	r.recordOutbox(record)
-	return nil
-}
-
 func (r *recordingPersistence) CheckpointInferReceipt(_ context.Context, record InferReceiptCheckpoint) error {
 	for _, existing := range r.receipts {
 		if existing.TaskID != record.TaskID {
@@ -1727,30 +1345,6 @@ func (r *recordingPersistence) CheckpointInferInput(_ context.Context, checkpoin
 func (r *recordingPersistence) InferInput(_ context.Context, taskID string) (InferInputCheckpoint, error) {
 	return InferInputCheckpoint{}, ErrCheckpointNotFound
 }
-func (r *recordingPersistence) BuilderMessage(_ context.Context, key string) (BuilderMessageCheckpoint, error) {
-	for _, record := range r.outbox {
-		recordKey := record.DedupID
-		if recordKey == "" {
-			recordKey = hex.EncodeToString(record.Digest[:])
-		}
-		if recordKey == key {
-			return BuilderMessageCheckpoint{
-				Digest: key, Subject: record.Subject, TaskID: record.TaskID,
-				Payload: append([]byte(nil), record.Payload...), Status: record.Status,
-			}, nil
-		}
-	}
-	return BuilderMessageCheckpoint{}, ErrCheckpointNotFound
-}
-
-func (r *recordingPersistence) recordOutbox(record OutboxRecord) {
-	if record.Subject == builderclient.NATSOutputAvailableSubject(record.TaskID) {
-		r.record("outbox:" + record.Status)
-		return
-	}
-	r.record("outbox:" + record.Subject)
-}
-
 func (r *recordingPersistence) CheckpointModelJob(_ context.Context, record ModelJobCheckpoint) error {
 	r.jobs = append(r.jobs, record)
 	r.record("job:" + record.Status)
@@ -1979,9 +1573,6 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 	}
 	if len(h.persistence.receipts) != 0 {
 		t.Fatalf("refusal persisted responsibility: receipts=%d", len(h.persistence.receipts))
-	}
-	if len(h.persistence.outbox) != 0 {
-		t.Fatalf("refusal persisted an availability row: %#v", h.persistence.outbox)
 	}
 	if len(h.persistence.jobs) == 0 {
 		t.Fatal("the refused pass never opened a model service job")
@@ -2257,15 +1848,4 @@ func mustDecodeHex(t *testing.T, value string) []byte {
 		t.Fatalf("decode %q: %v", value, err)
 	}
 	return raw
-}
-
-// testEnvelopeSigner is a deterministic envelope signer: it returns a fixed signature
-// of a legal length (64 bytes) for cases that do not check signature content. A
-// fake-inference node signs envelopes too, see encodeNexusMessage.
-func testEnvelopeSigner() builderclient.BusEnvelopeSigner {
-	return builderclient.BusEnvelopeSignerFunc(func(envelope builderclient.BusEnvelope) ([]byte, error) {
-		low := codec.HashWithDomain("TEST_WORKER_ENVELOPE_V1", []byte(envelope.MessageID))
-		high := codec.HashWithDomain("TEST_WORKER_ENVELOPE_V1", low[:])
-		return append(append(make([]byte, 0, 64), low[:]...), high[:]...), nil
-	})
 }

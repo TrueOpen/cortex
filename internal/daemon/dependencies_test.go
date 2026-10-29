@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -24,18 +23,6 @@ func (fakeModelTransport) Invoke(_ context.Context, _ string, _ any, _ any) erro
 
 type injectedModelClient struct {
 	*modelservice.FakeService
-}
-
-type fakePublisher struct{}
-
-func (fakePublisher) Publish(_ context.Context, _ builderclient.PublishRequest) error {
-	return nil
-}
-
-type fakeSubscriber struct{}
-
-func (fakeSubscriber) Subscribe(context.Context, string, builderclient.MessageHandler) (builderclient.Subscription, error) {
-	return nil, nil
 }
 
 type daemonKeeperProfileResolverStub struct {
@@ -87,7 +74,7 @@ func TestBuildDependenciesFakeModeReturnsReadyFakes(t *testing.T) {
 	if _, ok := deps.Builder.(*builderclient.FakeClient); !ok {
 		t.Fatalf("Builder = %T, want *builderclient.FakeClient", deps.Builder)
 	}
-	for _, name := range []string{"chain", "model_service", "store", "keeper", "nexus"} {
+	for _, name := range []string{"chain", "model_service", "store", "keeper"} {
 		status, ok := deps.Diagnostics.Dependency(name)
 		if !ok {
 			t.Fatalf("missing dependency %q", name)
@@ -114,11 +101,8 @@ func TestBuildDependenciesWiresInjectedTaskDataClient(t *testing.T) {
 func TestBuildDependenciesRealModeReportsConfiguredIntegrationEndpoints(t *testing.T) {
 	cfg := realConfig()
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelTransport:  fakeModelTransport{},
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		NexusToken:      "token-1",
-		TxClient:        txclienttest.NewFake(),
+		ModelTransport: fakeModelTransport{},
+		TxClient:       txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -137,7 +121,7 @@ func TestBuildDependenciesRealModeReportsConfiguredIntegrationEndpoints(t *testi
 	}
 	// Boundaries that can be settled from configuration and injected adapters are
 	// reported ready at construction.
-	for _, name := range []string{"model_service", "nexus", "tx_broadcaster"} {
+	for _, name := range []string{"model_service", "tx_broadcaster"} {
 		status, ok := deps.Diagnostics.Dependency(name)
 		if !ok || !status.Configured || !status.Ready {
 			t.Fatalf("%s status = %#v ok=%v", name, status, ok)
@@ -155,71 +139,14 @@ func TestBuildDependenciesRealModeReportsConfiguredIntegrationEndpoints(t *testi
 			t.Fatalf("%s status = %#v, want unprobed with an explanation until the readiness pass runs", name, status)
 		}
 	}
-	authStatus, ok := deps.Diagnostics.Dependency("nexus_envelope_auth")
-	if !ok || authStatus.Ready || authStatus.Error == "" {
-		t.Fatalf("nexus_envelope_auth status = %#v ok=%v, want fail-closed", authStatus, ok)
-	}
-}
-
-func TestBuildDependenciesReportsInjectedNexusEnvelopeAuthenticationReady(t *testing.T) {
-	cfg := realConfig()
-	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{}, TxClient: txclienttest.NewFake(),
-		NexusEnvelopeAuthenticator: builderclient.BusEnvelopeAuthenticatorFunc(func(context.Context, string, builderclient.BusEnvelope) error { return nil }),
-		NexusEnvelopeSigner: builderclient.BusEnvelopeSignerFunc(func(builderclient.BusEnvelope) ([]byte, error) {
-			return []byte("test-envelope-signature"), nil
-		}),
-	})
-	if err != nil {
-		t.Fatalf("BuildDependencies() error = %v", err)
-	}
-	status, ok := deps.Diagnostics.Dependency("nexus_envelope_auth")
-	if !ok || !status.Configured || !status.Ready || status.Error != "" {
-		t.Fatalf("nexus_envelope_auth status = %#v ok=%v, want ready", status, ok)
-	}
-}
-
-// TestBuildDependenciesTrustedNATSDevRefusedInRealMode verifies that the unsafe
-// dev-only transport boundary is rejected when mode is real.
-func TestBuildDependenciesTrustedNATSDevRefusedInRealMode(t *testing.T) {
-	cfg := realConfig()
-	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthTrustedDev
-	cfg.Nexus.AuthTokenFile = "/run/secrets/nexus.token"
-	opts := DependencyOptions{ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{}}
-	if _, err := BuildDependencies(cfg, opts); err == nil || !strings.Contains(err.Error(), "nexus.envelope_auth_mode must not be trusted_nats_dev in real mode") {
-		t.Fatalf("BuildDependencies() error = %v, want real mode refusal of trusted_nats_dev", err)
-	}
-}
-
-// TestBuildDependenciesTrustedNATSDevReportsUnsafeMarkerInFakeMode verifies that
-// fake mode still surfaces the unsafe-transport warning so operators can see it.
-func TestBuildDependenciesTrustedNATSDevReportsUnsafeMarkerInFakeMode(t *testing.T) {
-	cfg := realConfig()
-	cfg.Mode = config.ModeFake
-	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthTrustedDev
-	cfg.Nexus.AuthTokenFile = "/run/secrets/nexus.token"
-	opts := DependencyOptions{ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{}}
-	deps, err := BuildDependencies(cfg, opts)
-	if err != nil {
-		t.Fatalf("BuildDependencies() error = %v", err)
-	}
-	encoded, err := json.Marshal(deps.Diagnostics)
-	if err != nil {
-		t.Fatalf("marshal diagnostics: %v", err)
-	}
-	if !strings.Contains(string(encoded), UnsafeTrustedTransportMarker) {
-		t.Fatalf("diagnostics = %s, want unsafe marker", encoded)
-	}
 }
 
 func TestBuildDependenciesRealModeUsesInjectedModelClient(t *testing.T) {
 	cfg := realConfig()
 	model := &injectedModelClient{FakeService: modelservice.NewFakeService()}
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelClient:     model,
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		TxClient:        txclienttest.NewFake(),
+		ModelClient: model,
+		TxClient:    txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -244,10 +171,8 @@ func TestBuildDependenciesRealModeUsesLocalModelService(t *testing.T) {
 	}
 
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		Keeper:          keeper,
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		TxClient:        txclienttest.NewFake(),
+		Keeper:   keeper,
+		TxClient: txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -302,10 +227,8 @@ func TestBuildDependenciesRefusesATypedNilKeeper(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := BuildDependencies(cfg, DependencyOptions{
-				Keeper:          injected,
-				NexusPublisher:  fakePublisher{},
-				NexusSubscriber: fakeSubscriber{},
-				TxClient:        txclienttest.NewFake(),
+				Keeper:   injected,
+				TxClient: txclienttest.NewFake(),
 			})
 			if !errors.Is(err, ErrTypedNilKeeperClient) {
 				t.Fatalf("BuildDependencies() error = %v, want ErrTypedNilKeeperClient", err)
@@ -355,12 +278,9 @@ func TestBuildDependenciesRealModeUsesSharedFakeModelService(t *testing.T) {
 	cfg.TaskExecution.InputResolver = "fixture"
 	cfg.TaskExecution.FixtureRoot = t.TempDir()
 	cfg.LocalIdentity.SupportedModelProfiles = []string{chainModelID + "@1=llm_text_v1"}
-	cfg.Nexus.SubscribeModels = []string{chainModelID}
 
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		TxClient:        txclienttest.NewFake(),
+		TxClient: txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
@@ -441,10 +361,6 @@ func TestBuildDependenciesRealModeRecordsMissingRuntimeAdapters(t *testing.T) {
 	if modelStatus.Ready || modelStatus.Error != "model transport is required" {
 		t.Fatalf("model status = %#v", modelStatus)
 	}
-	nexusStatus, _ := deps.Diagnostics.Dependency("nexus")
-	if nexusStatus.Ready || nexusStatus.Error != "nexus publisher and subscriber are required" {
-		t.Fatalf("nexus status = %#v", nexusStatus)
-	}
 	txStatus, _ := deps.Diagnostics.Dependency("tx_broadcaster")
 	if txStatus.Ready || txStatus.Error != "tx broadcaster is unavailable; it is required only for enabled direct transaction paths" {
 		t.Fatalf("tx broadcaster status = %#v", txStatus)
@@ -455,27 +371,6 @@ func TestBuildDependenciesRealModeRecordsMissingRuntimeAdapters(t *testing.T) {
 	}
 	if keeperStatus.Ready {
 		t.Fatalf("keeper status = %#v, want unprobed until the readiness pass runs", keeperStatus)
-	}
-}
-
-func TestBuildDependenciesRealModeRequiresNexusPublisherAndSubscriber(t *testing.T) {
-	for name, opts := range map[string]DependencyOptions{
-		"publisher only":  {NexusPublisher: fakePublisher{}},
-		"subscriber only": {NexusSubscriber: fakeSubscriber{}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			deps, err := BuildDependencies(realConfig(), opts)
-			if err != nil {
-				t.Fatalf("BuildDependencies() error = %v", err)
-			}
-			status, ok := deps.Diagnostics.Dependency("nexus")
-			if !ok {
-				t.Fatalf("missing nexus dependency")
-			}
-			if status.Ready || status.Error != "nexus publisher and subscriber are required" {
-				t.Fatalf("nexus status = %#v", status)
-			}
-		})
 	}
 }
 
@@ -493,7 +388,7 @@ func TestBuildDependenciesKeepsDependencyStatusOrderDeterministic(t *testing.T) 
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
 	}
-	want := []string{"chain", "model_service", "store", "keeper", "nexus", "nexus_envelope_auth", "nexus_nats_identity", "builder_descriptor", "tx_broadcaster"}
+	want := []string{"chain", "model_service", "store", "keeper", "builder_descriptor", "tx_broadcaster"}
 	if len(deps.Diagnostics.Dependencies) != len(want) {
 		t.Fatalf("dependency count = %d, want %d", len(deps.Diagnostics.Dependencies), len(want))
 	}
@@ -513,7 +408,7 @@ func fakeConfig() config.Config {
 		Node:            config.NodeConfig{RPCEndpoint: "fake://node"},
 		Tx:              config.TxConfig{Enabled: true, MaxFeeAmount: 100, FeeDenom: "utrueopen", MaxAttempts: 2},
 		Keeper:          config.KeeperConfig{APIURL: "fake://keeper"},
-		Nexus:           config.NexusConfig{IngressURL: "fake://nexus", NATSURL: "fake://nats"},
+		Nexus:           config.NexusConfig{IngressURL: "fake://nexus"},
 		Artifacts:       config.ArtifactsConfig{Root: "/tmp/cortex-evidence"},
 		Store:           config.StoreConfig{Path: ":memory:"},
 		Signer:          config.SignerConfig{URI: "memory://operator"},
@@ -535,8 +430,7 @@ func realConfig() config.Config {
 		// is retired, so an input resolver is unconditionally required.
 		TaskExecution: config.TaskExecutionConfig{RetryDelayMS: 30000, InputResolver: config.InputResolverNexus},
 		Nexus: config.NexusConfig{
-			IngressURL: "https://nexus.devnet.trueopen.xyz", NATSURL: "tls://nexus.devnet.trueopen.xyz:4222",
-			NATSCAFile: "/etc/cortex/nats-ca.pem", NATSUserKeyFile: "/etc/cortex/nats-user.nk", JetStreamStream: "TRUEOPEN_TASK",
+			IngressURL: "https://nexus.devnet.trueopen.xyz",
 		},
 		Artifacts: config.ArtifactsConfig{Root: "/tmp/cortex-evidence"},
 		Store:     config.StoreConfig{Path: "/tmp/cortex.kv"},
@@ -610,11 +504,8 @@ func TestBuildDependenciesLeavesDescriptorSlotUnconfiguredWithoutAnOperator(t *t
 func TestBuildDependenciesIntegrationModeWiresTheSameSetAsRealMode(t *testing.T) {
 	options := func() DependencyOptions {
 		return DependencyOptions{
-			ModelTransport:  fakeModelTransport{},
-			NexusPublisher:  fakePublisher{},
-			NexusSubscriber: fakeSubscriber{},
-			NexusToken:      "token-1",
-			TxClient:        txclienttest.NewFake(),
+			ModelTransport: fakeModelTransport{},
+			TxClient:       txclienttest.NewFake(),
 		}
 	}
 	realCfg := realConfig()
@@ -661,20 +552,15 @@ func TestBuildDependenciesIntegrationModeWiresTheSameSetAsRealMode(t *testing.T)
 func TestBuildDependenciesIntegrationModeReportsItsRelaxations(t *testing.T) {
 	cfg := realConfig()
 	cfg.Mode = config.ModeIntegration
-	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthTrustedDev
 	cfg.Nexus.AllowInsecureDescriptor = true
-	// With envelope signatures off the transport is the authentication
-	// boundary, so an authenticated broker is still required.
-	cfg.Nexus.NATSURL = "nats://app:secret@nexus.example.org:4222"
 
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelTransport: fakeModelTransport{}, NexusPublisher: fakePublisher{},
-		NexusSubscriber: fakeSubscriber{}, NexusToken: "token-1", TxClient: txclienttest.NewFake(),
+		ModelTransport: fakeModelTransport{}, TxClient: txclienttest.NewFake(),
 	})
 	if err != nil {
 		t.Fatalf("BuildDependencies() error = %v", err)
 	}
-	for _, marker := range []string{UnsafeTrustedTransportMarker, UnsafeInsecureDescriptorMarker} {
+	for _, marker := range []string{UnsafeInsecureDescriptorMarker} {
 		found := false
 		for _, warning := range deps.Diagnostics.SecurityWarnings {
 			if warning == marker {
@@ -684,44 +570,6 @@ func TestBuildDependenciesIntegrationModeReportsItsRelaxations(t *testing.T) {
 		if !found {
 			t.Fatalf("SecurityWarnings = %v, want %s reported", deps.Diagnostics.SecurityWarnings, marker)
 		}
-	}
-}
-
-// TestBuildDependenciesReportsEveryOutboundBusPublish wires the observer at the
-// one seam every duty shares: worker handraise, verifier handraise, infer
-// receipt, result reveal, verify result and model registration all publish
-// through deps.Builder, so a report here covers all of them and none of the call
-// sites has to remember to log.
-func TestBuildDependenciesReportsEveryOutboundBusPublish(t *testing.T) {
-	cfg := realConfig()
-	var completions []builderclient.PublishCompletion
-	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelTransport:  fakeModelTransport{},
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		NexusToken:      "token-1",
-		TxClient:        txclienttest.NewFake(),
-		NexusPublishObserver: func(completion builderclient.PublishCompletion) {
-			completions = append(completions, completion)
-		},
-	})
-	if err != nil {
-		t.Fatalf("BuildDependencies() error = %v", err)
-	}
-	if err := deps.Builder.Publish(context.Background(), builderclient.PublishRequest{
-		Subject: builderclient.NATSWorkerHandraiseSubject("task-1"),
-		TaskID:  "task-1", Payload: []byte("payload"), DedupID: "dedup-1",
-	}); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-	if len(completions) != 1 {
-		t.Fatalf("completions = %d, want 1; an outbound publish left no trace", len(completions))
-	}
-	if completions[0].Subject != builderclient.NATSWorkerHandraiseSubject("task-1") {
-		t.Fatalf("subject = %q", completions[0].Subject)
-	}
-	if completions[0].Result != builderclient.PublishResultPublished {
-		t.Fatalf("result = %q", completions[0].Result)
 	}
 }
 

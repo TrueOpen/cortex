@@ -59,7 +59,6 @@ type Reconciler struct {
 type ReconcilerEffectType string
 
 const (
-	ReconcilerEffectAssignment  ReconcilerEffectType = "assignment"
 	ReconcilerEffectVerifyReady ReconcilerEffectType = "verify_ready"
 	// ReconcilerEffectRevealReady opens the reveal responsibility of a verify
 	// task whose reveal phase the chain has started. It carries the Keeper
@@ -265,8 +264,6 @@ func canonicalEffectEvent(event chainclient.KeeperEvent) chainclient.KeeperEvent
 
 func reconcilerEffectFor(eventType chainclient.KeeperEventType) (ReconcilerEffectType, bool) {
 	switch eventType {
-	case chainclient.KeeperEventAssignmentFinalized:
-		return ReconcilerEffectAssignment, true
 	// Both events admit the verify responsibility, and on the live chain only the
 	// second one is ever emitted. task writes the selected Verifier set in
 	// EndBlock as EventVerifierAssignmentFinalized, carrying
@@ -312,8 +309,7 @@ func reconcilerEffectFor(eventType chainclient.KeeperEventType) (ReconcilerEffec
 		chainclient.KeeperEventWorkerRevealDeadlineClosed,
 		chainclient.KeeperEventRevealDeadlineClosed:
 		return ReconcilerEffectVerifyTerminal, true
-	case chainclient.KeeperEventAssignmentFailed,
-		chainclient.KeeperEventSettleAccepted,
+	case chainclient.KeeperEventSettleAccepted,
 		chainclient.KeeperEventDeadlineSwept,
 		chainclient.KeeperEventVerifyOpenDeadlineClosed:
 		return ReconcilerEffectTaskTerminal, true
@@ -355,9 +351,6 @@ func (r *Reconciler) authoritativeTaskEvent(ctx context.Context, event chainclie
 		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper task identity does not match event %s/%s", event.SessionID, event.TaskID)
 	}
 	event.SessionID = assignment.SessionID
-	if event.Type == chainclient.KeeperEventAssignmentFinalized && event.Worker != "" && assignment.SelectedWorker != event.Worker {
-		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper selected worker %q does not match event worker %q", assignment.SelectedWorker, event.Worker)
-	}
 	if event.ModelID != "" && event.ModelID != assignment.ModelID {
 		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper model %q does not match event model %q", assignment.ModelID, event.ModelID)
 	}
@@ -504,7 +497,16 @@ func keeperEventDispositionFor(eventType chainclient.KeeperEventType) (keeperEve
 		return keeperEventFSMTransition, true
 	}
 	switch eventType {
-	case chainclient.KeeperEventProtocolProjection, chainclient.KeeperEventAssignAcceptedPendingRandomness,
+	case chainclient.KeeperEventProtocolProjection,
+		// The Phase 1 dispatch record, compensation and omission-challenge
+		// events. Nothing consumes them yet; the dispatch flow attaches its
+		// effects to them.
+		chainclient.KeeperEventDispatchRecorded,
+		chainclient.KeeperEventDispatchCompensationClaimed,
+		chainclient.KeeperEventDispatchCompensationPaid,
+		chainclient.KeeperEventDispatchCompensationRebutted,
+		chainclient.KeeperEventDispatchChallengeOpened,
+		chainclient.KeeperEventDispatchChallengeResolved,
 		// The two "the chain took your submission" events, and neither one ends
 		// the responsibility that produced it: a Worker still has to upload the
 		// output and publish OUTPUT_AVAILABLE after the receipt is accepted,

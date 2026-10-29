@@ -145,9 +145,6 @@ func TestWorkerTaskDataPlaneInputPathAndReceiptRefusal(t *testing.T) {
 	if h.nexus.RelayCalls() != 0 || h.nexus.UploadCalls() != 1 {
 		t.Fatalf("receipt refusal must leave only a STORED stream: relay=%d upload=%d", h.nexus.RelayCalls(), h.nexus.UploadCalls())
 	}
-	if got := h.publisher.OutputAvailableCount(); got != 0 {
-		t.Fatalf("OUTPUT_AVAILABLE = %d, want 0 when no receipt could be signed", got)
-	}
 	if got := h.checkpoints.storageConfirmations(h.assignment.TaskID); len(got) != 0 {
 		t.Fatalf("storage confirmations = %d, want 0", len(got))
 	}
@@ -195,9 +192,6 @@ func TestWorkerTaskDataPlaneProtocolRiskAndRetries(t *testing.T) {
 		if !errors.Is(h.executor.TerminalError(), builderclient.ErrInferReceiptInputUnavailable) {
 			t.Fatalf("resumed run error = %v, want the frozen receipt refusal", h.executor.TerminalError())
 		}
-		if h.publisher.OutputAvailableCount() != 0 {
-			t.Fatalf("OUTPUT_AVAILABLE = %d, want 0", h.publisher.OutputAvailableCount())
-		}
 	})
 
 	t.Run("input hash mismatch prevents inference and downstream effects", func(t *testing.T) {
@@ -217,8 +211,8 @@ func TestWorkerTaskDataPlaneProtocolRiskAndRetries(t *testing.T) {
 		if h.model.InferCalls() != 0 || h.nexus.RelayCalls() != 0 || h.nexus.UploadCalls() != 0 {
 			t.Fatalf("forbidden calls after input mismatch: infer=%d relay=%d upload=%d", h.model.InferCalls(), h.nexus.RelayCalls(), h.nexus.UploadCalls())
 		}
-		if h.publisher.OutputAvailableCount() != 0 || len(h.checkpoints.storageConfirmations(h.assignment.TaskID)) != 0 {
-			t.Fatal("input mismatch produced confirmation or OUTPUT_AVAILABLE")
+		if len(h.checkpoints.storageConfirmations(h.assignment.TaskID)) != 0 {
+			t.Fatal("input mismatch produced a storage confirmation")
 		}
 	})
 
@@ -268,9 +262,6 @@ func TestWorkerTaskDataPlaneProtocolRiskAndRetries(t *testing.T) {
 		}
 		if h.model.InferCalls() != 0 || h.nexus.RelayCalls() != 0 || h.nexus.UploadCalls() != 0 {
 			t.Fatal("expired input auth triggered forbidden inference/output effects")
-		}
-		if h.publisher.OutputAvailableCount() != 0 {
-			t.Fatalf("OUTPUT_AVAILABLE = %d, want 0", h.publisher.OutputAvailableCount())
 		}
 	})
 }
@@ -561,11 +552,11 @@ func TestWorkerTaskDataPlaneFinalizesAndRejectsBadConfirmations(t *testing.T) {
 			}
 			h.requireFinished(t)
 			if bad {
-				if h.executor.TerminalError() == nil || h.publisher.OutputAvailableCount() != 0 || len(h.checkpoints.storageConfirmations(proofTaskID)) != 0 {
+				if h.executor.TerminalError() == nil || len(h.checkpoints.storageConfirmations(proofTaskID)) != 0 {
 					t.Fatal("bad Builder signature released availability")
 				}
 			} else {
-				if h.executor.TerminalError() != nil || h.publisher.OutputAvailableCount() == 0 || len(h.checkpoints.storageConfirmations(proofTaskID)) != 3 {
+				if h.executor.TerminalError() != nil || len(h.checkpoints.storageConfirmations(proofTaskID)) != 3 {
 					t.Fatalf("Worker did not finalize: %v", h.executor.TerminalError())
 				}
 				if h.nexus.Receipt().GeneratedTokenCount != proofTokenCount {
@@ -620,9 +611,6 @@ func TestWorkerTaskDataPlaneRetriesPreserveSignedMaterial(t *testing.T) {
 					first = signed
 				} else if !reflect.DeepEqual(first, signed) {
 					t.Fatal("retry re-signed the persisted receipt")
-				}
-				if h.publisher.OutputAvailableCount() != 0 {
-					t.Fatal("transient failure released output")
 				}
 			}
 			h.restartRunner()
@@ -843,7 +831,7 @@ func newTaskDataHarness(t *testing.T, options harnessOptions) *taskDataHarness {
 			Builder: publisher, TaskData: taskData, TaskDataAuth: auth, Persistence: checkpoints,
 			StreamLimits: &chainclient.OutputStreamLimitsSnapshot{MinOutputStreamFrameBytes: 16, MaxOutputMMRLeaves: 65536},
 			ChainID:      proofChainID, SignerAddress: serviceAddress, SignerKeyRef: proofServiceKeyRef,
-			SignerPubkey: serviceKey.ServicePubkey, Signer: testSigner, TrustedNATSDev: true,
+			SignerPubkey: serviceKey.ServicePubkey, Signer: testSigner,
 			ReceivingBuilder: receivingBuilder,
 			SnapshotReader:   &proofSnapshotReader{assignment: assignment, keeperInput: options.keeperInput},
 			// The frozen section 16.2 Task read the receipt's two consensus fields
@@ -977,7 +965,7 @@ func (h *taskDataHarness) stageObject(ctx context.Context, key builderclient.Tas
 		if root.String() != key.ContentHash {
 			return builderclient.TaskDataMetadata{}, fmt.Errorf("output MMR does not match object")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(proofChainID, proofHex(key.TaskHash), 0, root[:])
+		digest, err := nodewire.OutputChunkSigningDigest(proofChainID, proofHex(key.TaskHash), builderclient.PendingDispatchTicketHash(), 0, root[:])
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
@@ -990,7 +978,7 @@ func (h *taskDataHarness) stageObject(ctx context.Context, key builderclient.Tas
 			return builderclient.TaskDataMetadata{}, err
 		}
 		defer stream.Close()
-		finDigest, err := nodewire.OutputFinSigningDigest(proofChainID, proofHex(key.TaskHash), 0, root[:], nodewire.FinishReasonV1EosToken)
+		finDigest, err := nodewire.OutputFinSigningDigest(proofChainID, proofHex(key.TaskHash), builderclient.PendingDispatchTicketHash(), 0, root[:], nodewire.FinishReasonV1EosToken)
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
@@ -1127,9 +1115,6 @@ func (e *proofInferExecutor) RunInfer(ctx context.Context, taskHash codec.Hash, 
 		e.mu.Unlock()
 		return task, true, nil
 	}
-	if err := e.checkpoints.publishPending(ctx); err != nil {
-		return task, false, builderclient.Retryable(err)
-	}
 	task.Stage = "confirmed"
 	task.OutputCID = result.OutputRef
 	if digest, decodeErr := hex.DecodeString(result.TaskDataReceipt.OutputHash); decodeErr == nil && len(digest) == len(codec.Hash{}) {
@@ -1147,7 +1132,6 @@ type proofCheckpoints struct {
 	taskHash      codec.Hash
 	publisher     *proofPublisher
 	paths         map[string]string
-	outbox        map[codec.Hash]worker.OutboxRecord
 	jobs          []worker.ModelJobCheckpoint
 	artifacts     map[string][]byte
 	receipts      map[string]worker.InferReceiptCheckpoint
@@ -1157,8 +1141,8 @@ type proofCheckpoints struct {
 func newProofCheckpoints(store *evidence.Store, taskHash codec.Hash, publisher *proofPublisher) *proofCheckpoints {
 	return &proofCheckpoints{
 		evidence: store, taskHash: taskHash, publisher: publisher, paths: make(map[string]string),
-		outbox: make(map[codec.Hash]worker.OutboxRecord), artifacts: make(map[string][]byte),
-		receipts: make(map[string]worker.InferReceiptCheckpoint), confirmations: make(map[string][]worker.StorageConfirmationCheckpoint),
+		artifacts: make(map[string][]byte),
+		receipts:  make(map[string]worker.InferReceiptCheckpoint), confirmations: make(map[string][]worker.StorageConfirmationCheckpoint),
 	}
 }
 
@@ -1260,40 +1244,6 @@ func (p *proofCheckpoints) CheckpointInferOutput(ctx context.Context, taskID str
 	return nil
 }
 
-func (p *proofCheckpoints) WriteBuilderOutbox(_ context.Context, record worker.OutboxRecord) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	existing, ok := p.outbox[record.Digest]
-	if ok && (record.Status == "held" || (existing.Status == "sent" && record.Status == "pending")) {
-		return nil
-	}
-	record.Payload = append([]byte(nil), record.Payload...)
-	p.outbox[record.Digest] = record
-	return nil
-}
-
-func (p *proofCheckpoints) publishPending(ctx context.Context) error {
-	p.mu.Lock()
-	pending := make(map[codec.Hash]worker.OutboxRecord)
-	for digest, record := range p.outbox {
-		if record.Status == "pending" {
-			pending[digest] = record
-		}
-	}
-	p.mu.Unlock()
-	for digest, record := range pending {
-		if err := p.publisher.Publish(ctx, builderclient.PublishRequest{Subject: record.Subject, TaskID: record.TaskID, Payload: record.Payload}); err != nil {
-			return err
-		}
-		p.mu.Lock()
-		current := p.outbox[digest]
-		current.Status = "sent"
-		p.outbox[digest] = current
-		p.mu.Unlock()
-	}
-	return nil
-}
-
 func (p *proofCheckpoints) CheckpointInferInput(context.Context, worker.InferInputCheckpoint) error {
 	return nil
 }
@@ -1354,17 +1304,6 @@ func (p *proofCheckpoints) ReadArtifact(_ context.Context, taskID string, kind s
 
 func (p *proofCheckpoints) StorageConfirmations(_ context.Context, taskID string) ([]worker.StorageConfirmationCheckpoint, error) {
 	return p.storageConfirmations(taskID), nil
-}
-
-func (p *proofCheckpoints) BuilderMessage(_ context.Context, digest string) (worker.BuilderMessageCheckpoint, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for hash, record := range p.outbox {
-		if hex.EncodeToString(hash[:]) == digest {
-			return worker.BuilderMessageCheckpoint{Digest: digest, TaskID: record.TaskID, Subject: record.Subject, Status: record.Status, Payload: append([]byte(nil), record.Payload...)}, nil
-		}
-	}
-	return worker.BuilderMessageCheckpoint{}, worker.ErrCheckpointNotFound
 }
 
 func (p *proofCheckpoints) storageConfirmations(taskID string) []worker.StorageConfirmationCheckpoint {
@@ -1533,24 +1472,6 @@ func (m *proofModel) InferInput() []byte {
 type proofPublisher struct {
 	*builderclient.FakeClient
 	mu sync.Mutex
-}
-
-func (p *proofPublisher) Publish(ctx context.Context, request builderclient.PublishRequest) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.FakeClient.Publish(ctx, request)
-}
-
-func (p *proofPublisher) OutputAvailableCount() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	count := 0
-	for _, published := range p.Published {
-		if published.Subject != "" && published.Subject == builderclient.NATSOutputAvailableSubject(published.TaskID) {
-			count++
-		}
-	}
-	return count
 }
 
 func mustOpenStore(t *testing.T, path string) *store.Store {

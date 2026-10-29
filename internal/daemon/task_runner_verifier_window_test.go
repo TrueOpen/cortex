@@ -53,8 +53,8 @@ func TestVerifierWindowStillFrozenIsTracedAsAWaitNotAFailure(t *testing.T) {
 	}
 	// Waiting is not handraising: nothing is signed or published while the draw
 	// this node would be joining does not exist.
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published = %#v, want nothing before the window is READY", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published = %#v, want nothing before the window is READY", fixture.sender.handraises)
 	}
 	requireTraceFields(t, fixture.trace.event(t, "verifier_window_pending"),
 		`task="`+fixture.taskID+`"`, "verify_round=1", "waits=1", "current_height=10")

@@ -35,7 +35,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 			t.Fatal(err)
 		}
 		root := mmr.Root()
-		digest, err := nodewire.OutputChunkSigningDigest(request.Auth.ChainID, mustDecodeHex(t, key.TaskHash), uint64(i), root[:])
+		digest, err := nodewire.OutputChunkSigningDigest(request.Auth.ChainID, mustDecodeHex(t, key.TaskHash), PendingDispatchTicketHash(), uint64(i), root[:])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 func outputFinFixture(t *testing.T, request OutputStreamRequest, reason nodewire.FinishReasonV1) OutputFin {
 	t.Helper()
 	last := request.ReplayChunks[len(request.ReplayChunks)-1]
-	digest, err := nodewire.OutputFinSigningDigest(request.Auth.ChainID, mustDecodeHex(t, request.TaskHash), last.Seq, last.MMRRoot[:], reason)
+	digest, err := nodewire.OutputFinSigningDigest(request.Auth.ChainID, mustDecodeHex(t, request.TaskHash), PendingDispatchTicketHash(), last.Seq, last.MMRRoot[:], reason)
 	if err != nil {
 		t.Fatal(err)
 	}

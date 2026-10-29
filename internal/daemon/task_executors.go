@@ -35,9 +35,6 @@ const fakeRequiredTopK = 16
 type productionInferExecutor struct {
 	cfg     TaskRunnerConfig
 	persist func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error
-	// prefetches, when set, may hold this task's input, downloaded when the
-	// assignment was announced. See prefetchAssignedInput.
-	prefetches *inputPrefetches
 }
 type productionVerifyExecutor struct{ cfg TaskRunnerConfig }
 
@@ -97,9 +94,9 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	}
 	persistence := &evidenceWorkerPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, store: e.cfg.Store, builder: e.cfg.Builder, persist: e.persist}
 	signerAddress, signerPubkey := resolveSigningIdentity(e.cfg, e.cfg.LocalWorkerAddress)
-	wcfg := worker.Config{WorkerAddress: e.cfg.LocalWorkerAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, TaskData: e.cfg.TaskData, TaskDataAuth: e.cfg.TaskDataAuth, Tx: e.cfg.Tx, Persistence: persistence, InferDeadlineDeltaHeights: e.cfg.InferDeadlineDeltaHeights, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, SignerPubkey: signerPubkey, Signer: e.cfg.Signer, FakeOutput: e.cfg.FakeOutput, TrustedNATSDev: e.cfg.TrustedNATSDev || e.cfg.FakeBus, PackageStore: e.cfg.OutputPackages, NexusEnvelopeSigner: e.cfg.NexusEnvelopeSigner, EnvelopeTTL: e.cfg.EnvelopeTTL, ReceivingBuilder: e.cfg.ReceivingBuilder, TaskFacts: e.cfg.TaskFacts, EvidenceSchemaHash: evidenceSchemaHash, ProfileEvidenceRequirements: requirements, RequiredTopK: requiredTopK, CrashHook: e.cfg.CrashHook, SnapshotReader: newTaskSnapshotReader(e.cfg.TaskReader, task.SessionID), Trace: e.cfg.Trace}
+	wcfg := worker.Config{WorkerAddress: e.cfg.LocalWorkerAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, TaskData: e.cfg.TaskData, TaskDataAuth: e.cfg.TaskDataAuth, Tx: e.cfg.Tx, Persistence: persistence, InferDeadlineDeltaHeights: e.cfg.InferDeadlineDeltaHeights, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, SignerPubkey: signerPubkey, Signer: e.cfg.Signer, FakeOutput: e.cfg.FakeOutput, PackageStore: e.cfg.OutputPackages, ReceivingBuilder: e.cfg.ReceivingBuilder, TaskFacts: e.cfg.TaskFacts, EvidenceSchemaHash: evidenceSchemaHash, ProfileEvidenceRequirements: requirements, RequiredTopK: requiredTopK, CrashHook: e.cfg.CrashHook, SnapshotReader: newTaskSnapshotReader(e.cfg.TaskReader, task.SessionID), Trace: e.cfg.Trace}
 	wcfg.PreresolvedBuilders = preresolved
-	wcfg.GenerationReader = persistedGenerationReader{store: e.cfg.Store, chainID: e.cfg.ChainID}
+	wcfg.GenerationReader = e.cfg.GenerationReader
 	wcfg.MaxOutputBytes = e.cfg.MaxOutputBytes
 	event := chainclient.AssignmentFinalized{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, Winner: firstNonEmpty(task.WorkerAddress, e.cfg.LocalWorkerAddress), WinnerConfirmHeight: task.WinnerConfirmHeight, InferDeadlineHeight: task.DeadlineHeight, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, BuilderOperatorAddress: task.BuilderOperatorAddress}
 	if e.cfg.InputResolver == nil {
@@ -109,31 +106,14 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	// re-download the same bytes from the Builder. The evidence store is
 	// content-addressed, so re-writing the same input is idempotent.
 	inputSource := "local"
-	prefetchStatus := ""
 	input, readErr := persistence.ReadArtifact(ctx, task.TaskID, "task-input")
 	if readErr == nil && len(input) > 0 && codec.HashBytes(input) == task.InputDigest {
 		event.Input = input
-		// The input is already durable; a prefetch is not needed.
-		e.prefetches.discard(taskHash, "input_persisted")
 	} else {
 		inputStartedAt := time.Now()
 		ref := TaskInputRef{SessionID: task.SessionID, TaskID: task.TaskID, TaskHash: taskHash, PayloadCID: task.InputCID, PayloadHash: chainclient.HexHash(task.InputDigest), BuilderOperatorAddress: task.BuilderOperatorAddress, InputSizeBytes: task.InputSizeBytes}
-		// A prefetch is used only when it was made for exactly this
-		// reference and its bytes hash to the chain's accepted payload hash;
-		// anything else is dropped and the input is fetched here as before.
-		// Either way the bytes are persisted below, after the profile read,
-		// exactly as a fetched input is.
-		prefetched, _, status := e.prefetches.take(ctx, ref)
-		prefetchStatus = status
-		if prefetched != nil && codec.HashBytes(prefetched) == task.InputDigest {
-			event.Input, inputSource = prefetched, "prefetch"
-		} else {
-			if prefetched != nil {
-				prefetchStatus = "digest_mismatch"
-			}
-			inputSource = "fetch"
-			event.Input, err = e.cfg.InputResolver.ResolveTaskInput(ctx, ref)
-		}
+		inputSource = "fetch"
+		event.Input, err = e.cfg.InputResolver.ResolveTaskInput(ctx, ref)
 		inputResolveTime = time.Since(inputStartedAt)
 		if err == nil && codec.HashBytes(event.Input) != task.InputDigest {
 			err = fmt.Errorf("resolved task input hash does not match Keeper accepted payload hash")
@@ -163,7 +143,7 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 		tasktrace.Millis("since_run_ms", time.Since(runStartedAt)),
 		tasktrace.Millis("profile_ms", profileTime), tasktrace.Millis("input_resolve_ms", inputResolveTime),
 		tasktrace.Millis("input_persist_ms", inputPersistTime),
-		tasktrace.Str("input_source", inputSource), tasktrace.Str("input_prefetch", prefetchStatus),
+		tasktrace.Str("input_source", inputSource),
 		tasktrace.Hex("evidence_schema_hash", evidenceSchemaHash),
 		tasktrace.Int("evidence_requirements", len(requirements)),
 		tasktrace.Str("builder", task.BuilderOperatorAddress),
@@ -176,8 +156,6 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 			var limits chainclient.OutputStreamLimitsSnapshot
 			limits, err = reader.OutputStreamLimits(ctx)
 			wcfg.StreamLimits = &limits
-		} else if e.cfg.FakeBus {
-			wcfg.StreamLimits = &chainclient.OutputStreamLimitsSnapshot{MinOutputStreamFrameBytes: 256, MaxOutputMMRLeaves: 65536}
 		} else {
 			err = fmt.Errorf("Keeper output stream limits reader is required")
 		}
@@ -394,7 +372,7 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TrustedNATSDev: e.cfg.TrustedNATSDev || e.cfg.FakeBus, NexusEnvelopeSigner: e.cfg.NexusEnvelopeSigner, EnvelopeTTL: e.cfg.EnvelopeTTL, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay})
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: inferReceiptHash, Member: member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: expiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
 	if resume {
 		if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil {
@@ -478,11 +456,6 @@ func (e *productionVerifyExecutor) verifyRoundIdentity(ctx context.Context, task
 		}
 		inferReceiptHash = codec.Hash(candidate.InferReceiptHash)
 		expiryHeight = candidate.ExpiryHeight
-	} else if e.cfg.FakeBus {
-		member = builderclient.CandidateMemberRefMessage{
-			CandidatePoolSnapshotID: hex.EncodeToString(taskHash[:]), Slot: 1, SlotVersion: 1,
-			OperatorAddress: "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
-		}
 	} else {
 		return verifyRoundIdentity{}, builderclient.Retryable(fmt.Errorf("verifier candidate member reader is required"))
 	}
@@ -505,9 +478,7 @@ func (e *productionVerifyExecutor) verifyRoundIdentity(ctx context.Context, task
 // evidence is on disk. Re-confirming the output here would re-download it from
 // the Builder once per retry for nothing.
 //
-// It also builds no commit submitter. The reveal travels the bus as VERIFY_RESULT
-// (interface-and-topic-list.md §5.3), so requiring the direct transaction path here would
-// fail a node closed for a route this half never takes.
+// It also builds no commit submitter: the reveal half never submits a commit.
 func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec.Hash, task store.VerifyTask) (store.VerifyTask, bool, error) {
 	if task.RevealDeadlineHeight == 0 {
 		// The runner does not schedule this case (awaitingRevealPhase skips it),
@@ -527,7 +498,7 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		return task, false, err
 	}
 	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, builder: e.cfg.Builder}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TrustedNATSDev: e.cfg.TrustedNATSDev || e.cfg.FakeBus, NexusEnvelopeSigner: e.cfg.NexusEnvelopeSigner, EnvelopeTTL: e.cfg.EnvelopeTTL, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}})
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: identity.inferReceiptHash, Member: identity.member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: identity.handraiseExpiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
 	reveal, err := v.HandleRevealPhaseStarted(ctx, state)
 	if err != nil {
@@ -538,7 +509,7 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		tasktrace.Uint("verify_round", task.VerifyRound),
 		tasktrace.Hash("result_signing_digest", reveal.ResultSigningDigest),
 		tasktrace.Uint("expiry_height", reveal.ExpiryHeight),
-		tasktrace.Bool("published", reveal.Published))
+		tasktrace.Bool("signed", reveal.Signed))
 	task.Stage = "succeeded"
 	task.LastError = ""
 	task.RetryAtUnixMilli = 0
@@ -891,25 +862,6 @@ func (p *evidenceWorkerPersistence) OutputStreamFrames(ctx context.Context, task
 	return frames, nil
 }
 
-func (p *evidenceWorkerPersistence) WriteBuilderOutbox(ctx context.Context, r worker.OutboxRecord) error {
-	if p.evidence == nil {
-		return fmt.Errorf("evidence store is required to persist outbox payload")
-	}
-	key := strings.TrimSpace(r.DedupID)
-	if key == "" {
-		key = hex.EncodeToString(r.Digest[:])
-	}
-	if err := writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, r.TaskID, "worker-outbox:"+key, r.Payload); err != nil {
-		return err
-	}
-	if r.Status == "pending" && p.builder != nil {
-		if err := p.builder.Publish(ctx, builderclient.PublishRequest{Subject: r.Subject, TaskID: r.TaskID, Payload: r.Payload, DedupID: key}); err != nil {
-			return builderclient.Retryable(err)
-		}
-	}
-	return nil
-}
-
 func (p *evidenceWorkerPersistence) CheckpointModelJob(context.Context, worker.ModelJobCheckpoint) error {
 	return nil
 }
@@ -1070,17 +1022,6 @@ func (p *evidenceWorkerPersistence) InferInput(ctx context.Context, _ string) (w
 	return worker.InferInputCheckpoint{TaskID: p.task.TaskID, Payload: data}, nil
 }
 
-func (p *evidenceWorkerPersistence) BuilderMessage(ctx context.Context, digest string) (worker.BuilderMessageCheckpoint, error) {
-	if p.evidence == nil {
-		return worker.BuilderMessageCheckpoint{}, fmt.Errorf("evidence store is required to read outbox payload")
-	}
-	payload, err := p.evidence.ReadTaskKind(ctx, p.taskHash, "worker-outbox:"+digest)
-	if err != nil {
-		return worker.BuilderMessageCheckpoint{}, worker.ErrCheckpointNotFound
-	}
-	return worker.BuilderMessageCheckpoint{Digest: digest, TaskID: p.task.TaskID, Payload: payload, Status: "sent"}, nil
-}
-
 // storageConfirmationMeta is the durable metadata for a storage confirmation.
 type storageConfirmationMeta struct {
 	Signature            []byte                             `json:"signature"`
@@ -1141,13 +1082,6 @@ func (p *evidenceVerifierPersistence) ReadVerifierEvidence(ctx context.Context, 
 func (p *evidenceVerifierPersistence) CheckpointModelJob(context.Context, verifier.ModelJobCheckpoint) error {
 	return nil
 }
-func (p *evidenceVerifierPersistence) WriteVerifierBuilderOutbox(ctx context.Context, r verifier.OutboxRecord) error {
-	if p.builder == nil {
-		return errors.New("builder client is required")
-	}
-	return p.builder.Publish(ctx, builderclient.PublishRequest{Subject: r.Subject, TaskID: r.TaskID, Payload: r.Payload, DedupID: r.DedupID})
-}
-
 func writeTaskEvidence(ctx context.Context, s *evidence.Store, taskHash codec.Hash, sessionID, taskID, kind string, data []byte) error {
 	if s == nil {
 		return fmt.Errorf("task runner evidence store is required")

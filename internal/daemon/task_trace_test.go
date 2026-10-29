@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -15,7 +14,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/observability"
-	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
@@ -105,53 +103,6 @@ func requireTraceFields(t *testing.T, line string, fields ...string) {
 	}
 }
 
-// TestAdmittedOrderTracesTheTaskHashAndTheHandraiseItSigned covers the first two
-// milestones of a task on this node: what the signed order said, and what this
-// node signed in reply. Both are digests a Builder and Keeper derive
-// independently, so a handraise the chain does not recognize is diagnosable only
-// if the value this node used is recoverable from its own log.
-func TestAdmittedOrderTracesTheTaskHashAndTheHandraiseItSigned(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	trace := &collectTrace{}
-	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker", ChainID: "chain",
-		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
-		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
-		TaskDataAuth:         taskRunnerTaskDataAuth(t),
-		SignerAddress:        "service", SignerKeyRef: "key",
-		Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) {
-			return bytes.Repeat([]byte{1}, 64), nil
-		}),
-		Trace: trace.trace(),
-	})
-
-	message, taskHash := orderMessageWithSequence(t, 0)
-	if err := runner.HandleNexusMessage(ctx, message); err != nil {
-		t.Fatalf("HandleNexusMessage() error = %v", err)
-	}
-
-	requireTraceFields(t, trace.event(t, "order_broadcast"),
-		"task_hash="+taskHash.String(), `model="`+testModelID+`"`, "profile_version=1", "order_expire_height=")
-
-	handraise := trace.event(t, "worker_handraise")
-	admission, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatalf("GetCandidateAdmission() error = %v", err)
-	}
-	requireTraceFields(t, handraise,
-		"signed=true", "accepted=true",
-		"handraise_digest="+codec.HashBytes(admission.HandraisePayload).String(),
-		"task_hash="+taskHash.String())
-	requireTraceLevel(t, trace, "worker_handraise", slog.LevelInfo)
-}
-
 // TestOutputConfirmationAcceptsAnAbsentPackageHashAndNamesAnAbsentOutputHash
 // pins both halves of the §13 hard boundary (cortex-detailed-design.md:1032). A missing
 // package hash is the normal chain and must not refuse -- that refusal was what
@@ -239,8 +190,9 @@ func TestInferStartedTraceIsInfoWhenInputResolutionSucceeds(t *testing.T) {
 	input := []byte("resolved input")
 	trace := &collectTrace{}
 	executor := newProductionInferExecutor(TaskRunnerConfig{
-		Store: db, Evidence: evidenceStore, FakeOutput: true, FakeBus: true,
+		Store: db, Evidence: evidenceStore, FakeOutput: true,
 		LocalWorkerAddress: "worker-1", Trace: trace.trace(),
+		TaskReader: streamLimitedTaskReader{},
 		InputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
 			return input, nil
 		}),

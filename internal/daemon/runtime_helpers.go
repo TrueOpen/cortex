@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"os"
 	"strings"
 	"time"
@@ -125,16 +124,9 @@ func workloadDependenciesReady(report diagnostics.Diagnostics, requireTxBroadcas
 		}
 		return report.Dependency(name)
 	}
-	names := []string{"chain", "model_service", "store", "keeper", "nexus", "nexus_envelope_auth", "builder_descriptor"}
+	names := []string{"chain", "model_service", "store", "keeper", "builder_descriptor"}
 	if requireTxBroadcaster {
 		names = append(names, "tx_broadcaster")
-	}
-	// The on-chain identity is gated only when nats_user_key_file is configured: a
-	// binding that cannot be signed means this machine cannot reach the bus and should
-	// not take on new work (ADR-0016 decision three). The creds/token path reports
-	// optional-not-configured, which is not a missing dependency.
-	if status, ok := lookup(natsIdentityDependency); ok && status.Configured {
-		names = append(names, natsIdentityDependency)
 	}
 	for _, name := range names {
 		status, ok := lookup(name)
@@ -175,20 +167,6 @@ func runtimeClosers(values ...any) []interface{ Close() error } {
 		}
 	}
 	return closers
-}
-
-// nexusNATSAuth hands the NATS transport and authentication settings from the config
-// to builderclient (ADR-0016). A non-nil identity selects the on-chain identity path
-// (decision three), and creds and token are ignored; it may also supply the NATS
-// address and certificate the Builder serves with the sentinel. Real mode refuses a
-// served plaintext address and a remote server with no certificate to verify it.
-func nexusNATSAuth(cfg config.Config, token string, identity builderclient.ChainIdentityProvider) builderclient.NATSAuth {
-	return builderclient.NATSAuth{
-		URL: cfg.Nexus.NATSURL, Token: token,
-		CredsFile: cfg.Nexus.NATSCredsFile, CAFile: cfg.Nexus.NATSCAFile,
-		ChainIdentity:    identity,
-		RequireServerTLS: cfg.Mode == config.ModeReal,
-	}
 }
 
 func loadNexusToken(cfg config.NexusConfig) (string, error) {

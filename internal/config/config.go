@@ -24,24 +24,19 @@ import (
 // The three deployment modes sit on two independent axes, which is why there
 // are three values and not two. ModeFake wires nothing external. ModeReal and
 // ModeIntegration wire everything external identically; they differ only at the
-// envelope trust boundary, where real mode is fail-closed and integration mode
-// may opt into the dev-only Nexus flags.
+// security posture, where real mode is fail-closed and integration mode may
+// opt into the dev-only Nexus flags.
 //
-// Integration mode exists because the alternative was spelling it as
-// `real` + `trusted_nats_dev`, which real mode now refuses outright. That left
-// the integration harness with no startable configuration at all: fake mode
-// builds no task runner, subscribes to no bus and reaches no chain, so it
-// proves strictly less. configs/integration*.example.yaml are the canonical
-// users.
+// Integration mode exists because fake mode builds no task runner and reaches
+// no chain, so it proves strictly less. configs/integration*.example.yaml are
+// the canonical users.
 //
 // Ask UsesRealDependencies for the wiring question. Compare against ModeReal
 // only for the security posture.
 const (
-	ModeFake                    = "fake"
-	ModeReal                    = "real"
-	ModeIntegration             = "integration"
-	NexusEnvelopeAuthStrict     = "strict"
-	NexusEnvelopeAuthTrustedDev = "trusted_nats_dev"
+	ModeFake        = "fake"
+	ModeReal        = "real"
+	ModeIntegration = "integration"
 )
 
 type Config struct {
@@ -225,58 +220,18 @@ func (c TaskExecutionConfig) InputResolverMode() string {
 	return strings.ToLower(strings.TrimSpace(c.InputResolver))
 }
 
-// Envelope freshness defaults. Nexus and Cortex must agree on these, so they
-// are deployment constants rather than chain governance parameters.
-const (
-	defaultEnvelopeTTLMS       = 30000
-	defaultEnvelopeClockSkewMS = 2000
-	// maxEnvelopeBoundMS caps both settings at ten minutes. A wider window is
-	// no longer a freshness bound in any real deployment, and a large enough
-	// millisecond value overflows once multiplied into a time.Duration, which
-	// inverts the very skew-below-TTL ordering the validation enforces.
-	maxEnvelopeBoundMS = 600000
-)
-
 type NexusConfig struct {
 	IngressURL    string `yaml:"ingress_url"`
-	NATSURL       string `yaml:"nats_url"`
 	AuthTokenFile string `yaml:"auth_token_file"`
-	// NATSCAFile / NATSCredsFile (the ADR-0016 transition state): the server
-	// certificate / CA PEM (the system root CAs are used when it is absent) and the NATS
-	// creds (user JWT + nkey seed). Real mode requires tls:// plus creds; a token and a
-	// username/password embedded in the URL are dev-only.
-	NATSCAFile    string `yaml:"nats_ca_file"`
-	NATSCredsFile string `yaml:"nats_creds_file"`
-	// NATSUserKeyFile (ADR-0016 decision three; interface-and-topic-list §5.14.1): the seed file
-	// of the local NATS user key (an ed25519 nkey), 0600, generated on first start when
-	// it does not exist. cortex signs a binding declaration for it with the on-chain
-	// service key and then connects with nkey + sig + auth_token; it is required for a
-	// remote NATS in real mode, which no longer accepts nats_creds_file.
-	NATSUserKeyFile  string   `yaml:"nats_user_key_file"`
-	EnvelopeAuthMode string   `yaml:"envelope_auth_mode"`
-	SubscribeModels  []string `yaml:"subscribe_models"`
-	SubscribeTasks   []string `yaml:"subscribe_tasks"`
-	// EnvelopeTTLMS bounds how long a bus envelope is valid: it is stamped on
-	// outbound envelopes and is the maximum lifetime accepted on an inbound one.
-	// EnvelopeClockSkewMS is the tolerance applied when judging those stamps.
-	// Both are deployment settings Nexus and Cortex must agree on, not chain
-	// governance parameters. They are pointers because an explicit zero skew is
-	// a real instruction (tolerate no clock difference) that must not be
-	// mistaken for an omitted setting. Read them through EnvelopeTTL and
-	// EnvelopeClockSkew rather than dereferencing them.
-	EnvelopeTTLMS       *uint64 `yaml:"envelope_ttl_ms"`
-	EnvelopeClockSkewMS *uint64 `yaml:"envelope_clock_skew_ms"`
 	// BuilderOperatorAddress is an OPTIONAL narrowing filter naming the one
 	// Builder operator this node deals with. It is not the authority over who
 	// may address this node: the chain's current BuilderSet is, so a Builder the
 	// chain has removed is refused no matter what this field says, and leaving it
 	// empty admits every current BuilderSet member.
 	//
-	// When set, it adds two checks. Inbound bus traffic is accepted only from
-	// that operator, on top of the chain membership requirement; and the daemon
-	// reads that Builder's on-chain service descriptor and stays unready unless
-	// its NEXUS_GRPC endpoint is byte-for-byte the configured ingress endpoint
-	// and the Builder is in the current BuilderSet.
+	// When set, the daemon reads that Builder's on-chain service descriptor and
+	// stays unready unless its NEXUS_GRPC endpoint is byte-for-byte the
+	// configured ingress endpoint and the Builder is in the current BuilderSet.
 	BuilderOperatorAddress string `yaml:"builder_operator_address"`
 	// AllowInsecureDescriptor permits exactly one plaintext transport: an
 	// http:// endpoint, both where the on-chain descriptor publishes it and in
@@ -298,67 +253,12 @@ type NexusConfig struct {
 	// plaintext one: the two switches together say "this deployment carries
 	// prompts and outputs in the clear". Real mode must leave both false.
 	DowngradeDescriptorTLS bool `yaml:"downgrade_descriptor_tls"`
-	// JetStreamStream names the JetStream stream Nexus publishes task frames
-	// to. Cortex creates and binds its own durable consumer on that stream
-	// instead of letting nats.go create one, so the name has to be stated: a
-	// library-created consumer is deleted on unsubscribe and every restart then
-	// replays the retention window (issue #132). It is configuration rather
-	// than a per-subject StreamNameBySubject lookup so a missing stream fails
-	// closed at startup, like the other real-mode boundaries. Required in real
-	// mode; the devnet stream is TRUEOPEN_TASK.
-	JetStreamStream string `yaml:"jetstream_stream"`
 }
 
 // VerifiesBuilderDescriptor reports whether the daemon can cross-check the
 // configured Nexus ingress endpoint against the authoritative chain view.
 func (c NexusConfig) VerifiesBuilderDescriptor() bool {
 	return strings.TrimSpace(c.BuilderOperatorAddress) != ""
-}
-
-func (c NexusConfig) TrustedNATSDev() bool {
-	return strings.EqualFold(strings.TrimSpace(c.EnvelopeAuthMode), NexusEnvelopeAuthTrustedDev)
-}
-
-// EnvelopeTTL returns the bus envelope lifetime: the value stamped on outbound
-// envelopes and the maximum self-declared lifetime accepted on an inbound one.
-// An absent setting takes the deployment default.
-func (c NexusConfig) EnvelopeTTL() time.Duration {
-	if c.EnvelopeTTLMS == nil {
-		return defaultEnvelopeTTLMS * time.Millisecond
-	}
-	return time.Duration(*c.EnvelopeTTLMS) * time.Millisecond
-}
-
-// EnvelopeClockSkew returns the tolerance applied when judging envelope stamps.
-// An explicit zero means no tolerance at all. An absent setting takes the
-// deployment default, capped at half the effective TTL so that a short explicit
-// TTL is never swamped by a skew the operator never wrote.
-func (c NexusConfig) EnvelopeClockSkew() time.Duration {
-	if c.EnvelopeClockSkewMS != nil {
-		return time.Duration(*c.EnvelopeClockSkewMS) * time.Millisecond
-	}
-	skew := time.Duration(defaultEnvelopeClockSkewMS) * time.Millisecond
-	if half := c.EnvelopeTTL() / 2; half < skew {
-		skew = half
-	}
-	return skew
-}
-
-// NATSURLCredentials reports whether nats_url carries userinfo credentials.
-// Cortex only implements nats.Token, so a broker configured for user/password
-// has to receive them through the URL instead. The token file is primarily the
-// Nexus IngressAPI bearer credential, so its absence does not by itself mean
-// the message bus is unauthenticated.
-func (c NexusConfig) NATSURLCredentials() bool {
-	parsed, err := url.Parse(strings.TrimSpace(c.NATSURL))
-	if err != nil || parsed.User == nil {
-		return false
-	}
-	if parsed.User.Username() != "" {
-		return true
-	}
-	password, _ := parsed.User.Password()
-	return password != ""
 }
 
 type ArtifactsConfig struct {
@@ -543,11 +443,11 @@ func (c Config) RequiresWorkloadTx() bool {
 }
 
 // UsesRealDependencies reports whether the daemon wires its external
-// dependencies for real: Keeper, Nexus publisher and subscriber, signer, model
+// dependencies for real: Keeper, Nexus task-data client, signer, model
 // service, chain events, reconciler, task runner and Keeper poller.
 //
 // This is the WIRING axis. It is true for both ModeReal and ModeIntegration,
-// which are identical here and differ only at the envelope trust boundary.
+// which are identical here and differ only in security posture.
 // Every dependency-construction site must ask this rather than comparing
 // against ModeReal, because a site that compares directly is a dependency
 // integration mode silently does without — which is how ModeFake ended up
@@ -654,11 +554,6 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("environment %s: %w", envName, err)
 		}
 	}
-	// The explicit subscription setting wins over the deployment-compatible
-	// CORTEX_MODEL_ID alias when both are present.
-	if value, ok := os.LookupEnv("CORTEX_NEXUS_SUBSCRIBE_MODELS"); ok && value != "" {
-		cfg.Nexus.SubscribeModels = splitCSV(value)
-	}
 	// The canonical CORTEX_ARTIFACTS_ROOT wins over the deprecated
 	// CORTEX_EVIDENCE_ROOT alias when both are present.
 	if value, ok := os.LookupEnv("CORTEX_ARTIFACTS_ROOT"); ok && value != "" {
@@ -705,24 +600,14 @@ var deploymentEnvironment = map[string]string{
 	"CORTEX_TASK_FIXTURE_ROOT":                  "task_fixture_root",
 	"CORTEX_TASK_MAX_OUTPUT_BYTES":              "task_max_output_bytes",
 	"CORTEX_NEXUS_INGRESS":                      "nexus_ingress",
-	"CORTEX_NEXUS_NATS":                         "nexus_nats",
 	"CORTEX_NEXUS_AUTH_TOKEN_FILE":              "nexus_auth_token_file",
-	"CORTEX_NEXUS_NATS_CA_FILE":                 "nexus_nats_ca_file",
-	"CORTEX_NEXUS_NATS_CREDS_FILE":              "nexus_nats_creds_file",
-	"CORTEX_NEXUS_NATS_USER_KEY_FILE":           "nexus_nats_user_key_file",
 	"CORTEX_MODEL_SERVICE_TLS_CA_FILE":          "model_service_tls_ca_file",
 	"CORTEX_MODEL_SERVICE_TLS_PUBKEY_HASH":      "model_service_tls_pubkey_hash",
 	"CORTEX_NODE_TLS_CA_FILE":                   "node_tls_ca_file",
 	"CORTEX_NODE_TLS_PUBKEY_HASH":               "node_tls_pubkey_hash",
-	"CORTEX_NEXUS_JETSTREAM_STREAM":             "nexus_jetstream_stream",
-	"CORTEX_NEXUS_ENVELOPE_AUTH_MODE":           "nexus_envelope_auth_mode",
-	"CORTEX_NEXUS_ENVELOPE_TTL_MS":              "nexus_envelope_ttl_ms",
-	"CORTEX_NEXUS_ENVELOPE_CLOCK_SKEW_MS":       "nexus_envelope_clock_skew_ms",
-	"CORTEX_NEXUS_SUBSCRIBE_TASKS":              "nexus_subscribe_tasks",
 	"CORTEX_NEXUS_BUILDER_OPERATOR":             "nexus_builder_operator_address",
 	"CORTEX_NEXUS_ALLOW_INSECURE_DESCRIPTOR":    "nexus_allow_insecure_descriptor",
 	"CORTEX_NEXUS_DOWNGRADE_DESCRIPTOR_TLS":     "nexus_downgrade_descriptor_tls",
-	"CORTEX_MODEL_ID":                           "nexus_subscribe_models",
 	"CORTEX_EVIDENCE_ROOT":                      "evidence_root",
 	"CORTEX_ARTIFACTS_ROOT":                     "artifacts_root",
 	"CORTEX_STORE_PATH":                         "store_path",
@@ -818,16 +703,8 @@ func setDeploymentValue(cfg *Config, key, value string) error {
 		cfg.TaskExecution.MaxRetryAttempts = int(parsed)
 	case "nexus_ingress":
 		cfg.Nexus.IngressURL = value
-	case "nexus_nats":
-		cfg.Nexus.NATSURL = value
 	case "nexus_auth_token_file":
 		cfg.Nexus.AuthTokenFile = value
-	case "nexus_nats_ca_file":
-		cfg.Nexus.NATSCAFile = value
-	case "nexus_nats_creds_file":
-		cfg.Nexus.NATSCredsFile = value
-	case "nexus_nats_user_key_file":
-		cfg.Nexus.NATSUserKeyFile = value
 	case "model_service_tls_ca_file":
 		cfg.ModelManagement.TLS.CAFile = value
 	case "model_service_tls_pubkey_hash":
@@ -836,26 +713,6 @@ func setDeploymentValue(cfg *Config, key, value string) error {
 		cfg.Node.TLS.CAFile = value
 	case "node_tls_pubkey_hash":
 		cfg.Node.TLS.PubkeyHash = value
-	case "nexus_jetstream_stream":
-		cfg.Nexus.JetStreamStream = value
-	case "nexus_envelope_auth_mode":
-		cfg.Nexus.EnvelopeAuthMode = value
-	case "nexus_envelope_ttl_ms":
-		parsed, err := parseEnvUint(value)
-		if err != nil {
-			return err
-		}
-		cfg.Nexus.EnvelopeTTLMS = &parsed
-	case "nexus_envelope_clock_skew_ms":
-		parsed, err := parseEnvUint(value)
-		if err != nil {
-			return err
-		}
-		cfg.Nexus.EnvelopeClockSkewMS = &parsed
-	case "nexus_subscribe_models":
-		cfg.Nexus.SubscribeModels = splitCSV(value)
-	case "nexus_subscribe_tasks":
-		cfg.Nexus.SubscribeTasks = splitCSV(value)
 	case "evidence_root":
 		slog.Info("warning: CORTEX_EVIDENCE_ROOT / --evidence-root is deprecated; use CORTEX_ARTIFACTS_ROOT / --artifacts-root")
 		cfg.Artifacts.Root = value
@@ -947,10 +804,8 @@ func (c *Config) collectRequiredFields(modelTransport, inputResolver string) []r
 		// (Runtime.checkBuilderDescriptorReadiness). Requiring a value whose sole
 		// purpose is to be compared with the authoritative one made an operator
 		// supply a fact the node can already read. Set it and the cross-check
-		// runs; leave it out and it is skipped, the same shape nexus.nats_url
-		// already has.
+		// runs; leave it out and it is skipped.
 		required = append(required,
-			requiredField{field: "nexus.jetstream_stream", value: c.Nexus.JetStreamStream, consumer: "nexus"},
 			requiredField{field: "local_identity.operator_address", value: c.LocalIdentity.OperatorAddress, consumer: "taskdataauth"},
 			requiredField{field: "local_identity.service_key_ref", value: c.LocalIdentity.ServiceKeyRef, consumer: "signer"},
 			requiredField{field: "local_identity.model_service_id", value: c.LocalIdentity.ModelServiceID, consumer: "modelservice"},
@@ -1006,47 +861,6 @@ func (c *Config) Validate() error {
 	if c.Mode != ModeFake && c.Mode != ModeReal && c.Mode != ModeIntegration {
 		problems = append(problems, "mode must be fake, real or integration")
 	}
-	authMode := strings.ToLower(strings.TrimSpace(c.Nexus.EnvelopeAuthMode))
-	if authMode == "" {
-		authMode = NexusEnvelopeAuthStrict
-	}
-	c.Nexus.EnvelopeAuthMode = authMode
-	if authMode != NexusEnvelopeAuthStrict && authMode != NexusEnvelopeAuthTrustedDev {
-		problems = append(problems, "nexus.envelope_auth_mode must be strict or trusted_nats_dev")
-	}
-	// An unset bound takes the default the same way the auth mode above does, so
-	// a hand-built config does not have to restate a deployment constant.
-	ttlMS := uint64(defaultEnvelopeTTLMS)
-	ttlUsable := true
-	if configured := c.Nexus.EnvelopeTTLMS; configured != nil {
-		ttlMS = *configured
-		switch {
-		case ttlMS == 0:
-			// A zero TTL expires every envelope at the instant it is stamped.
-			problems = append(problems, "nexus.envelope_ttl_ms must be greater than zero")
-			ttlUsable = false
-		case ttlMS > maxEnvelopeBoundMS:
-			problems = append(problems, fmt.Sprintf("nexus.envelope_ttl_ms must not exceed %d (ten minutes)", maxEnvelopeBoundMS))
-			ttlUsable = false
-		}
-	}
-	// A skew window at or beyond the TTL would accept an envelope that is
-	// already expired by its own stamps, which defeats the freshness bound.
-	// Only an explicit skew is compared: an omitted one is derived from the TTL
-	// by EnvelopeClockSkew and stays below it by construction, so a short
-	// explicit TTL must not fail against a key the operator never wrote.
-	if configured := c.Nexus.EnvelopeClockSkewMS; configured != nil {
-		switch {
-		case *configured > maxEnvelopeBoundMS:
-			problems = append(problems, fmt.Sprintf("nexus.envelope_clock_skew_ms must not exceed %d (ten minutes)", maxEnvelopeBoundMS))
-		case ttlUsable && *configured >= ttlMS:
-			problems = append(problems, "nexus.envelope_clock_skew_ms must be less than nexus.envelope_ttl_ms")
-		}
-	}
-	if authMode == NexusEnvelopeAuthTrustedDev && strings.TrimSpace(c.Nexus.AuthTokenFile) == "" && !c.Nexus.NATSURLCredentials() {
-		problems = append(problems, "nexus.envelope_auth_mode trusted_nats_dev requires an authenticated NATS transport: set nexus.auth_token_file or embed credentials in nexus.nats_url")
-	}
-
 	modelTransport := strings.ToLower(strings.TrimSpace(c.ModelManagement.Transport))
 	inputResolver := c.TaskExecution.InputResolverMode()
 	required := c.collectRequiredFields(modelTransport, inputResolver)
@@ -1084,13 +898,7 @@ func (c *Config) Validate() error {
 	// exists precisely so that opting into them is a named deployment rather
 	// than an override smuggled past a real-mode config.
 	if c.UsesRealDependencies() {
-		if strings.TrimSpace(c.Nexus.NATSURL) == "" && strings.TrimSpace(c.Nexus.NATSUserKeyFile) == "" {
-			problems = append(problems, "nexus.nats_url is required unless nexus.nats_user_key_file is set: only the on-chain identity can take the NATS address from a Builder's sentinel (ADR-0016)")
-		}
 		if c.Mode == ModeReal {
-			if c.Nexus.TrustedNATSDev() {
-				problems = append(problems, "nexus.envelope_auth_mode must not be trusted_nats_dev in real mode")
-			}
 			if c.Nexus.AllowInsecureDescriptor {
 				problems = append(problems, "nexus.allow_insecure_descriptor must be false in real mode")
 			}
@@ -1251,13 +1059,8 @@ func defaults() Config {
 		Artifacts: ArtifactsConfig{
 			SweepGracePeriod: time.Hour,
 		},
-		Signer: SignerConfig{ReadinessProofIntervalMS: 30000},
-		Tx:     TxConfig{FeeDenom: "uusdc"},
-		Nexus: NexusConfig{
-			// The envelope bounds stay nil so Validate and the accessors can
-			// tell an omitted setting from an explicit zero.
-			EnvelopeAuthMode: NexusEnvelopeAuthStrict,
-		},
+		Signer:     SignerConfig{ReadinessProofIntervalMS: 30000},
+		Tx:         TxConfig{FeeDenom: "uusdc"},
 		SelfRescue: SelfRescueConfig{Enabled: false},
 		Health: HealthConfig{
 			Bind: "127.0.0.1:8081",
@@ -1323,14 +1126,6 @@ func (c *Config) nodeTLSProblems() []string {
 
 // realModeTransportProblems is the deployment security baseline's transport check
 // in real mode:
-//   - a remote nexus.nats_url must be tls:// and must supply nexus.nats_ca_file (the
-//     ADR-0016 transition state never falls back to the system root CAs);
-//     authentication accepts only the on-chain identity (§5.14), and the creds file is
-//     retired;
-//   - leaving nexus.nats_url empty takes the address and the certificate from the
-//     Builder's sentinel (§4.12, ADR-0016 decision one item 1); nexus.nats_ca_file may
-//     then be empty too, and a remote server with no served certificate is refused
-//     when connecting;
 //   - a non-loopback node.rpc_endpoint / rest_endpoint must be https://;
 //   - a non-loopback grpc model service must configure model_management.tls, with no
 //     plaintext exemption (baseline items 4 and 5).
@@ -1339,26 +1134,6 @@ func (c *Config) nodeTLSProblems() []string {
 // and is allowed.
 func (c *Config) realModeTransportProblems(modelTransport string) []string {
 	var problems []string
-	natsURL := strings.TrimSpace(c.Nexus.NATSURL)
-	if natsURL != "" && !isLoopbackEndpoint(natsURL) {
-		if !strings.HasPrefix(strings.ToLower(natsURL), "tls://") {
-			problems = append(problems, "nexus.nats_url must use tls:// in real mode for a remote NATS (ADR-0016)")
-		}
-		// A configured remote address is verified against a configured certificate; only
-		// leaving both empty hands the pair to the Builder's sentinel. Refusing here
-		// beats a node that starts and then fails every connect.
-		if strings.TrimSpace(c.Nexus.NATSCAFile) == "" {
-			problems = append(problems, "nexus.nats_ca_file is required in real mode for a remote nexus.nats_url: verify the server against the distributed certificate, not the system roots; or leave both empty to take them from the builder's sentinel (ADR-0016)")
-		}
-		// ADR-0016 decision three: real mode joins with the on-chain identity only.
-		if strings.TrimSpace(c.Nexus.NATSUserKeyFile) == "" {
-			problems = append(problems, "nexus.nats_user_key_file is required in real mode for a remote NATS: cortex joins NATS with its on-chain identity (ADR-0016 decision three, §5.14)")
-		}
-	}
-	// The creds file is retired whatever the address source.
-	if strings.TrimSpace(c.Nexus.NATSCredsFile) != "" {
-		problems = append(problems, "nexus.nats_creds_file is retired in real mode: remove it and set nexus.nats_user_key_file (ADR-0016 decision three)")
-	}
 	for _, endpoint := range []struct{ field, value string }{
 		{"node.rpc_endpoint", c.Node.RPCEndpoint}, {"node.rest_endpoint", c.Node.RESTEndpoint},
 	} {

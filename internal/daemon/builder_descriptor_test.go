@@ -303,8 +303,6 @@ func TestBuildRuntimeRealModeVerifiesTheBuilderDescriptor(t *testing.T) {
 			rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 				Keeper:           keeper,
 				BuilderDirectory: resolver,
-				NexusPublisher:   fakePublisher{},
-				NexusSubscriber:  fakeSubscriber{},
 			})
 			if err != nil {
 				t.Fatalf("BuildRuntimeWithOptions() error = %v", err)

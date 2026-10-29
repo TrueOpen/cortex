@@ -10,7 +10,6 @@ import (
 	"math"
 	"slices"
 	"strings"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -31,10 +30,13 @@ import (
 )
 
 type Config struct {
-	VerifierAddress           string
-	ModelServiceID            string
-	Model                     modelservice.Client
-	Builder                   builderclient.Client
+	VerifierAddress string
+	ModelServiceID  string
+	Model           modelservice.Client
+	Builder         builderclient.Client
+	// Sender delivers the signed VerifierHandraise to Builders. A Verifier with
+	// no sender refuses to sign one; see NewFrameSenderGuard.
+	Sender                    FrameSender
 	Persistence               Persistence
 	ChainID                   string
 	SignerAddress             string
@@ -42,16 +44,11 @@ type Config struct {
 	Signer                    signer.DigestSigner
 	VerifyDeadlineDeltaHeight uint64
 	FakeOutput                bool
-	TrustedNATSDev            bool
-	NexusEnvelopeSigner       builderclient.BusEnvelopeSigner
 	// ServiceAuthorizationNonce is the current ServiceKey binding's
 	// service_authorization_nonce. Every frozen §5.14 verifier stage wire carries
 	// it as preimage field 6, so a commit or result credential cannot be built
 	// without it.
 	ServiceAuthorizationNonce uint64
-	// EnvelopeTTL is the lifetime stamped on outbound envelopes. Zero keeps the
-	// envelope default.
-	EnvelopeTTL time.Duration
 	// TaskFacts reads the accepted task hash, generation digest and execution
 	// snapshot hash bound by the result payload and the V3 result receipt.
 	TaskFacts taskfacts.Reader
@@ -130,21 +127,6 @@ type SettleMaterial struct {
 	Kind    string
 	Payload []byte
 	Digest  codec.Hash
-}
-
-type OutboxRecord struct {
-	TaskID  string
-	Subject string
-	Payload []byte
-	Digest  codec.Hash
-	Status  string
-	// DedupID is a stable per-logical-event identifier used for transport-level
-	// deduplication. It must survive envelope regeneration.
-	DedupID string
-}
-
-type outboxPersistence interface {
-	WriteVerifierBuilderOutbox(context.Context, OutboxRecord) error
 }
 
 type verifierEvidenceReader interface {
@@ -274,6 +256,10 @@ func (v *Verifier) EvaluateAndHandraise(ctx context.Context, state TaskState) (H
 	if !decision.Accepted {
 		return HandraiseResult{Decision: decision}, nil
 	}
+	sender, err := NewFrameSenderGuard(v.cfg.Sender)
+	if err != nil {
+		return HandraiseResult{}, err
+	}
 	taskID, err := builderclient.CanonicalWireHash(state.TaskID, "task_id")
 	if err != nil {
 		return HandraiseResult{}, err
@@ -309,36 +295,15 @@ func (v *Verifier) EvaluateAndHandraise(ctx context.Context, state TaskState) (H
 	if err != nil {
 		return HandraiseResult{}, err
 	}
-	subject := builderclient.NATSVerifierHandraiseSubject(state.TaskID)
-	payload, err := v.encodeNexusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindVerifierHandraise, ChainID: v.cfg.ChainID, Subject: subject,
-		SenderOperatorAddress: v.cfg.VerifierAddress, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: v.cfg.ServiceAuthorizationNonce,
-	}, message)
+	payload, err := proto.Marshal(message)
 	if err != nil {
 		return HandraiseResult{}, err
 	}
 	if err := v.persistHandraise(ctx, state.TaskID, payload); err != nil {
 		return HandraiseResult{}, err
 	}
-	var verifierRound int
-	if state.VerifyRound <= uint64(int(^uint(0)>>1)) {
-		verifierRound = int(state.VerifyRound)
-	}
-	handraiseDedupID := builderclient.VerifierHandraiseDedupID(state.TaskID, verifierRound, hex.EncodeToString(wireDigest[:]))
-	persisted, err := v.persistBuilderOutbox(ctx, state.TaskID, subject, payload, handraiseDedupID)
-	if err != nil {
+	if err := sender.SendVerifierHandraise(ctx, message); err != nil {
 		return HandraiseResult{}, err
-	}
-	if v.cfg.Builder != nil && !persisted {
-		if err := v.cfg.Builder.Publish(ctx, builderclient.PublishRequest{
-			Subject: subject,
-			TaskID:  state.TaskID,
-			Payload: payload,
-			DedupID: handraiseDedupID,
-		}); err != nil {
-			return HandraiseResult{}, err
-		}
 	}
 	return HandraiseResult{Signed: true, Decision: decision}, nil
 }
@@ -818,39 +783,6 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	// reveal.go.
 	v.results[resultKey] = result
 	return result, nil
-}
-
-func (v *Verifier) encodeNexusMessage(input builderclient.UnsignedEnvelopeInput, payload proto.Message) ([]byte, error) {
-	// See Worker.encodeNexusMessage: the accepted lifetime is a deployment
-	// agreement, so it is stamped rather than defaulted.
-	if input.ExpiresAt.IsZero() && v.cfg.EnvelopeTTL > 0 {
-		issuedAt := input.IssuedAt
-		if issuedAt.IsZero() {
-			issuedAt = time.Now().UTC()
-			input.IssuedAt = issuedAt
-		}
-		input.ExpiresAt = issuedAt.Add(v.cfg.EnvelopeTTL)
-	}
-	// Same rule as the Worker path: only a trusted transport posture may emit
-	// unsigned envelopes. Synthetic verification output does not make this
-	// node's identity synthetic, and a strict Nexus drops unsigned envelopes.
-	if v.cfg.TrustedNATSDev {
-		return builderclient.EncodeUnsignedBusMessage(input, payload, true)
-	}
-	return builderclient.EncodeAuthenticatedBusMessage(input, payload, v.cfg.NexusEnvelopeSigner)
-}
-
-func (v *Verifier) persistBuilderOutbox(ctx context.Context, taskID string, subject string, payload []byte, dedupID string) (bool, error) {
-	persistence, ok := v.cfg.Persistence.(outboxPersistence)
-	if !ok {
-		return false, nil
-	}
-	err := persistence.WriteVerifierBuilderOutbox(ctx, OutboxRecord{
-		TaskID: taskID, Subject: subject, Payload: append([]byte(nil), payload...), Status: "pending",
-		Digest:  codec.HashWithDomain("TRUEOPEN_BUILDER_OUTBOX_V1", []byte(subject), []byte(taskID), payload),
-		DedupID: dedupID,
-	})
-	return true, err
 }
 
 func (v *Verifier) persistModelServiceJob(ctx context.Context, jobID, taskID, status, intent string) error {

@@ -3,13 +3,11 @@ package modelregistry
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/signer"
@@ -23,12 +21,6 @@ type txSubmitter struct {
 
 var ErrKeeperModelRegistrationUnavailable = errors.New("Keeper does not register a model/profile creation message")
 
-// ErrRegistrationPublishRequiresOperatorRetry reports that Cortex did not
-// durably queue the registration. The operator may retry the complete request;
-// the reconstructed payload, task ID, subject, and downstream dedup identity
-// remain stable for identical signed material.
-var ErrRegistrationPublishRequiresOperatorRetry = errors.New("registration publish requires operator retry")
-
 // ErrOperatorModelSupportSignatureRequired is returned when a daemon path is
 // asked to submit MsgDeclareModelSupport. Node requires the operator Cosmos
 // account as the sole signer; the service key is valid only for daily support.
@@ -39,41 +31,6 @@ type TxSubmitterOptions struct {
 	FeeCap   txclient.Coin
 	FeeGrant string
 	Memo     string
-}
-
-type builderRegistrationPublisher struct{ builder builderclient.Publisher }
-
-// NewBuilderRegistrationPublisher reconstructs the complete registration
-// frame from the authoritative operator request on every attempt. Its stable
-// digest is also the downstream deduplication identity, so no KV outbox is
-// needed.
-func NewBuilderRegistrationPublisher(builder builderclient.Publisher) BuilderOutbox {
-	return builderRegistrationPublisher{builder: builder}
-}
-
-func (o builderRegistrationPublisher) WriteRegistration(ctx context.Context, msg OutboxMessage) (string, error) {
-	if o.builder == nil {
-		return "", fmt.Errorf("builder client is required")
-	}
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return "", err
-	}
-	digestHash := codec.HashWithDomain(
-		"CORTEX_MODEL_REGISTRATION_OUTBOX_V1",
-		[]byte(msg.Material.ManifestHash),
-		[]byte(msg.Material.SignedEnvelope),
-		payload,
-	)
-	digest := hex.EncodeToString(digestHash[:])
-	if err := o.builder.Publish(ctx, builderclient.PublishRequest{
-		Subject: builderclient.NATSModelRegistrationSubject(digest),
-		TaskID:  "model-registration-" + digest,
-		Payload: payload,
-	}); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrRegistrationPublishRequiresOperatorRetry, err)
-	}
-	return digest, nil
 }
 
 type TxSupportConfirmerOptions struct {

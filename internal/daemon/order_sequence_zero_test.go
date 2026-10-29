@@ -1,66 +1,13 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/policy"
-	"github.com/TrueOpen/cortex/internal/signer"
-	"github.com/TrueOpen/cortex/internal/store"
-	"github.com/TrueOpen/cortex/internal/store/layout"
 )
-
-// order_sequence = 0 is the first order of every session, not an unset field.
-//
-// Keeper builds StreamState without assigning NextExpectedSequence, so the Go
-// zero value is what the first order must carry, and consumeOrderSequence
-// requires each order to equal it exactly (node x/task/keeper). Nexus
-// stopped rejecting it at ingress in nexus#60; Cortex kept rejecting it on the
-// bus, which is what "OpenTask task identity does not match order_sequence"
-// meant on a live devnet order.
-//
-// There is also nothing to detect here: order_sequence is a proto3 scalar and a
-// JSON number, neither of which distinguishes "the user wrote 0" from "the field
-// was absent". What actually binds the value is the identity equation below -
-// task_id = H_FIELDS_V1(TRUEOPEN_TASK_ID_V1, session_id, order_sequence) - which
-// holds a zero sequence to exactly the same standard as any other.
-func TestHandleNexusMessageAdmitsSessionFirstOrderSequenceZero(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	builder := &admissionBuilder{}
-	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain",
-		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
-		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
-		TaskDataAuth:         taskRunnerTaskDataAuth(t),
-		SignerAddress:        "service", SignerKeyRef: "key",
-		Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) {
-			return bytes.Repeat([]byte{1}, 64), nil
-		}),
-	})
-
-	message, taskHash := orderMessageWithSequence(t, 0)
-	if err := runner.HandleNexusMessage(ctx, message); err != nil {
-		t.Fatalf("HandleNexusMessage() error = %v, want the session's first order admitted", err)
-	}
-	admission, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatalf("GetCandidateAdmission() error = %v, want a durable handraise", err)
-	}
-	if len(admission.HandraisePayload) == 0 {
-		t.Fatal("admitted order stored no signed handraise")
-	}
-}
 
 // TestKeeperHandraiseEligibilityAcceptsSessionFirstOrderSequenceZero covers the
 // second gate on the same path. Admission and eligibility both derive the same

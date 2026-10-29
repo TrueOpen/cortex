@@ -82,7 +82,7 @@ func fakeUploadFixture(t *testing.T, f *FakeClient, pair taskDataTestKeyPair, up
 		return f.UploadTaskResultObject(context.Background(), "", upload)
 	}
 	root, _ := codec.OutputMMRRoot([][]byte{upload.Data})
-	digest, err := nodewire.OutputChunkSigningDigest(upload.Auth.ChainID, mustDecodeHex(t, upload.Key.TaskHash), 0, root[:])
+	digest, err := nodewire.OutputChunkSigningDigest(upload.Auth.ChainID, mustDecodeHex(t, upload.Key.TaskHash), PendingDispatchTicketHash(), 0, root[:])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func fakeUploadFixture(t *testing.T, f *FakeClient, pair taskDataTestKeyPair, up
 	}
 	request := OutputStreamRequest{TaskHash: upload.Key.TaskHash, SessionID: upload.Key.SessionID, TaskID: upload.Key.TaskID, Auth: taskDataTestRequestAuth(t, pair, "UploadTaskOutputStream", upload.Key, body), ReplayChunks: []OutputChunk{{Text: upload.Data, MMRRoot: root, WorkerSignature: pair.sign(t, digest)}}}
 	request.HeaderSignature = signOutputStreamHeader(t, pair, request)
-	finDigest, digestErr := nodewire.OutputFinSigningDigest(upload.Auth.ChainID, mustDecodeHex(t, upload.Key.TaskHash), 0, root[:], nodewire.FinishReasonV1EosToken)
+	finDigest, digestErr := nodewire.OutputFinSigningDigest(upload.Auth.ChainID, mustDecodeHex(t, upload.Key.TaskHash), PendingDispatchTicketHash(), 0, root[:], nodewire.FinishReasonV1EosToken)
 	if digestErr != nil {
 		t.Fatal(digestErr)
 	}

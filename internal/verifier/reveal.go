@@ -39,7 +39,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -59,13 +58,13 @@ const verifierFullResultRevealEvidenceKind = "verifier-full-result-reveal-state"
 // end.
 var ErrRevealPhaseNotStarted = errors.New("Keeper reveal phase has not started for this task")
 
-// RevealResult is what happened to the reveal responsibility. Published is
-// Nexus delivery of the signed credential and nothing weaker: the Keeper writes
-// ResultState from the Builder's relayed MsgSubmitVerifyResult, so this node
-// never observes chain acceptance here.
+// RevealResult is what happened to the reveal responsibility. Signed says the
+// result credential was signed over a finalized evidence bundle. The Phase 0
+// bus VERIFY_RESULT that carried it to the Builder is retired with wire
+// 916e393; the credential reaches the chain only as MsgSubmitVerifyResult, so
+// this node never observes chain acceptance here.
 type RevealResult struct {
-	Published bool
-	Subject   string
+	Signed bool
 	// ExpiryHeight is the reveal deadline the signed body actually carried. It
 	// is reported back so an operator can confirm the body was bound by the
 	// Keeper's reveal window and not by some other deadline.
@@ -147,29 +146,8 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 	if err := v.signResultReceipt(ctx, &resultWire); err != nil {
 		return RevealResult{}, err
 	}
-	if v.cfg.Builder == nil {
-		return RevealResult{}, fmt.Errorf("Builder client is required for normal verifier result delivery")
-	}
 	if err := v.cfg.EvidencePublisher.PublishVerifierEvidence(ctx, state, resultWire, reveal.EvidenceManifest, reveal.MetricMaterial.AggregateProof.Bytes); err != nil {
 		return RevealResult{}, fmt.Errorf("finalize verifier evidence bundle: %w", err)
-	}
-	// The bus VERIFY_RESULT payload is the frozen signed credential itself: the
-	// bytes a verifier signs are the bytes the Builder relays on chain. The
-	// retired Nexus-local VerifyResult shape (sample values, salt, commit and
-	// result items inline) is gone with the JSON bus; those materials stay local
-	// evidence, and the chain path reads them through the frozen Msgs.
-	message, err := builderclient.ResultReceiptProto(resultWire)
-	if err != nil {
-		return RevealResult{}, err
-	}
-	subject := builderclient.NATSVerifyResultSubject(state.TaskID)
-	payload, err := v.encodeNexusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindVerifyResult, ChainID: v.cfg.ChainID, Subject: subject,
-		SenderOperatorAddress: v.cfg.VerifierAddress, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: v.cfg.ServiceAuthorizationNonce,
-	}, message)
-	if err != nil {
-		return RevealResult{}, err
 	}
 	resultSigningDigest, digestErr := nodewire.ResultReceiptSigningDigest(resultWire)
 	if digestErr != nil {
@@ -178,7 +156,7 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 		// reported as zero rather than raised.
 		resultSigningDigest = codec.Hash{}
 	}
-	v.cfg.Trace.Event("verify_result_published",
+	v.cfg.Trace.Event("verify_result_signed",
 		tasktrace.Str("task", state.TaskID), tasktrace.Uint("verify_round", state.VerifyRound),
 		tasktrace.Hash("result_signing_digest", resultSigningDigest),
 		tasktrace.Hex("generation_params_digest", hex.EncodeToString(resultWire.GenerationParamsDigest)),
@@ -193,21 +171,9 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 		// expiry_height is printed because it is the value this whole
 		// responsibility exists to carry: it must be the Keeper's reveal
 		// deadline, never the commit deadline.
-		tasktrace.Uint("expiry_height", resultWire.ExpiryHeight),
-		tasktrace.Str("subject", subject), tasktrace.Int("payload_bytes", len(payload)))
-	verifyResultDedupID := "verify-result:" + state.SessionID + "|" + state.TaskID + "|" + v.cfg.VerifierAddress
-	persisted, err := v.persistBuilderOutbox(ctx, state.TaskID, subject, payload, verifyResultDedupID)
-	if err != nil {
-		return RevealResult{}, err
-	}
-	if !persisted {
-		if err := v.cfg.Builder.Publish(ctx, builderclient.PublishRequest{Subject: subject, TaskID: state.TaskID, Payload: payload, DedupID: verifyResultDedupID}); err != nil {
-			return RevealResult{}, err
-		}
-	}
+		tasktrace.Uint("expiry_height", resultWire.ExpiryHeight))
 	return RevealResult{
-		Published: true, Subject: subject,
-		ExpiryHeight: resultWire.ExpiryHeight, ResultSigningDigest: resultSigningDigest,
+		Signed: true, ExpiryHeight: resultWire.ExpiryHeight, ResultSigningDigest: resultSigningDigest,
 	}, nil
 }
 

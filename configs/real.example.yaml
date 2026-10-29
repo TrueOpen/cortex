@@ -72,41 +72,7 @@ nexus:
   # resolves the descriptor either way. A value that is set must use https:// or
   # grpcs:// unless allow_insecure_descriptor is on.
   ingress_url: https://nexus.trueopen.example.org
-  # nats_url and nats_ca_file are optional with nats_user_key_file below: leave
-  # both out and they come from the Builder's GET /v1/nats/sentinel response,
-  # fetched over the ingress TLS pinned by the on-chain tls_pubkey_hash (ADR-0016
-  # decision one item 1). Set both to pin a server yourself: configured values win,
-  # and a remote nats_url needs nats_ca_file. Remote NATS in real mode is never
-  # verified against the system roots.
-  nats_url: tls://nats.trueopen.example.org:4222
-  nats_ca_file: /etc/cortex/nats-ca.pem
-  # ADR-0016 decision three (interface-and-topic-list §5.14): cortex joins NATS with its
-  # on-chain identity. This is the seed file of the node's own NATS user key
-  # (ed25519 nkey, 0600, generated on first start; the public key is logged).
-  # cortexd binds it to the Keeper-confirmed service key and connects with
-  # nkey + nonce signature + auth_token; the NATS-side auth callout verifies the
-  # binding against the chain. Required in real mode for a remote NATS;
-  # nats_creds_file is retired and refused in real mode.
-  nats_user_key_file: /var/lib/cortex/nats-user.nk
   auth_token_file: /etc/cortex/nexus.token
-  # JetStream stream Nexus publishes task frames to. Cortex creates and binds
-  # its own durable consumer on it, so the name is required in real mode.
-  jetstream_stream: TRUEOPEN_TASK
-  # Production stays strict. trusted_nats_dev is explicitly unsafe.
-  #
-  # WARNING: strict signs every outbound envelope with this node's current
-  # service key and requires a valid signature on every inbound envelope. The
-  # Nexus that ships today emits unsigned BusEnvelopes, so a strict node
-  # rejects every Builder message and never takes work. Keep strict only once
-  # the deployed Nexus signs; see docs/operations/cortexd-real-mode.md.
-  envelope_auth_mode: strict
-  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
-  # inbound one. Deployment config rather than a chain parameter, so it must
-  # match the Nexus this node talks to; Nexus stamps 30000 today.
-  envelope_ttl_ms: 30000
-  # Tolerated clock skew when judging inbound issued_at/expires_at. Keep it
-  # small and run NTP; a wide window weakens the freshness bound.
-  envelope_clock_skew_ms: 2000
   # OPTIONAL narrowing filter: the one Builder operator this node deals with.
   # It is not the authority over who may address this node - the chain's current
   # BuilderSet is - so leaving it empty admits every current BuilderSet member,
@@ -127,7 +93,6 @@ nexus:
   # allow_insecure_descriptor, and real mode refuses both, so a deployment that
   # needs it runs mode: integration. Leave it false here.
   downgrade_descriptor_tls: false
-  subscribe_models: [6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2]
 tx:
   enabled: true
   max_fee_amount: 1000000

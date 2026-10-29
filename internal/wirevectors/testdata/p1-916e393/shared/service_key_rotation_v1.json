@@ -1,0 +1,89 @@
+{
+  "schema": "trueopen-service-key-rotation-v1",
+  "notes": [
+    "Protocol-hard-limit examples, not approved network parameter values.",
+    "The old binding stays current during waiting; accepted chain facts retain their operator identity.",
+    "Effective height is an epoch start; perform the switch in the preceding EndBlock only after old-generation material dependencies close.",
+    "Future-generation Builder group duties do not enter the old-material counter.",
+    "An emergency revoke cancels pending replacement and preserves the current revoked proof identity."
+  ],
+  "hard_limits": {
+    "record_deadline_blocks": 4,
+    "dispatch_compensation_claim_window_blocks": 64,
+    "dispatch_compensation_rebuttal_blocks": 8,
+    "dispatch_challenge_window_blocks": 32,
+    "dispatch_challenge_response_blocks": 8
+  },
+  "schedules": [
+    {
+      "name": "wait_rounds_to_epoch",
+      "registered_height": 100,
+      "epoch_start_height": 100,
+      "epoch_length": 10,
+      "old_material_close_height": 177,
+      "effective_height": 180
+    },
+    {
+      "name": "inclusive_cutoff_is_epoch_start",
+      "registered_height": 103,
+      "epoch_start_height": 100,
+      "epoch_length": 10,
+      "old_material_close_height": 180,
+      "effective_height": 190
+    },
+    {
+      "name": "nonzero_epoch_origin",
+      "registered_height": 110,
+      "epoch_start_height": 101,
+      "epoch_length": 10,
+      "old_material_close_height": 187,
+      "effective_height": 191
+    },
+    {
+      "name": "single_block_epoch",
+      "registered_height": 1,
+      "epoch_start_height": 1,
+      "epoch_length": 1,
+      "old_material_close_height": 78,
+      "effective_height": 79
+    }
+  ],
+  "activation_cases": [
+    {
+      "name": "before_epoch",
+      "next_height": 179,
+      "old_material_count": 0,
+      "ready": false
+    },
+    {
+      "name": "old_material_still_open",
+      "next_height": 180,
+      "old_material_count": 1,
+      "ready": false
+    },
+    {
+      "name": "future_group_duties_do_not_block",
+      "next_height": 180,
+      "old_material_count": 0,
+      "future_group_count": 2,
+      "ready": true
+    },
+    {
+      "name": "epoch_missed_no_mid_epoch_switch",
+      "next_height": 181,
+      "old_material_count": 0,
+      "ready": false
+    }
+  ],
+  "reject_proof": {
+    "message_name": "task.v1.DispatchRejectV1",
+    "vector_file": "task/dispatch_v1.json",
+    "vector_name": "task_v1_dispatchrejectv1",
+    "signed_nonce": 1,
+    "current_nonce_during_wait": 1,
+    "next_nonce": 2,
+    "registered_height": 100,
+    "old_material_close_height": 177,
+    "effective_height": 180
+  }
+}

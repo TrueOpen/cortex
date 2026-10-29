@@ -8,6 +8,4 @@ const (
 	CrashPointReceiptSigned            = "receipt-signed"
 	CrashPointReceiptCommitted         = "receipt-committed"
 	CrashPointBuilderSaveOutputPackage = "builder-save-output-package"
-	CrashPointOutputAvailableHeld      = "output-available-held"
-	CrashPointOutputAvailableReleased  = "output-available-released"
 )

@@ -19,16 +19,6 @@ func TestKeyEncodings(t *testing.T) {
 		want []byte
 	}{
 		{
-			name: "candidate-current",
-			key:  CandidateCurrentKey("session-1", 0x0102030405060708),
-			want: append([]byte("candidate-current/session-1/"), seq...),
-		},
-		{
-			name: "candidate",
-			key:  CandidateKey(taskHash),
-			want: append([]byte("candidate/"), taskHash[:]...),
-		},
-		{
 			name: "verify-candidate",
 			key:  VerifyCandidateKey(taskHash, 0x0102030405060708),
 			want: append(append([]byte("verify-candidate/"), taskHash[:]...), append([]byte("/"), seq...)...),
@@ -91,8 +81,6 @@ func TestKeyEncodings(t *testing.T) {
 
 func TestPrefixesDoNotCollide(t *testing.T) {
 	prefixes := [][]byte{
-		[]byte(candidateCurrentPrefix),
-		[]byte(candidatePrefix),
 		[]byte(verifyCandidatePrefix),
 		[]byte(taskPrefix),
 		[]byte(inferPrefix),
@@ -115,22 +103,6 @@ func TestPrefixesDoNotCollide(t *testing.T) {
 	}
 }
 
-func TestCandidateCurrentRoundTrip(t *testing.T) {
-	key := CandidateCurrentKey("session-1", 42)
-	seq := make([]byte, 8)
-	binary.BigEndian.PutUint64(seq, 42)
-	expected := append([]byte("candidate-current/session-1/"), seq...)
-	if !bytes.Equal(key, expected) {
-		t.Fatalf("key = %x, want %x", key, expected)
-	}
-
-	// Sanity: the per-session prefix matches the generated key.
-	wantPrefix := []byte("candidate-current/session-1/")
-	if !bytes.HasPrefix(key, wantPrefix) {
-		t.Fatalf("key %q does not start with prefix %q", key, wantPrefix)
-	}
-}
-
 func TestVerifyCandidateRoundTrip(t *testing.T) {
 	taskHash := StoredHash{}
 	copy(taskHash[:], bytes.Repeat([]byte{0xcd}, 32))
@@ -140,15 +112,5 @@ func TestVerifyCandidateRoundTrip(t *testing.T) {
 	expected := append(append([]byte("verify-candidate/"), taskHash[:]...), append([]byte("/"), round...)...)
 	if !bytes.Equal(key, expected) {
 		t.Fatalf("key = %x, want %x", key, expected)
-	}
-}
-
-func TestCandidateCurrentDoesNotCollideWithSessionPrefix(t *testing.T) {
-	// A session ID that is a prefix of another session ID must not produce the
-	// same key, even without a separator. With the separator this is safe.
-	key1 := CandidateCurrentKey("session", 1)
-	key2 := CandidateCurrentKey("session-1", 1)
-	if bytes.Equal(key1, key2) {
-		t.Fatalf("keys collide: %q and %q", key1, key2)
 	}
 }

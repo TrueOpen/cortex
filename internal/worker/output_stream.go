@@ -174,7 +174,7 @@ func (w *Worker) resumeOutputRecorder(ctx context.Context, event chainclient.Ass
 		if mmr.Root() != frame.MMRRoot {
 			return nil, fmt.Errorf("completed model frame root mismatch")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, saved.TaskHash[:], frame.Seq, frame.MMRRoot[:])
+		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, saved.TaskHash[:], builderclient.PendingDispatchTicketHash(), frame.Seq, frame.MMRRoot[:]) // S5: the accepted ticket
 		if err != nil {
 			return nil, err
 		}
@@ -513,7 +513,7 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 		return err
 	}
 	root := candidate.Root()
-	digest, err := nodewire.OutputChunkSigningDigest(r.w.cfg.ChainID, r.taskHash[:], seq, root[:])
+	digest, err := nodewire.OutputChunkSigningDigest(r.w.cfg.ChainID, r.taskHash[:], builderclient.PendingDispatchTicketHash(), seq, root[:]) // S5: the accepted ticket
 	if err != nil {
 		return err
 	}
@@ -674,7 +674,7 @@ func (w *Worker) ensureOutputStreamStored(ctx context.Context, event chainclient
 		if mmr.Root() != frame.MMRRoot {
 			return fmt.Errorf("retained output frame MMR root mismatch")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, taskHash[:], frame.Seq, frame.MMRRoot[:])
+		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), frame.Seq, frame.MMRRoot[:]) // S5: the accepted ticket
 		if err != nil {
 			return err
 		}
@@ -727,7 +727,7 @@ func (w *Worker) loadOrCreateOutputFin(ctx context.Context, taskID string, taskH
 		if fin.TaskHash != taskHash || fin.FinalSeq != finalSeq || fin.OutputMMRRoot != root || fin.FinishReason != reason {
 			return builderclient.OutputFin{}, fmt.Errorf("persisted output Fin differs from committed output")
 		}
-		digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], finalSeq, root[:], reason)
+		digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), finalSeq, root[:], reason) // S5: the accepted ticket
 		if err != nil {
 			return builderclient.OutputFin{}, err
 		}
@@ -748,7 +748,7 @@ func (w *Worker) loadOrCreateOutputFin(ctx context.Context, taskID string, taskH
 	if !errors.Is(err, ErrCheckpointNotFound) {
 		return builderclient.OutputFin{}, err
 	}
-	digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], finalSeq, root[:], reason)
+	digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), finalSeq, root[:], reason) // S5: the accepted ticket
 	if err != nil {
 		return builderclient.OutputFin{}, err
 	}

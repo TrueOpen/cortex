@@ -7,18 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 )
 
 // openVerifyCall is the OPEN_VERIFY body a Builder sends when it agrees with the
 // chain: the Keeper receipt this fixture serves, restated (interface-and-topic-list.md §5.6).
-func (f *outputAvailableFixture) openVerifyCall() *busv1.OpenVerifyV1 {
+func (f *outputAvailableFixture) openVerifyCall() *nexusv1.OpenVerifyV1 {
 	receiptHash := codec.Hash(f.snapshot.InferReceipt.InferReceiptHash)
 	taskHash := codec.Hash(f.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
 	taskID, _ := hex.DecodeString(f.taskID)
-	return &busv1.OpenVerifyV1{
+	return &nexusv1.OpenVerifyV1{
 		TaskId: taskID, TaskHash: append([]byte(nil), taskHash[:]...), ModelId: bytes.Repeat([]byte{0x01}, 32), ProfileVersion: 1,
 		InferReceiptHash:      append([]byte(nil), receiptHash[:]...),
 		OutputHash:            append([]byte(nil), f.pkg.OutputHash[:]...),
@@ -26,20 +25,11 @@ func (f *outputAvailableFixture) openVerifyCall() *busv1.OpenVerifyV1 {
 	}
 }
 
-// deliverOpenVerify publishes the call the way the Core tier would, through the
-// subject and envelope decode path rather than straight into the handler.
-func (f *outputAvailableFixture) deliverOpenVerify(t *testing.T, message *busv1.OpenVerifyV1) error {
+// deliverOpenVerify hands the call to the runner as the stream session will,
+// with builder-1 as the Builder the stream is bound to.
+func (f *outputAvailableFixture) deliverOpenVerify(t *testing.T, message *nexusv1.OpenVerifyV1) error {
 	t.Helper()
-	subject := builderclient.NATSVerifyOpenSubject(f.taskID)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOpenVerify, ChainID: "chain", Subject: subject,
-		SenderOperatorAddress: "builder-1", SenderParticipantType: builderclient.ParticipantBuilder,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, message, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f.runner.HandleNexusMessage(context.Background(), builderclient.NATSMessage{Subject: subject, Data: frame})
+	return f.runner.admitOpenVerify(context.Background(), "builder-1", message)
 }
 
 // OPEN_VERIFY is the Verifier-side counterpart of OPEN_TASK (interface-and-topic-list.md
@@ -70,7 +60,7 @@ func TestOpenVerifyAndOutputAvailableRaiseOneHandBetweenThem(t *testing.T) {
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OpenVerify was refused: %v", err)
 	}
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
+	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OutputAvailable after OpenVerify: %v", err)
 	}
 	fixture.assertHandraised(t)
@@ -93,8 +83,8 @@ func TestOpenVerifyRefusesAnInferReceiptHashTheChainDoesNotHold(t *testing.T) {
 	if !strings.Contains(err.Error(), "infer_receipt_hash does not match") {
 		t.Fatalf("error = %v, want the Keeper receipt comparison", err)
 	}
-	if len(fixture.builder.published) != 0 || len(fixture.confirmer.received) != 0 {
+	if len(fixture.sender.handraises) != 0 || len(fixture.confirmer.received) != 0 {
 		t.Fatalf("published=%#v confirmed=%#v, want neither for a refused call",
-			fixture.builder.published, fixture.confirmer.received)
+			fixture.sender.handraises, fixture.confirmer.received)
 	}
 }

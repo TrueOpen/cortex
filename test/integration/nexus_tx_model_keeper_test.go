@@ -43,6 +43,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/verifier"
 	"github.com/TrueOpen/cortex/internal/worker"
 	cortexv1 "github.com/TrueOpen/cortex/proto/cortex/v1"
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"github.com/TrueOpen/cortex/test/internal/generationfixture"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -75,8 +76,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		gasPayer        = "cortex1operator"
 		builderOperator = "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe"
 	)
-	nats := &memoryNATS{}
-	builder := &natsBackedBuilder{nats: nats}
+	builder := &validatingBuilder{}
 	persistence := &integrationPersistence{
 		store: kvStore, evidence: evidenceStore, evidenceRoot: root, cleanupHeight: 300,
 		builder: builder,
@@ -223,7 +223,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	}
 	keeperServer.AddAssignment(assignment)
 	keeperServer.AddEvent(chainclient.KeeperEvent{
-		Type:           chainclient.KeeperEventAssignAcceptedPendingRandomness,
+		Type:           chainclient.KeeperEventCommitAccepted,
 		TaskID:         taskID,
 		Height:         119,
 		SessionID:      sessionID,
@@ -233,7 +233,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		ProfileVersion: "1",
 	})
 	keeperServer.AddEvent(chainclient.KeeperEvent{
-		Type:           chainclient.KeeperEventAssignmentFinalized,
+		Type:           chainclient.KeeperEventDispatchRecorded,
 		TaskID:         taskID,
 		Height:         120,
 		SessionID:      sessionID,
@@ -258,6 +258,21 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	processedHeight, err := kvStore.KeeperLastProcessedHeight(ctx)
 	if err != nil || processedHeight != 120 {
 		t.Fatalf("Keeper processed height = %d err=%v, want 120", processedHeight, err)
+	}
+	// The Worker responsibility comes from the dispatch ticket now, which
+	// nothing records yet, so the rig records it the way that path will.
+	if err := layout.InferAssignmentBatch(ctx, kvStore, layout.StoredHash(taskHash), layout.TaskRecord{
+		SessionID: sessionID, OrderSequence: orderSequence, ModelID: modelID, ProfileVersion: 1,
+		AssignmentOrderDigest:  layout.StoredHashFromCodec(codec.HashBytes(assignment.Input)),
+		AcceptedInputHash:      layout.StoredHashFromCodec(codec.HashBytes(assignment.Input)),
+		InputDigest:            layout.StoredHashFromCodec(codec.HashBytes(assignment.Input)),
+		WorkerAddress:          workerAddress,
+		BuilderOperatorAddress: builderOperator,
+	}, layout.InferRecord{
+		TaskID: taskID, WinnerConfirmHeight: assignment.WinnerConfirmHeight, InferDeadlineHeight: assignment.InferDeadlineHeight,
+		Stage: layout.StageQueued, DeadlineHeight: assignment.InferDeadlineHeight,
+	}); err != nil {
+		t.Fatalf("record Worker responsibility: %v", err)
 	}
 	inferRecord, err := layout.GetInferRecord(ctx, kvStore, layout.StoredHash(taskHash))
 	if err != nil {
@@ -289,7 +304,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		SignerKeyRef:              serviceKeyRef,
 		SignerPubkey:              servicePubkeyHex,
 		Signer:                    outputSigner,
-		NexusEnvelopeSigner:       testNexusEnvelopeSigner(),
 		// The locked Profile's evidence schema. In production the daemon reads it
 		// from hub.v1.Query/Profile and passes it to the Worker. This rig
 		// supplies the same V1 shape directly so the receipt can be signed.
@@ -319,17 +333,13 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		Trace:            &tasktrace.Trace{Emit: func(record observability.LogRecord) { traceRecords = append(traceRecords, record) }},
 	})
 	// With the locked Profile's evidence schema supplied, the Worker can now
-	// sign a frozen task.v1.InferReceiptV1 and publish OUTPUT_AVAILABLE.
+	// sign a frozen task.v1.InferReceiptV1 and upload its output.
 	infer, err := workerNode.HandleAssignmentFinalized(ctx, assignment)
 	if err != nil {
 		t.Fatalf("HandleAssignmentFinalized error = %v", err)
 	}
 	if !infer.Started {
 		t.Fatalf("infer = %#v, want a started responsibility", infer)
-	}
-	publishedOutput := nats.Published(builderclient.NATSOutputAvailableSubject(taskID))
-	if len(publishedOutput) != 1 {
-		t.Fatalf("published output available count = %d, want 1", len(publishedOutput))
 	}
 	// The inference itself ran and its package was validated, so the output the
 	// Verifier grades below is real Worker output rather than a fixture.
@@ -352,7 +362,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		t.Fatalf("infer_receipt_built trace reports an unset digest:\n%s", receiptTrace)
 	}
 	traceEvent(t, traceRecords, "task_result_finalized")
-	traceEvent(t, traceRecords, "output_available_published")
 
 	outputPackage := builder.validatedPackages[0]
 	frames, err := workerPersistence{persistence}.OutputStreamFrames(ctx, taskID)
@@ -436,6 +445,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	if err != nil {
 		t.Fatal(err)
 	}
+	handraiseSender := &integrationFrameSender{}
 	verifierConfig := verifier.Config{
 		VerifierAddress: verifierAddr,
 		ModelServiceID:  modelSvcID,
@@ -454,10 +464,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		VerifyDeadlineDeltaHeight: 30,
 		// Envelope field 7; zero is a refusal, not an empty field.
 		ServiceAuthorizationNonce: 23,
-		// Fake inference does not make the identity fake: the node still signs every
-		// outbound envelope. The Worker half above has a signer wired and the Verifier
-		// half does not - that asymmetry is exactly what kept the "unsigned" path alive.
-		NexusEnvelopeSigner: testNexusEnvelopeSigner(),
+		Sender:                    handraiseSender,
 		// The same frozen section 16.2 read the Worker half above serves.
 		// generation_params_digest is a consensus value the verifier copies
 		// through, so the result credential refuses without this reader.
@@ -478,30 +485,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		ProfileReader: integrationLockedProfileReader{profile: integrationLockedProfile(modelID)},
 	}
 	verifierNode := verifier.New(verifierConfig)
-	builder.beforePublish = func(request builderclient.PublishRequest) error {
-		if request.Subject != builderclient.NATSVerifyResultSubject(taskID) {
-			return nil
-		}
-		if len(taskData.FinalizedVerifierEvidence) != 1 {
-			return fmt.Errorf("VERIFY_RESULT preceded evidence finalization")
-		}
-		message, err := builderclient.ResultReceiptProto(taskData.FinalizedVerifierEvidence[0].Receipt)
-		if err != nil {
-			return err
-		}
-		want, err := proto.Marshal(message)
-		if err != nil {
-			return err
-		}
-		envelope, err := builderclient.DecodeBusEnvelope(request.Payload)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(envelope.Payload, want) {
-			return fmt.Errorf("VERIFY_RESULT differs from the finalized signed receipt")
-		}
-		return nil
-	}
 	handraise, err := verifierNode.EvaluateAndHandraise(ctx, verifierState)
 	if err != nil {
 		t.Fatalf("EvaluateAndHandraise returned error: %v", err)
@@ -509,18 +492,12 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	if !handraise.Signed {
 		t.Fatalf("handraise = %#v, want signed", handraise)
 	}
-	publishedHandraises := nats.Published(builderclient.NATSVerifierHandraiseSubject(taskID))
-	if len(publishedHandraises) != 1 {
-		t.Fatalf("published verifier handraises = %d, want 1", len(publishedHandraises))
+	if len(handraiseSender.handraises) != 1 {
+		t.Fatalf("sent verifier handraises = %d, want 1", len(handraiseSender.handraises))
 	}
-	signedHandraise := publishedHandraises[0].Data
-	if err := layout.AdmissionBatch(ctx, kvStore, sessionID, 1, layout.StoredHash(taskHash), layout.CandidateAdmission{
-		SignedOrder:      []byte("{}"),
-		HandraisePayload: signedHandraise,
-		HandraiseDigest:  layout.StoredHashFromCodec(codec.HashBytes(signedHandraise)),
-		PublishTS:        1,
-	}); err != nil {
-		t.Fatalf("AdmissionBatch: %v", err)
+	if sent := handraiseSender.handraises[0]; sent.GetVerifyRound() != 1 || len(sent.GetServiceSignature()) != 64 ||
+		!bytes.Equal(sent.GetInferReceiptHash(), inferDigest[:]) {
+		t.Fatalf("sent verifier handraise = %#v, want the signed round-1 handraise for the Worker receipt", sent)
 	}
 	keeperServer.AddEvent(chainclient.KeeperEvent{
 		Type:           chainclient.KeeperEventInferReceiptAccepted,
@@ -592,11 +569,11 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	if err != nil {
 		t.Fatalf("HandleOpenVerifyAccepted error = %v, want the commit half to complete", err)
 	}
-	// The commit is built, signed AND on chain; nothing reveals, so the
-	// VerifyResult subject stays empty.
+	// The commit is built, signed AND on chain; nothing reveals, so no result
+	// credential is finalized yet.
 	if verifyResult.CommitHash == (codec.Hash{}) || verifyResult.CommitWire.ServiceAuthorizationNonce != 23 ||
-		len(nats.Published(builderclient.NATSVerifyResultSubject(taskID))) != 0 {
-		t.Fatalf("verify=%#v nats=%d, want a commit credential and no VerifyResult publish", verifyResult, len(nats.Published(builderclient.NATSVerifyResultSubject(taskID))))
+		len(taskData.FinalizedVerifierEvidence) != 0 {
+		t.Fatalf("verify=%#v finalized=%d, want a commit credential and no result credential", verifyResult, len(taskData.FinalizedVerifierEvidence))
 	}
 	// The commit exit ran on the way to that refusal. It is the point of the
 	// whole round: without it a signed commit stayed a local evidence file and
@@ -652,22 +629,16 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	verifyCallsBeforeRestart := modelServer.VerifyCalls()
 	finalizeFailure := errors.New("Builder rejected verifier evidence finalization")
 	taskData.verifierFinalizeErr = finalizeFailure
-	if result, err := verifierNode.HandleRevealPhaseStarted(ctx, verifierState); !errors.Is(err, finalizeFailure) || result.Published {
+	if result, err := verifierNode.HandleRevealPhaseStarted(ctx, verifierState); !errors.Is(err, finalizeFailure) || result.Signed {
 		t.Fatalf("reveal with failed finalization = %+v, %v", result, err)
-	}
-	if len(nats.Published(builderclient.NATSVerifyResultSubject(taskID))) != 0 {
-		t.Fatal("VERIFY_RESULT was published after failed evidence finalization")
 	}
 	taskData.verifierFinalizeErr = nil
 	reveal, err := verifierNode.HandleRevealPhaseStarted(ctx, verifierState)
 	if err != nil {
 		t.Fatalf("HandleRevealPhaseStarted error = %v, want a complete result credential", err)
 	}
-	if !reveal.Published || reveal.ResultSigningDigest.IsZero() {
-		t.Fatalf("reveal = %#v, want a published credential with its own TRUEOPEN_RESULT_V1 digest", reveal)
-	}
-	if published := len(nats.Published(builderclient.NATSVerifyResultSubject(taskID))); published != 1 {
-		t.Fatalf("VerifyResult publishes = %d, want exactly one now that every metric field has a producer", published)
+	if !reveal.Signed || reveal.ResultSigningDigest.IsZero() {
+		t.Fatalf("reveal = %#v, want a signed credential with its own TRUEOPEN_RESULT_V1 digest", reveal)
 	}
 	if modelServer.VerifyCalls() != verifyCallsBeforeRestart || len(taskData.FinalizedVerifierEvidence) != 1 {
 		t.Fatal("restart reran verification or did not finalize its persisted evidence")
@@ -753,9 +724,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	if err := poller.RunOnce(ctx); err != nil {
 		t.Fatalf("KeeperPoller terminal RunOnce returned error: %v", err)
 	}
-	if _, err := layout.GetCandidateAdmission(ctx, kvStore, layout.StoredHash(taskHash)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("terminal candidate error = %v, want removed", err)
-	}
 	// Task terminal is what releases the infer responsibility now, through the
 	// same TaskTerminalBatch that drops the verify record.
 	if _, err := layout.GetInferRecord(ctx, kvStore, layout.StoredHash(taskHash)); !errors.Is(err, store.ErrNotFound) {
@@ -824,22 +792,6 @@ func testDigestSigner() signerclient.DigestSigner {
 	})
 }
 
-func testNexusEnvelopeSigner() builderclient.BusEnvelopeSigner {
-	// Bound to the envelope, not a constant: a stub that returns fixed bytes
-	// regardless of what it was asked to sign cannot fail when the signing
-	// preimage changes, which is exactly how a wrong-preimage bug once reached
-	// main with every test green. These flows do not verify the signature, so the
-	// value need not be a real secp256k1 one - it only has to move when the
-	// digest moves.
-	return builderclient.BusEnvelopeSignerFunc(func(envelope builderclient.BusEnvelope) ([]byte, error) {
-		digest, err := builderclient.BusEnvelopeSignDigest(envelope)
-		if err != nil {
-			return nil, err
-		}
-		return append(append([]byte(nil), digest[:]...), digest[:]...), nil
-	})
-}
-
 // workerSnapshotReader returns a snapshot that matches the supplied assignment.
 type workerSnapshotReader struct {
 	assignment chainclient.AssignmentFinalized
@@ -884,26 +836,13 @@ type integrationPersistence struct {
 	taskHash             codec.Hash
 	evidenceRoot         string
 	cleanupHeight        uint64
-	builder              *natsBackedBuilder
+	builder              *validatingBuilder
 	refs                 []string
 	byKind               map[string]string
-	builderMessages      map[string]worker.BuilderMessageCheckpoint
 	modelJobs            map[string]worker.ModelJobCheckpoint
 	inferReceipts        map[string]worker.InferReceiptCheckpoint
 	storageConfirmations map[string][]worker.StorageConfirmationCheckpoint
 	artifacts            map[string][]byte
-}
-
-func (p *integrationPersistence) WriteBuilderOutbox(_ context.Context, record worker.OutboxRecord) error {
-	if p.builderMessages == nil {
-		p.builderMessages = make(map[string]worker.BuilderMessageCheckpoint)
-	}
-	digest := fmt.Sprintf("%x", record.Digest[:])
-	p.builderMessages[digest] = worker.BuilderMessageCheckpoint{
-		Digest: digest, TaskID: record.TaskID, Subject: record.Subject,
-		Payload: append([]byte(nil), record.Payload...), Status: record.Status,
-	}
-	return nil
 }
 
 func (p *integrationPersistence) WriteSettleMaterial(ctx context.Context, material verifier.SettleMaterial) error {
@@ -1216,10 +1155,6 @@ func (p workerPersistence) CheckpointInferOutput(ctx context.Context, taskID str
 	return nil
 }
 
-func (p workerPersistence) WriteBuilderOutbox(ctx context.Context, record worker.OutboxRecord) error {
-	return p.base.WriteBuilderOutbox(ctx, record)
-}
-
 func (p workerPersistence) CheckpointInferInput(context.Context, worker.InferInputCheckpoint) error {
 	return nil
 }
@@ -1301,14 +1236,6 @@ func (p workerPersistence) StorageConfirmations(_ context.Context, taskID string
 	return append([]worker.StorageConfirmationCheckpoint(nil), p.base.storageConfirmations[taskID]...), nil
 }
 
-func (p workerPersistence) BuilderMessage(_ context.Context, digest string) (worker.BuilderMessageCheckpoint, error) {
-	record, ok := p.base.builderMessages[digest]
-	if !ok {
-		return worker.BuilderMessageCheckpoint{}, worker.ErrCheckpointNotFound
-	}
-	return record, nil
-}
-
 type verifierPersistence struct{ base *integrationPersistence }
 
 func (p verifierPersistence) ReadVerifierEvidence(ctx context.Context, kind string) ([]byte, error) {
@@ -1333,14 +1260,12 @@ type defaultFeeTx struct {
 	feeCap   txclient.Coin
 }
 
-type natsBackedBuilder struct {
-	nats              *memoryNATS
+type validatingBuilder struct {
 	validatedPackages []builderclient.OutputPackage
 	packagesByKey     map[string]builderclient.OutputPackage
-	beforePublish     func(builderclient.PublishRequest) error
 }
 
-func (b *natsBackedBuilder) ValidateOutputPackage(_ context.Context, pkg builderclient.OutputPackage) error {
+func (b *validatingBuilder) ValidateOutputPackage(_ context.Context, pkg builderclient.OutputPackage) error {
 	if pkg.TaskID == "" || pkg.OutputRef == "" {
 		return fmt.Errorf("output package missing required fields")
 	}
@@ -1357,41 +1282,6 @@ func (b *natsBackedBuilder) ValidateOutputPackage(_ context.Context, pkg builder
 	}
 	b.packagesByKey[outputPackageKey(pkg.TaskID, pkg.PackageHash)] = pkg
 	return nil
-}
-
-func (b *natsBackedBuilder) Publish(ctx context.Context, req builderclient.PublishRequest) error {
-	if b.beforePublish != nil {
-		if err := b.beforePublish(req); err != nil {
-			return err
-		}
-	}
-	return b.nats.Publish(ctx, builderclient.NATSMessage{Subject: req.Subject, Data: req.Payload})
-}
-
-type memoryNATS struct {
-	mu        sync.Mutex
-	published map[string][]builderclient.NATSMessage
-}
-
-func (n *memoryNATS) Publish(_ context.Context, msg builderclient.NATSMessage) error {
-	if msg.Subject == "" || len(msg.Data) == 0 {
-		return fmt.Errorf("nats message missing subject or data")
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.published == nil {
-		n.published = map[string][]builderclient.NATSMessage{}
-	}
-	msg.Data = append([]byte(nil), msg.Data...)
-	n.published[msg.Subject] = append(n.published[msg.Subject], msg)
-	return nil
-}
-
-func (n *memoryNATS) Published(subject string) []builderclient.NATSMessage {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	out := append([]builderclient.NATSMessage(nil), n.published[subject]...)
-	return out
 }
 
 type keeperHarness struct {
@@ -1813,4 +1703,15 @@ func traceEvent(t *testing.T, records []observability.LogRecord, name string) st
 	}
 	t.Fatalf("trace event %q was never emitted; records: %#v", name, records)
 	return ""
+}
+
+// integrationFrameSender stands in for the Builder stream the Verifier sends its
+// handraise on.
+type integrationFrameSender struct {
+	handraises []*taskv1.VerifierHandraiseV1
+}
+
+func (s *integrationFrameSender) SendVerifierHandraise(_ context.Context, h *taskv1.VerifierHandraiseV1) error {
+	s.handraises = append(s.handraises, h)
+	return nil
 }

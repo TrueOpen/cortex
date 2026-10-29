@@ -439,7 +439,6 @@ func TestAdminAPIDiagnostics(t *testing.T) {
 		ModelTransport: "grpc",
 		KeeperEndpoint: "https://keeper.devnet.trueopen.xyz",
 		NexusIngress:   "https://nexus.devnet.trueopen.xyz",
-		NexusNATS:      "tls://nexus.devnet.trueopen.xyz:4222",
 		Dependencies: []diagnostics.DependencyStatus{{
 			Name:       "keeper",
 			Endpoint:   "https://keeper.devnet.trueopen.xyz",

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/store"
 )
@@ -67,4 +66,3 @@ func newVerifierOnlyFixture(t *testing.T) *outputAvailableFixture {
 }
 
 var _ = hex.EncodeToString
-var _ = builderclient.KindOpenVerify

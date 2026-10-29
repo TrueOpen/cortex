@@ -8,192 +8,17 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
-	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 	"github.com/TrueOpen/cortex/internal/verifier"
-	"github.com/TrueOpen/cortex/internal/worker"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
-	"google.golang.org/protobuf/proto"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 )
-
-// HandleNexusMessage is the delivery callback: no received Builder bytes are
-// persisted. It authenticates and validates first, then admits an eligible
-// order, commits the stable signed handraise, and finally publishes it.
-func (r *TaskRunner) HandleNexusMessage(ctx context.Context, msg builderclient.NATSMessage) error {
-	if r == nil || r.cfg.Store == nil {
-		return fmt.Errorf("task runner store is required")
-	}
-	envelope, kind, payload, err := r.validateNexusMessage(ctx, msg)
-	if err != nil {
-		r.releaseEnvelopeClaimForRedelivery(msg.Subject, envelope, err)
-		return err
-	}
-	var handleErr error
-	switch kind {
-	case builderclient.KindOrderBroadcast:
-		if r.cfg.LocalWorkerAddress != "" {
-			handleErr = r.admitOrder(ctx, strings.TrimSpace(msg.Subject), envelope, payload.(*busv1.OrderBroadcastV1))
-		}
-	case builderclient.KindOutputAvailable:
-		if r.cfg.LocalVerifierAddress != "" {
-			handleErr = r.admitOutputAvailable(ctx, envelope, payload.(*busv1.OutputAvailableV1))
-		}
-	case builderclient.KindWorkerAssignmentNotify:
-		if r.cfg.LocalWorkerAddress != "" {
-			handleErr = r.recordAssignNotify(ctx, envelope, payload.(*busv1.WorkerAssignmentNotifyV1))
-		}
-	case builderclient.KindOpenVerify:
-		// OPEN_VERIFY is the call for Verifier handraises. It is the
-		// Verifier-side counterpart of ORDER_BROADCAST, not a notification:
-		// reaching the precheck and publishing on
-		// trueopen.handraise.verifier.<task_id> is the whole point of receiving it.
-		if r.cfg.LocalVerifierAddress != "" {
-			handleErr = r.admitOpenVerify(ctx, envelope, payload.(*busv1.OpenVerifyV1))
-		}
-	case builderclient.KindVerifierAssignmentNotify:
-		if r.cfg.LocalVerifierAddress != "" {
-			handleErr = r.recordVerifierAssignment(ctx, envelope, payload.(*busv1.VerifierAssignmentNotifyV1))
-		}
-	default:
-		handleErr = fmt.Errorf("recognized Builder frame %s has no disposition", kind)
-	}
-	// A merge-boundary conflict is a permanent per-task refusal: the same frame
-	// contradicts the same stored field on every redelivery, so retrying it is
-	// how a NAK loop starts. Assert the verdict rather than leaving it to the
-	// default, because the verifier subjects these frames arrive on are
-	// redelivered by subject regardless of what the handler concluded.
-	if handleErr != nil && errors.Is(handleErr, layout.ErrConflict) {
-		handleErr = builderclient.Permanent(handleErr)
-	}
-	if handleErr != nil && r.cfg.Diagnostic != nil && !isRepeatedChainStateWait(handleErr) {
-		r.cfg.Diagnostic(TaskRunnerDiagnostic{
-			Source:  "nexus_" + strings.ToLower(string(kind)),
-			Record:  envelope.Subject,
-			Error:   handleErr.Error(),
-			Waiting: isChainStateWait(handleErr),
-		})
-	}
-	r.releaseEnvelopeClaimForRedelivery(msg.Subject, envelope, handleErr)
-	return handleErr
-}
-
-func (r *TaskRunner) releaseEnvelopeClaimForRedelivery(subject string, envelope builderclient.BusEnvelope, err error) {
-	if err == nil || envelope.MessageID == "" || !inboxWillRedeliver(subject, err) {
-		return
-	}
-	if releaser, ok := r.cfg.NexusEnvelopeAuthenticator.(interface {
-		Release(string, builderclient.BusEnvelope)
-	}); ok {
-		releaser.Release(strings.TrimSpace(subject), envelope)
-	}
-}
-
-func inboxWillRedeliver(subject string, err error) bool {
-	// A permanent verdict is never redelivered, so the envelope claim must stay
-	// consumed: releasing it would arm a replay of a frame the inbox is about to
-	// acknowledge and refuse.
-	if builderclient.IsPermanent(err) {
-		return false
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		builderclient.IsRetryable(err) || errors.Is(err, builderclient.ErrBusEnvelopeAuthenticationUnavailable) {
-		return true
-	}
-	// Only the JetStream-tier subjects: a Core subject has no redelivery to
-	// arm a replay against, and OPEN_VERIFY is Core exactly like OPEN_TASK.
-	kind, _, ok := builderclient.KindForSubject(strings.TrimSpace(subject))
-	return ok && (kind == builderclient.KindWorkerAssignmentNotify ||
-		kind == builderclient.KindOutputAvailable || kind == builderclient.KindVerifierAssignmentNotify)
-}
-
-// wakeKeeperPoll asks for a Keeper scan now, from the two places that hold the
-// evidence for it: a bus frame named a task whose local record the scan has not
-// written yet. Nil-safe, because the poller is optional wiring.
-func (r *TaskRunner) wakeKeeperPoll() {
-	if r.cfg.WakeKeeperPoll != nil {
-		r.cfg.WakeKeeperPoll(WakeNotify)
-	}
-}
-
-func (r *TaskRunner) recordAssignNotify(ctx context.Context, envelope builderclient.BusEnvelope, message *busv1.WorkerAssignmentNotifyV1) error {
-	taskID, err := busTaskIDHex(message.GetTaskId(), envelope.Subject)
-	if err != nil {
-		return fmt.Errorf("WorkerAssignmentNotify: %w", err)
-	}
-	winner := strings.TrimSpace(message.GetWinnerOperatorAddress())
-	if winner == "" {
-		return fmt.Errorf("WorkerAssignmentNotify winner_operator_address is required")
-	}
-	if len(message.GetTaskHash()) != 32 {
-		return fmt.Errorf("WorkerAssignmentNotify task_hash must be 32 bytes, got %d", len(message.GetTaskHash()))
-	}
-	// Not being selected is not a failure. By design this notice goes to the winner and
-	// the losers alike (payload.proto:26 - "tells the losing workers to stop and the
-	// winner to start"), and the Keeper path silently skips the same fact
-	// (task_runner_run.go:221). A loser never admitted this task and has nothing to
-	// stop, so: normal terminal state, ack, no error.
-	//
-	// Reporting an error costs more than two extra log lines: JetStream redelivers, the
-	// inbox's dedup key is the hash of the whole frame, and every redelivery carries a
-	// new message_id - so dedup never takes effect and the failure log scrolls forever.
-	if winner != r.cfg.LocalWorkerAddress {
-		return nil
-	}
-	// Both before the record lookup and outside r.mu: the input download
-	// runs while the chain view catches up, and the wait lets the Keeper
-	// scan this frame asks for land before the record is looked up, rather
-	// than refusing the frame into the redelivery delay.
-	r.prefetchAssignedInput(ctx, taskID, message)
-	r.awaitAssignmentScan(ctx, taskID, codec.Hash(message.GetTaskHash()), message.GetFinalizedHeight())
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	foundHash, foundRec, err := layout.FindInferRecordByTaskID(ctx, r.cfg.Store, taskID)
-	if err != nil {
-		// The Builder has seen an assignment this node has not scanned up to, so
-		// the cursor is behind the chain rather than the frame being wrong. Ask
-		// for a scan now: without it this frame waits out the bus redelivery and
-		// then the poll interval, twice over, for a fact already on chain.
-		r.wakeKeeperPoll()
-		return builderclient.Retryable(fmt.Errorf("Keeper assignment for %s is not available: %w", taskID, err))
-	}
-
-	tr, err := layout.GetTaskRecord(ctx, r.cfg.Store, foundHash)
-	if err != nil {
-		return err
-	}
-	if tr.WorkerAddress != winner || foundRec.WinnerConfirmHeight != message.GetFinalizedHeight() {
-		return fmt.Errorf("WorkerAssignmentNotify does not match the authoritative assignment")
-	}
-	// task_hash is the object §5.2 authorises, H_FIELDS_V1("TRUEOPEN_TASK_ORDER_V1",
-	// TaskOrderV1), i.e. Keeper's accepted_task_hash - local storage is keyed by exactly
-	// that (reconciler.go:161-167), so foundHash is the value to compare against.
-	//
-	// What used to be compared was tr.AssignmentOrderDigest, and that field holds
-	// accepted_input_hash (task_runner_run.go:241-244 fills all three fields from it),
-	// which is a different chain field: by definition the two can never be equal
-	// (nodewire.TestAcceptedTaskHashDiffersFromAssignmentOrderDigest pins exactly that),
-	// so the winner could never accept this notice.
-	if !bytes.Equal(message.GetTaskHash(), foundHash[:]) {
-		return fmt.Errorf("WorkerAssignmentNotify task_hash does not match the accepted task hash")
-	}
-
-	// The V2 notify carries no payload CID and no BuilderSet reference: input
-	// location comes from the Keeper snapshot and the task-data plane, and the
-	// envelope no longer has BuilderSet fields to copy. Nothing durable to
-	// merge; the message's effect is to wake this node earlier.
-	_ = tr
-	r.Wake()
-	return nil
-}
 
 // recordVerifierAssignment consumes VERIFIER_ASSIGNMENT_NOTIFY (§5.9): the
 // notice that the chain finalized the selected Verifier set for this task. It
@@ -211,11 +36,15 @@ func (r *TaskRunner) recordAssignNotify(ctx context.Context, envelope buildercli
 // (§4.7), so it no longer supplies the verify record's OutputCID. That was the
 // message's one durable side effect; the output package is located through the
 // Builder directory and the task-data plane instead.
-func (r *TaskRunner) recordVerifierAssignment(ctx context.Context, envelope builderclient.BusEnvelope, message *busv1.VerifierAssignmentNotifyV1) error {
+func (r *TaskRunner) recordVerifierAssignment(ctx context.Context, message *nexusv1.VerifierAssignmentNotifyV1) error {
+	return r.builderFrameVerdict("nexus_verifier_assignment_notify", message.GetTaskId(), r.applyVerifierAssignment(ctx, message))
+}
+
+func (r *TaskRunner) applyVerifierAssignment(ctx context.Context, message *nexusv1.VerifierAssignmentNotifyV1) error {
 	if r.cfg.TaskReader == nil {
 		return builderclient.Retryable(fmt.Errorf("authoritative Keeper task reader is required for VerifierAssignmentNotify"))
 	}
-	taskID, err := busTaskIDHex(message.GetTaskId(), envelope.Subject)
+	taskID, err := taskIDHex(message.GetTaskId())
 	if err != nil {
 		return fmt.Errorf("VerifierAssignmentNotify: %w", err)
 	}
@@ -243,9 +72,6 @@ func (r *TaskRunner) recordVerifierAssignment(ctx context.Context, envelope buil
 	// which sent operators off to investigate a chain query that never happened.
 	foundHash, foundRec, err := layout.FindVerifyRecordByTaskID(ctx, r.cfg.Store, taskID)
 	if err != nil {
-		// Same shape as the Worker side: the index is empty because the scan that
-		// would fill it has not run yet, so ask for it now rather than waiting.
-		r.wakeKeeperPoll()
 		return builderclient.Retryable(fmt.Errorf("local verify record for %s is not available yet: %w", taskID, err))
 	}
 
@@ -292,53 +118,6 @@ func (r *TaskRunner) recordVerifierAssignment(ctx context.Context, envelope buil
 	return nil
 }
 
-// admitOutputAvailable treats OUTPUT_AVAILABLE as what the design says it is:
-// an auxiliary hint (detailed-design §4.6, interface-and-topic-list §5.8) that a Verifier's output
-// metadata is ready, so the scheduler can wake before the chain would have woken
-// it. It is never the criterion for verifiability -- OPEN_VERIFY plus the Keeper
-// snapshot are, and ApplyReconcilerEffects admits the same task from chain state
-// with no hint at all. So the only fields required here are the ones that say
-// which task the hint is about plus its semantic core, the committed output
-// hash; everything this node then acts on is read from the snapshot.
-func (r *TaskRunner) admitOutputAvailable(ctx context.Context, envelope builderclient.BusEnvelope, message *busv1.OutputAvailableV1) error {
-	taskID, err := busTaskIDHex(message.GetTaskId(), envelope.Subject)
-	if err != nil {
-		return fmt.Errorf("OutputAvailable: %w", err)
-	}
-	if message.GetWorkerOperatorAddress() == "" || len(message.GetOutputHash()) != 32 {
-		return fmt.Errorf("OutputAvailable missing required fields")
-	}
-	// A CORTEX sender must be the Worker it names. The frozen subject table
-	// admits this kind from both domains and attaches the condition to the
-	// CORTEX row: "the sender must still agree with the on-chain winner, which
-	// the consumer checks". The authenticator cannot check it - it proves the
-	// sender holds a current ACTIVE CORTEX_NODE key, and there is no chain query
-	// for the set of Cortex nodes - so without this any registered node could
-	// publish hints about tasks that are not its own. raiseVerifierHand binds
-	// the named worker to the Keeper winner below; this binds the signer to the
-	// name, and the two together are the whole chain.
-	//
-	// It is CORTEX-only: the BUILDER row is the receiving Builder relaying the
-	// hint, which is legitimately not the Worker.
-	if envelope.SenderParticipantType == builderclient.ParticipantCortex {
-		sender := strings.TrimSpace(envelope.SenderOperatorAddress)
-		if sender != strings.TrimSpace(message.GetWorkerOperatorAddress()) {
-			return builderclient.Permanent(fmt.Errorf(
-				"OutputAvailable was published by Cortex node %s but names worker %s: a Cortex sender may only announce its own output",
-				sender, message.GetWorkerOperatorAddress()))
-		}
-	}
-	return r.raiseVerifierHand(ctx, verifierHandraiseTrigger{
-		Kind: "OutputAvailable", TaskID: taskID,
-		Worker: message.GetWorkerOperatorAddress(), OutputHash: message.GetOutputHash(),
-		SenderOperatorAddress: envelope.SenderOperatorAddress,
-		// Deliberately not redrivable: the hint arrives on a JetStream subject
-		// (inboxWillRedeliver), so the transport already brings it back. Arming a
-		// local re-drive on top of that would run two attempts at the same
-		// task-round from two schedulers.
-	})
-}
-
 // admitOpenVerify consumes OPEN_VERIFY (§5.6), the Core-tier call for Verifier
 // handraises. It is the Verifier-side counterpart of OPEN_TASK: the Builder
 // opens the window, every Verifier candidate that can serve this task raises its
@@ -351,8 +130,35 @@ func (r *TaskRunner) admitOutputAvailable(ctx context.Context, envelope builderc
 // OUTPUT_AVAILABLE hint - a message §5.8 explicitly says triggers nothing. Both
 // paths now converge on raiseVerifierHand and share its at-most-once claim, so a
 // task that receives the call and the hint still raises its hand exactly once.
-func (r *TaskRunner) admitOpenVerify(ctx context.Context, envelope builderclient.BusEnvelope, message *busv1.OpenVerifyV1) error {
-	taskID, err := busTaskIDHex(message.GetTaskId(), envelope.Subject)
+func (r *TaskRunner) admitOpenVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
+	return r.builderFrameVerdict("nexus_open_verify", message.GetTaskId(), r.openVerify(ctx, builderOperator, message))
+}
+
+// builderFrameVerdict settles what a refused Builder frame means. A
+// merge-boundary conflict is a permanent per-task refusal: the same frame
+// contradicts the same stored field on every redelivery, so retrying it is how
+// a redelivery loop starts. Every refusal other than a repeat of this block's
+// chain-state wait is reported once.
+func (r *TaskRunner) builderFrameVerdict(source string, taskID []byte, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, layout.ErrConflict) {
+		err = builderclient.Permanent(err)
+	}
+	if r.cfg.Diagnostic != nil && !isRepeatedChainStateWait(err) {
+		r.cfg.Diagnostic(TaskRunnerDiagnostic{
+			Source:  source,
+			Record:  hex.EncodeToString(taskID),
+			Error:   err.Error(),
+			Waiting: isChainStateWait(err),
+		})
+	}
+	return err
+}
+
+func (r *TaskRunner) openVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
+	taskID, err := taskIDHex(message.GetTaskId())
 	if err != nil {
 		return fmt.Errorf("OpenVerify: %w", err)
 	}
@@ -377,8 +183,8 @@ func (r *TaskRunner) admitOpenVerify(ctx context.Context, envelope builderclient
 		Worker: message.GetWorkerOperatorAddress(), OutputHash: message.GetOutputHash(), TaskHash: codec.Hash(message.GetTaskHash()),
 		ModelID: modelID, ProfileVersion: message.GetProfileVersion(), VerifyRound: message.GetVerifyRound(),
 		InferReceiptHash:         codec.Hash(message.GetInferReceiptHash()),
-		SenderOperatorAddress:    envelope.SenderOperatorAddress,
-		DataReadyBuilderOperator: envelope.SenderOperatorAddress,
+		SenderOperatorAddress:    builderOperator,
+		DataReadyBuilderOperator: builderOperator,
 		// The call is the one handraise trigger with no transport behind it, so
 		// it is the one that arms the local re-drive. See
 		// task_runner_handraise_redrive.go.
@@ -763,11 +569,6 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 		}
 		inferReceiptHash = codec.Hash(candidate.InferReceiptHash)
 		handraiseExpiry = candidate.ExpiryHeight
-	} else if r.cfg.FakeBus {
-		member = builderclient.CandidateMemberRefMessage{
-			CandidatePoolSnapshotID: hex.EncodeToString(outputHash[:]), Slot: 1, SlotVersion: 1,
-			OperatorAddress: "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
-		}
 	} else {
 		return builderclient.Retryable(fmt.Errorf("verifier candidate member reader is required"))
 	}
@@ -789,7 +590,7 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the VerifierHandraise envelope: %w", err))
 	}
-	v := verifier.New(verifier.Config{VerifierAddress: r.cfg.LocalVerifierAddress, Builder: r.cfg.Builder, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, VerifyDeadlineDeltaHeight: r.cfg.VerifyDeadlineDeltaHeight, FakeOutput: r.cfg.FakeOutput, TrustedNATSDev: r.cfg.TrustedNATSDev || r.cfg.FakeBus, EnvelopeTTL: r.cfg.EnvelopeTTL, NexusEnvelopeSigner: r.cfg.NexusEnvelopeSigner, ServiceAuthorizationNonce: authorizationNonce, MaxOutputBytes: r.cfg.MaxOutputBytes, Trace: r.cfg.Trace})
+	v := verifier.New(verifier.Config{VerifierAddress: r.cfg.LocalVerifierAddress, Builder: r.cfg.Builder, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, VerifyDeadlineDeltaHeight: r.cfg.VerifyDeadlineDeltaHeight, FakeOutput: r.cfg.FakeOutput, Sender: r.cfg.VerifierSender, ServiceAuthorizationNonce: authorizationNonce, MaxOutputBytes: r.cfg.MaxOutputBytes, Trace: r.cfg.Trace})
 	result, err := v.EvaluateAndHandraise(ctx, state)
 	if err != nil && (builderclient.IsRetryable(err) || modelservice.IsRetryable(err)) {
 		return builderclient.Retryable(err)
@@ -828,305 +629,11 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	return layout.CompleteVerifyAdmission(ctx, r.cfg.Store, verifyTaskHash, verifyRound, completedAdmission)
 }
 
-func (r *TaskRunner) validateNexusMessage(ctx context.Context, msg builderclient.NATSMessage) (builderclient.BusEnvelope, builderclient.BusMessageKind, proto.Message, error) {
-	if err := ctx.Err(); err != nil {
-		return builderclient.BusEnvelope{}, "", nil, err
-	}
-	envelope, err := builderclient.DecodeBusEnvelope(msg.Data)
-	if err != nil {
-		return builderclient.BusEnvelope{}, "", nil, err
-	}
-	subject := strings.TrimSpace(msg.Subject)
-	kind, payload, ok := builderclient.KindForSubject(subject)
-	if !ok {
-		return builderclient.BusEnvelope{}, "", nil, fmt.Errorf("unsupported Builder subject %q", subject)
-	}
-	if envelope.Subject != subject || envelope.Kind != kind {
-		return builderclient.BusEnvelope{}, "", nil, fmt.Errorf("Builder envelope subject or kind mismatch")
-	}
-	// Intrinsic validation runs on EVERY inbound frame, including under
-	// trusted_nats_dev and the fake bus. What it checks is not a property of the
-	// signature: payload_digest committing the canonical payload, payload_codec,
-	// and the kind/participant/role/stage/subject agreement are true or false
-	// about the frame itself. Gating them behind authentication would mean the
-	// devnet mode we actually run today accepts a frame with a false
-	// payload_digest or an impossible stage, which is how a body that disagrees
-	// with its own commitment would reach a handler.
-	//
-	// The authenticator repeats this call in strict mode. That is deliberate: it
-	// must not depend on a caller having done it first, and the work is a hash
-	// over a payload that is about to be decoded anyway.
-	if err := envelope.ValidateEnvelopeIntrinsics(); err != nil {
-		return envelope, kind, nil, fmt.Errorf("Builder envelope is internally inconsistent: %w", err)
-	}
-	// Freshness is a validity property, not an authentication one, so it is
-	// checked here rather than only inside the authenticator.
-	//
-	// It used to live only in the authenticator (envelope_auth.go:474,477), which
-	// trusted_nats_dev skips wholesale. ValidateEnvelopeIntrinsics above requires
-	// the two stamps to be present and ordered but never compares them against
-	// now, so under that posture an inbound frame had no expiry at all. Combined
-	// with a Retryable handler failure and the durable's unlimited delivery
-	// budget, that turned a bounded refusal into a permanent ~1/s redelivery
-	// loop: measured at 23KB/min per node against an ASSIGN_NOTIFY whose
-	// assignment Keeper does not have. Under strict the same frame died at
-	// TTL+skew.
-	//
-	// The refusal is permanent on purpose. An envelope past its own expiry can
-	// never become valid, so redelivering it is pure cost; acking it is what
-	// ends the loop.
-	if err := r.checkEnvelopeFreshness(envelope, time.Now().UTC()); err != nil {
-		return envelope, kind, nil, builderclient.Permanent(err)
-	}
-	if !r.cfg.TrustedNATSDev && !r.cfg.FakeBus {
-		if r.cfg.NexusEnvelopeAuthenticator == nil {
-			return envelope, kind, nil, builderclient.ErrBusEnvelopeAuthenticationUnavailable
-		}
-		if err := r.cfg.NexusEnvelopeAuthenticator.Authenticate(ctx, subject, envelope); err != nil {
-			return envelope, kind, nil, fmt.Errorf("authenticate Nexus BusEnvelope: %w", err)
-		}
-	}
-	if err := envelope.DecodePayload(payload); err != nil {
-		return envelope, kind, nil, err
-	}
-	return envelope, kind, payload, nil
-}
-
-func (r *TaskRunner) admitOrder(ctx context.Context, subject string, envelope builderclient.BusEnvelope, order *busv1.OrderBroadcastV1) (err error) {
-	taskHash, orderFacts, signedOrderBytes, err := validateNexusOrderBroadcast(order, envelope, !r.cfg.FakeBus)
-	if err != nil {
-		return err
-	}
-	orderTaskID := identity.TaskIDString(orderFacts.SessionID, orderFacts.OrderSequence)
-	// From here on, every exit updates the Worker order re-drive. This is the
-	// first point at which the two things that bound a pending entry are known:
-	// the order's identity and its own order_expire_height. The bookkeeping is a
-	// defer rather than a call at each return because a retryable refusal can
-	// leave this function from a dozen places and the one that matters most --
-	// "no free slot" out of the eligibility precheck -- is in the middle.
-	//
-	// redriveTip is whatever chain view this attempt actually used; it stays
-	// unreadable when the attempt short-circuits on a stored admission before
-	// reading one, which costs nothing but the height-moved gate for that entry.
-	redriveTip := chainTip{}
-	defer func() {
-		r.updateWorkerOrderRedrive(subject, envelope, order, orderTaskID, orderFacts.OrderExpireHeight, redriveTip, err)
-	}()
-	r.cfg.Trace.Event("order_broadcast",
-		tasktrace.Str("task", orderTaskID), tasktrace.Str("session", orderFacts.SessionID),
-		tasktrace.Uint("order_sequence", orderFacts.OrderSequence), tasktrace.Hash("task_hash", taskHash),
-		tasktrace.Str("model", orderFacts.ModelID), tasktrace.Uint("profile_version", uint64(orderFacts.ProfileVersion)),
-		tasktrace.Str("input_hash", orderFacts.InputHash), tasktrace.Uint("input_size_bytes", orderFacts.InputSizeBytes),
-		tasktrace.Uint("order_expire_height", orderFacts.OrderExpireHeight),
-		tasktrace.Str("broadcasting_builder", envelope.SenderOperatorAddress))
-	if subject != builderclient.NATSTaskOpenSubject(orderFacts.ModelID) {
-		return fmt.Errorf("OrderBroadcast subject does not match the signed order's model")
-	}
-	if r.cfg.TaskFacts != nil {
-		facts, factsErr := r.cfg.TaskFacts.TaskFacts(ctx, orderTaskID)
-		switch {
-		case factsErr == nil:
-			if err := facts.Validate(orderTaskID); err != nil {
-				return fmt.Errorf("validate accepted task hash: %w", err)
-			}
-			if codec.Hash(facts.AcceptedTaskHash) != taskHash {
-				return fmt.Errorf("OrderBroadcast conflicts with Keeper accepted_task_hash")
-			}
-		case errors.Is(factsErr, chainclient.ErrNotFound):
-			// Pre-acceptance order: legal RBF remains open.
-		default:
-			return builderclient.Retryable(fmt.Errorf("query accepted task hash: %w", factsErr))
-		}
-	}
-	r.admitMu.Lock()
-	defer r.admitMu.Unlock()
-	if existing, err := layout.GetCandidateAdmission(ctx, r.cfg.Store, layout.StoredHash(taskHash)); err == nil {
-		if codec.Hash(existing.HandraiseDigest[:]) != codec.HashBytes(existing.HandraisePayload) {
-			return fmt.Errorf("candidate handraise digest is corrupt")
-		}
-		switch {
-		case existing.SchemaVersion > layout.CandidateAdmissionSchemaVersion:
-			return fmt.Errorf("candidate admission schema_version %d is newer than supported %d", existing.SchemaVersion, layout.CandidateAdmissionSchemaVersion)
-		case existing.SchemaVersion == layout.CandidateAdmissionSchemaVersion:
-			if orderFacts.InputSizeBytes > 0 {
-				existing.InputSizeBytes = orderFacts.InputSizeBytes
-			}
-			if err := layout.AdmissionBatch(ctx, r.cfg.Store, orderFacts.SessionID, orderFacts.OrderSequence, layout.StoredHash(taskHash), existing); err != nil {
-				return err
-			}
-			r.recordSessionAdmission(orderFacts.SessionID, orderFacts.OrderSequence, taskHash)
-			return r.publishCandidate(ctx, orderTaskID, existing.HandraisePayload, existing.DedupID)
-		}
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
-	}
-	capability, capabilityErr := r.capabilityFor(orderFacts.ModelID, orderFacts.ProfileVersion)
-	candidate := WorkerHandraiseCandidate{TaskID: orderTaskID, SessionID: orderFacts.SessionID, OrderSequence: orderFacts.OrderSequence, ModelID: orderFacts.ModelID, ProfileVersion: orderFacts.ProfileVersion, Capability: capability, DeadlineHeight: orderFacts.OrderExpireHeight}
-	reads := r.readAdmission(ctx, candidate, capabilityErr == nil)
-	tip := reads.chainTip()
-	redriveTip = tip
-	if tip.readable && orderFacts.OrderExpireHeight <= tip.height {
-		return fmt.Errorf("OrderBroadcast order_expire_height %d is not above current chain height %d", orderFacts.OrderExpireHeight, tip.height)
-	}
-	if !tip.readable && r.cfg.HandraiseEligibility == nil {
-		return builderclient.Retryable(fmt.Errorf("OrderBroadcast deadline cannot be judged without a chain view"))
-	}
-	if capabilityErr != nil {
-		return capabilityErr
-	}
-	precheck, expiry, err := reads.eligibility(ctx, r, candidate)
-	if err != nil {
-		return err
-	}
-	if expiry == 0 || expiry > orderFacts.OrderExpireHeight {
-		return fmt.Errorf("WorkerHandraise expiry_height is outside the order deadline")
-	}
-	// TRUEOPEN_BUS_ENVELOPE_V1 field 7 comes from this node's own current ServiceKey
-	// binding (interface-and-topic-list.md §5.2 field 7) - one committed read, the same
-	// read the frozen Task wires use, so the handraise cannot be published against
-	// a binding this node has not confirmed it still holds.
-	//
-	// The committed height that read returns is deliberately discarded: field 14
-	// is "the sender's chain view" (§5.2 field 14) and for a handraise that view is the
-	// precheck height the decision was taken at, which is also what the Worker's
-	// own SignedEnvelope stamps as its source snapshot. Two different heights on
-	// one message would be two different claims about the same thing.
-	member := builderclient.CandidateMemberRefMessage{}
-	if r.cfg.CandidateMemberReader != nil {
-		candidateMember, err := reads.candidateMember(ctx, r)
-		if err != nil {
-			return builderclient.Retryable(fmt.Errorf("query current CandidatePool member: %w", err))
-		}
-		member = builderclient.CandidateMemberRefMessage{
-			CandidatePoolSnapshotID: candidateMember.CandidatePoolSnapshotID.Hex(),
-			Slot:                    candidateMember.Slot, SlotVersion: candidateMember.SlotVersion, OperatorAddress: candidateMember.OperatorAddress,
-		}
-	} else if r.cfg.FakeBus {
-		member = builderclient.CandidateMemberRefMessage{
-			CandidatePoolSnapshotID: hex.EncodeToString(taskHash[:]), Slot: 1, SlotVersion: 1,
-			OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-		}
-	} else {
-		return builderclient.Retryable(fmt.Errorf("CandidatePool member reader is required"))
-	}
-	authorizationNonce, err := reads.envelopeNonce(ctx, r)
-	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the WorkerHandraise envelope: %w", err))
-	}
-	reads.trace(r, orderTaskID)
-	signerAddress, _ := resolveSigningIdentity(r.cfg, r.cfg.LocalWorkerAddress)
-	result, err := worker.New(worker.Config{WorkerAddress: r.cfg.LocalWorkerAddress, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, FakeOutput: r.cfg.FakeOutput, TrustedNATSDev: r.cfg.TrustedNATSDev || r.cfg.FakeBus, EnvelopeTTL: r.cfg.EnvelopeTTL, NexusEnvelopeSigner: r.cfg.NexusEnvelopeSigner, Trace: r.cfg.Trace}).EvaluateAndHandraise(ctx, worker.WorkerHandraiseRequest{
-		TaskID: orderTaskID, SessionID: orderFacts.SessionID, OrderSequence: orderFacts.OrderSequence,
-		TaskHash: taskHash, ModelID: orderFacts.ModelID, ProfileVersion: orderFacts.ProfileVersion, Member: member,
-		CurrentHeight: precheck.CurrentHeight, HandraiseExpireHeight: expiry,
-		ServiceAuthorizationNonce: authorizationNonce,
-		Precheck:                  precheck,
-	})
-	if err != nil {
-		return err
-	}
-	traceWorkerHandraise := r.cfg.Trace.Event
-	if !result.Decision.Accepted {
-		traceWorkerHandraise = r.cfg.Trace.ErrorEvent
-	}
-	traceWorkerHandraise("worker_handraise",
-		tasktrace.Str("task", orderTaskID), tasktrace.Hash("task_hash", taskHash),
-		tasktrace.Bool("signed", result.Signed), tasktrace.Bool("accepted", result.Decision.Accepted),
-		tasktrace.Str("reject_code", result.Decision.RejectCode),
-		tasktrace.Hash("handraise_digest", codec.HashBytes(result.Payload)),
-		tasktrace.Str("dedup_id", result.DedupID),
-		tasktrace.Uint("current_height", precheck.CurrentHeight), tasktrace.Uint("expiry_height", expiry),
-		tasktrace.Str("candidate_pool_snapshot_id", member.CandidatePoolSnapshotID), tasktrace.Uint("slot", uint64(member.Slot)))
-	if !result.Signed {
-		if r.cfg.Diagnostic != nil {
-			reason := result.Decision.RejectCode
-			if strings.TrimSpace(reason) == "" {
-				reason = "unsigned"
-			}
-			r.cfg.Diagnostic(TaskRunnerDiagnostic{
-				Source: "nexus_order_broadcast",
-				Record: orderTaskID,
-				Error:  "WorkerHandraise not admitted: " + reason,
-			})
-		}
-		return nil
-	}
-
-	admission := layout.CandidateAdmission{
-		SchemaVersion:    layout.CandidateAdmissionSchemaVersion,
-		SignedOrder:      append([]byte(nil), signedOrderBytes...),
-		HandraisePayload: append([]byte(nil), result.Payload...),
-		HandraiseDigest:  layout.StoredHashFromCodec(codec.HashBytes(result.Payload)),
-		PublishTS:        envelope.IssuedAtUnixMs,
-		DedupID:          result.DedupID,
-		InputSizeBytes:   orderFacts.InputSizeBytes,
-		// The sender comes from a verified envelope field: the signature covers
-		// sender_operator_address, so an impostor cannot pass verification and this value
-		// is as trustworthy as the on-chain identity.
-		BroadcastingBuilder: envelope.SenderOperatorAddress,
-	}
-	if err := layout.AdmissionBatch(ctx, r.cfg.Store, orderFacts.SessionID, orderFacts.OrderSequence, layout.StoredHash(taskHash), admission); err != nil {
-		return err
-	}
-	if codec.Hash(admission.HandraiseDigest[:]) != codec.HashBytes(admission.HandraisePayload) {
-		return fmt.Errorf("candidate handraise digest is corrupt")
-	}
-	r.recordSessionAdmission(orderFacts.SessionID, orderFacts.OrderSequence, taskHash)
-	return r.publishCandidate(ctx, orderTaskID, admission.HandraisePayload, admission.DedupID)
-}
-
-// busTaskIDHex projects a payload task_id (raw Hash32) into the canonical
-// lowercase hex the task plane keys records by, and binds it to the delivered
-// subject's placeholder so a frame cannot smuggle one task under another's
-// subject.
-func busTaskIDHex(taskID []byte, subject string) (string, error) {
+// taskIDHex projects a payload task_id (raw Hash32) into the canonical
+// lowercase hex the task plane keys records by.
+func taskIDHex(taskID []byte) (string, error) {
 	if len(taskID) != 32 {
 		return "", fmt.Errorf("task_id must be 32 bytes, got %d", len(taskID))
 	}
-	value := hex.EncodeToString(taskID)
-	trimmed := strings.TrimSpace(subject)
-	if index := strings.LastIndex(trimmed, "."); index >= 0 {
-		if placeholder := trimmed[index+1:]; placeholder != value {
-			return "", fmt.Errorf("payload task_id %s does not match subject %s", value, trimmed)
-		}
-	}
-	return value, nil
-}
-
-func (r *TaskRunner) recordSessionAdmission(sessionID string, sequence uint64, taskHash codec.Hash) {
-	current, ok := r.sessions[sessionID]
-	if !ok || sequence >= current.sequence {
-		if !ok {
-			if len(r.sessions) >= r.cfg.MaxSessionAdmissions {
-				oldest := r.sessionOrder[0]
-				r.sessionOrder = r.sessionOrder[1:]
-				delete(r.sessions, oldest)
-			}
-			r.sessionOrder = append(r.sessionOrder, sessionID)
-		}
-		r.sessions[sessionID] = sessionAdmission{sequence: sequence, taskHash: taskHash}
-	}
-}
-
-// checkEnvelopeFreshness bounds an inbound envelope against the wall clock, with
-// the same two rules the strict authenticator applies: a lifetime longer than the
-// deployment's accepted TTL is refused outright, and an expiry already past is
-// refused with the configured clock skew as tolerance.
-//
-// A zero TTL means the deployment stated none, so only the expiry rule applies.
-// The skew is a tolerance for comparing a remote stamp against the local clock,
-// never a licence to extend the sender's own lifetime, which is why the TTL
-// comparison does not add it.
-func (r *TaskRunner) checkEnvelopeFreshness(envelope builderclient.BusEnvelope, now time.Time) error {
-	issuedAt := time.UnixMilli(envelope.IssuedAtUnixMs).UTC()
-	expiresAt := time.UnixMilli(envelope.ExpiresAtUnixMs).UTC()
-	if ttl := r.cfg.EnvelopeTTL; ttl > 0 {
-		if lifetime := expiresAt.Sub(issuedAt); lifetime > ttl {
-			return fmt.Errorf("Nexus envelope lifetime %s exceeds the accepted TTL %s", lifetime, ttl)
-		}
-	}
-	if now.After(expiresAt.Add(r.cfg.EnvelopeClockSkew)) {
-		return fmt.Errorf("Nexus envelope expired at %s", expiresAt.Format(time.RFC3339))
-	}
-	return nil
+	return hex.EncodeToString(taskID), nil
 }

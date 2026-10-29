@@ -25,8 +25,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MsgRegisterVrfKey registers or rotates a validator's independent ECVRF key.
-// The Keeper derives pending_from_epoch as current_epoch + 1.
+// MsgRegisterVrfKey registers an independent Validator or Builder ECVRF key.
+// Validator and first registration activate next epoch. Existing Builder key
+// rotation waits using protocol dispatch hard limits, then switches at an epoch
+// boundary. Its existing VRF audit history stays separate from service keys.
 // MsgRegisterVrfKey defines the MsgRegisterVrfKey wire type.
 type MsgRegisterVrfKey struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
@@ -34,6 +36,7 @@ type MsgRegisterVrfKey struct {
 	VrfKeyPop             []byte                 `protobuf:"bytes,2,opt,name=vrf_key_pop,json=vrfKeyPop,proto3" json:"vrf_key_pop,omitempty"`
 	VrfAuthorizationNonce uint64                 `protobuf:"varint,3,opt,name=vrf_authorization_nonce,json=vrfAuthorizationNonce,proto3" json:"vrf_authorization_nonce,omitempty"`
 	OperatorAddress       string                 `protobuf:"bytes,4,opt,name=operator_address,json=operatorAddress,proto3" json:"operator_address,omitempty"`
+	ParticipantType       v1.ParticipantType     `protobuf:"varint,5,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -96,6 +99,13 @@ func (x *MsgRegisterVrfKey) GetOperatorAddress() string {
 	return ""
 }
 
+func (x *MsgRegisterVrfKey) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
 // MsgRegisterVrfKeyResponse reports the pending activation and accepted nonce.
 type MsgRegisterVrfKeyResponse struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
@@ -103,6 +113,7 @@ type MsgRegisterVrfKeyResponse struct {
 	PendingFromEpoch      uint64                 `protobuf:"varint,2,opt,name=pending_from_epoch,json=pendingFromEpoch,proto3" json:"pending_from_epoch,omitempty"`
 	VrfAuthorizationNonce uint64                 `protobuf:"varint,3,opt,name=vrf_authorization_nonce,json=vrfAuthorizationNonce,proto3" json:"vrf_authorization_nonce,omitempty"`
 	Status                v1.MutationStatusV1    `protobuf:"varint,4,opt,name=status,proto3,enum=shared.v1.MutationStatusV1" json:"status,omitempty"`
+	ParticipantType       v1.ParticipantType     `protobuf:"varint,5,opt,name=participant_type,json=participantType,proto3,enum=shared.v1.ParticipantType" json:"participant_type,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -165,22 +176,31 @@ func (x *MsgRegisterVrfKeyResponse) GetStatus() v1.MutationStatusV1 {
 	return v1.MutationStatusV1(0)
 }
 
+func (x *MsgRegisterVrfKeyResponse) GetParticipantType() v1.ParticipantType {
+	if x != nil {
+		return x.ParticipantType
+	}
+	return v1.ParticipantType(0)
+}
+
 var File_hub_v1_msg_vrf_proto protoreflect.FileDescriptor
 
 const file_hub_v1_msg_vrf_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/msg_vrf.proto\x12\x06hub.v1\x1a\x11amino/amino.proto\x1a\x17cosmos/msg/v1/msg.proto\x1a\x19cosmos_proto/cosmos.proto\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/rest_encoding.proto\"\x97\x02\n" +
+	"\x14hub/v1/msg_vrf.proto\x12\x06hub.v1\x1a\x11amino/amino.proto\x1a\x17cosmos/msg/v1/msg.proto\x1a\x19cosmos_proto/cosmos.proto\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/rest_encoding.proto\"\xde\x02\n" +
 	"\x11MsgRegisterVrfKey\x12#\n" +
 	"\n" +
 	"vrf_pubkey\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x01R\tvrfPubkey\x12$\n" +
 	"\vvrf_key_pop\x18\x02 \x01(\fB\x04\xc8\xf3\x18\x01R\tvrfKeyPop\x126\n" +
 	"\x17vrf_authorization_nonce\x18\x03 \x01(\x04R\x15vrfAuthorizationNonce\x12C\n" +
-	"\x10operator_address\x18\x04 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\x0foperatorAddress::\x82\xe7\xb0*\x10operator_address\x8a\xe7\xb0* trueopen/x/hub/MsgRegisterVrfKey\"\xfb\x01\n" +
+	"\x10operator_address\x18\x04 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\x0foperatorAddress\x12E\n" +
+	"\x10participant_type\x18\x05 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantType::\x82\xe7\xb0*\x10operator_address\x8a\xe7\xb0* trueopen/x/hub/MsgRegisterVrfKey\"\xc2\x02\n" +
 	"\x19MsgRegisterVrfKeyResponse\x12C\n" +
 	"\x10operator_address\x18\x01 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\x0foperatorAddress\x12,\n" +
 	"\x12pending_from_epoch\x18\x02 \x01(\x04R\x10pendingFromEpoch\x126\n" +
 	"\x17vrf_authorization_nonce\x18\x03 \x01(\x04R\x15vrfAuthorizationNonce\x123\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06statusB&Z$github.com/TrueOpen/node/x/hub/typesb\x06proto3"
+	"\x06status\x18\x04 \x01(\x0e2\x1b.shared.v1.MutationStatusV1R\x06status\x12E\n" +
+	"\x10participant_type\x18\x05 \x01(\x0e2\x1a.shared.v1.ParticipantTypeR\x0fparticipantTypeB&Z$github.com/TrueOpen/node/x/hub/typesb\x06proto3"
 
 var (
 	file_hub_v1_msg_vrf_proto_rawDescOnce sync.Once
@@ -198,15 +218,18 @@ var file_hub_v1_msg_vrf_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_hub_v1_msg_vrf_proto_goTypes = []any{
 	(*MsgRegisterVrfKey)(nil),         // 0: hub.v1.MsgRegisterVrfKey
 	(*MsgRegisterVrfKeyResponse)(nil), // 1: hub.v1.MsgRegisterVrfKeyResponse
-	(v1.MutationStatusV1)(0),          // 2: shared.v1.MutationStatusV1
+	(v1.ParticipantType)(0),           // 2: shared.v1.ParticipantType
+	(v1.MutationStatusV1)(0),          // 3: shared.v1.MutationStatusV1
 }
 var file_hub_v1_msg_vrf_proto_depIdxs = []int32{
-	2, // 0: hub.v1.MsgRegisterVrfKeyResponse.status:type_name -> shared.v1.MutationStatusV1
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: hub.v1.MsgRegisterVrfKey.participant_type:type_name -> shared.v1.ParticipantType
+	3, // 1: hub.v1.MsgRegisterVrfKeyResponse.status:type_name -> shared.v1.MutationStatusV1
+	2, // 2: hub.v1.MsgRegisterVrfKeyResponse.participant_type:type_name -> shared.v1.ParticipantType
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_msg_vrf_proto_init() }

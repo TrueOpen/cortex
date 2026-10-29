@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/keepercontract"
 	"github.com/TrueOpen/cortex/internal/signer"
@@ -77,37 +76,6 @@ func TestRegistrationSubmitterBroadcastsAtomicCurrentMessage(t *testing.T) {
 	}
 	if len(tx.requests) != 1 || tx.requests[0].Kind != txclient.MsgRegisterModelProfile || tx.requests[0].TaskID != "model-profile-registration:"+message.Profile.ModelID.Hex()+"/1" {
 		t.Fatalf("registration request = %#v", tx.requests)
-	}
-}
-
-func TestBuilderRegistrationPublisherReconstructsStableFrame(t *testing.T) {
-	builder := builderclient.NewFakeClient()
-	publisher := NewBuilderRegistrationPublisher(builder)
-	msg := OutboxMessage{Material: validAdapterRegistrationMaterial(), Authorization: BuilderAuthorization{Granter: "trueopen1operator", CoversGas: true}}
-
-	first, err := publisher.WriteRegistration(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("WriteRegistration error = %v", err)
-	}
-	second, err := publisher.WriteRegistration(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("second WriteRegistration error = %v", err)
-	}
-	if first == "" || second != first || len(builder.Published) != 2 {
-		t.Fatalf("digests = %q, %q; publishes = %d", first, second, len(builder.Published))
-	}
-	if builder.Published[0].Subject != builderclient.NATSModelRegistrationSubject(first) || builder.Published[0].TaskID != "model-registration-"+first ||
-		string(builder.Published[0].Payload) != string(builder.Published[1].Payload) {
-		t.Fatalf("published frames differ: %#v", builder.Published)
-	}
-}
-
-func TestBuilderRegistrationPublisherMakesOperatorRetryExplicit(t *testing.T) {
-	want := errors.New("nexus unavailable")
-	publisher := NewBuilderRegistrationPublisher(failingRegistrationBuilder{err: want})
-	_, err := publisher.WriteRegistration(context.Background(), OutboxMessage{Material: validAdapterRegistrationMaterial()})
-	if !errors.Is(err, ErrRegistrationPublishRequiresOperatorRetry) || !errors.Is(err, want) {
-		t.Fatalf("WriteRegistration error = %v, want typed operator-retry error wrapping %v", err, want)
 	}
 }
 
@@ -297,12 +265,6 @@ type recordingTxClient struct {
 	obs           txclient.Observation
 	obsConfigured bool
 	err           error
-}
-
-type failingRegistrationBuilder struct{ err error }
-
-func (f failingRegistrationBuilder) Publish(context.Context, builderclient.PublishRequest) error {
-	return f.err
 }
 
 func (r *recordingTxClient) Submit(_ context.Context, req txclient.Request) (txclient.Observation, error) {

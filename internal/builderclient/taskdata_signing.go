@@ -295,6 +295,13 @@ func InferReceiptSigningDigest(receipt SignedInferReceipt) (codec.Hash, error) {
 	return nodewire.InferReceiptSigningDigest(wire)
 }
 
+// PendingDispatchTicketHash stands in for the dispatch_ticket_hash that the
+// receipt, the output stream header and every chunk and Fin signature bind.
+// S5: replace with the ticket hash of the dispatch the Worker accepted.
+func PendingDispatchTicketHash() []byte {
+	return make([]byte, 32)
+}
+
 func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV3, error) {
 	if err := validateInferReceiptFacts(receipt); err != nil {
 		return nodewire.InferReceiptV3{}, err
@@ -331,6 +338,7 @@ func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV3, erro
 		WorkerTokenKeyCommitment:    zero,
 		WorkerValueKeyCommitment:    zero,
 		CiphertextOutputRoot:        zero,
+		DispatchTicketHash:          PendingDispatchTicketHash(), // S5: the accepted ticket
 	}, nil
 }
 

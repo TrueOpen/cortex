@@ -16,7 +16,7 @@ func TestKeeperEventsPageRejectsLagBeyondLimit(t *testing.T) {
 }
 
 func TestKeeperEventDigestIsStableAndHeightSensitive(t *testing.T) {
-	event := KeeperEvent{Type: KeeperEventAssignmentFinalized, TaskID: "task-1", Height: 91, Worker: "worker-local"}
+	event := KeeperEvent{Type: KeeperEventDispatchRecorded, TaskID: "task-1", Height: 91, Worker: "worker-local"}
 	first := event.Digest()
 	second := event.Digest()
 	if first == "" || first != second {

@@ -30,25 +30,7 @@ func prereleaseGolden(t *testing.T, path, name string) goldenVector {
 	return goldenVector{}
 }
 
-func TestHandraisesV030ReproducePublishedVectors(t *testing.T) {
-	worker := prereleaseGolden(t, "task/task_domains_v1.json", "worker_handraise_v1")
-	workerHandraise := nodewire.WorkerHandraiseV1{
-		SchemaVersion:             uint32(fieldUint(t, worker, 0, "schema_version")),
-		ChainID:                   fieldString(t, worker, 1, "chain_id"),
-		TaskID:                    fieldBytes(t, worker, 2, "task_id"),
-		TaskHash:                  fieldBytes(t, worker, 3, "task_hash"),
-		ModelID:                   fieldBytes(t, worker, 4, "model_id"),
-		ProfileVersion:            uint32(fieldUint(t, worker, 5, "profile_version")),
-		Member:                    memberRef(t, worker, 6),
-		Duty:                      nodewire.Duty(fieldUint(t, worker, 7, "duty")),
-		ServiceAuthorizationNonce: fieldUint(t, worker, 8, "service_authorization_nonce"),
-		ExpiryHeight:              fieldUint(t, worker, 9, "expiry_height"),
-		RecipientPubkey:           fieldBytes(t, worker, 10, "recipient_pubkey"),
-	}
-	assertPreimageAndDigest(t, worker, func() ([]byte, error) {
-		return nodewire.WorkerHandraiseSigningPreimage(workerHandraise)
-	})
-
+func TestVerifierHandraiseReproducesPublishedVector(t *testing.T) {
 	verifier := prereleaseGolden(t, "task/task_domains_v1.json", "verifier_handraise_v1")
 	verifierHandraise := nodewire.VerifierHandraiseV1{
 		SchemaVersion:             uint32(fieldUint(t, verifier, 0, "schema_version")),
@@ -69,10 +51,10 @@ func TestHandraisesV030ReproducePublishedVectors(t *testing.T) {
 		return nodewire.VerifierHandraiseSigningPreimage(verifierHandraise)
 	})
 
-	withKey := workerHandraise
+	withKey := verifierHandraise
 	withKey.RecipientPubkey = []byte{2}
-	if _, err := nodewire.WorkerHandraiseSigningDigest(withKey); err == nil {
-		t.Fatal("a plaintext worker handraise accepted a recipient_pubkey")
+	if _, err := nodewire.VerifierHandraiseSigningDigest(withKey); err == nil {
+		t.Fatal("a plaintext verifier handraise accepted a recipient_pubkey")
 	}
 	textModel := verifierHandraise
 	textModel.ModelID = []byte(hex.EncodeToString(textModel.ModelID))
@@ -86,7 +68,7 @@ func TestOutputStreamHeaderReproducesPublishedVector(t *testing.T) {
 	header := nodewire.OutputStreamHeaderV2{
 		ChainID:             fieldString(t, v, 0, "chain_id"),
 		TaskHash:            fieldBytes(t, v, 1, "task_hash"),
-		Attempt:             uint32(fieldUint(t, v, 2, "attempt")),
+		DispatchTicketHash:  fieldBytes(t, v, 2, "dispatch_ticket_hash"),
 		StreamInstance:      uint32(fieldUint(t, v, 3, "stream_instance")),
 		UserRecipientPubkey: fieldBytes(t, v, 4, "user_recipient_pubkey"),
 		OutputKeyCommitment: fieldBytes(t, v, 5, "output_key_commitment"),
@@ -101,7 +83,7 @@ func TestOutputStreamHeaderReproducesPublishedVector(t *testing.T) {
 	nonZero[31] = 1
 	// The fixture's rejected_cases.
 	for name, mutate := range map[string]func(*nodewire.OutputStreamHeaderV2){
-		"attempt != 0":                   func(h *nodewire.OutputStreamHeaderV2) { h.Attempt = 1 },
+		"missing dispatch_ticket_hash":   func(h *nodewire.OutputStreamHeaderV2) { h.DispatchTicketHash = nil },
 		"stream_instance != 1":           func(h *nodewire.OutputStreamHeaderV2) { h.StreamInstance = 2 },
 		"nonempty user_recipient_pubkey": func(h *nodewire.OutputStreamHeaderV2) { h.UserRecipientPubkey = []byte{2} },
 		"nonzero output_key_commitment":  func(h *nodewire.OutputStreamHeaderV2) { h.OutputKeyCommitment = nonZero },
@@ -223,8 +205,8 @@ func (r *orderReader) sub(name string) *orderReader {
 
 func parseTaskOrderV3(t *testing.T, vector orderVector) nodewire.TaskOrderV3 {
 	t.Helper()
-	if len(vector.Fields) != 28 {
-		t.Fatalf("%s has %d fields, want 28", vector.Name, len(vector.Fields))
+	if len(vector.Fields) != 27 {
+		t.Fatalf("%s has %d fields, want 27", vector.Name, len(vector.Fields))
 	}
 	r := &orderReader{t: t, fields: vector.Fields}
 	var o nodewire.TaskOrderV3
@@ -275,7 +257,6 @@ func parseTaskOrderV3(t *testing.T, vector orderVector) nodewire.TaskOrderV3 {
 	o.LatencyClass = uint32(r.sub("deadline_policy").u64("latency_class"))
 	o.TimeoutBucketVersion = r.u64("timeout_bucket_version")
 	o.SessionAnchorHeight = r.u64("session_anchor_height")
-	o.SessionAnchorBlockHash = r.bytes("session_anchor_block_hash")
 	o.BuilderSetID = r.take("builder_set_id").UTF8
 	o.BuilderSetHash = r.bytes("builder_set_hash")
 	o.PayloadMode = uint32(r.u64("payload_mode"))
@@ -297,7 +278,7 @@ func TestTaskOrderV3ReproducesPublishedVectors(t *testing.T) {
 	}
 	checked := 0
 	for _, vector := range file.Vectors {
-		if len(vector.Fields) != 28 {
+		if len(vector.Fields) != 27 {
 			continue // the ORDER_OPENING_V2 vectors are not a Cortex derivation
 		}
 		order := parseTaskOrderV3(t, vector)

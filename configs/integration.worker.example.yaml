@@ -24,23 +24,7 @@ task_execution:
   fixture_root: /tmp/cortex-integration-fixtures
 nexus:
   ingress_url: http://127.0.0.1:8080
-  nats_url: nats://127.0.0.1:4222
-  # Seed file of this node's NATS user key (ed25519 nkey, generated on first
-  # start). Real mode requires it for a remote NATS; nats_creds_file is
-  # retired and refused in real mode (ADR-0016 P5).
-  nats_user_key_file: /tmp/cortex-integration/worker-nats-user.nk
   auth_token_file: /tmp/cortex-integration/nexus.token
-  # JetStream stream Nexus publishes task frames to; devnet ships TRUEOPEN_TASK.
-  jetstream_stream: TRUEOPEN_TASK
-  # Integration shape stays strict like production. trusted_nats_dev is unsafe
-  # and rejected in real mode.
-  envelope_auth_mode: strict
-  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
-  # inbound one; must match the Nexus this node talks to.
-  envelope_ttl_ms: 30000
-  # Tolerated clock skew when judging inbound issued_at/expires_at.
-  envelope_clock_skew_ms: 2000
-  subscribe_models: [c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1]
 tx:
   enabled: true
   max_fee_amount: 1000000

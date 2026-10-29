@@ -994,14 +994,11 @@ func truncateError(message string) string {
 
 func diagnosticsTable(report diagnostics.Diagnostics) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("mode\tmodel_transport\tkeeper_endpoint\tnexus_ingress\tnexus_nats\tnexus_envelope_auth_mode\tnexus_nats_identity\tsecurity_warnings\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\n",
+	b.WriteString(fmt.Sprintf("mode\tmodel_transport\tkeeper_endpoint\tnexus_ingress\tsecurity_warnings\n%s\t%s\t%s\t%s\t%s\n\n",
 		report.Mode,
 		report.ModelTransport,
 		report.KeeperEndpoint,
 		report.NexusIngress,
-		report.NexusNATS,
-		report.NexusEnvelopeAuthMode,
-		formatNATSIdentityStatus(report.NexusNATSIdentity),
 		strings.Join(report.SecurityWarnings, ","),
 	))
 	b.WriteString("name\tendpoint\tconfigured\tready\terror\n")
@@ -1009,21 +1006,6 @@ func diagnosticsTable(report diagnostics.Diagnostics) string {
 		b.WriteString(fmt.Sprintf("%s\t%s\t%t\t%t\t%s\n", status.Name, status.Endpoint, status.Configured, status.Ready, status.Error))
 	}
 	return b.String()
-}
-
-// formatNATSIdentityStatus renders the on-chain NATS identity binding for the
-// table format: "(none)" when the node still connects with creds or a token,
-// otherwise the generated public key, the on-chain nonce it was bound to, and
-// the AUTH account whose sentinel JWT the CONNECT presents.
-func formatNATSIdentityStatus(status *diagnostics.NATSIdentityStatus) string {
-	if status == nil {
-		return "(none)"
-	}
-	sentinel := status.SentinelAccount
-	if sentinel == "" {
-		sentinel = "(none)"
-	}
-	return fmt.Sprintf("%s nonce=%d sentinel_account=%s", status.UserPublicKey, status.BindingNonce, sentinel)
 }
 
 func modelStatusProjectionTable(status modelregistry.StatusProjection) string {

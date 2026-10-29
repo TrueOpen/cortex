@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestLoadFileMinimalConfig(t *testing.T) {
@@ -371,10 +370,10 @@ model_management:
   transport: fake
 node:
   rpc_endpoint: http://127.0.0.1:26657
-nexus:
-  subscribe_models:
-    - 6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2
-    - embed-small
+local_identity:
+  supported_model_profiles:
+    - 6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1=llm_text_v1
+    - 0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a@1=llm_text_v1
 artifacts:
   root: /tmp/cortex/evidence
 store:
@@ -387,8 +386,8 @@ signer:
 	if err != nil {
 		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
 	}
-	if got := strings.Join(cfg.Nexus.SubscribeModels, ","); got != "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2,embed-small" {
-		t.Fatalf("subscribe models = %q", got)
+	if got := strings.Join(cfg.LocalIdentity.SupportedModelProfiles, ","); got != "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1=llm_text_v1,0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a@1=llm_text_v1" {
+		t.Fatalf("supported model profiles = %q", got)
 	}
 }
 
@@ -427,254 +426,6 @@ health: {}
 	}
 }
 
-func TestLoadFileNexusEnvelopeAuthModeEnvAndFlagPrecedence(t *testing.T) {
-	path := writeConfig(t, `
-chain_id: trueopen-devnet-1
-admin:
-  uds_path: /tmp/cortexd.sock
-model_management:
-  transport: fake
-node:
-  rpc_endpoint: http://127.0.0.1:26657
-nexus:
-  auth_token_file: /run/secrets/nexus.token
-  envelope_auth_mode: strict
-artifacts:
-  root: /tmp/cortex/evidence
-store:
-  path: /tmp/cortex/cortex.kv
-signer:
-  uri: file:///tmp/cortex/signer.key
-`)
-	t.Setenv("CORTEX_NEXUS_ENVELOPE_AUTH_MODE", NexusEnvelopeAuthTrustedDev)
-
-	fromEnv, err := LoadFileWithOverrides(path, nil)
-	if err != nil {
-		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
-	}
-	if !fromEnv.Nexus.TrustedNATSDev() {
-		t.Fatalf("environment EnvelopeAuthMode = %q, want trusted_nats_dev", fromEnv.Nexus.EnvelopeAuthMode)
-	}
-
-	fromFlag, err := LoadFileWithOverrides(path, map[string]string{"nexus_envelope_auth_mode": NexusEnvelopeAuthStrict})
-	if err != nil {
-		t.Fatalf("LoadFileWithOverrides() error = %v", err)
-	}
-	if fromFlag.Nexus.EnvelopeAuthMode != NexusEnvelopeAuthStrict || fromFlag.Nexus.TrustedNATSDev() {
-		t.Fatalf("flag EnvelopeAuthMode = %q, want strict", fromFlag.Nexus.EnvelopeAuthMode)
-	}
-}
-
-// Absent envelope bounds resolve to the deployment constants both sides of the
-// bus agree on, so a hand-written config does not have to restate them.
-func TestValidateDefaultsNexusEnvelopeBounds(t *testing.T) {
-	cfg := validConfig()
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
-	}
-	if got := cfg.Nexus.EnvelopeTTL(); got != 30*time.Second {
-		t.Fatalf("EnvelopeTTL() = %v, want 30s", got)
-	}
-	if got := cfg.Nexus.EnvelopeClockSkew(); got != 2*time.Second {
-		t.Fatalf("EnvelopeClockSkew() = %v, want 2s", got)
-	}
-}
-
-// An operator who writes zero is asking for no clock tolerance at all. Reading
-// that back as "unset" would widen a freshness window against an explicit
-// instruction.
-func TestValidateKeepsExplicitZeroNexusEnvelopeClockSkew(t *testing.T) {
-	cfg := validConfig()
-	cfg.Nexus.EnvelopeClockSkewMS = envelopeBoundMS(0)
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
-	}
-	if got := cfg.Nexus.EnvelopeClockSkew(); got != 0 {
-		t.Fatalf("EnvelopeClockSkew() = %v, want no tolerance", got)
-	}
-}
-
-// A short TTL on its own is legal: the unwritten skew derives from the TTL
-// instead of failing the config against a key absent from the operator's YAML.
-func TestValidateDerivesNexusEnvelopeClockSkewFromShortTTL(t *testing.T) {
-	cfg := validConfig()
-	cfg.Nexus.EnvelopeClockSkewMS = nil
-	cfg.Nexus.EnvelopeTTLMS = envelopeBoundMS(1000)
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
-	}
-	ttl, skew := cfg.Nexus.EnvelopeTTL(), cfg.Nexus.EnvelopeClockSkew()
-	if ttl != time.Second {
-		t.Fatalf("EnvelopeTTL() = %v, want 1s", ttl)
-	}
-	if skew <= 0 || skew >= ttl {
-		t.Fatalf("EnvelopeClockSkew() = %v, want inside (0, %v)", skew, ttl)
-	}
-}
-
-// Where the operator did write both, a skew reaching the TTL would accept an
-// envelope already expired by its own stamps, so it stays a hard error. An
-// explicit skew is judged against the effective TTL, defaulted or not.
-func TestValidateRejectsNexusEnvelopeClockSkewAtOrAboveTTL(t *testing.T) {
-	tests := map[string]struct {
-		ttlMS  *uint64
-		skewMS uint64
-	}{
-		"skew equals ttl":            {ttlMS: envelopeBoundMS(5000), skewMS: 5000},
-		"skew above ttl":             {ttlMS: envelopeBoundMS(5000), skewMS: 5001},
-		"skew reaches defaulted ttl": {ttlMS: nil, skewMS: defaultEnvelopeTTLMS},
-	}
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			cfg := validConfig()
-			cfg.Nexus.EnvelopeTTLMS = test.ttlMS
-			cfg.Nexus.EnvelopeClockSkewMS = envelopeBoundMS(test.skewMS)
-
-			err := cfg.Validate()
-			if err == nil || !strings.Contains(err.Error(), "nexus.envelope_clock_skew_ms must be less than nexus.envelope_ttl_ms") {
-				t.Fatalf("Validate() error = %v, want skew below TTL error", err)
-			}
-		})
-	}
-}
-
-// A zero TTL expires every envelope at the instant it is stamped, so nothing
-// on the bus would ever be fresh.
-func TestValidateRejectsZeroNexusEnvelopeTTL(t *testing.T) {
-	cfg := validConfig()
-	cfg.Nexus.EnvelopeTTLMS = envelopeBoundMS(0)
-
-	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "nexus.envelope_ttl_ms must be greater than zero") {
-		t.Fatalf("Validate() error = %v, want zero TTL error", err)
-	}
-}
-
-// Milliseconds beyond the ceiling are not a freshness window, and a large
-// enough count wraps when converted to a time.Duration: it comes back out
-// tiny, inverting the skew-below-TTL ordering validation exists to enforce.
-func TestValidateRejectsNexusEnvelopeBoundsAboveCeiling(t *testing.T) {
-	wrappingMS := uint64(1152921504606846977)
-	if wrapped := time.Duration(wrappingMS) * time.Millisecond; wrapped >= time.Minute {
-		t.Fatalf("%d ms no longer overflows time.Duration (= %v); pick a value that does", wrappingMS, wrapped)
-	}
-
-	for _, boundMS := range []uint64{maxEnvelopeBoundMS + 1, wrappingMS} {
-		t.Run(fmt.Sprintf("ttl %d", boundMS), func(t *testing.T) {
-			cfg := validConfig()
-			cfg.Nexus.EnvelopeTTLMS = envelopeBoundMS(boundMS)
-
-			err := cfg.Validate()
-			if err == nil || !strings.Contains(err.Error(), "nexus.envelope_ttl_ms must not exceed") {
-				t.Fatalf("Validate() error = %v, want TTL ceiling error", err)
-			}
-		})
-		t.Run(fmt.Sprintf("clock skew %d", boundMS), func(t *testing.T) {
-			cfg := validConfig()
-			cfg.Nexus.EnvelopeClockSkewMS = envelopeBoundMS(boundMS)
-
-			err := cfg.Validate()
-			if err == nil || !strings.Contains(err.Error(), "nexus.envelope_clock_skew_ms must not exceed") {
-				t.Fatalf("Validate() error = %v, want clock skew ceiling error", err)
-			}
-		})
-	}
-}
-
-// A bound that cannot be parsed must stop startup naming the variable that
-// carried it, not fall back to a default the operator did not ask for.
-func TestLoadFileRejectsMalformedNexusEnvelopeTTLEnv(t *testing.T) {
-	path := writeConfig(t, `
-chain_id: trueopen-devnet-1
-admin:
-  uds_path: /tmp/cortexd.sock
-model_management:
-  transport: fake
-node:
-  rpc_endpoint: http://127.0.0.1:26657
-artifacts:
-  root: /tmp/cortex/evidence
-store:
-  path: /tmp/cortex/cortex.kv
-signer:
-  uri: file:///tmp/cortex/signer.key
-`)
-	t.Setenv("CORTEX_NEXUS_ENVELOPE_TTL_MS", "not-a-number")
-
-	_, err := LoadFileWithOverrides(path, nil)
-	if err == nil || !strings.Contains(err.Error(), "CORTEX_NEXUS_ENVELOPE_TTL_MS") || !strings.Contains(err.Error(), "unsigned integer") {
-		t.Fatalf("LoadFileWithOverrides(, nil) error = %v, want environment parse error", err)
-	}
-}
-
-func TestLoadFileNexusEnvelopeBoundsEnvAndFlagPrecedence(t *testing.T) {
-	path := writeConfig(t, `
-chain_id: trueopen-devnet-1
-admin:
-  uds_path: /tmp/cortexd.sock
-model_management:
-  transport: fake
-node:
-  rpc_endpoint: http://127.0.0.1:26657
-nexus:
-  envelope_ttl_ms: 30000
-  envelope_clock_skew_ms: 2000
-artifacts:
-  root: /tmp/cortex/evidence
-store:
-  path: /tmp/cortex/cortex.kv
-signer:
-  uri: file:///tmp/cortex/signer.key
-`)
-
-	t.Run("yaml", func(t *testing.T) {
-		cfg, err := LoadFileWithOverrides(path, nil)
-		if err != nil {
-			t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
-		}
-		assertEnvelopeBounds(t, cfg.Nexus, 30*time.Second, 2*time.Second)
-	})
-
-	t.Run("environment beats yaml", func(t *testing.T) {
-		t.Setenv("CORTEX_NEXUS_ENVELOPE_TTL_MS", "20000")
-		t.Setenv("CORTEX_NEXUS_ENVELOPE_CLOCK_SKEW_MS", "1000")
-
-		cfg, err := LoadFileWithOverrides(path, nil)
-		if err != nil {
-			t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
-		}
-		assertEnvelopeBounds(t, cfg.Nexus, 20*time.Second, time.Second)
-	})
-
-	t.Run("flag beats environment", func(t *testing.T) {
-		t.Setenv("CORTEX_NEXUS_ENVELOPE_TTL_MS", "20000")
-		t.Setenv("CORTEX_NEXUS_ENVELOPE_CLOCK_SKEW_MS", "1000")
-
-		cfg, err := LoadFileWithOverrides(path, map[string]string{
-			"nexus_envelope_ttl_ms":        "10000",
-			"nexus_envelope_clock_skew_ms": "0",
-		})
-		if err != nil {
-			t.Fatalf("LoadFileWithOverrides() error = %v", err)
-		}
-		assertEnvelopeBounds(t, cfg.Nexus, 10*time.Second, 0)
-	})
-}
-
-func assertEnvelopeBounds(t *testing.T, cfg NexusConfig, wantTTL, wantSkew time.Duration) {
-	t.Helper()
-
-	if got := cfg.EnvelopeTTL(); got != wantTTL {
-		t.Fatalf("EnvelopeTTL() = %v, want %v", got, wantTTL)
-	}
-	if got := cfg.EnvelopeClockSkew(); got != wantSkew {
-		t.Fatalf("EnvelopeClockSkew() = %v, want %v", got, wantSkew)
-	}
-}
-
 func envelopeBoundMS(value uint64) *uint64 {
 	return &value
 }
@@ -688,34 +439,6 @@ func TestLoadFileEmptyYAMLUsesDefaultsThenValidates(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "EOF") {
 		t.Fatalf("LoadFileWithOverrides(empty, nil) returned decoder EOF instead of validation: %v", err)
-	}
-}
-
-func TestLoadFileExplicitModelSubscriptionEnvWinsAlias(t *testing.T) {
-	path := writeConfig(t, `
-chain_id: trueopen-devnet-1
-admin:
-  uds_path: /tmp/cortexd.sock
-model_management:
-  transport: fake
-node:
-  rpc_endpoint: http://127.0.0.1:26657
-artifacts:
-  root: /tmp/cortex/evidence
-store:
-  path: /tmp/cortex/cortex.kv
-signer:
-  uri: file:///tmp/cortex/signer.key
-`)
-	t.Setenv("CORTEX_MODEL_ID", "alias-model")
-	t.Setenv("CORTEX_NEXUS_SUBSCRIBE_MODELS", "explicit-a,explicit-b")
-
-	cfg, err := LoadFileWithOverrides(path, nil)
-	if err != nil {
-		t.Fatalf("LoadFileWithOverrides(, nil) error = %v", err)
-	}
-	if got := strings.Join(cfg.Nexus.SubscribeModels, ","); got != "explicit-a,explicit-b" {
-		t.Fatalf("Nexus.SubscribeModels = %q, want explicit environment value", got)
 	}
 }
 
@@ -811,98 +534,6 @@ func TestValidateDefaultsEmptyModeToFake(t *testing.T) {
 	if cfg.Mode != ModeFake {
 		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeFake)
 	}
-}
-
-func TestValidateDefaultsNexusEnvelopeAuthToStrict(t *testing.T) {
-	cfg := validConfig()
-	cfg.Nexus.EnvelopeAuthMode = ""
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
-	}
-	if cfg.Nexus.EnvelopeAuthMode != NexusEnvelopeAuthStrict || cfg.Nexus.TrustedNATSDev() {
-		t.Fatalf("EnvelopeAuthMode = %q, want strict", cfg.Nexus.EnvelopeAuthMode)
-	}
-}
-
-func TestValidateNexusEnvelopeAuthMode(t *testing.T) {
-	t.Run("explicit trusted transport", func(t *testing.T) {
-		cfg := validConfig()
-		cfg.Nexus.EnvelopeAuthMode = NexusEnvelopeAuthTrustedDev
-		cfg.Nexus.AuthTokenFile = "/run/secrets/nexus.token"
-		if err := cfg.Validate(); err != nil {
-			t.Fatalf("Validate() error = %v", err)
-		}
-		if !cfg.Nexus.TrustedNATSDev() {
-			t.Fatal("TrustedNATSDev() = false")
-		}
-	})
-
-	// Cortex only implements nats.Token, so a broker configured for
-	// user/password carries them in the URL. That transport is authenticated
-	// even though no token file exists.
-	t.Run("trusted transport accepts nats url credentials", func(t *testing.T) {
-		cfg := validConfig()
-		cfg.Nexus.EnvelopeAuthMode = NexusEnvelopeAuthTrustedDev
-		cfg.Nexus.AuthTokenFile = ""
-		cfg.Nexus.NATSURL = "nats://bus-user:bus-password@nexus.devnet.trueopen.xyz:4222"
-		if err := cfg.Validate(); err != nil {
-			t.Fatalf("Validate() error = %v, want URL credentials to satisfy trusted transport", err)
-		}
-		if !cfg.Nexus.NATSURLCredentials() {
-			t.Fatal("NATSURLCredentials() = false")
-		}
-	})
-
-	t.Run("trusted transport requires some credential", func(t *testing.T) {
-		cfg := validConfig()
-		cfg.Nexus.EnvelopeAuthMode = NexusEnvelopeAuthTrustedDev
-		cfg.Nexus.AuthTokenFile = ""
-		err := cfg.Validate()
-		if err == nil || !strings.Contains(err.Error(), "authenticated NATS transport") {
-			t.Fatalf("Validate() error = %v, want transport credential error", err)
-		}
-		if cfg.Nexus.NATSURLCredentials() {
-			t.Fatal("NATSURLCredentials() = true for a URL without userinfo")
-		}
-	})
-
-	t.Run("invalid mode", func(t *testing.T) {
-		cfg := validConfig()
-		cfg.Nexus.EnvelopeAuthMode = "disabled"
-		err := cfg.Validate()
-		if err == nil || !strings.Contains(err.Error(), "strict or trusted_nats_dev") {
-			t.Fatalf("Validate() error = %v, want mode error", err)
-		}
-	})
-}
-
-// A real-mode node creates and binds its own JetStream durable consumer, which
-// is impossible without the stream name. There is no implicit fallback any
-// more, so the missing key has to stop the daemon at load rather than surface
-// as a subscribe failure on the first task subject.
-func TestValidateNexusJetStreamStream(t *testing.T) {
-	t.Run("real mode requires it", func(t *testing.T) {
-		for name, value := range map[string]string{"missing": "", "blank": "   "} {
-			t.Run(name, func(t *testing.T) {
-				cfg := validRealConfig()
-				cfg.Nexus.JetStreamStream = value
-				err := cfg.Validate()
-				if err == nil || !strings.Contains(err.Error(), "nexus.jetstream_stream is required") {
-					t.Fatalf("Validate() error = %v, want nexus.jetstream_stream to be required", err)
-				}
-			})
-		}
-	})
-
-	// Fake mode runs no NATS transport at all, so the key is not its business.
-	t.Run("fake mode does not need it", func(t *testing.T) {
-		cfg := validConfig()
-		cfg.Nexus.JetStreamStream = ""
-		if err := cfg.Validate(); err != nil {
-			t.Fatalf("Validate() error = %v, want a fake-bus config to be unaffected", err)
-		}
-	})
 }
 
 // TestValidateAcceptsARealModeNodeWithoutADirectTransactionPath replaces a test
@@ -1045,11 +676,7 @@ task_execution:
   input_resolver: nexus
 nexus:
   ingress_url: https://nexus.devnet.trueopen.xyz
-  nats_url: tls://nexus.devnet.trueopen.xyz:4222
-  nats_ca_file: /tmp/cortex/nats-ca.pem
-  nats_user_key_file: /tmp/cortex/nats-user.nk
   auth_token_file: /tmp/cortex/nexus.token
-  jetstream_stream: TRUEOPEN_TASK
 tx:
   enabled: true
   max_fee_amount: 1000
@@ -1096,9 +723,6 @@ signer:
 	if cfg.Node.RESTEndpoint != "http://127.0.0.1:1317" || cfg.Tx.GasLimit != 250000 {
 		t.Fatalf("Cosmos tx runtime config not parsed: node=%#v tx=%#v signer=%#v", cfg.Node, cfg.Tx, cfg.Signer)
 	}
-	if cfg.Nexus.NATSURL != "tls://nexus.devnet.trueopen.xyz:4222" {
-		t.Fatalf("Nexus.NATSURL = %q", cfg.Nexus.NATSURL)
-	}
 	if cfg.ModelManagement.Transport != "grpc" {
 		t.Fatalf("ModelManagement.Transport = %q", cfg.ModelManagement.Transport)
 	}
@@ -1128,7 +752,7 @@ func TestRealExampleConfigLoadsProductionBoundaries(t *testing.T) {
 	if cfg.ModelManagement.Transport != "grpc" || cfg.ModelManagement.Endpoint == "" {
 		t.Fatalf("model management config = %#v", cfg.ModelManagement)
 	}
-	if cfg.Node.RPCEndpoint == "" || cfg.Nexus.IngressURL == "" || cfg.Nexus.NATSURL == "" {
+	if cfg.Node.RPCEndpoint == "" || cfg.Nexus.IngressURL == "" {
 		t.Fatalf("keeper/nexus config missing: keeper=%#v nexus=%#v", cfg.Keeper, cfg.Nexus)
 	}
 	if cfg.Keeper.PollIntervalMS == 0 || cfg.Keeper.MaxLagBlocks == 0 {
@@ -1141,9 +765,6 @@ func TestRealExampleConfigLoadsProductionBoundaries(t *testing.T) {
 	// must come from Nexus. A fixture root would be a local-only shortcut.
 	if cfg.TaskExecution.InputResolver != InputResolverNexus || cfg.TaskExecution.FixtureRoot != "" {
 		t.Fatalf("task input resolver = %#v, want nexus without a fixture root", cfg.TaskExecution)
-	}
-	if len(cfg.Nexus.SubscribeModels) != 1 || cfg.Nexus.SubscribeModels[0] != "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2" {
-		t.Fatalf("nexus model subscriptions = %#v, want model IDs rather than NATS subjects", cfg.Nexus.SubscribeModels)
 	}
 	if !cfg.Tx.Enabled || cfg.Tx.MaxFeeAmount == 0 || cfg.Tx.FeeDenom == "" || cfg.Tx.MaxAttempts == 0 {
 		t.Fatalf("tx submit config incomplete: %#v", cfg.Tx)
@@ -1190,7 +811,7 @@ func TestValidateRealModeRequiresIntegrationEndpoints(t *testing.T) {
 	// nexus.ingress_url is not here: it is optional now that the dial address
 	// comes from the Builder's on-chain descriptor. TestRealModeAcceptsAnAbsent
 	// NexusIngressURL covers that from the other side.
-	for _, want := range []string{"nexus.nats_url", "local_identity.model_service_id", "local_identity.operator_address", "local_identity.service_key_ref", "local_identity.supported_model_profiles"} {
+	for _, want := range []string{"local_identity.model_service_id", "local_identity.operator_address", "local_identity.service_key_ref", "local_identity.supported_model_profiles"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %q, want field %q", err.Error(), want)
 		}
@@ -1673,10 +1294,6 @@ func validRealConfig() Config {
 	cfg.TaskExecution.InputResolver = InputResolverNexus
 	cfg.Keeper.APIURL = "https://keeper.devnet.trueopen.xyz"
 	cfg.Nexus.IngressURL = "https://nexus.devnet.trueopen.xyz"
-	cfg.Nexus.NATSURL = "tls://nexus.devnet.trueopen.xyz:4222"
-	cfg.Nexus.NATSUserKeyFile = "/etc/cortex/nats-user.nk"
-	cfg.Nexus.NATSCAFile = "/etc/cortex/nats-ca.pem"
-	cfg.Nexus.JetStreamStream = "TRUEOPEN_TASK"
 	cfg.LocalIdentity = LocalIdentityConfig{
 		OperatorAddress:        "trueopen1operator",
 		ServiceKeyRef:          "kms://cortex/service-key",
@@ -1901,17 +1518,10 @@ func TestArtifactsTakesPrecedenceOverDeprecatedEvidenceYAML(t *testing.T) {
 	}
 }
 
-// TestRealModeRefusesTrustedNATSDevAndAllowInsecureDescriptor verifies that the
-// two development-only Nexus flags are rejected when mode is real.
-func TestRealModeRefusesTrustedNATSDevAndAllowInsecureDescriptor(t *testing.T) {
+// TestRealModeRefusesAllowInsecureDescriptor verifies that the
+// development-only Nexus flag is rejected when mode is real.
+func TestRealModeRefusesAllowInsecureDescriptor(t *testing.T) {
 	cfg := validRealConfig()
-	cfg.Nexus.EnvelopeAuthMode = NexusEnvelopeAuthTrustedDev
-	cfg.Nexus.AuthTokenFile = "/run/secrets/nexus.token"
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "nexus.envelope_auth_mode must not be trusted_nats_dev in real mode") {
-		t.Fatalf("Validate() error = %v, want real mode refusal of trusted_nats_dev", err)
-	}
-
-	cfg = validRealConfig()
 	cfg.Nexus.IngressURL = "http://nexus.devnet.trueopen.xyz:8080"
 	cfg.Nexus.BuilderOperatorAddress = "trueopen1builderoperator"
 	cfg.Nexus.AllowInsecureDescriptor = true
@@ -1957,7 +1567,7 @@ func TestRequiredFieldsHaveConsumers(t *testing.T) {
 	}
 }
 
-// Integration mode is real mode everywhere except the envelope trust boundary.
+// Integration mode is real mode everywhere except the security posture.
 // The point of the third value is that opting into the dev-only Nexus flags is
 // a named deployment rather than an override smuggled past a real-mode config,
 // so the two axes are asserted separately here: same wiring, different posture.
@@ -1971,28 +1581,14 @@ func TestIntegrationModeWiresRealDependenciesAndPermitsTheDevNexusFlags(t *testi
 		t.Fatalf("Validate() error = %v, want a real-shaped integration config accepted", err)
 	}
 
-	// The relaxations real mode refuses outright are exactly what this mode is
-	// for, and it must accept them together rather than one at a time.
-	cfg.Nexus.EnvelopeAuthMode = NexusEnvelopeAuthTrustedDev
+	// The relaxation real mode refuses outright is exactly what this mode is
+	// for.
 	cfg.Nexus.AllowInsecureDescriptor = true
-
-	// Trusted transport is not a free pass: with envelope signatures off, the
-	// NATS transport IS the authentication boundary, so it must be
-	// authenticated. Integration mode keeps that requirement.
-	unauthenticated := cfg
-	unauthenticated.Nexus.AuthTokenFile = ""
-	unauthenticated.Nexus.NATSURL = "nats://nexus.example.org:4222"
-	if err := unauthenticated.Validate(); err == nil ||
-		!strings.Contains(err.Error(), "requires an authenticated NATS transport") {
-		t.Fatalf("Validate() error = %v, want trusted transport to require an authenticated broker", err)
-	}
-
-	cfg.Nexus.NATSURL = "nats://app:secret@nexus.example.org:4222"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want integration mode to admit the dev Nexus flags", err)
 	}
 
-	// Real mode still refuses both, so the ban was narrowed to the posture and
+	// Real mode still refuses it, so the ban was narrowed to the posture and
 	// not deleted.
 	cfg.Mode = ModeReal
 	err := cfg.Validate()
@@ -2000,7 +1596,6 @@ func TestIntegrationModeWiresRealDependenciesAndPermitsTheDevNexusFlags(t *testi
 		t.Fatal("Validate() = nil, want real mode to keep refusing the dev Nexus flags")
 	}
 	for _, want := range []string{
-		"nexus.envelope_auth_mode must not be trusted_nats_dev in real mode",
 		"nexus.allow_insecure_descriptor must be false in real mode",
 	} {
 		if !strings.Contains(err.Error(), want) {
@@ -2019,7 +1614,6 @@ func TestIntegrationModeEnforcesTheSameDependencyRulesAsRealMode(t *testing.T) {
 		mutate func(*Config)
 		want   string
 	}{
-		{name: "nats url required without the on-chain identity", mutate: func(c *Config) { c.Nexus.NATSURL, c.Nexus.NATSUserKeyFile = "", "" }, want: "nexus.nats_url"},
 		{name: "operator address required", mutate: func(c *Config) { c.LocalIdentity.OperatorAddress = "" }, want: "local_identity.operator_address"},
 		{name: "signer uri validated", mutate: func(c *Config) { c.Signer.URI = "ftp://signer" }, want: "signer.uri"},
 		{name: "retry delay required", mutate: func(c *Config) { c.TaskExecution.RetryDelayMS = 0 }, want: "task_execution.retry_delay_ms"},
@@ -2121,5 +1715,32 @@ nexus:
 		"nexus_downgrade_descriptor_tls": "maybe",
 	}); err == nil || !strings.Contains(err.Error(), "invalid nexus_downgrade_descriptor_tls") {
 		t.Fatalf("LoadFileWithOverrides() error = %v, want a refusal naming the key", err)
+	}
+}
+
+func TestRetiredNATSFieldsAreRejected(t *testing.T) {
+	for _, field := range []string{"nats_url", "nats_user_key_file", "jetstream_stream", "envelope_auth_mode"} {
+		path := writeConfig(t, `
+chain_id: trueopen-devnet-1
+admin:
+  uds_path: /tmp/cortexd.sock
+model_management:
+  endpoint: 127.0.0.1:9090
+node:
+  rpc_endpoint: http://127.0.0.1:26657
+  rest_endpoint: http://127.0.0.1:1317
+artifacts:
+  root: /tmp/cortex/evidence
+store:
+  path: /tmp/cortex/cortex.kv
+signer:
+  uri: file:///tmp/cortex/signer.key
+nexus:
+  `+field+`: x
+`)
+		_, err := LoadFileWithOverrides(path, nil)
+		if err == nil || !strings.Contains(err.Error(), field) {
+			t.Fatalf("nexus.%s is retired with the bus and must be rejected, got %v", field, err)
+		}
 	}
 }

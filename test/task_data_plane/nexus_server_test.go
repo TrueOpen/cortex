@@ -623,7 +623,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			return err
 		}
 		if chunk := frame.GetChunk(); chunk != nil {
-			digest, err := nodewire.OutputChunkSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), chunk.Seq, chunk.MmrRoot)
+			digest, err := nodewire.OutputChunkSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), builderclient.PendingDispatchTicketHash(), chunk.Seq, chunk.MmrRoot)
 			if err != nil {
 				return connect.NewError(connect.CodeInvalidArgument, err)
 			}
@@ -662,7 +662,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			return connect.NewError(connect.CodeUnavailable, errors.New("injected upload failure"))
 		}
 		finishReason := nodewire.FinishReasonV1(fin.FinishReason)
-		finDigest, err := nodewire.OutputFinSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), fin.FinalSeq, fin.OutputMmrRoot, finishReason)
+		finDigest, err := nodewire.OutputFinSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), builderclient.PendingDispatchTicketHash(), fin.FinalSeq, fin.OutputMmrRoot, finishReason)
 		if err == nil {
 			err = n.verifyServiceSignature(n.workerOperator, n.servicePubkey, finDigest, fin.WorkerSignature)
 		}

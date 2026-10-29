@@ -7,31 +7,16 @@ import (
 // Key prefix constants for the new task storage layout.
 // See docs/specs/task-storage-layout.md
 const (
-	candidateCurrentPrefix = "candidate-current/"
-	candidatePrefix        = "candidate/"
-	verifyCandidatePrefix  = "verify-candidate/"
-	taskPrefix             = "task/"
-	inferPrefix            = "infer/"
-	verifyPrefix           = "verify/"
-	taskIDInferPrefix      = "task-id/infer/"
-	taskIDVerifyPrefix     = "task-id/verify/"
-	deliveryPrefix         = "delivery/"
-	evidencePrefix         = "evidence/"
-	challengePrefix        = "challenge/"
+	verifyCandidatePrefix = "verify-candidate/"
+	taskPrefix            = "task/"
+	inferPrefix           = "infer/"
+	verifyPrefix          = "verify/"
+	taskIDInferPrefix     = "task-id/infer/"
+	taskIDVerifyPrefix    = "task-id/verify/"
+	deliveryPrefix        = "delivery/"
+	evidencePrefix        = "evidence/"
+	challengePrefix       = "challenge/"
 )
-
-// CandidateCurrentKey returns the candidate-current locator key:
-// candidate-current/<sessionID>/<orderSequence:8 BE>
-func CandidateCurrentKey(sessionID string, orderSequence uint64) []byte {
-	seq := make([]byte, 8)
-	binary.BigEndian.PutUint64(seq, orderSequence)
-	return join([]byte(candidateCurrentPrefix), []byte(sessionID), slash(), seq)
-}
-
-// CandidateKey returns the candidate admission key: candidate/<taskHash:32>
-func CandidateKey(taskHash StoredHash) []byte {
-	return join([]byte(candidatePrefix), taskHash[:])
-}
 
 // VerifyCandidateKey returns the verifier admission key:
 // verify-candidate/<taskHash:32>/<verifyRound:8 BE>

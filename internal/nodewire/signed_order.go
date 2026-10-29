@@ -197,8 +197,6 @@ func decodeTaskOrderV3(raw []byte) (taskOrderV3, error) {
 			return field.uint64((*uint64)(&order.TimeoutBucketVersion))
 		case 22:
 			return field.uint64((*uint64)(&order.SessionAnchorHeight))
-		case 23:
-			return field.assignBytes((*[]byte)(&order.SessionAnchorBlockHash))
 		case 24:
 			return field.assignString(&order.BuilderSetID)
 		case 25:

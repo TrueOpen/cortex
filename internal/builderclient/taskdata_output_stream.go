@@ -44,8 +44,8 @@ type OutputStreamRequest struct {
 }
 
 // OutputStreamHeaderDigest is the digest a Worker signs to open its output
-// stream: the plaintext OutputStreamHeaderV2 for this task, with attempt 0,
-// stream_instance 1, no recipient key and ZERO32 key slots.
+// stream: the plaintext OutputStreamHeaderV2 for this task, bound to the
+// dispatch ticket, with stream_instance 1, no recipient key and ZERO32 key slots.
 func OutputStreamHeaderDigest(chainID, taskHash string) (codec.Hash, error) {
 	raw, err := taskDataHash("task_hash", taskHash)
 	if err != nil {
@@ -53,7 +53,8 @@ func OutputStreamHeaderDigest(chainID, taskHash string) (codec.Hash, error) {
 	}
 	zero := make([]byte, 32)
 	return nodewire.OutputStreamHeaderSigningDigest(nodewire.OutputStreamHeaderV2{
-		ChainID: chainID, TaskHash: raw, Attempt: 0, StreamInstance: 1,
+		ChainID: chainID, TaskHash: raw, DispatchTicketHash: PendingDispatchTicketHash(), // S5: the accepted ticket
+		StreamInstance:      1,
 		OutputKeyCommitment: zero, KeyPackageHash: zero,
 	})
 }
@@ -238,7 +239,7 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 	zero := make([]byte, 32)
 	header := &nexusv1.OutputStreamHeaderV2{
 		TaskHash: ToIngressHash32(request.TaskHash), SessionId: ToIngressHash32(request.SessionID), TaskId: ToIngressHash32(request.TaskID), RequestAuth: taskDataRequestAuthToProto(request.Auth),
-		Attempt: 0, StreamInstance: 1, OutputKeyCommitment: zero, KeyPackageHash: zero,
+		StreamInstance: 1, OutputKeyCommitment: zero, KeyPackageHash: zero,
 		WorkerSignature: append([]byte(nil), request.HeaderSignature...),
 	}
 	if err := s.send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: header}}); err != nil {
@@ -412,7 +413,7 @@ func outputFinFrame(chainID, taskHash string, root codec.Hash, count uint64, fin
 	if err != nil {
 		return nil, err
 	}
-	if _, err := nodewire.OutputFinSigningDigest(chainID, parsedTaskHash[:], count-1, root[:], fin.FinishReason); err != nil {
+	if _, err := nodewire.OutputFinSigningDigest(chainID, parsedTaskHash[:], PendingDispatchTicketHash(), count-1, root[:], fin.FinishReason); err != nil {
 		return nil, err
 	}
 	if err := validateCompactSignature(fin.WorkerSignature); err != nil {

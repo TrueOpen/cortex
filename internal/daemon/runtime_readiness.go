@@ -7,13 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/diagnostics"
 	"github.com/TrueOpen/cortex/internal/modelservice"
-	"github.com/TrueOpen/cortex/internal/natsidentity"
 	"github.com/TrueOpen/cortex/internal/signer"
 )
 
@@ -119,8 +117,7 @@ func (r *Runtime) ensureWorkloadSignerProof(ctx context.Context, binding chaincl
 func (r *Runtime) CheckWorkloadReadiness(ctx context.Context) WorkloadReadiness {
 	identityStatus := unprobed("keeper_identity", r.cfg.LocalIdentity.OperatorAddress)
 	modelStatus := unprobed("model_support", strings.Join(r.cfg.LocalIdentity.SupportedModelProfiles, ","))
-	modelServiceStatus, nexusStatus, txStatus, descriptorStatus, natsIdentity := r.checkRuntimeDependencyReadiness(ctx)
-	envelopeAuthStatus := r.envelopeAuthStatus()
+	modelServiceStatus, txStatus, descriptorStatus := r.checkRuntimeDependencyReadiness(ctx)
 	keeperStatus := r.checkKeeperReadiness(ctx)
 	storeStatus := r.checkStoreReadiness(ctx)
 	// The chain is probed once here and reused: the chain dependency, workload
@@ -131,21 +128,18 @@ func (r *Runtime) CheckWorkloadReadiness(ctx context.Context) WorkloadReadiness 
 		Identity:          identityStatus,
 		ModelSupport:      modelStatus,
 		ModelService:      modelServiceStatus,
-		Nexus:             nexusStatus,
 		BuilderDescriptor: descriptorStatus,
 		TxBroadcaster:     txStatus,
 		Chain:             chainStatus,
 		Keeper:            keeperStatus,
 		Store:             storeStatus,
 		ChainSync:         r.chainSyncStatus(),
-		EnvelopeAuth:      envelopeAuthStatus,
-		NATSIdentity:      natsIdentity,
 		// chain, keeper and store are passed as live results. They are no longer
 		// startup constants, so reading them from the boot report would gate the
 		// workload on a value that is never refreshed.
 		DependenciesReady: workloadDependenciesReady(r.Dependencies.Diagnostics, r.cfg.RequiresWorkloadTx(),
-			modelServiceStatus, nexusStatus, txStatus, descriptorStatus, envelopeAuthStatus,
-			chainStatus, keeperStatus, storeStatus, natsIdentity),
+			modelServiceStatus, txStatus, descriptorStatus,
+			chainStatus, keeperStatus, storeStatus),
 	}
 	identityReader, identityOK := r.Dependencies.Keeper.(KeeperIdentityReader)
 	if !identityOK {
@@ -212,50 +206,35 @@ func markReady(status *diagnostics.DependencyStatus) {
 	status.Error = ""
 }
 
-func (r *Runtime) checkRuntimeDependencyReadiness(ctx context.Context) (diagnostics.DependencyStatus, diagnostics.DependencyStatus, diagnostics.DependencyStatus, diagnostics.DependencyStatus, diagnostics.DependencyStatus) {
+func (r *Runtime) checkRuntimeDependencyReadiness(ctx context.Context) (diagnostics.DependencyStatus, diagnostics.DependencyStatus, diagnostics.DependencyStatus) {
 	type result struct {
 		name   string
 		status diagnostics.DependencyStatus
 	}
-	results := make(chan result, 5)
+	results := make(chan result, 3)
 	go func() { results <- result{name: "model_service", status: r.checkModelServiceReadiness(ctx)} }()
-	go func() {
-		results <- result{name: "nexus", status: r.checkDependencyReadiness(ctx, "nexus", r.nexusProbe)}
-	}()
 	go func() {
 		results <- result{name: "tx_broadcaster", status: r.checkDependencyReadiness(ctx, "tx_broadcaster", r.txProbe)}
 	}()
 	go func() {
 		results <- result{name: "builder_descriptor", status: r.checkBuilderDescriptorReadiness(ctx)}
 	}()
-	// The identity probe is a chain read as well and runs alongside the others:
-	// chaining it behind them would add a round trip to every readiness poll
-	// (ADR-0016 decision three).
-	go func() {
-		results <- result{name: natsIdentityDependency, status: r.natsIdentityReadiness(ctx)}
-	}()
 
 	var modelService diagnostics.DependencyStatus
-	var nexus diagnostics.DependencyStatus
 	var txBroadcaster diagnostics.DependencyStatus
 	var builderDescriptor diagnostics.DependencyStatus
-	var natsIdentity diagnostics.DependencyStatus
-	for range 5 {
+	for range 3 {
 		probeResult := <-results
 		switch probeResult.name {
 		case "model_service":
 			modelService = probeResult.status
-		case "nexus":
-			nexus = probeResult.status
 		case "tx_broadcaster":
 			txBroadcaster = probeResult.status
 		case "builder_descriptor":
 			builderDescriptor = probeResult.status
-		case natsIdentityDependency:
-			natsIdentity = probeResult.status
 		}
 	}
-	return modelService, nexus, txBroadcaster, builderDescriptor, natsIdentity
+	return modelService, txBroadcaster, builderDescriptor
 }
 
 // checkBuilderDescriptorReadiness cross-checks the configured Nexus ingress
@@ -355,18 +334,6 @@ func (r *Runtime) DiagnosticsSnapshot() diagnostics.Diagnostics {
 	r.diagnosticsMu.RLock()
 	report := cloneDiagnostics(r.diagnostics)
 	r.diagnosticsMu.RUnlock()
-	// Ask the Binder for the binding state directly: it changes with every
-	// (re)connect, and a copy kept in the snapshot would go stale.
-	if r.natsIdentity != nil {
-		status := r.natsIdentity.Status()
-		report.NexusNATSIdentity = &diagnostics.NATSIdentityStatus{
-			UserPublicKey:   status.UserPublicKey,
-			SentinelAccount: status.SentinelAccount,
-			BindingNonce:    status.BindingNonce,
-			IssuedAtUnixMS:  status.IssuedAtUnixMS,
-			LastError:       status.LastError,
-		}
-	}
 	return report
 }
 
@@ -388,10 +355,7 @@ func (r *Runtime) publishReadiness(readiness WorkloadReadiness) {
 	setDiagnosticDependencyStatus(&report, readiness.Identity)
 	setDiagnosticDependencyStatus(&report, readiness.ModelSupport)
 	setDiagnosticDependencyStatus(&report, readiness.ModelService)
-	setDiagnosticDependencyStatus(&report, readiness.Nexus)
 	setDiagnosticDependencyStatus(&report, readiness.BuilderDescriptor)
-	setDiagnosticDependencyStatus(&report, readiness.EnvelopeAuth)
-	setDiagnosticDependencyStatus(&report, readiness.NATSIdentity)
 	setDiagnosticDependencyStatus(&report, readiness.TxBroadcaster)
 	setDiagnosticDependencyStatus(&report, readiness.Chain)
 	setDiagnosticDependencyStatus(&report, readiness.Keeper)
@@ -486,7 +450,7 @@ func (r *Runtime) scrubReadinessDetail(detail string) string {
 	if r == nil {
 		return detail
 	}
-	for _, configured := range []string{r.cfg.Nexus.NATSURL, r.cfg.Signer.URI, r.cfg.Keeper.APIURL} {
+	for _, configured := range []string{r.cfg.Signer.URI, r.cfg.Keeper.APIURL} {
 		configured = strings.TrimSpace(configured)
 		if configured == "" || !strings.Contains(detail, configured) {
 			continue
@@ -508,55 +472,6 @@ func firstReadinessProbe(preferred ReadinessProbe, fallback ReadinessProbe) Read
 		return preferred
 	}
 	return fallback
-}
-
-// natsIdentityReadinessProbe uses the Binder's Credential as the probe: whether a
-// presentable binding can be signed here and now is this dependency's definition of
-// readiness (ADR-0016 decision three). No Binder means no probe.
-func natsIdentityReadinessProbe(binder *natsidentity.Binder) ReadinessProbe {
-	if binder == nil {
-		return nil
-	}
-	return readinessProbeFunc(func(ctx context.Context) error {
-		_, err := binder.Credential(ctx)
-		return err
-	})
-}
-
-// natsIdentityReadiness reports whether the on-chain identity binding is still
-// usable. With no Binder wired it returns the config line's optional-not-configured
-// status - that is the creds/token path, not something missing.
-func (r *Runtime) natsIdentityReadiness(ctx context.Context) diagnostics.DependencyStatus {
-	if r == nil {
-		return diagnostics.DependencyStatus{}
-	}
-	if r.natsIdentityProbe == nil {
-		// Runtime assembly has already set this line to what it actually is (Binder or no
-		// Binder), so copy it as is.
-		if status, ok := r.Dependencies.Diagnostics.Dependency(natsIdentityDependency); ok {
-			return status
-		}
-		return natsIdentityStatus(r.cfg)
-	}
-	status := r.checkDependencyReadiness(ctx, natsIdentityDependency, r.natsIdentityProbe)
-	if strings.TrimSpace(status.Name) == "" {
-		status = natsIdentityStatus(r.cfg)
-	}
-	return status
-}
-
-func nexusReadinessProbe(publisher builderclient.Publisher, subscriber builderclient.Subscriber) ReadinessProbe {
-	publisherProbe := readinessProbeFrom(publisher)
-	subscriberProbe := readinessProbeFrom(subscriber)
-	if publisherProbe == nil || subscriberProbe == nil {
-		return nil
-	}
-	return readinessProbeFunc(func(ctx context.Context) error {
-		if err := publisherProbe.Probe(ctx); err != nil {
-			return err
-		}
-		return subscriberProbe.Probe(ctx)
-	})
 }
 
 func shouldProbeModelServiceHealth(cfg config.Config, opts RuntimeOptions, transport modelservice.Transport, transportErr error) bool {

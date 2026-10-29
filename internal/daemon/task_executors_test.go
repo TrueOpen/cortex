@@ -243,16 +243,12 @@ func TestEvidenceManifestDoesNotStorePayloads(t *testing.T) {
 	if err := p.CheckpointInferReceipt(ctx, receipt); err != nil {
 		t.Fatalf("CheckpointInferReceipt: %v", err)
 	}
-	message := worker.OutboxRecord{TaskID: "task-1", Subject: "subject", Payload: []byte("message-bytes"), Digest: codec.HashBytes([]byte("message-bytes"))}
-	if err := p.WriteBuilderOutbox(ctx, message); err != nil {
-		t.Fatalf("WriteBuilderOutbox: %v", err)
-	}
 	confirmation := worker.StorageConfirmationCheckpoint{TaskID: "task-1", DataKind: "output", BuilderOperator: "builder-1", MaterialDigest: "cafebabe", Signature: []byte("sig-bytes")}
 	if err := p.CheckpointStorageConfirmation(ctx, confirmation); err != nil {
 		t.Fatalf("CheckpointStorageConfirmation: %v", err)
 	}
 
-	// Operational artifacts (outbox, confirmation) are not tracked in the manifest.
+	// Operational artifacts (confirmation) are not tracked in the manifest.
 	var artifactBytes []byte
 	for _, a := range last.Artifacts {
 		artifactBytes = append(artifactBytes, []byte(a.Kind)...)

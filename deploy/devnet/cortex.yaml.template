@@ -30,34 +30,12 @@ task_execution:
   input_resolver: nexus
 nexus:
   ingress_url: @@NEXUS_INGRESS@@
-  nats_url: @@NEXUS_NATS@@
-  # In real mode a remote NATS must be tls:// and validated against the distributed
-  # certificate file (ADR-0016); loopback may leave this empty.
-  nats_ca_file: "@@NEXUS_NATS_CA_FILE@@"
-  # ADR-0016 decision three: a remote NATS is joined with the on-chain identity only and
-  # the creds file is retired; loopback may leave this empty.
-  nats_user_key_file: "@@NEXUS_NATS_USER_KEY_FILE@@"
   auth_token_file: /run/secrets/nexus.token
-  # JetStream stream Nexus publishes task frames to. Cortex creates and binds
-  # its own durable consumer on this stream, so a stop unbinds instead of
-  # deleting the consumer and the ack position survives a restart.
-  jetstream_stream: @@NEXUS_JETSTREAM_STREAM@@
   # Set to the Builder operator that owns NEXUS_INGRESS to enable descriptor
   # verification. Leave empty until the Builder publishes a service descriptor
   # that commits this endpoint.
   builder_operator_address: "@@NEXUS_BUILDER_OPERATOR@@"
-  # Devnet now uses strict envelope authentication. trusted_nats_dev is
-  # rejected in real mode because it skips envelope signatures.
   allow_insecure_descriptor: false
-  envelope_auth_mode: strict
-  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
-  # inbound one. Deployment config, not a chain parameter: keep it equal to the
-  # value the deployed Nexus uses (Nexus stamps 30000 today).
-  envelope_ttl_ms: 30000
-  # Tolerated clock skew when judging inbound issued_at/expires_at. Keep it
-  # small and run NTP on every host.
-  envelope_clock_skew_ms: 2000
-  subscribe_models: [@@MODEL_ID@@]
 tx:
   enabled: true
   max_fee_amount: 1000000

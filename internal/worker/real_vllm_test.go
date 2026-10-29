@@ -122,19 +122,6 @@ func TestWorkerHandlesRealVLLMInference(t *testing.T) {
 		cfg.ProfileEvidenceRequirements = requirements
 	})
 
-	// Outside the fixture path the worker signs the OUTPUT_AVAILABLE envelope, so
-	// it needs a canonical bus signer. Envelope authentication is covered
-	// elsewhere; here it just has to be real enough not to be the thing under
-	// test. Set after construction, which is how the existing tests in this file
-	// adjust it.
-	h.worker.cfg.NexusEnvelopeSigner = builderclient.BusEnvelopeSignerFunc(func(envelope builderclient.BusEnvelope) ([]byte, error) {
-		digest, err := builderclient.BusEnvelopeSignDigest(envelope)
-		if err != nil {
-			return nil, err
-		}
-		return randomizedCompactSignature(h.signer.private, digest)
-	})
-
 	event := finalizedTask()
 	event.ModelID = modelID
 	event.ProfileVersion = 1
@@ -223,9 +210,6 @@ func TestWorkerHandlesRealVLLMInference(t *testing.T) {
 		t.Fatalf("worker-trace is %dB, want at least %dB of real logprob trace rather than a fixture",
 			stored["worker-token-ids-material"], minRealTraceBytes)
 	}
-	if len(h.persistence.outbox) == 0 {
-		t.Fatal("no outbox record, want the OUTPUT_AVAILABLE publish queued")
-	}
 	if len(h.persistence.receipts) == 0 {
 		t.Fatal("no receipt checkpoint, want the signed receipt persisted")
 	}
@@ -239,7 +223,6 @@ func describeRealVLLMPersistence(p *recordingPersistence) string {
 	for _, record := range p.evidence {
 		parts = append(parts, record.Kind+"="+itoaBytes(len(record.Data)))
 	}
-	parts = append(parts, "outbox="+itoaBytes(len(p.outbox)))
 	parts = append(parts, "jobs="+itoaBytes(len(p.jobs)))
 	parts = append(parts, "receipts="+itoaBytes(len(p.receipts)))
 	return strings.Join(parts, " ")

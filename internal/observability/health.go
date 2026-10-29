@@ -26,10 +26,6 @@ const DependencyWorkload = "workload"
 // gates readiness here rather than stopping the poller.
 const DependencyChainSync = "chain_sync"
 
-// DependencyNATSIdentity reports whether this node can still sign the on-chain
-// binding it presents to NATS (ADR-0016 decision three).
-const DependencyNATSIdentity = "nexus_nats_identity"
-
 type Health struct {
 	mu           sync.RWMutex
 	dependencies map[string]bool
@@ -66,14 +62,7 @@ func NewIntegrationHealthWithRuntimeRequirements(requireTxBroadcaster, requireCh
 	if !requireWorkload {
 		optional[DependencyWorkload] = true
 	}
-	// The on-chain NATS identity is registered here only so its status has a
-	// known name; it is never required. Whether a node must hold a signable
-	// binding depends on its configuration -- a node on the creds/token path has
-	// no binding at all -- so that judgement lives in the workload readiness
-	// gate, which can see the configuration. This map cannot, and marking it
-	// required here would hold /readyz down forever on the creds path.
-	optional[DependencyNATSIdentity] = true
-	return newHealth([]string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", DependencyNATSIdentity, "builder_descriptor", "tx_broadcaster", DependencyChainSync, DependencyWorkload}, optional)
+	return newHealth([]string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "builder_descriptor", "tx_broadcaster", DependencyChainSync, DependencyWorkload}, optional)
 }
 
 func newHealth(names []string, optional map[string]bool) *Health {

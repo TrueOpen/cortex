@@ -2,12 +2,9 @@ package daemon
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/builderdirectory"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
@@ -26,126 +23,6 @@ func (m *membershipStub) HasBuilder(_ context.Context, operatorAddress string) (
 		return false, m.err
 	}
 	return m.members[operatorAddress], nil
-}
-
-func membershipAuthenticator(t *testing.T, keeper envelopeServiceKeyReader, members *membershipStub, configured string, now time.Time) builderclient.BusEnvelopeAuthenticator {
-	t.Helper()
-	authenticator, err := NewBusEnvelopeAuthenticator(BusEnvelopeAuthenticatorConfig{
-		ChainID:             "trueopen-devnet-1",
-		Keeper:              keeper,
-		Members:             members,
-		PeerOperatorAddress: configured,
-		TTL:                 30 * time.Second,
-		ClockSkew:           2 * time.Second,
-		Now:                 func() time.Time { return now },
-	})
-	if err != nil {
-		t.Fatalf("NewBusEnvelopeAuthenticator returned error: %v", err)
-	}
-	return authenticator
-}
-
-// The chain decides who may send, so a Builder in the current BuilderSet is
-// accepted without any local configuration naming it.
-func TestEnvelopeAuthenticatorAcceptsAnyCurrentBuilderWithoutConfiguration(t *testing.T) {
-	key := newEnvelopeTestKey(t)
-	now := time.Unix(1_700_000_000, 0).UTC()
-	keeper := &envelopeKeeperStub{binding: envelopeTestBinding(key)}
-	members := &membershipStub{members: map[string]bool{envelopeTestBuilder: true}}
-	authenticator := membershipAuthenticator(t, keeper, members, "", now)
-
-	message := envelopeTestMessage(t, key, now, nil)
-	if err := authenticator.Authenticate(context.Background(), message.Subject, message); err != nil {
-		t.Fatalf("Authenticate() error = %v, want a current BuilderSet member to be accepted", err)
-	}
-	if len(members.checks) != 1 || members.checks[0] != envelopeTestBuilder {
-		t.Fatalf("membership checks = %v", members.checks)
-	}
-}
-
-// A sender the chain does not currently recognise is refused even though the
-// frame is otherwise well formed and correctly signed.
-func TestEnvelopeAuthenticatorRefusesASenderOutsideTheCurrentBuilderSet(t *testing.T) {
-	key := newEnvelopeTestKey(t)
-	now := time.Unix(1_700_000_000, 0).UTC()
-	keeper := &envelopeKeeperStub{binding: envelopeTestBinding(key)}
-	members := &membershipStub{members: map[string]bool{"trueopen1otherbuilder": true}}
-	authenticator := membershipAuthenticator(t, keeper, members, "", now)
-
-	message := envelopeTestMessage(t, key, now, nil)
-	err := authenticator.Authenticate(context.Background(), message.Subject, message)
-	if err == nil || !strings.Contains(err.Error(), "current BuilderSet") {
-		t.Fatalf("Authenticate() error = %v, want a non-member sender to be refused", err)
-	}
-	// Refusing a sender the chain does not recognise is the sender's fault, not
-	// this node's, so it must not be resolved as a service-key read either.
-	if keeper.reads != 0 {
-		t.Fatalf("service key reads = %d, want the sender refused before any key read", keeper.reads)
-	}
-}
-
-// Configuration may narrow what this node accepts and may never widen it: a
-// configured operator that the chain has removed from the set stays refused.
-func TestEnvelopeAuthenticatorConfigurationCannotWidenTheChainSet(t *testing.T) {
-	key := newEnvelopeTestKey(t)
-	now := time.Unix(1_700_000_000, 0).UTC()
-	keeper := &envelopeKeeperStub{binding: envelopeTestBinding(key)}
-	members := &membershipStub{members: map[string]bool{}}
-	authenticator := membershipAuthenticator(t, keeper, members, envelopeTestBuilder, now)
-
-	message := envelopeTestMessage(t, key, now, nil)
-	err := authenticator.Authenticate(context.Background(), message.Subject, message)
-	if err == nil || !strings.Contains(err.Error(), "current BuilderSet") {
-		t.Fatalf("Authenticate() error = %v, want the configured operator to stay refused once removed", err)
-	}
-}
-
-// The narrowing direction still works: with a configured operator, a different
-// member of the same set is refused.
-func TestEnvelopeAuthenticatorConfigurationNarrowsToOneBuilder(t *testing.T) {
-	key := newEnvelopeTestKey(t)
-	now := time.Unix(1_700_000_000, 0).UTC()
-	keeper := &envelopeKeeperStub{binding: envelopeTestBinding(key)}
-	members := &membershipStub{members: map[string]bool{envelopeTestBuilder: true, "trueopen1otherbuilder": true}}
-	authenticator := membershipAuthenticator(t, keeper, members, "trueopen1otherbuilder", now)
-
-	message := envelopeTestMessage(t, key, now, nil)
-	err := authenticator.Authenticate(context.Background(), message.Subject, message)
-	if err == nil || !strings.Contains(err.Error(), "configured Builder operator") {
-		t.Fatalf("Authenticate() error = %v, want the configured filter to refuse another member", err)
-	}
-}
-
-// An unreadable chain view is this node's failure. Reporting it as "not a
-// member" would let a Keeper outage look like an unauthorized sender and would
-// discard a frame that is probably fine.
-func TestEnvelopeAuthenticatorReportsMembershipReadFailuresAsRetryable(t *testing.T) {
-	key := newEnvelopeTestKey(t)
-	now := time.Unix(1_700_000_000, 0).UTC()
-	keeper := &envelopeKeeperStub{binding: envelopeTestBinding(key)}
-	members := &membershipStub{err: fmt.Errorf("keeper is unavailable")}
-	authenticator := membershipAuthenticator(t, keeper, members, "", now)
-
-	message := envelopeTestMessage(t, key, now, nil)
-	err := authenticator.Authenticate(context.Background(), message.Subject, message)
-	if err == nil || !builderclient.IsRetryable(err) {
-		t.Fatalf("Authenticate() error = %v, want a retryable dependency failure", err)
-	}
-}
-
-// The authenticator cannot be built without the chain authority: a build that
-// fell back to the configured operator alone would make configuration the
-// authority again.
-func TestNewBusEnvelopeAuthenticatorRequiresChainMembership(t *testing.T) {
-	_, err := NewBusEnvelopeAuthenticator(BusEnvelopeAuthenticatorConfig{
-		ChainID:             "trueopen-devnet-1",
-		Keeper:              &envelopeKeeperStub{},
-		PeerOperatorAddress: envelopeTestBuilder,
-		TTL:                 30 * time.Second,
-	})
-	if err == nil || !strings.Contains(err.Error(), "membership") {
-		t.Fatalf("NewBusEnvelopeAuthenticator() error = %v, want the chain membership requirement", err)
-	}
 }
 
 // A BuilderSet update must take effect on the next frame, not at the end of a

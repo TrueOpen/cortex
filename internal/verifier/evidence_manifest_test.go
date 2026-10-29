@@ -32,8 +32,8 @@ func TestVerifierFinalizesExactCommittedEvidenceBeforePublishing(t *testing.T) {
 	called := false
 	h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(got TaskState, receipt nodewire.ResultReceiptV3, manifest, proof []byte) error {
 		called = true
-		if len(h.builder.Published) != 0 || got.TaskID != state.TaskID {
-			t.Fatal("result was published before evidence finalization")
+		if got.TaskID != state.TaskID {
+			t.Fatal("evidence finalized for another task")
 		}
 		bundleHash := evidencebundle.Hash(manifest)
 		if !bytes.Equal(manifest, before.EvidenceManifest) || !bytes.Equal(proof, before.MetricMaterial.AggregateProof.Bytes) ||
@@ -63,7 +63,7 @@ func TestVerifierEvidencePublisherFailurePreventsResultPublication(t *testing.T)
 				h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(TaskState, nodewire.ResultReceiptV3, []byte, []byte) error { return failure }}
 			}
 			result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
-			if err == nil || result.Published || len(h.builder.Published) != 0 {
+			if err == nil || result.Signed {
 				t.Fatalf("published without finalized evidence: result=%+v err=%v", result, err)
 			}
 			if !absent && !errors.Is(err, failure) {
@@ -108,7 +108,7 @@ func TestVerifierRestoreRejectsAlteredCommitMaterial(t *testing.T) {
 			}
 			h.verifier = New(h.verifier.cfg)
 			result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
-			if !errors.Is(err, ErrResultReceiptInputUnavailable) || result.Published || len(h.builder.Published) != 0 {
+			if !errors.Is(err, ErrResultReceiptInputUnavailable) || result.Signed {
 				t.Fatalf("altered %s accepted: result=%+v err=%v", field, result, err)
 			}
 		})

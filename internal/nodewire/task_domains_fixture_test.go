@@ -28,7 +28,6 @@ const (
 	vectorEvidencePair      = "infer_evidence_commitments_v1_pair"
 	vectorEvidenceReordered = "infer_evidence_commitments_v1_pair_reordered"
 	vectorVerifyCommit      = "verify_commit_v1"
-	vectorWorkerHandraise   = "worker_handraise_v1"
 	vectorVerifierHandraise = "verifier_handraise_v1"
 )
 
@@ -358,7 +357,7 @@ func TestFixtureProvenanceIsVerified(t *testing.T) {
 	}
 	for _, name := range []string{
 		vectorEvidenceEmpty, vectorEvidenceSingle, vectorEvidencePair, vectorEvidenceReordered,
-		vectorVerifyCommit, vectorWorkerHandraise, vectorVerifierHandraise,
+		vectorVerifyCommit, vectorVerifierHandraise,
 	} {
 		requireVector(t, goldenVectorsByName(t), name)
 	}
@@ -643,32 +642,6 @@ func TestProductionDigestsMatchGoldens(t *testing.T) {
 		})
 		if got := fieldUint(t, vector, 0, "schema_version"); got != uint64(nodewire.VerifyCommitSchemaVersionV1) {
 			t.Fatalf("schema_version %d, want %d", got, nodewire.VerifyCommitSchemaVersionV1)
-		}
-	})
-
-	t.Run("WorkerHandraise", func(t *testing.T) {
-		vector := requireVector(t, vectors, vectorWorkerHandraise)
-		handraise := nodewire.WorkerHandraiseV1{
-			SchemaVersion:             uint32(fieldUint(t, vector, 0, "schema_version")),
-			ChainID:                   fieldString(t, vector, 1, "chain_id"),
-			TaskID:                    fieldBytes(t, vector, 2, "task_id"),
-			TaskHash:                  fieldBytes(t, vector, 3, "task_hash"),
-			ModelID:                   fieldBytes(t, vector, 4, "model_id"),
-			ProfileVersion:            uint32(fieldUint(t, vector, 5, "profile_version")),
-			Member:                    memberRef(t, vector, 6),
-			Duty:                      nodewire.Duty(fieldUint(t, vector, 7, "duty")),
-			ServiceAuthorizationNonce: fieldUint(t, vector, 8, "service_authorization_nonce"),
-			ExpiryHeight:              fieldUint(t, vector, 9, "expiry_height"),
-			RecipientPubkey:           fieldBytes(t, vector, 10, "recipient_pubkey"),
-		}
-		assertPreimageAndDigest(t, vector, func() ([]byte, error) {
-			return nodewire.WorkerHandraiseSigningPreimage(handraise)
-		})
-		if got := fieldUint(t, vector, 7, "duty"); got != uint64(nodewire.DutyWorker) {
-			t.Fatalf("duty %d, want WORKER for this wire", got)
-		}
-		if got := fieldUint(t, vector, 0, "schema_version"); got != uint64(nodewire.WorkerHandraiseSchemaVersionV1) {
-			t.Fatalf("schema_version %d, want %d", got, nodewire.WorkerHandraiseSchemaVersionV1)
 		}
 	})
 

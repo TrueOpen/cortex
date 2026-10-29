@@ -3,7 +3,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/worker"
-	"google.golang.org/protobuf/proto"
 )
 
 type fakeProfileReceiptRelay struct {
@@ -64,26 +62,16 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	data := &fakeProfileReceiptRelay{FakeClient: builderclient.NewFakeClient(), err: stopAtRelay}
 	input := []byte("resolved input")
 	sessionID := strings.Repeat("ab", 32)
-	signedOrder, _ := testSignedOrderProto(t, outputTestChainID, modelservice.FakeModelID, sessionID, 1, 230)
-	inputHash := codec.HashBytes(input)
-	signedOrder.Order.InputHash = inputHash[:]
-	signedOrder.Order.InputSizeBytes = uint64(len(input))
-	signedOrder.Order.GenerationParams.MaxOutputTokens = 1024
-	rawOrder, err := proto.Marshal(signedOrder)
-	if err != nil {
-		t.Fatal(err)
+	// The order's generation parameters, as the dispatch record will carry
+	// them. The accepted task hash is an opaque chain fact here.
+	taskHash := codec.HashBytes([]byte("fake-profile-accepted-task"))
+	generation := nodewire.GenerationContext{
+		ModelID: modelservice.FakeModelID, ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 1,
+		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: 1024, MaxOutputDuration: 2000,
+			DecodingParams: nodewire.DecodingParamsV1{TopPPPM: 1_000_000, Seed: 1, RepetitionPenaltyPPM: 1_000_000}},
 	}
-	taskHash, orderFacts, err := nodewire.TaskOrderHashAndFactsEnvelope(hex.EncodeToString(rawOrder))
+	generationDigest, err := generation.Digest()
 	if err != nil {
-		t.Fatal(err)
-	}
-	generationDigest, err := orderFacts.Generation.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := layout.AdmissionBatch(ctx, db, sessionID, 1, layout.StoredHash(taskHash), layout.CandidateAdmission{
-		SchemaVersion: layout.CandidateAdmissionSchemaVersion, SignedOrder: rawOrder,
-	}); err != nil {
 		t.Fatal(err)
 	}
 	task := store.InferTask{
@@ -98,12 +86,15 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 		AcceptedOrderPayloadHash: chainclient.HexHash(task.InputDigest),
 	}}
 	executor := newProductionInferExecutor(TaskRunnerConfig{
-		Store: db, Evidence: evidenceStore, FakeOutput: true, FakeBus: true,
+		Store: db, Evidence: evidenceStore, FakeOutput: true,
+		GenerationReader: generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
+			return generation.Clone(), nil
+		}),
 		LocalWorkerAddress: inputTestOperator, ModelServiceID: "fake-model-service", Model: modelservice.NewFakeService(),
 		Builder: builderclient.NewFakeClient(), TaskData: data, TaskDataAuth: auth, OutputPackages: packages,
 		ChainID: outputTestChainID, Signer: signing, SignerKeyRef: inputTestKeyRef,
 		SignerAddress: binding.ServiceAddress, SignerPubkey: binding.ServicePubkey,
-		TaskReader: staticKeeperTaskReader{snapshot: snapshot},
+		TaskReader: streamLimitedTaskReader{staticKeeperTaskReader{snapshot: snapshot}},
 		TaskFacts: taskfacts.ReaderFunc(func(context.Context, string) (taskfacts.Facts, error) {
 			return taskfacts.Facts{TaskID: task.TaskID, TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
 				AcceptedTaskHash: chainclient.ProtoBytes32(taskHash[:]), GenerationParamsDigest: chainclient.ProtoBytes32(generationDigest[:]),
@@ -213,4 +204,20 @@ func receiptCommitmentsForTest(items []builderclient.EvidenceCommitment) []nodew
 		out[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: root[:], EncodedSizeBytes: item.EncodedSizeBytes}
 	}
 	return out
+}
+
+type generationReaderFunc func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error)
+
+func (f generationReaderFunc) TaskGeneration(ctx context.Context, taskID string, hash codec.Hash) (nodewire.GenerationContext, error) {
+	return f(ctx, taskID, hash)
+}
+
+// streamLimitedTaskReader also serves the governed output stream limits, which
+// the Worker reads before it opens its output stream.
+type streamLimitedTaskReader struct {
+	staticKeeperTaskReader
+}
+
+func (streamLimitedTaskReader) OutputStreamLimits(context.Context) (chainclient.OutputStreamLimitsSnapshot, error) {
+	return chainclient.OutputStreamLimitsSnapshot{MinOutputStreamFrameBytes: 256, MaxOutputMMRLeaves: 65536}, nil
 }

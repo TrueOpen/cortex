@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/TrueOpen/cortex/proto/bus/v1"
 	_ "github.com/TrueOpen/cortex/proto/hub/v1"
 	_ "github.com/TrueOpen/cortex/proto/nexus/v1"
 	_ "github.com/TrueOpen/cortex/proto/shared/v1"
@@ -25,11 +24,11 @@ import (
 )
 
 func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
-	data, err := os.ReadFile("../../proto/testdata/wire-v0.5.1.binpb")
+	data, err := os.ReadFile("../../proto/testdata/wire-916e393.binpb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "d0726ab567377a84842f5a273db2ce8b508c86c2a7895aeae49197fd389bd6b4" {
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "ad68a72183f458830515a8d2f161c2f4f7801eeb4ce68f32bfc4d1ddefbe2467" {
 		t.Fatalf("pinned wire descriptor changed: %s", got)
 	}
 	var set descriptorpb.FileDescriptorSet
@@ -39,7 +38,7 @@ func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
 	checked := 0
 	for _, expected := range set.File {
 		name := expected.GetName()
-		if !strings.HasPrefix(name, "hub/v1/") && !strings.HasPrefix(name, "task/v1/") && !strings.HasPrefix(name, "shared/v1/") && !strings.HasPrefix(name, "bus/v1/") && name != "nexus/v1/ingress.proto" {
+		if !strings.HasPrefix(name, "hub/v1/") && !strings.HasPrefix(name, "task/v1/") && !strings.HasPrefix(name, "shared/v1/") && !strings.HasPrefix(name, "nexus/v1/") {
 			continue
 		}
 		actual, err := protoregistry.GlobalFiles.FindFileByPath(name)
@@ -54,7 +53,7 @@ func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
 		got := protodesc.ToFileDescriptorProto(actual)
 		got.SourceCodeInfo = nil
 		if !proto.Equal(want, got) {
-			t.Fatalf("binding descriptor differs from pinned wire v0.5.1: %s\n%s", name, cmp.Diff(want, got, protocmp.Transform()))
+			t.Fatalf("binding descriptor differs from pinned wire 916e393: %s\n%s", name, cmp.Diff(want, got, protocmp.Transform()))
 		}
 		checked++
 	}

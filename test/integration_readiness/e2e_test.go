@@ -28,7 +28,6 @@ import (
 
 type memoryPersistence struct {
 	evidence      []worker.EvidenceRecord
-	outbox        []worker.OutboxRecord
 	jobs          []worker.ModelJobCheckpoint
 	receipts      map[string]worker.InferReceiptCheckpoint
 	artifacts     map[string][]byte
@@ -94,61 +93,6 @@ func (p *memoryPersistence) CheckpointInferOutput(ctx context.Context, taskID st
 		}
 	}
 	return nil
-}
-
-func (p *memoryPersistence) WriteBuilderOutbox(_ context.Context, record worker.OutboxRecord) error {
-	record.Payload = append([]byte(nil), record.Payload...)
-	if record.Status == "" {
-		record.Status = "pending"
-	}
-	for i := range p.outbox {
-		if p.outbox[i].Digest != record.Digest {
-			continue
-		}
-		if record.Status == "held" || (p.outbox[i].Status == "sent" && record.Status == "pending") {
-			return nil
-		}
-		p.outbox[i] = record
-		return nil
-	}
-	p.outbox = append(p.outbox, record)
-	return nil
-}
-
-func TestMemoryPersistencePreservesMonotonicOutboxState(t *testing.T) {
-	ctx := context.Background()
-	digest := codec.HashBytes([]byte("outbox"))
-	p := &memoryPersistence{}
-
-	write := func(status, payload string) {
-		t.Helper()
-		if err := p.WriteBuilderOutbox(ctx, worker.OutboxRecord{
-			TaskID: "task-1", Subject: "trueopen.output.available.task-1",
-			Digest: digest, Status: status, Payload: []byte(payload),
-		}); err != nil {
-			t.Fatalf("WriteBuilderOutbox(%s): %v", status, err)
-		}
-	}
-
-	write("held", "held")
-	write("held", "changed-held")
-	if got := string(p.outbox[0].Payload); got != "held" {
-		t.Fatalf("duplicate held payload = %q, want immutable original", got)
-	}
-	write("pending", "released")
-	write("held", "downgraded")
-	if got := p.outbox[0].Status; got != "pending" {
-		t.Fatalf("held downgrade status = %q, want pending", got)
-	}
-	write("sent", "sent")
-	write("held", "held-after-sent")
-	if got := p.outbox[0]; got.Status != "sent" || string(got.Payload) != "sent" {
-		t.Fatalf("held-after-sent outbox = status %q payload %q, want sent/sent", got.Status, got.Payload)
-	}
-	write("pending", "reopened")
-	if got := p.outbox[0].Status; got != "sent" {
-		t.Fatalf("sent reopen status = %q, want sent", got)
-	}
 }
 
 func (p *memoryPersistence) CheckpointInferInput(context.Context, worker.InferInputCheckpoint) error {
@@ -246,18 +190,6 @@ func (p *memoryPersistence) StorageConfirmations(_ context.Context, taskID strin
 	return out, nil
 }
 
-func (p *memoryPersistence) BuilderMessage(_ context.Context, digest string) (worker.BuilderMessageCheckpoint, error) {
-	for _, record := range p.outbox {
-		if hex.EncodeToString(record.Digest[:]) == digest {
-			return worker.BuilderMessageCheckpoint{
-				Digest: digest, Subject: record.Subject, TaskID: record.TaskID,
-				Payload: append([]byte(nil), record.Payload...), Status: record.Status,
-			}, nil
-		}
-	}
-	return worker.BuilderMessageCheckpoint{}, worker.ErrCheckpointNotFound
-}
-
 // readinessSnapshotReader returns a snapshot derived from a registered assignment.
 type readinessSnapshotReader struct {
 	mu         sync.Mutex
@@ -346,7 +278,6 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 		SignerKeyRef:                outputFixture.serviceKeyRef,
 		SignerPubkey:                outputFixture.servicePubkey,
 		Signer:                      outputFixture.signer,
-		NexusEnvelopeSigner:         testNexusEnvelopeSigner(),
 		EvidenceSchemaHash:          hex.EncodeToString(evidenceSchemaHash[:]),
 		ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(),
 		RequiredTopK:                4,
@@ -372,7 +303,7 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 	}
 	snapshotReader.set(event)
 	// With the locked Profile's evidence schema supplied, the Worker can sign a
-	// frozen task.v1.InferReceiptV2 and publish OUTPUT_AVAILABLE.
+	// frozen task.v1.InferReceiptV2 and relay it.
 	result, err := workerNode.HandleAssignmentFinalized(context.Background(), event)
 	if err != nil {
 		t.Fatalf("HandleAssignmentFinalized() error = %v", err)
@@ -380,17 +311,7 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 	if !result.Started {
 		t.Fatalf("Started = false, want a started responsibility")
 	}
-	outputAvailableCount := 0
-	for _, req := range builder.Published {
-		t.Logf("published subject=%s", req.Subject)
-		if req.Subject == builderclient.NATSOutputAvailableSubject(taskID) {
-			outputAvailableCount++
-		}
-	}
-	if outputAvailableCount != 1 {
-		t.Fatalf("OUTPUT_AVAILABLE publishes = %d, want 1", outputAvailableCount)
-	}
-	// Receipt was submitted and output was announced.
+	// Receipt was submitted.
 	if len(outputFixture.taskData.SubmittedInferReceipts) == 0 {
 		t.Fatalf("want a submitted infer receipt")
 	}
@@ -416,22 +337,6 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 			t.Fatalf("evidence kinds = %#v, want task-bound %s", evidenceKinds, kind)
 		}
 	}
-}
-
-func testNexusEnvelopeSigner() builderclient.BusEnvelopeSigner {
-	// Bound to the envelope, not a constant: a stub that returns fixed bytes
-	// regardless of what it was asked to sign cannot fail when the signing
-	// preimage changes, which is exactly how a wrong-preimage bug once reached
-	// main with every test green. These flows do not verify the signature, so the
-	// value need not be a real secp256k1 one - it only has to move when the
-	// digest moves.
-	return builderclient.BusEnvelopeSignerFunc(func(envelope builderclient.BusEnvelope) ([]byte, error) {
-		digest, err := builderclient.BusEnvelopeSignDigest(envelope)
-		if err != nil {
-			return nil, err
-		}
-		return append(append([]byte(nil), digest[:]...), digest[:]...), nil
-	})
 }
 
 type readinessWorkerOutputFixture struct {

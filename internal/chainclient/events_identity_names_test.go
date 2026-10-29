@@ -47,7 +47,26 @@ var chainTaskEventNames = []string{
 // does not define yet (node has not implemented the challenge and evidence-request
 // paths). They never appear in a block, so they are not silent breakage; once node
 // implements them they should move from here into chainTaskEventNames.
+//
+// The Phase 1 events wire 916e393 adds are reserved the same way: node has not
+// started Phase 1.
 var pendingOnChain = map[string]bool{
+	"task.v1.EventBuilderDispatchFaultRecorded":      true,
+	"task.v1.EventOrderCancelRequested":              true,
+	"task.v1.EventSessionBuilderBound":               true,
+	"task.v1.EventSessionDeposited":                  true,
+	"task.v1.EventSessionKeyChangeRequested":         true,
+	"task.v1.EventSessionTakeoverRegistered":         true,
+	"task.v1.EventSessionTakeoverVoided":             true,
+	"task.v1.EventSessionWithdrawEffective":          true,
+	"task.v1.EventSessionWithdrawRequested":          true,
+	"task.v1.EventVerifierValueEvidenceAccepted":     true,
+	"task.v1.EventDispatchChallengeOpened":           true,
+	"task.v1.EventDispatchChallengeResolved":         true,
+	"task.v1.EventDispatchCompensationClaimed":       true,
+	"task.v1.EventDispatchCompensationPaid":          true,
+	"task.v1.EventDispatchCompensationRebutted":      true,
+	"task.v1.EventDispatchRecorded":                  true,
 	"task.v1.EventChallengeClosed":                   true,
 	"task.v1.EventChallengeCommitAccepted":           true,
 	"task.v1.EventChallengeEconomicEffectApplied":    true,
@@ -112,8 +131,7 @@ func TestABCIEventNamesExistOnChain(t *testing.T) {
 // without reporting an error.
 func TestFlowCriticalEventsAreMapped(t *testing.T) {
 	for _, name := range []string{
-		"task.v1.EventWorkerHandraisesAccepted",
-		"task.v1.EventWorkerAssignmentFinalized",
+		"task.v1.EventDispatchRecorded",
 		"task.v1.EventInferReceiptAccepted",
 		"task.v1.EventVerifierAssignmentFinalized",
 		"task.v1.EventCommitAccepted",

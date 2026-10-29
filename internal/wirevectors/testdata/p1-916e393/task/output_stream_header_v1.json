@@ -1,0 +1,65 @@
+{
+  "notes": [
+    "The Worker signs the seven-field H_FIELDS_V1 digest independently of TaskDataRequestAuthV1.",
+    "Plaintext Phase 1 binds the accepted dispatch_ticket_hash, stream_instance 1, an empty recipient key and two zero32 commitments. The old attempt field is reserved.",
+    "signature_raw64_hex verifies under service_pubkey_compressed_hex, the same Worker service test key as output_chunk_equivocation_v1.json."
+  ],
+  "rejected_cases": [
+    "missing or mismatched dispatch_ticket_hash",
+    "stream_instance != 1",
+    "nonempty user_recipient_pubkey",
+    "nonzero output_key_commitment",
+    "nonzero key_package_hash"
+  ],
+  "schema": "trueopen.nexus.output_stream_header.v1",
+  "source": "Signed OutputStreamHeaderV2 wire contract",
+  "vectors": [
+    {
+      "digest_hex": "ff2e095bcbd0722b3967ba0915828f71d65b82f559f6d100f3ea968f2fbb6627",
+      "domain": "TRUEOPEN_OUTPUT_STREAM_HEADER_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "4242424242424242424242424242424242424242424242424242424242424242",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "stream_instance",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "output_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "key_package_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "output_stream_header_v2_plaintext",
+      "preimage_hex": "0000000000000020545255454f50454e5f4f55545055545f53545245414d5f4845414445525f56310000000000000011747275656f70656e2d676f6c64656e2d31000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000020424242424242424242424242424242424242424242424242424242424242424200000000000000040000000100000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 245,
+      "service_pubkey_compressed_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_raw64_hex": "67d8a636b30fff77c4dd69228e3e366818b7e5863adc745d4da725e87dd8780b01a8f87f00d49e8ea8bfd949b103b09f0b56d093c1eaf73798ec7ae69667a8e6"
+    }
+  ]
+}

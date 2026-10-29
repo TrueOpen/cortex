@@ -14,14 +14,14 @@ import (
 )
 
 type FakeClient struct {
-	RejectPackageValidation   bool
-	ValidatedPackages         []OutputPackage
-	OutputPackages            map[string]OutputPackage
-	TaskData                  map[TaskDataKey][]byte
-	TaskDataMetadata          map[TaskDataKey]TaskDataMetadata
-	UploadedTaskResults       []UploadTaskResultRequest
-	UploadedOutputStreams     []OutputStreamRequest
-	UploadedOutputFins        []OutputFin
+	RejectPackageValidation bool
+	ValidatedPackages       []OutputPackage
+	OutputPackages          map[string]OutputPackage
+	TaskData                map[TaskDataKey][]byte
+	TaskDataMetadata        map[TaskDataKey]TaskDataMetadata
+	UploadedTaskResults     []UploadTaskResultRequest
+	UploadedOutputStreams   []OutputStreamRequest
+	UploadedOutputFins      []OutputFin
 	// outputStreamsMu guards the three fields OpenTaskOutputStream touches. It
 	// is the only method the Worker calls concurrently; see the comment there.
 	outputStreamsMu           sync.Mutex
@@ -34,7 +34,6 @@ type FakeClient struct {
 	finalizedTaskResults      map[string]FinalizeTaskResultResponse
 	finalizedVerifierEvidence map[string]FinalizeVerifierEvidenceResponse
 	finalizedDigests          map[string]codec.Hash
-	Published                 []PublishRequest
 	Events                    *[]string
 }
 
@@ -490,15 +489,6 @@ func (f *FakeClient) SubmitVerifyResult(_ context.Context, _ string, req SubmitV
 	f.SubmittedVerifyResults = append(f.SubmittedVerifyResults, req)
 	f.record("submit_verify_result")
 	return VerifyRelayAck{SigningDigest: digest}, nil
-}
-
-func (f *FakeClient) Publish(_ context.Context, req PublishRequest) error {
-	if req.Subject == "" || req.TaskID == "" {
-		return fmt.Errorf("publish missing required fields")
-	}
-	f.Published = append(f.Published, req)
-	f.record("publish")
-	return nil
 }
 
 func (f *FakeClient) record(event string) {

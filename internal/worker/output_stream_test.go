@@ -61,7 +61,7 @@ func TestOutputFinIsSignedOncePersistedAndReused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			digest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, taskHash[:], 7, root[:], reason)
+			digest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), 7, root[:], reason)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,7 +212,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 			return errors.New("sent frame differs from durable bytes")
 		}
 		facts := workerTestServedTaskFacts(event.TaskID)
-		digest, err := nodewire.OutputChunkSigningDigest("chain-A", facts.AcceptedTaskHash, chunk.Seq, chunk.MMRRoot[:])
+		digest, err := nodewire.OutputChunkSigningDigest("chain-A", facts.AcceptedTaskHash, builderclient.PendingDispatchTicketHash(), chunk.Seq, chunk.MMRRoot[:])
 		if err != nil {
 			return err
 		}
@@ -244,7 +244,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 		t.Fatalf("signed Fin=%+v", data.fins)
 	}
 	finFacts := workerTestServedTaskFacts(event.TaskID)
-	finDigest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, finFacts.AcceptedTaskHash, frames[1].Seq, frames[1].MMRRoot[:], data.fins[0].FinishReason)
+	finDigest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, finFacts.AcceptedTaskHash, builderclient.PendingDispatchTicketHash(), frames[1].Seq, frames[1].MMRRoot[:], data.fins[0].FinishReason)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration(t *testi
 	}
 	// Nothing reached the Builder: the Fin is what failed, and the receipt is
 	// behind it. The retry below is what delivers both.
-	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 || pendingOutputAvailable(h.persistence.outbox) {
+	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 {
 		t.Fatal("a refused Fin must hold the receipt back, not leave it relayed")
 	}
 	frames, err := h.persistence.OutputStreamFrames(context.Background(), event.TaskID)
@@ -385,7 +385,7 @@ func TestOutputStreamRecorderEnforcesLimitsBeforeSigningExtraFrames(t *testing.T
 			if readErr != nil || len(frames) != test.wantFrames {
 				t.Fatalf("frames=%d err=%v", len(frames), readErr)
 			}
-			if len(h.taskData.relays) != 0 || pendingOutputAvailable(h.persistence.outbox) {
+			if len(h.taskData.relays) != 0 {
 				t.Fatal("invalid stream released availability")
 			}
 		})

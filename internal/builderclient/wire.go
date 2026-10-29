@@ -10,15 +10,13 @@ import (
 	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-const WorkerHandraiseSchemaV1 = uint32(1)
-
 // This file is the bridge between the two frozen authorities Cortex speaks:
 //
 //   - internal/nodewire owns the H_FIELDS_V1 signing digests of the chain-bound
 //     materials (handraises, result receipts). Digests are computed there and
 //     only there.
-//   - proto/bus/gen owns the protobuf wire encoding those materials travel
-//     in on the NATS bus (and, byte for byte, in the chain Msgs the Builder
+//   - proto/task/v1 owns the protobuf wire encoding those materials travel
+//     in to the Builder (and, byte for byte, in the chain Msgs the Builder
 //     relays). Payload bytes are marshalled from the proto forms and only
 //     from them.
 //
@@ -45,65 +43,6 @@ func candidateMemberProto(member nodewire.CandidateMemberRefV1) *bustaskv1.Candi
 		SlotVersion:             member.SlotVersion,
 		OperatorAddress:         member.OperatorAddress,
 	}
-}
-
-// WorkerHandraiseProto projects the digest-authority struct onto the frozen
-// wire message. The signature must already be over
-// nodewire.WorkerHandraiseSigningDigest of the same value.
-func WorkerHandraiseProto(handraise nodewire.WorkerHandraiseV1) (*bustaskv1.WorkerHandraiseV1, error) {
-	duty, err := dutyProto(handraise.Duty)
-	if err != nil {
-		return nil, fmt.Errorf("worker handraise: %w", err)
-	}
-	if len(handraise.ServiceSignature) != 64 {
-		return nil, fmt.Errorf("worker handraise service_signature must be 64 bytes, got %d", len(handraise.ServiceSignature))
-	}
-	return &bustaskv1.WorkerHandraiseV1{
-		SchemaVersion:             handraise.SchemaVersion,
-		ChainId:                   handraise.ChainID,
-		TaskId:                    append([]byte(nil), handraise.TaskID...),
-		TaskHash:                  append([]byte(nil), handraise.TaskHash...),
-		ModelId:                   append([]byte(nil), handraise.ModelID...),
-		ProfileVersion:            handraise.ProfileVersion,
-		Member:                    candidateMemberProto(handraise.Member),
-		Duty:                      duty,
-		ServiceAuthorizationNonce: handraise.ServiceAuthorizationNonce,
-		ExpiryHeight:              handraise.ExpiryHeight,
-		RecipientPubkey:           append([]byte(nil), handraise.RecipientPubkey...),
-		ServiceSignature:          append([]byte(nil), handraise.ServiceSignature...),
-	}, nil
-}
-
-// WorkerHandraiseFromProto rebuilds the digest-authority struct from the wire
-// message, so a receiver (or this node's own persisted copy) can recompute the
-// frozen digest against the carried signature.
-func WorkerHandraiseFromProto(message *bustaskv1.WorkerHandraiseV1) (nodewire.WorkerHandraiseV1, error) {
-	if message == nil {
-		return nodewire.WorkerHandraiseV1{}, fmt.Errorf("worker handraise message is required")
-	}
-	member := message.GetMember()
-	if member == nil {
-		return nodewire.WorkerHandraiseV1{}, fmt.Errorf("worker handraise member is required")
-	}
-	return nodewire.WorkerHandraiseV1{
-		SchemaVersion:  message.GetSchemaVersion(),
-		ChainID:        message.GetChainId(),
-		TaskID:         append([]byte(nil), message.GetTaskId()...),
-		TaskHash:       append([]byte(nil), message.GetTaskHash()...),
-		ModelID:        append([]byte(nil), message.GetModelId()...),
-		ProfileVersion: message.GetProfileVersion(),
-		Member: nodewire.CandidateMemberRefV1{
-			CandidatePoolSnapshotID: append([]byte(nil), member.GetCandidatePoolSnapshotId()...),
-			Slot:                    member.GetSlot(),
-			SlotVersion:             member.GetSlotVersion(),
-			OperatorAddress:         member.GetOperatorAddress(),
-		},
-		Duty:                      nodewire.Duty(message.GetDuty()),
-		ServiceAuthorizationNonce: message.GetServiceAuthorizationNonce(),
-		ExpiryHeight:              message.GetExpiryHeight(),
-		RecipientPubkey:           append([]byte(nil), message.GetRecipientPubkey()...),
-		ServiceSignature:          append([]byte(nil), message.GetServiceSignature()...),
-	}, nil
 }
 
 // VerifierHandraiseProto projects the digest-authority struct onto the frozen

@@ -21,14 +21,14 @@ const (
 // base64 into a Keeper query that only accepts hex.
 func TestIdentifyNormalizesProtoJSONBytesIdentityToCanonicalHex(t *testing.T) {
 	identity := MessageNameEventIdentifier().Identify(RawChainEvent{
-		ABCIType: "task.v1.EventWorkerAssignmentFinalized",
+		ABCIType: "task.v1.EventDispatchRecorded",
 		Attributes: map[string]string{
 			"session_id":    observedBase64SessionID,
 			"task_id":       observedBase64TaskID,
 			"winner_worker": "trueopen1node",
 		},
 	})
-	if !identity.Known || identity.Type != KeeperEventAssignmentFinalized {
+	if !identity.Known || identity.Type != KeeperEventDispatchRecorded {
 		t.Fatalf("identity = %#v, want the recognized assignment event", identity)
 	}
 	if identity.TaskID != observedHexTaskID {
@@ -90,7 +90,7 @@ func (syntheticIdentification) Identify(raw RawChainEvent) EventIdentity {
 		SessionID: raw.Attributes["locator_session_id"],
 	}
 	if raw.Attributes["synthetic_event"] == "assignment_finalized" {
-		identity.Type = KeeperEventAssignmentFinalized
+		identity.Type = KeeperEventDispatchRecorded
 		identity.Known = true
 	}
 	return identity
@@ -102,7 +102,7 @@ func (syntheticIdentification) Identify(raw RawChainEvent) EventIdentity {
 // only the retained wire evidence differs.
 func TestParseCometEventsIdentifiesProtocolEventThroughAlternativeLayer(t *testing.T) {
 	typed, err := parseCometEvents(MessageNameEventIdentifier(), "trueopen-devnet-1", 41, 0, "tx-1", []cometEvent{{
-		Type: "task.v1.EventWorkerAssignmentFinalized",
+		Type: "task.v1.EventDispatchRecorded",
 		Attributes: []cometAttribute{
 			{Key: "session_id", Value: "session-1"},
 			{Key: "task_id", Value: "task-1"},

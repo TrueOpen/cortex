@@ -77,9 +77,8 @@ func TestWorkerStagesCanonicalBundleBeforeFinalizingAvailability(t *testing.T) {
 		}
 	}
 	finalize := slicesIndex(events, "task-data:finalize")
-	pending := slicesIndex(events, "outbox:pending")
-	if finalize < 0 || pending <= finalize || len(h.persistence.confirmations) != 3 {
-		t.Fatalf("finalize/availability events = %v", events)
+	if finalize < 0 || len(h.persistence.confirmations) != 3 {
+		t.Fatalf("finalize events = %v", events)
 	}
 	for _, metadata := range h.taskData.TaskDataMetadata {
 		if metadata.Readiness != builderclient.TaskDataReady {
@@ -120,7 +119,6 @@ func TestWorkerExpiredRetainedConfirmationDoesNotReleaseAvailability(t *testing.
 	if _, err := h.worker.HandleAssignmentFinalized(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	h.persistence.outbox = nil
 	endpoint, err := h.worker.receivingBuilder(context.Background(), receivingBuilderRef(event))
 	if err != nil {
 		t.Fatal(err)

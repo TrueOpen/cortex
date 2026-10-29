@@ -672,7 +672,8 @@ func signedInferReceiptToProto(receipt SignedInferReceipt) *taskv1.InferReceiptV
 	signature, _ := hex.DecodeString(receipt.ServiceSignature)
 	zero := make([]byte, 32)
 	result := &taskv1.InferReceiptV3{SchemaVersion: receipt.SchemaVersion, ChainId: receipt.ChainID, TaskId: taskID, TaskHash: taskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, ServiceAuthorizationNonce: receipt.ServiceAuthorizationNonce, GenerationParamsDigest: generation, OutputHash: output, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount, ExpiryHeight: receipt.ExpiryHeight, ServiceSignature: signature, GeneratedTokenCount: receipt.GeneratedTokenCount,
-		OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero}
+		OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
+		DispatchTicketHash: PendingDispatchTicketHash()} // S5: the accepted ticket
 	for _, item := range receipt.RequiredEvidenceCommitments {
 		result.RequiredEvidenceCommitments = append(result.RequiredEvidenceCommitments, &taskv1.EvidenceCommitmentV1{EvidenceKind: sharedv1.EvidenceKind(item.EvidenceKind), EvidenceHashOrRoot: append([]byte(nil), item.EvidenceHashOrRoot[:]...), EncodedSizeBytes: item.EncodedSizeBytes})
 	}

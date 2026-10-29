@@ -82,6 +82,7 @@ func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 		"expiry_height":               func(r *nodewire.InferReceiptV3) { r.ExpiryHeight++ },
 		"generated_token_count":       func(r *nodewire.InferReceiptV3) { r.GeneratedTokenCount++ },
 		"output_leaf_count":           func(r *nodewire.InferReceiptV3) { r.OutputLeafCount++ },
+		"dispatch_ticket_hash":        func(r *nodewire.InferReceiptV3) { r.DispatchTicketHash = otherHash },
 		"evidence/token_hash": func(r *nodewire.InferReceiptV3) {
 			r.RequiredEvidenceCommitments[1].EvidenceHashOrRoot = otherHash
 		},
@@ -146,6 +147,10 @@ func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 // cross-package check that it did not quietly keep a second derivation.
 func TestBuilderClientReceiptDigestIsTheFrozenDigest(t *testing.T) {
 	frozen := inferReceiptBase(t)
+	// S5: SignedInferReceipt carries no dispatch ticket yet, so the builderclient
+	// path binds the pending ticket; compare against the same frozen receipt
+	// under that ticket.
+	frozen.DispatchTicketHash = builderclient.PendingDispatchTicketHash()
 
 	frozenDigest, err := nodewire.InferReceiptSigningDigest(frozen)
 	if err != nil {
@@ -319,37 +324,37 @@ func TestRejectsMalformedInput(t *testing.T) {
 	})
 
 	t.Run("unspecified_duty", func(t *testing.T) {
-		handraise := validWorkerHandraise(t, vectors)
+		handraise := validVerifierHandraise(t, vectors)
 		handraise.Duty = nodewire.DutyUnspecified
-		requireErrorContains(t, digestErr(nodewire.WorkerHandraiseSigningDigest(handraise)),
+		requireErrorContains(t, digestErr(nodewire.VerifierHandraiseSigningDigest(handraise)),
 			"duty must not be DUTY_UNSPECIFIED")
 	})
 
 	t.Run("unknown_duty", func(t *testing.T) {
-		handraise := validWorkerHandraise(t, vectors)
+		handraise := validVerifierHandraise(t, vectors)
 		handraise.Duty = nodewire.Duty(7)
-		requireErrorContains(t, digestErr(nodewire.WorkerHandraiseSigningDigest(handraise)),
+		requireErrorContains(t, digestErr(nodewire.VerifierHandraiseSigningDigest(handraise)),
 			"duty 7 is not a registered Duty value")
 	})
 
 	t.Run("short_model_id", func(t *testing.T) {
-		handraise := validWorkerHandraise(t, vectors)
+		handraise := validVerifierHandraise(t, vectors)
 		handraise.ModelID = handraise.ModelID[:31]
-		requireErrorContains(t, digestErr(nodewire.WorkerHandraiseSigningDigest(handraise)),
+		requireErrorContains(t, digestErr(nodewire.VerifierHandraiseSigningDigest(handraise)),
 			"model_id must be exactly 32 raw bytes, got 31")
 	})
 
 	t.Run("member_short_snapshot_id", func(t *testing.T) {
-		handraise := validWorkerHandraise(t, vectors)
+		handraise := validVerifierHandraise(t, vectors)
 		handraise.Member.CandidatePoolSnapshotID = handraise.Member.CandidatePoolSnapshotID[:8]
-		requireErrorContains(t, digestErr(nodewire.WorkerHandraiseSigningDigest(handraise)),
+		requireErrorContains(t, digestErr(nodewire.VerifierHandraiseSigningDigest(handraise)),
 			"member.candidate_pool_snapshot_id must be exactly 32 raw bytes, got 8")
 	})
 
 	t.Run("member_undecodable_operator_address", func(t *testing.T) {
-		handraise := validWorkerHandraise(t, vectors)
+		handraise := validVerifierHandraise(t, vectors)
 		handraise.Member.OperatorAddress = "not-bech32"
-		requireErrorContains(t, digestErr(nodewire.WorkerHandraiseSigningDigest(handraise)),
+		requireErrorContains(t, digestErr(nodewire.VerifierHandraiseSigningDigest(handraise)),
 			"member.operator_address is not a decodable Bech32 address")
 	})
 
@@ -444,21 +449,23 @@ func TestOperatorAddressAcceptsCosmosCodecLengths(t *testing.T) {
 // re-encoded under the same prefix.
 const canonicalTrueOpenAddress20 = "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
 
-func validWorkerHandraise(t *testing.T, vectors map[string]goldenVector) nodewire.WorkerHandraiseV1 {
+func validVerifierHandraise(t *testing.T, vectors map[string]goldenVector) nodewire.VerifierHandraiseV1 {
 	t.Helper()
-	vector := requireVector(t, vectors, vectorWorkerHandraise)
-	return nodewire.WorkerHandraiseV1{
+	vector := requireVector(t, vectors, vectorVerifierHandraise)
+	return nodewire.VerifierHandraiseV1{
 		SchemaVersion:             uint32(fieldUint(t, vector, 0, "schema_version")),
 		ChainID:                   fieldString(t, vector, 1, "chain_id"),
 		TaskID:                    fieldBytes(t, vector, 2, "task_id"),
-		TaskHash:                  fieldBytes(t, vector, 3, "task_hash"),
-		ModelID:                   fieldBytes(t, vector, 4, "model_id"),
-		ProfileVersion:            uint32(fieldUint(t, vector, 5, "profile_version")),
-		Member:                    memberRef(t, vector, 6),
-		Duty:                      nodewire.Duty(fieldUint(t, vector, 7, "duty")),
-		ServiceAuthorizationNonce: fieldUint(t, vector, 8, "service_authorization_nonce"),
-		ExpiryHeight:              fieldUint(t, vector, 9, "expiry_height"),
-		RecipientPubkey:           fieldBytes(t, vector, 10, "recipient_pubkey"),
+		VerifyRound:               uint32(fieldUint(t, vector, 3, "verify_round")),
+		InferReceiptHash:          fieldBytes(t, vector, 4, "infer_receipt_hash"),
+		OutputHash:                fieldBytes(t, vector, 5, "output_hash"),
+		ModelID:                   fieldBytes(t, vector, 6, "model_id"),
+		ProfileVersion:            uint32(fieldUint(t, vector, 7, "profile_version")),
+		Member:                    memberRef(t, vector, 8),
+		Duty:                      nodewire.Duty(fieldUint(t, vector, 9, "duty")),
+		ServiceAuthorizationNonce: fieldUint(t, vector, 10, "service_authorization_nonce"),
+		ExpiryHeight:              fieldUint(t, vector, 11, "expiry_height"),
+		RecipientPubkey:           fieldBytes(t, vector, 12, "recipient_pubkey"),
 	}
 }
 

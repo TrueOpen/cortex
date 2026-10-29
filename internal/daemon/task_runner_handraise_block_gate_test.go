@@ -91,32 +91,6 @@ func TestVerifierHandraiseRetriesOnTheNextBlock(t *testing.T) {
 	}
 }
 
-// Suppressing the work must not suppress the arming. OPEN_VERIFY is the one
-// trigger with no transport behind it, so it is the one that arms the local
-// re-drive -- and it frequently is not the first frame of its block, because
-// the JetStream hint for the same task-round arrives on its own schedule. A
-// gate that skipped the re-drive bookkeeping on a suppressed attempt would
-// trade a redundant Keeper query for the lost handraise PR #335 exists to
-// prevent.
-func TestVerifierHandraiseArmsTheRedriveEvenWhenTheBlockIsAlreadyAnswered(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-	fixture.runner.cfg.VerifierMemberReader = &pendingVerifierWindow{}
-
-	if err := fixture.deliver(t, fixture.fullHint()); err == nil {
-		t.Fatal("the hint was admitted, want a wait")
-	}
-	if len(fixture.runner.handraiseRedrives) != 0 {
-		t.Fatalf("re-drives = %#v, want none armed by the JetStream hint", fixture.runner.handraiseRedrives)
-	}
-	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err == nil {
-		t.Fatal("the call was admitted, want a wait")
-	}
-	pending, ok := fixture.runner.handraiseRedrives[chainWaitKey(fixture.taskID, 1)]
-	if !ok || pending.trigger.Kind != "OpenVerify" {
-		t.Fatalf("re-drives = %#v, want the suppressed OPEN_VERIFY still armed", fixture.runner.handraiseRedrives)
-	}
-}
-
 func countTraceEvents(fixture *outputAvailableFixture, event string) int {
 	count := 0
 	for _, line := range fixture.trace.allLines() {

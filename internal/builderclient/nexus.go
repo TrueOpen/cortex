@@ -8,23 +8,17 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 )
 
-type Publisher interface {
-	Publish(context.Context, PublishRequest) error
-}
-
 // NexusClient is what is left of Cortex's direct Nexus surface after the
-// task-data plane took over every call: a bus publisher and the Worker's local
-// output-package self-check. It holds no endpoint and no HTTP client, because
+// task-data plane took over every call: the Worker's local output-package
+// self-check. It holds no endpoint and no HTTP client, because
 // nothing here talks to Nexus over HTTP any more — GetTaskDataMetadata,
 // FetchTaskData, UploadTaskResultData and SubmitInferReceipt all go through
 // ConnectTaskDataClient against the Builder endpoint the on-chain descriptor
 // commits.
-type NexusClient struct {
-	publisher Publisher
-}
+type NexusClient struct{}
 
-func NewNexusClient(publisher Publisher) *NexusClient {
-	return &NexusClient{publisher: publisher}
+func NewNexusClient() *NexusClient {
+	return &NexusClient{}
 }
 
 func (c *NexusClient) ValidateOutputPackage(_ context.Context, pkg OutputPackage) error {
@@ -95,14 +89,4 @@ func validateTaskDataOutputPackage(pkg OutputPackage) error {
 		return fmt.Errorf("task-data output package carries no signed infer receipt")
 	}
 	return nil
-}
-
-func (c *NexusClient) Publish(ctx context.Context, req PublishRequest) error {
-	if c.publisher == nil {
-		return fmt.Errorf("nexus publisher is required")
-	}
-	if req.Subject == "" || req.TaskID == "" {
-		return fmt.Errorf("publish missing required fields")
-	}
-	return c.publisher.Publish(ctx, req)
 }

@@ -119,13 +119,6 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	// waits on the chain - and it swallows its own errors, because a scheduling
 	// pass returning one stops the daemon.
 	r.redriveVerifierHandraises(ctx, tip)
-	// And the Worker half of the same problem. trueopen.task.open.* is Core tier
-	// too, so a busy node's retryable refusal has no transport to honour it;
-	// this is where an order held over from a full moment gets its next attempt.
-	// Same placement and same reason: it decides whether a responsibility will
-	// exist at all, and it swallows its own errors because a scheduling pass
-	// returning one stops the daemon.
-	r.redriveWorkerOrders(ctx, tip)
 	now := time.Now().UTC()
 	launch := func(key responsibilityKey, taskID string, run func() taskOutcome) {
 		if !r.claimInflight(key) {
@@ -767,91 +760,6 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 	defer r.mu.Unlock()
 	for _, effect := range effects {
 		switch effect.Type {
-		case ReconcilerEffectAssignment:
-			a := effect.Snapshot.Assignment
-			if r.cfg.LocalWorkerAddress == "" || a.SelectedWorker != r.cfg.LocalWorkerAddress {
-				// An input prefetched on the Builder's announcement is
-				// dropped unused: the chain assigned the task elsewhere.
-				r.prefetches.discard(effect.TaskHash, "assigned_elsewhere")
-				// Not selected: this node's handraise obligation ends here and the candidate
-				// row should go. It was written down so that "a restart in the middle of a
-				// handraise can still publish the signed document it promised"; once the
-				// winner is final that obligation is discharged, and since this store holds
-				// restart obligations only, keeping the row leaves one line of permanent
-				// garbage per losing bid.
-				//
-				// Cleared only on this authoritative path: the chain's final assignment is
-				// what settles "not selected", while WORKER_ASSIGNMENT_NOTIFY is an early
-				// wake-up that may never arrive at all. A failed cleanup does not affect
-				// correctness (the next candidate for the same (session, order) overwrites
-				// it), so it must not stop the rest of this batch of effects from landing.
-				if r.cfg.LocalWorkerAddress != "" && a.SessionID != "" {
-					if err := layout.ReleaseCandidateAdmission(ctx, r.cfg.Store, a.SessionID, a.OrderSequence.Uint64(), layout.StoredHash(effect.TaskHash)); err != nil && r.cfg.Diagnostic != nil {
-						r.cfg.Diagnostic(TaskRunnerDiagnostic{
-							Source: "assignment_lost", Record: effect.TaskID, Error: err.Error(),
-						})
-					}
-				}
-				continue
-			}
-			inputSizeBytes := uint64(0)
-			// Keeper's task snapshot does not currently serve builder_operator_address,
-			// and the chain has no field saying which Builder is the receiver. The Builder
-			// that broadcast this order must have accepted it and therefore holds the
-			// input, so the sender recorded at admission is a reliable fallback source.
-			// Once the chain carries the field, the snapshot value wins.
-			builderOperator := a.BuilderOperatorAddress
-			if candidate, err := layout.GetCandidateAdmission(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err == nil {
-				inputSizeBytes = candidate.InputSizeBytes
-				if builderOperator == "" {
-					builderOperator = candidate.BroadcastingBuilder
-				}
-			}
-			task := layout.TaskRecord{
-				SessionID:              a.SessionID,
-				OrderSequence:          a.OrderSequence.Uint64(),
-				ModelID:                a.ModelID,
-				ProfileVersion:         a.ProfileVersion.Uint32(),
-				AssignmentOrderDigest:  layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
-				AssignmentDigest:       layout.StoredHashFromCodec(effect.AssignmentDigest),
-				AcceptedInputHash:      layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
-				InputDigest:            layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
-				WorkerAddress:          a.SelectedWorker,
-				BuilderOperatorAddress: builderOperator,
-				InputSizeBytes:         inputSizeBytes,
-			}
-			infer := layout.InferRecord{
-				TaskID:              effect.TaskID,
-				WinnerConfirmHeight: a.WinnerConfirmHeight.Uint64(),
-				InferDeadlineHeight: a.InferDeadlineHeight.Uint64(),
-				Stage:               layout.StageQueued,
-				DeadlineHeight:      a.InferDeadlineHeight.Uint64(),
-			}
-			// woken_by says whether this node waited out its own poll interval or
-			// was told to look. It is the measurement that decides whether the
-			// interval is worth shortening, or worth replacing with a chain
-			// subscription: an assignment admitted on a tick waited up to one
-			// interval that a notify would have saved.
-			wokenBy := tasktrace.Field{}
-			if source, ok := WakeSourceFrom(ctx); ok {
-				wokenBy = tasktrace.Str("woken_by", string(source))
-			}
-			r.cfg.Trace.Event("keeper_assignment_admitted",
-				tasktrace.Str("task", effect.TaskID), tasktrace.Hash("task_hash", effect.TaskHash),
-				wokenBy,
-				tasktrace.Str("session", a.SessionID), tasktrace.Uint("order_sequence", a.OrderSequence.Uint64()),
-				tasktrace.Str("model", a.ModelID), tasktrace.Uint("profile_version", uint64(a.ProfileVersion.Uint32())),
-				tasktrace.Hash("accepted_order_payload_hash", codec.Hash(a.AcceptedOrderPayloadHash)),
-				tasktrace.Hash("assignment_digest", effect.AssignmentDigest),
-				tasktrace.Str("worker", a.SelectedWorker), tasktrace.Str("builder", builderOperator),
-				tasktrace.Uint("input_size_bytes", inputSizeBytes),
-				tasktrace.Uint("winner_confirm_height", a.WinnerConfirmHeight.Uint64()),
-				tasktrace.Uint("infer_deadline_height", a.InferDeadlineHeight.Uint64()))
-			if err := layout.InferAssignmentBatch(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), task, infer); err != nil {
-				if !r.quarantineEffect(effect, err) {
-					return err
-				}
-			}
 		case ReconcilerEffectVerifyReady:
 			v := effect.Snapshot.VerifierAssignment
 			if r.cfg.LocalVerifierAddress == "" || !slices.Contains([]string(v.FormalVerifierSet), r.cfg.LocalVerifierAddress) {
@@ -964,12 +872,10 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				tasktrace.Uint("chain_height", effect.Event.Height),
 				tasktrace.Str("stage", string(record.Stage)))
 		case ReconcilerEffectInferTerminal:
-			r.prefetches.discard(effect.TaskHash, "infer_terminal")
 			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
 				return err
 			}
 		case ReconcilerEffectTaskTerminal:
-			r.prefetches.discard(effect.TaskHash, "task_terminal")
 			ev := layout.Evidence{TaskID: effect.TaskID, TerminalOrSettled: true, RetentionStartHeight: retentionStartHeight(effect)}
 			if taskRecord, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err == nil {
 				ev.SessionID = taskRecord.SessionID
@@ -1034,7 +940,6 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 		}
 	}
 	r.Wake()
-	r.signalKeeperProgress()
 	return nil
 }
 

@@ -38,7 +38,7 @@ func generationBoundHarness(t *testing.T, limit uint64, modelIDs ...string) (har
 		ModelID: finalizedTask().ModelID, ProfileVersion: 1, TaskType: 2, OutputBudgetBucket: 1,
 		Params: nodewire.GenerationParamsV1{SchemaVersion: 1, MaxOutputTokens: limit, MaxOutputDuration: 2000,
 			DecodingParams: nodewire.DecodingParamsV1{SamplingEnabled: true, TemperatureMilli: 700,
-				TopPPPM: 950000, TopK: 20, Seed: 7, RepetitionPenaltyPPM: 1050000}},
+				TopPPPM: 950000, Seed: 7, RepetitionPenaltyPPM: 1050000}},
 	}
 	if len(modelIDs) != 0 {
 		generation.ModelID = modelIDs[0]

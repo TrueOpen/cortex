@@ -14,12 +14,13 @@ import (
 const DomainOutputStreamHeaderV1 = "TRUEOPEN_OUTPUT_STREAM_HEADER_V1"
 
 // OutputStreamHeaderV2 is the signed part of the Worker's output stream header.
-// Until encryption activates, attempt is 0, stream_instance is 1, the recipient
+// It binds the accepted dispatch ticket. Until encryption activates
+// stream_instance is 1, the recipient
 // key is empty and both commitments are ZERO32; anything else is refused.
 type OutputStreamHeaderV2 struct {
 	ChainID             string
 	TaskHash            []byte // Hash32
-	Attempt             uint32
+	DispatchTicketHash  []byte // Hash32, the accepted dispatch ticket
 	StreamInstance      uint32
 	UserRecipientPubkey []byte // empty in plaintext
 	OutputKeyCommitment []byte // Hash32, ZERO32 in plaintext
@@ -35,8 +36,11 @@ func OutputStreamHeaderSigningPreimage(header OutputStreamHeaderV2) ([]byte, err
 	if _, err := canonicalHash32("task_hash", header.TaskHash); err != nil {
 		return nil, err
 	}
-	if header.Attempt != 0 || header.StreamInstance != 1 {
-		return nil, fmt.Errorf("a plaintext output stream must use attempt 0 and stream_instance 1")
+	if _, err := canonicalHash32("dispatch_ticket_hash", header.DispatchTicketHash); err != nil {
+		return nil, err
+	}
+	if header.StreamInstance != 1 {
+		return nil, fmt.Errorf("a plaintext output stream must use stream_instance 1")
 	}
 	if err := requireEmptyRecipient(header.UserRecipientPubkey); err != nil {
 		return nil, err
@@ -53,7 +57,7 @@ func OutputStreamHeaderSigningPreimage(header OutputStreamHeaderV2) ([]byte, err
 		DomainOutputStreamHeaderV1,
 		hfields.String(chainID),
 		hfields.Bytes(header.TaskHash),
-		hfields.Uint32(header.Attempt),
+		hfields.Bytes(header.DispatchTicketHash),
 		hfields.Uint32(header.StreamInstance),
 		hfields.Bytes(header.UserRecipientPubkey),
 		hfields.Bytes(header.OutputKeyCommitment),

@@ -8,9 +8,9 @@ import (
 
 func TestWireV040EventEnvelopeBindsCodeAndPayload(t *testing.T) {
 	id := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xab}, 32))
-	attributes := map[string]string{"schema_version": "1", "event_code": "PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED", "block_height": "90", "primary_locator": `{"task":{"taskId":"` + id + `"}}`, "payload": `{"workerAssignmentFinalized":{"taskId":"` + id + `","sessionId":"` + id + `","winnerWorker":"worker"}}`}
+	attributes := map[string]string{"schema_version": "1", "event_code": "PROTOCOL_EVENT_CODE_V1_DISPATCH_RECORDED", "block_height": "90", "primary_locator": `{"task":{"taskId":"` + id + `"}}`, "payload": `{"dispatchRecorded":{"taskId":"` + id + `","sessionId":"` + id + `","winnerWorker":"worker"}}`}
 	got := MessageNameEventIdentifier().Identify(RawChainEvent{ABCIType: "hub.v1.ProtocolEventEnvelopeV1", Attributes: attributes})
-	if !got.Known || got.Type != KeeperEventAssignmentFinalized || got.TaskID == "" || got.Error != "" {
+	if !got.Known || got.Type != KeeperEventDispatchRecorded || got.TaskID == "" || got.Error != "" {
 		t.Fatalf("identity = %+v", got)
 	}
 	attributes["event_code"] = "PROTOCOL_EVENT_CODE_V1_RESULT_ACCEPTED"
@@ -25,12 +25,12 @@ func TestWireV040EventEnvelopeRejectsMalformedIdentity(t *testing.T) {
 		"schema":             {"schema_version": "2"},
 		"code":               {"event_code": "99999"},
 		"height":             {"block_height": "0"},
-		"payload":            {"payload": `{"workerAssignmentFinalized":{"taskId":"AA=="}}`},
+		"payload":            {"payload": `{"dispatchRecorded":{"taskId":"AA=="}}`},
 		"absent locator":     {"primary_locator": "{}"},
 		"mismatched locator": {"primary_locator": `{"task":{"taskId":"` + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)) + `"}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			attributes := map[string]string{"schema_version": "1", "event_code": "11", "block_height": "90", "primary_locator": `{"task":{"taskId":"` + id + `"}}`, "payload": `{"workerAssignmentFinalized":{"taskId":"` + id + `","sessionId":"` + id + `","winnerWorker":"worker"}}`}
+			attributes := map[string]string{"schema_version": "1", "event_code": "128", "block_height": "90", "primary_locator": `{"task":{"taskId":"` + id + `"}}`, "payload": `{"dispatchRecorded":{"taskId":"` + id + `","sessionId":"` + id + `","winnerWorker":"worker"}}`}
 			for key, value := range changes {
 				attributes[key] = value
 			}
@@ -45,9 +45,9 @@ func TestWireV040EventEnvelopeRejectsMalformedIdentity(t *testing.T) {
 func TestWireV040EventEnvelopeCometProjectionAndQuarantine(t *testing.T) {
 	id := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xab}, 32))
 	raw := cometEvent{Type: "hub.v1.ProtocolEventEnvelopeV1", Attributes: []cometAttribute{
-		{Key: "schema_version", Value: "1"}, {Key: "event_code", Value: `"PROTOCOL_EVENT_CODE_V1_WORKER_ASSIGNMENT_FINALIZED"`},
+		{Key: "schema_version", Value: "1"}, {Key: "event_code", Value: `"PROTOCOL_EVENT_CODE_V1_DISPATCH_RECORDED"`},
 		{Key: "block_height", Value: `"90"`}, {Key: "primary_locator", Value: `{"task":{"taskId":"` + id + `"}}`},
-		{Key: "payload", Value: `{"workerAssignmentFinalized":{"taskId":"` + id + `","sessionId":"` + id + `","winnerWorker":"worker","inferDeadline":"100"}}`},
+		{Key: "payload", Value: `{"dispatchRecorded":{"taskId":"` + id + `","sessionId":"` + id + `","winnerWorker":"worker","inferDeadline":"100"}}`},
 	}}
 	for _, height := range []uint64{90, 91} {
 		events, err := parseCometEvents(MessageNameEventIdentifier(), "chain", height, 0, "", []cometEvent{raw})
@@ -94,5 +94,31 @@ func TestWireV041InferReceiptEventPreservesLeafAndTokenCounts(t *testing.T) {
 	got := MessageNameEventIdentifier().Identify(RawChainEvent{ABCIType: "hub.v1.ProtocolEventEnvelopeV1", Attributes: attributes})
 	if got.Error != "" || got.Type != KeeperEventInferReceiptAccepted || got.Attributes["generated_token_count"] != "37" || got.Attributes["output_leaf_count"] != "4" {
 		t.Fatalf("identity=%+v", got)
+	}
+}
+
+func TestReleasedEventTypesCoverPhase1DispatchEvents(t *testing.T) {
+	known := releasedEventTypes() // panics if a mapped name left the descriptor
+	for _, name := range []string{
+		"task.v1.EventDispatchRecorded",
+		"task.v1.EventDispatchCompensationClaimed",
+		"task.v1.EventDispatchCompensationPaid",
+		"task.v1.EventDispatchCompensationRebutted",
+		"task.v1.EventDispatchChallengeOpened",
+		"task.v1.EventDispatchChallengeResolved",
+	} {
+		kind, ok := known[name]
+		if !ok || kind == KeeperEventProtocolProjection {
+			t.Fatalf("%s is not mapped to a dedicated KeeperEventType (got %v, %v)", name, kind, ok)
+		}
+	}
+	for _, retired := range []string{
+		"task.v1.EventWorkerHandraisesAccepted",
+		"task.v1.EventWorkerAssignmentFinalized",
+		"task.v1.EventAssignmentFailed",
+	} {
+		if _, ok := known[retired]; ok {
+			t.Fatalf("%s is retired by wire 916e393 but still mapped", retired)
+		}
 	}
 }

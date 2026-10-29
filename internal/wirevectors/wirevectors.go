@@ -27,15 +27,17 @@ import (
 	"fmt"
 )
 
-// WireVersion names the wire release the embedded files were copied from.
+// WireVersion names the wire version the embedded files were copied from. It
+// is the go.mod pseudo-version of the Phase 1 candidate contract, which is not
+// a release yet.
 // Raising the go.mod dependency without recopying these is a drift this
 // constant makes visible in a diff.
-const WireVersion = "v0.5.1"
+const WireVersion = "v0.5.2-0.20261029083751-916e3936355c"
 
 // WireCommit is the wire commit the embedded files were copied from.
-const WireCommit = "1c9db9b8d45baf28f2963357a963b1403cb4886c"
+const WireCommit = "916e3936355cb787f6e82509619f55c6b5aad7e2"
 
-//go:embed testdata/v051
+//go:embed testdata/p1-916e393
 var released embed.FS
 
 // vectorSet is one embedded copy of wire's testdata and the checksum of the
@@ -48,8 +50,8 @@ type vectorSet struct {
 }
 
 var releasedSet = vectorSet{
-	fs: released, dir: "testdata/v051", version: WireVersion,
-	manifestSum: "6394c8e98fb48ff4556b9431abc363d125311b70ea7bd90b35d6129ab685fd36",
+	fs: released, dir: "testdata/p1-916e393", version: WireVersion,
+	manifestSum: "e2a53f71d2080479e3e2e79f675ffdb3438a0e91cbfd57072d762128367d8c27",
 }
 
 // File returns exact released fixture bytes after checking their provenance.
