@@ -80,3 +80,24 @@ func TestManifestIsServedOnlyWithItsPinnedChecksum(t *testing.T) {
 		t.Fatal("a manifest that does not match its pinned checksum was served")
 	}
 }
+
+func TestDispatchVectorsLoadSignedRows(t *testing.T) {
+	rows, err := DispatchVectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"task_v1_dispatchticketv1": false, "task_v1_standinghandraisev1": false, "nexus_v1_dispatchstreambindingv1": false}
+	for _, r := range rows {
+		if r.MessageName == "" || r.ProtobufHex == "" {
+			t.Fatalf("row %s carries no protobuf message", r.Name)
+		}
+		if _, ok := want[r.Name]; ok {
+			want[r.Name] = r.DigestHex != "" && r.SignatureHex != "" && r.PublicKeyHex != ""
+		}
+	}
+	for name, ok := range want {
+		if !ok {
+			t.Fatalf("vector %s missing or incomplete", name)
+		}
+	}
+}

@@ -148,3 +148,83 @@ func HubDomain(domain string) (HubDomainVector, error) {
 	}
 	return HubDomainVector{}, fmt.Errorf("wire %s publishes no vector for %s", WireVersion, domain)
 }
+
+// dispatchManifestPath is the Phase 1 dispatch signing table inside wire's
+// release manifest.
+const dispatchManifestPath = "task/dispatch_v1.json"
+
+// DispatchVector is one row of wire's task/dispatch_v1.json signing table.
+type DispatchVector struct {
+	Name         string `json:"name"`
+	MessageName  string `json:"message_name"`
+	Domain       string `json:"domain"`
+	ProtobufHex  string `json:"protobuf_hex"`
+	PreimageHex  string `json:"preimage_hex"`
+	DigestHex    string `json:"digest_hex"`
+	SignatureHex string `json:"signature_hex"`
+	PublicKeyHex string `json:"public_key_hex"`
+}
+
+// DispatchVectors returns the rows of task/dispatch_v1.json that carry a
+// protobuf message, after the provenance check File performs. Rows that only
+// publish a derived digest (entry, roster, challenge and evidence digests) have
+// no message to convert and are left to the tests of their own producers.
+func DispatchVectors() ([]DispatchVector, error) {
+	data, err := File(dispatchManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	var file struct {
+		Vectors []DispatchVector `json:"vectors"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("decode wire dispatch vectors: %w", err)
+	}
+	var out []DispatchVector
+	for _, v := range file.Vectors {
+		if v.MessageName != "" && v.ProtobufHex != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("wire %s publishes no dispatch message vectors", WireVersion)
+	}
+	return out, nil
+}
+
+// DispatchVectorByName returns one message row of task/dispatch_v1.json. A
+// missing row is an error, never a zero value.
+func DispatchVectorByName(name string) (DispatchVector, error) {
+	rows, err := DispatchVectors()
+	if err != nil {
+		return DispatchVector{}, err
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return row, nil
+		}
+	}
+	return DispatchVector{}, fmt.Errorf("wire %s publishes no dispatch vector %s", WireVersion, name)
+}
+
+// DispatchSection decodes one top-level section of task/dispatch_v1.json
+// (for example "vrf", "handraise_merkle" or "epoch_seed_derivation") into
+// target. A missing section is an error.
+func DispatchSection(section string, target any) error {
+	data, err := File(dispatchManifestPath)
+	if err != nil {
+		return err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("decode wire dispatch vectors: %w", err)
+	}
+	raw, ok := doc[section]
+	if !ok {
+		return fmt.Errorf("wire %s dispatch vectors have no %s section", WireVersion, section)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("decode wire dispatch section %s: %w", section, err)
+	}
+	return nil
+}

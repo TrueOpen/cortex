@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	connectrpc.com/connect v1.18.1
+	github.com/TrueOpen/wire v0.5.2-0.20261029083751-916e3936355c
 	github.com/cockroachdb/pebble/v2 v2.1.6
 	github.com/cosmos/gogoproto v1.4.12
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
@@ -45,9 +46,10 @@ require (
 )
 
 require (
-	github.com/TrueOpen/wire v0.5.2-0.20261029083751-916e3936355c // indirect
+	github.com/cosmos/btcutil v1.0.5 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
+	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/net v0.55.0 // indirect
