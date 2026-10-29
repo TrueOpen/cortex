@@ -87,10 +87,10 @@ func TestInferReceiptCheckpointSurvivesReopenBeforeRunOnceCompletes(t *testing.T
 	}
 }
 
-// outputAvailableFixture is one Verifier-side world: a Keeper snapshot that is
+// openVerifyFixture is one Verifier-side world: a Keeper snapshot that is
 // the sole authority on what the task committed, and a runner wired to raise a
 // Verifier hand off it. Tests vary only the OPEN_VERIFY call.
-type outputAvailableFixture struct {
+type openVerifyFixture struct {
 	runner    *TaskRunner
 	builder   *outputAdmissionBuilder
 	sender    *recordingFrameSender
@@ -102,7 +102,7 @@ type outputAvailableFixture struct {
 	taskID    string
 }
 
-func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
+func newOpenVerifyFixture(t *testing.T) *openVerifyFixture {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
@@ -158,7 +158,7 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 			InferReceiptHash: chainclient.ProtoBytes32(snapshot.InferReceipt.InferReceiptHash[:]), ExpiryHeight: 40,
 		}},
 		TaskReader: staticKeeperTaskReader{snapshot: snapshot}, HandraiseEligibility: eligibility,
-		// admitOutputAvailable reads this node's own current ServiceKey binding for
+		// admitOpenVerify reads this node's own current ServiceKey binding for
 		// the verifier handraise's service_authorization_nonce (interface-and-topic-list.md
 		// §5.2 field 7).
 		TaskDataAuth:        taskRunnerTaskDataAuth(t),
@@ -166,10 +166,10 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 		ChainStatus:         fixedChainStatus{height: 10, chainID: "chain"},
 		SignerAddress:       "verifier-service", SignerKeyRef: "key", Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return bytes.Repeat([]byte{1}, 64), nil }),
 	})
-	return &outputAvailableFixture{runner: runner, builder: builder, sender: sender, confirmer: confirmer, trace: trace, snapshot: snapshot, pkg: pkg, sessionID: sessionID, taskID: taskID}
+	return &openVerifyFixture{runner: runner, builder: builder, sender: sender, confirmer: confirmer, trace: trace, snapshot: snapshot, pkg: pkg, sessionID: sessionID, taskID: taskID}
 }
 
-func (f *outputAvailableFixture) assertHandraised(t *testing.T) {
+func (f *openVerifyFixture) assertHandraised(t *testing.T) {
 	t.Helper()
 	if len(f.sender.handraises) != 1 {
 		t.Fatalf("sent = %#v, want one verifier handraise without an active infer document", f.sender.handraises)
@@ -219,7 +219,7 @@ func (w openVerifierWindow) FrozenVerifierWindowMember(context.Context, string, 
 // Two OPEN_VERIFY calls for the same task produce one verifier handraise (and one output confirmation) because the
 // durable verify-candidate claim suppresses the duplicate.
 func TestOpenVerifyDuplicateSuppressed(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	hint1 := fixture.openVerifyCall()
 	if err := fixture.deliverOpenVerify(t, hint1); err != nil {
 		t.Fatal(err)
@@ -237,12 +237,12 @@ func TestOpenVerifyDuplicateSuppressed(t *testing.T) {
 }
 
 // The claim is taken before the Keeper read, and the chain can legitimately be
-// behind the hint - TestOutputAvailableAheadOfTheKeeperReceiptIsRetryable pins
+// behind the hint - TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable pins
 // exactly that. So a claim left by a failed attempt must not suppress the
 // redelivery, or the "not yet" silently becomes "never": no confirmation and no
 // handraise, for good.
 func TestOpenVerifyRetriesAfterAClaimedButFailedAttempt(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	behind := fixture.snapshot
 	behind.InferReceipt = chainclient.InferReceiptSnapshot{}
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: behind}
@@ -271,10 +271,10 @@ func TestOpenVerifyRetriesAfterAClaimedButFailedAttempt(t *testing.T) {
 // commitment there is; a frame that disagrees with the chain about it is
 // refused rather than reconciled.
 func TestOpenVerifyTakesTheOutputHashFromKeeperNotTheFrame(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
-		t.Fatalf("OutputAvailable hint was refused: %v", err)
+		t.Fatalf("OpenVerify was refused: %v", err)
 	}
 	fixture.assertHandraised(t)
 }
@@ -291,7 +291,7 @@ func TestOpenVerifyContradictingTheKeeperSnapshotIsStillRefused(t *testing.T) {
 		{"sender is not the Keeper winner", func(m *nexusv1.OpenVerifyV1) { m.WorkerOperatorAddress = "worker-2" }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			fixture := newOutputAvailableFixture(t)
+			fixture := newOpenVerifyFixture(t)
 			message := fixture.openVerifyCall()
 			testCase.mutate(message)
 
@@ -300,7 +300,7 @@ func TestOpenVerifyContradictingTheKeeperSnapshotIsStillRefused(t *testing.T) {
 				t.Fatal("a hint contradicting the Keeper snapshot was admitted")
 			}
 			if builderclient.IsRetryable(err) {
-				t.Fatalf("admitOutputAvailable() error = %v, want a permanent refusal", err)
+				t.Fatalf("admitOpenVerify() error = %v, want a permanent refusal", err)
 			}
 			if len(fixture.confirmer.received) != 0 || len(fixture.sender.handraises) != 0 {
 				t.Fatalf("confirmations = %#v published = %#v, want neither", fixture.confirmer.received, fixture.sender.handraises)
@@ -313,14 +313,26 @@ func TestOpenVerifyContradictingTheKeeperSnapshotIsStillRefused(t *testing.T) {
 // authority to read the commitments from, and that has to be a retryable
 // "not yet" rather than a permanent refusal that strands the task.
 func TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	snapshot := fixture.snapshot
 	snapshot.InferReceipt = chainclient.InferReceiptSnapshot{}
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: snapshot}
 
 	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
 	if err == nil || !builderclient.IsRetryable(err) {
-		t.Fatalf("admitOutputAvailable() error = %v, want a retryable not-yet", err)
+		t.Fatalf("admitOpenVerify() error = %v, want a retryable not-yet", err)
+	}
+}
+
+// A node with no frame sender cannot raise a hand however often the call is
+// redelivered, so that is a permanent refusal, not a retry loop.
+func TestOpenVerifyWithoutAFrameSenderIsPermanent(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
+	fixture.runner.cfg.VerifierSender = nil
+
+	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
+	if err == nil || !builderclient.IsPermanent(err) || !strings.Contains(err.Error(), "verifier frame sender is not configured") {
+		t.Fatalf("admitOpenVerify() error = %v, want a permanent missing-sender refusal", err)
 	}
 }
 
@@ -329,7 +341,7 @@ func TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable(t *testing.T) {
 // output. Both halves run production code: the chain admits the task, and the
 // real Nexus confirmer resolves the package from the chain-committed canonical
 // package hash with no locator anywhere in the path.
-func TestVerifyPathCompletesFromOpenVerifyWithNoOutputAvailableHint(t *testing.T) {
+func TestVerifyPathCompletesFromOpenVerifyAlone(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
 	if err != nil {
@@ -964,10 +976,10 @@ const freshnessTestModelID = "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f7
 // -- so the metadata round trip this handraise used to make was refused
 // NEXUS_DATA_UNAUTHORIZED and no handraise was ever sent.
 func TestVerifierHandraiseReachesTheTaskDataPlaneNotAtAll(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
-		t.Fatalf("OutputAvailable hint was refused: %v", err)
+		t.Fatalf("OpenVerify was refused: %v", err)
 	}
 	fixture.assertHandraised(t)
 	if len(fixture.confirmer.received) != 0 {
@@ -981,7 +993,7 @@ func TestVerifierHandraiseReachesTheTaskDataPlaneNotAtAll(t *testing.T) {
 // if a handraise needed one then §6's "candidate metadata does not come from the
 // data plane" would not be true of this code.
 func TestVerifierHandraiseNeedsNoOutputConfirmer(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.OutputConfirmer = nil
 
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
@@ -998,7 +1010,7 @@ func TestVerifierHandraiseNeedsNoOutputConfirmer(t *testing.T) {
 // OPEN_VERIFY with "output confirmation requires committed output and package
 // hashes", so no Cortex node could ever raise a Verifier hand.
 func TestVerifierHandraiseSucceedsWhenKeeperCommitsNoPackageHash(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	chain := fixture.snapshot
 	chain.InferReceipt.CanonicalOutputPackageHash = chainclient.HexHash{}
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: chain}
@@ -1018,7 +1030,7 @@ func TestVerifierHandraiseSucceedsWhenKeeperCommitsNoPackageHash(t *testing.T) {
 // exclusion refused it; and even refusing early, returning an error would only
 // make the Builder retry it.
 func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.LocalVerifierAddress = fixture.snapshot.Assignment.SelectedWorker
 
 	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
@@ -1040,15 +1052,6 @@ func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *t
 
 // testModelID is the Hash32 model id, as canonical hex, the daemon tests run.
 const testModelID = "0101010101010101010101010101010101010101010101010101010101010101"
-
-func mustModelIDBytes(t testing.TB, modelID string) []byte {
-	t.Helper()
-	raw, err := identity.ModelIDBytes(modelID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
 
 // seedAssignedInfer records the Worker responsibility an assignment snapshot
 // describes, the way the retired Keeper assignment effect did, and wakes the

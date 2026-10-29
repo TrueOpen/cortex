@@ -36,8 +36,9 @@ const (
 	WakeStartup WakeSource = "startup"
 	// WakeTick is the ordinary interval scan.
 	WakeTick WakeSource = "tick"
-	// WakeNotify is a scan a bus frame asked for, because the frame referred to
+	// WakeNotify is a scan a frame asked for, because the frame referred to
 	// chain state this node has not scanned up to yet.
+	// Reserved: the dispatch stream (S2+) wakes the poller.
 	WakeNotify WakeSource = "notify"
 )
 
@@ -126,7 +127,8 @@ func NewKeeperPoller(db *store.Store, keeper KeeperEventClient, reconciler *Reco
 // never fails: a full slot means a scan is already pending, and a poller that is
 // not running simply leaves the request in the slot for when it starts. Callers
 // use it when they hold evidence that the chain has moved past this node's
-// cursor -- a bus frame naming a task the local store does not know yet.
+// cursor -- a frame naming a task the local store does not know yet.
+// Reserved: the dispatch stream (S2+) wakes the poller.
 func (p *KeeperPoller) Wake(source WakeSource) {
 	if p == nil || p.wake == nil || source == "" {
 		return

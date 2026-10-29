@@ -759,3 +759,15 @@ func TestEvidenceCleanupPlanTableUsesCompactKVFields(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyModelRegisterRefusesTheRetiredViaBuilderMode(t *testing.T) {
+	server := &Server{service: New(ServiceConfig{ModelRegistry: modelregistry.NewRegistry(modelregistry.RegistryConfig{})})}
+	mux := http.NewServeMux()
+	server.registerRoutes(mux)
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/model/register-legacy", strings.NewReader(`{"mode":"via-builder"}`)))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "via-builder registration was retired with the NATS bus; use direct") {
+		t.Fatalf("via-builder registration response = %d %s", recorder.Code, recorder.Body.String())
+	}
+}

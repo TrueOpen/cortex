@@ -57,8 +57,9 @@ type OutputCommitments struct {
 // step at which Cortex touches the task-data plane as a Verifier.
 //
 // There is deliberately no metadata-only method beside it. V3 -- the candidate's
-// metadata check before a handraise -- is served entirely by the OPEN_VERIFY
-// control message plus the Keeper snapshot: data-plane-and-evidence-transfer.md §6 says candidate
+// metadata check before a handraise -- is served entirely by the OpenVerify
+// frame plus the Keeper snapshot (the spec text below predates the frame stream and
+// still names the retired ORDER_BROADCAST bus message): data-plane-and-evidence-transfer.md §6 says candidate
 // metadata is "broadcast by the ORDER_BROADCAST / OPEN_VERIFY control messages and
 // not obtained through the data query interface", and that GetTaskDataMetadata "is
 // not a prerequisite step of the normal Task flow". A ConfirmOutputMetadata

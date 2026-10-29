@@ -50,11 +50,11 @@ func TestOpenVerifyWithMismatchedTaskHashIsRefused(t *testing.T) {
 	}
 }
 
-// newVerifierOnlyFixture is newOutputAvailableFixture without the local task record:
+// newVerifierOnlyFixture is newOpenVerifyFixture without the local task record:
 // a node that holds only the VERIFIER duty and has never seen this task.
-func newVerifierOnlyFixture(t *testing.T) *outputAvailableFixture {
+func newVerifierOnlyFixture(t *testing.T) *openVerifyFixture {
 	t.Helper()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "verifier-only.kv"))
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 
 // openVerifyCall is the OPEN_VERIFY body a Builder sends when it agrees with the
 // chain: the Keeper receipt this fixture serves, restated (interface-and-topic-list.md §5.6).
-func (f *outputAvailableFixture) openVerifyCall() *nexusv1.OpenVerifyV1 {
+func (f *openVerifyFixture) openVerifyCall() *nexusv1.OpenVerifyV1 {
 	receiptHash := codec.Hash(f.snapshot.InferReceipt.InferReceiptHash)
 	taskHash := codec.Hash(f.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
 	taskID, _ := hex.DecodeString(f.taskID)
@@ -27,7 +27,7 @@ func (f *outputAvailableFixture) openVerifyCall() *nexusv1.OpenVerifyV1 {
 
 // deliverOpenVerify hands the call to the runner as the stream session will,
 // with builder-1 as the Builder the stream is bound to.
-func (f *outputAvailableFixture) deliverOpenVerify(t *testing.T, message *nexusv1.OpenVerifyV1) error {
+func (f *openVerifyFixture) deliverOpenVerify(t *testing.T, message *nexusv1.OpenVerifyV1) error {
 	t.Helper()
 	return f.runner.admitOpenVerify(context.Background(), "builder-1", message)
 }
@@ -37,7 +37,7 @@ func (f *outputAvailableFixture) deliverOpenVerify(t *testing.T, message *nexusv
 // handraise, or a node that received the call can never appear in the
 // assignment the call is collecting candidates for.
 func TestOpenVerifyReachesTheVerifierPrecheckAndPublishesTheHandraise(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OpenVerify was refused: %v", err)
@@ -45,18 +45,17 @@ func TestOpenVerifyReachesTheVerifierPrecheckAndPublishesTheHandraise(t *testing
 	fixture.assertHandraised(t)
 }
 
-// The call and the hint share one at-most-once claim, so a task that receives
-// both raises its hand once. They are independent messages on different tiers
-// and either can arrive first; two handraises for one verify round would be two
-// competing candidacies from the same operator.
-func TestOpenVerifyAndOutputAvailableRaiseOneHandBetweenThem(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+// Every OpenVerify delivery shares one at-most-once claim, so a task that
+// receives the frame twice raises its hand once; two handraises for one verify
+// round would be two competing candidacies from the same operator.
+func TestRepeatedOpenVerifyRaisesOneHand(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
 
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OpenVerify was refused: %v", err)
 	}
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
-		t.Fatalf("OutputAvailable after OpenVerify: %v", err)
+		t.Fatalf("second OpenVerify: %v", err)
 	}
 	fixture.assertHandraised(t)
 }
@@ -66,7 +65,7 @@ func TestOpenVerifyAndOutputAvailableRaiseOneHandBetweenThem(t *testing.T) {
 // Builder calling for verification of a receipt the chain does not hold is
 // calling for verification of nothing. Nothing may be published on that call.
 func TestOpenVerifyRefusesAnInferReceiptHashTheChainDoesNotHold(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	forged := fixture.openVerifyCall()
 	other := codec.HashBytes([]byte("some other receipt"))
 	forged.InferReceiptHash = append([]byte(nil), other[:]...)

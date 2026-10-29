@@ -80,13 +80,11 @@ func TestSelfTestFailureDoesNotProduceRegistrationMaterial(t *testing.T) {
 
 func TestRegisterBindsQuoteAuthorizationAndEnvelope(t *testing.T) {
 	tx := &recordingSubmitter{}
-	outbox := &recordingOutbox{}
 	svc := NewRegistry(RegistryConfig{
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
 		Submitter:   tx,
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 150, GasLimit: 50},
@@ -116,9 +114,6 @@ func TestRegisterBindsQuoteAuthorizationAndEnvelope(t *testing.T) {
 	}
 	if len(tx.submitted) != 1 {
 		t.Fatalf("submitted tx count = %d, want 1", len(tx.submitted))
-	}
-	if len(outbox.writes) != 0 {
-		t.Fatalf("outbox writes = %d, want 0 for direct submit", len(outbox.writes))
 	}
 	material := tx.submitted[0]
 	if material.ManifestHash != manifest.Hash {
@@ -155,13 +150,11 @@ func TestRegisterRejectsBadQuoteAndGrantBeforeSubmit(t *testing.T) {
 	for name, quote := range tests {
 		t.Run(name, func(t *testing.T) {
 			tx := &recordingSubmitter{}
-			outbox := &recordingOutbox{}
 			svc := NewRegistry(RegistryConfig{
 				NowHeight:   func() (uint64, error) { return 101, nil },
 				Treasury:    "trueopen1treasury",
 				FeeDenom:    "utrueopen",
 				Submitter:   tx,
-				Outbox:      outbox,
 				SelfTester:  passingSelfTest,
 				Signer:      fixedSigner,
 				FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 150, GasLimit: 50},
@@ -179,22 +172,17 @@ func TestRegisterRejectsBadQuoteAndGrantBeforeSubmit(t *testing.T) {
 			if len(tx.submitted) != 0 {
 				t.Fatalf("submitted tx count = %d, want 0", len(tx.submitted))
 			}
-			if len(outbox.writes) != 0 {
-				t.Fatalf("outbox writes = %d, want 0", len(outbox.writes))
-			}
 		})
 	}
 }
 
-func TestRegisterDryRunDoesNotWriteOutboxOrBroadcast(t *testing.T) {
+func TestRegisterDryRunDoesNotBroadcast(t *testing.T) {
 	tx := &recordingSubmitter{}
-	outbox := &recordingOutbox{}
 	svc := NewRegistry(RegistryConfig{
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
 		Submitter:   tx,
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 200, GasLimit: 50},
@@ -212,7 +200,7 @@ func TestRegisterDryRunDoesNotWriteOutboxOrBroadcast(t *testing.T) {
 			Amount:              100,
 			GasLimit:            50,
 		},
-		Mode:   SubmitViaBuilder,
+		Mode:   SubmitDirect,
 		DryRun: true,
 	})
 	if err != nil {
@@ -223,9 +211,6 @@ func TestRegisterDryRunDoesNotWriteOutboxOrBroadcast(t *testing.T) {
 	}
 	if len(tx.submitted) != 0 {
 		t.Fatalf("submitted tx count = %d, want 0", len(tx.submitted))
-	}
-	if len(outbox.writes) != 0 {
-		t.Fatalf("outbox writes = %d, want 0", len(outbox.writes))
 	}
 }
 
@@ -447,19 +432,19 @@ func TestRegistryConcurrentRegisterAndRead(t *testing.T) {
 	}
 }
 
-// TestRegisterSignsOnlyIntoTheEnvelopeTheOutboxPublishes pins where the
-// registration signature is allowed to land. It travels as
-// RegistrationMaterial.SignedEnvelope, which the builder outbox frames into the
-// published payload and its dedup digest; RegistrationMaterial.Message is only
+// TestRegisterSignsOnlyIntoTheSubmittedEnvelope pins where the registration
+// signature is allowed to land. It travels as
+// RegistrationMaterial.SignedEnvelope, which is what the submitter receives;
+// RegistrationMaterial.Message is only
 // the signing preimage, so a signature written back into it would be work no
 // reader can observe and would misdescribe what was actually signed.
-func TestRegisterSignsOnlyIntoTheEnvelopeTheOutboxPublishes(t *testing.T) {
-	outbox := &recordingOutbox{}
+func TestRegisterSignsOnlyIntoTheSubmittedEnvelope(t *testing.T) {
+	tx := &recordingSubmitter{}
 	svc := NewRegistry(RegistryConfig{
+		Submitter:   tx,
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 200, GasLimit: 50},
@@ -473,29 +458,29 @@ func TestRegisterSignsOnlyIntoTheEnvelopeTheOutboxPublishes(t *testing.T) {
 			TreasuryDestination: "trueopen1treasury", FeeKind: FeeKindRegistration,
 			Amount: 100, GasLimit: 50,
 		},
-		Mode: SubmitViaBuilder,
+		Mode: SubmitDirect,
 	})
 	if err != nil {
-		t.Fatalf("Register via-builder returned error: %v", err)
+		t.Fatalf("Register returned error: %v", err)
 	}
 	if result.Material.SignedEnvelope == "" {
-		t.Fatal("signed envelope is empty: the outbox payload would carry no signature")
+		t.Fatal("signed envelope is empty: the submission would carry no signature")
 	}
-	if len(outbox.writes) != 1 || outbox.writes[0].Material.SignedEnvelope != result.Material.SignedEnvelope {
-		t.Fatalf("outbox writes = %#v, want the signed envelope to reach the builder frame", outbox.writes)
+	if len(tx.submitted) != 1 || tx.submitted[0].SignedEnvelope != result.Material.SignedEnvelope {
+		t.Fatalf("submitted = %#v, want the signed envelope to reach the submitter", tx.submitted)
 	}
 	if got := result.Material.Message.RegistrantSignature; got != "" {
 		t.Fatalf("legacy message registrant_signature = %q, want empty: the message is only the signing preimage", got)
 	}
 }
 
-func TestViaBuilderWritesOutboxOnlyWithFeeAndGasAuthorization(t *testing.T) {
-	outbox := &recordingOutbox{}
+func TestRegisterSubmitsOnlyWithFeeAndGasAuthorization(t *testing.T) {
+	tx := &recordingSubmitter{}
 	svc := NewRegistry(RegistryConfig{
+		Submitter:   tx,
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 200, GasLimit: 50},
@@ -513,27 +498,21 @@ func TestViaBuilderWritesOutboxOnlyWithFeeAndGasAuthorization(t *testing.T) {
 			Amount:              100,
 			GasLimit:            50,
 		},
-		Mode: SubmitViaBuilder,
+		Mode: SubmitDirect,
 	})
 	if err != nil {
-		t.Fatalf("Register via-builder returned error: %v", err)
+		t.Fatalf("Register returned error: %v", err)
 	}
-	if result.OutboxID == "" {
-		t.Fatalf("OutboxID is empty")
-	}
-	if len(outbox.writes) != 1 {
-		t.Fatalf("outbox writes = %d, want 1", len(outbox.writes))
-	}
-	if !outbox.writes[0].Authorization.CoversRegistrationFee || !outbox.writes[0].Authorization.CoversGas {
-		t.Fatalf("authorization = %#v, want registration fee and gas coverage", outbox.writes[0].Authorization)
+	if result.TxID == "" || len(tx.submitted) != 1 {
+		t.Fatalf("TxID = %q submitted = %d, want one submission", result.TxID, len(tx.submitted))
 	}
 
-	outbox = &recordingOutbox{}
+	tx = &recordingSubmitter{}
 	svc = NewRegistry(RegistryConfig{
+		Submitter:   tx,
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 200, GasLimit: 50},
@@ -550,23 +529,21 @@ func TestViaBuilderWritesOutboxOnlyWithFeeAndGasAuthorization(t *testing.T) {
 			Amount:              100,
 			GasLimit:            50,
 		},
-		Mode: SubmitViaBuilder,
+		Mode: SubmitDirect,
 	})
 	if err == nil {
-		t.Fatalf("Register via-builder accepted insufficient gas authorization")
+		t.Fatalf("Register accepted insufficient gas authorization")
 	}
-	if len(outbox.writes) != 0 {
-		t.Fatalf("outbox writes = %d, want 0", len(outbox.writes))
+	if len(tx.submitted) != 0 {
+		t.Fatalf("submitted = %d, want 0", len(tx.submitted))
 	}
 }
 
-func TestViaBuilderRejectsMissingGasAuthorizationEvenWhenQuoteGasLimitIsHigh(t *testing.T) {
-	outbox := &recordingOutbox{}
+func TestRegisterRejectsMissingGasAuthorizationEvenWhenQuoteGasLimitIsHigh(t *testing.T) {
 	svc := NewRegistry(RegistryConfig{
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 200, GasLimit: 0},
@@ -584,23 +561,18 @@ func TestViaBuilderRejectsMissingGasAuthorizationEvenWhenQuoteGasLimitIsHigh(t *
 			Amount:              100,
 			GasLimit:            10_000,
 		},
-		Mode: SubmitViaBuilder,
+		Mode: SubmitDirect,
 	})
 	if err == nil {
-		t.Fatalf("Register via-builder accepted missing gas authorization")
-	}
-	if len(outbox.writes) != 0 {
-		t.Fatalf("outbox writes = %d, want 0", len(outbox.writes))
+		t.Fatalf("Register accepted missing gas authorization")
 	}
 }
 
-func TestViaBuilderRejectsGasAuthorizationBelowQuoteGasLimit(t *testing.T) {
-	outbox := &recordingOutbox{}
+func TestRegisterRejectsGasAuthorizationBelowQuoteGasLimit(t *testing.T) {
 	svc := NewRegistry(RegistryConfig{
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 200, GasLimit: 50},
@@ -618,13 +590,10 @@ func TestViaBuilderRejectsGasAuthorizationBelowQuoteGasLimit(t *testing.T) {
 			Amount:              100,
 			GasLimit:            60,
 		},
-		Mode: SubmitViaBuilder,
+		Mode: SubmitDirect,
 	})
 	if err == nil {
-		t.Fatalf("Register via-builder accepted gas authorization below quote gas limit")
-	}
-	if len(outbox.writes) != 0 {
-		t.Fatalf("outbox writes = %d, want 0", len(outbox.writes))
+		t.Fatalf("Register accepted gas authorization below quote gas limit")
 	}
 }
 
@@ -745,15 +714,6 @@ func (c *concurrentSubmitter) SubmitRegistration(_ context.Context, material Reg
 	return "tx-" + material.ManifestHash, nil
 }
 
-type recordingOutbox struct {
-	writes []OutboxMessage
-}
-
-func (r *recordingOutbox) WriteRegistration(_ context.Context, msg OutboxMessage) (string, error) {
-	r.writes = append(r.writes, msg)
-	return "outbox-" + msg.Material.ManifestHash, nil
-}
-
 type recordingSupportConfirmer struct {
 	materials []SupportMaterial
 }
@@ -776,13 +736,11 @@ func TestRegisterFailsClosedWhenCurrentHeightIsUnavailable(t *testing.T) {
 	for name, nowHeight := range unavailable {
 		t.Run(name, func(t *testing.T) {
 			tx := &recordingSubmitter{}
-			outbox := &recordingOutbox{}
 			svc := NewRegistry(RegistryConfig{
 				NowHeight:   nowHeight,
 				Treasury:    "trueopen1treasury",
 				FeeDenom:    "utrueopen",
 				Submitter:   tx,
-				Outbox:      outbox,
 				SelfTester:  passingSelfTest,
 				Signer:      fixedSigner,
 				FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 150, GasLimit: 50},
@@ -801,8 +759,8 @@ func TestRegisterFailsClosedWhenCurrentHeightIsUnavailable(t *testing.T) {
 			if err == nil {
 				t.Fatalf("Register accepted a quote while the chain height was unavailable")
 			}
-			if len(tx.submitted) != 0 || len(outbox.writes) != 0 {
-				t.Fatalf("submitted=%d outbox=%d, want no side effects", len(tx.submitted), len(outbox.writes))
+			if len(tx.submitted) != 0 {
+				t.Fatalf("submitted=%d, want no side effects", len(tx.submitted))
 			}
 		})
 	}
@@ -810,13 +768,11 @@ func TestRegisterFailsClosedWhenCurrentHeightIsUnavailable(t *testing.T) {
 
 func TestRegisterStillAcceptsUnexpiredQuoteWithKnownHeight(t *testing.T) {
 	tx := &recordingSubmitter{}
-	outbox := &recordingOutbox{}
 	svc := NewRegistry(RegistryConfig{
 		NowHeight:   func() (uint64, error) { return 100, nil },
 		Treasury:    "trueopen1treasury",
 		FeeDenom:    "utrueopen",
 		Submitter:   tx,
-		Outbox:      outbox,
 		SelfTester:  passingSelfTest,
 		Signer:      fixedSigner,
 		FeeGrant:    StaticFeeGrant{Granter: "operator", Amount: 150, GasLimit: 50},

@@ -729,7 +729,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
 
-	serviceAuthorizationNonce, _, err := w.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	serviceAuthorizationNonce, _, err := w.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
@@ -1534,7 +1534,7 @@ func (w *Worker) confirmedBuilders(ctx context.Context, event chainclient.Assign
 	if len(confirmations) == 0 {
 		return done, nil
 	}
-	_, currentHeight, err := w.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	_, currentHeight, err := w.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read committed height for retained storage confirmation: %w", err)
 	}
@@ -1649,5 +1649,9 @@ func (w *Worker) ensureOutputUploaded(ctx context.Context, event chainclient.Ass
 			return err
 		}
 	}
+	w.cfg.Trace.Event("output_uploaded",
+		tasktrace.Str("task", event.TaskID),
+		tasktrace.Hash("output_hash", outputHash),
+		tasktrace.Bool("already_confirmed", confirmed))
 	return nil
 }

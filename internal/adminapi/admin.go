@@ -128,6 +128,12 @@ type ModelRegisterResponse struct {
 	DryRun       bool                                  `json:"dry_run"`
 }
 
+// retiredViaBuilderMode is the registration mode that published the
+// registration on the NATS bus. It is refused by name so a caller learns why.
+const retiredViaBuilderMode modelregistry.SubmitMode = "via-builder"
+
+var errViaBuilderRetired = errors.New("via-builder registration was retired with the NATS bus; use direct")
+
 type modelRegisterWireRequest struct {
 	ModelRegisterRequest
 	Quote *modelregistry.FeeQuote  `json:"quote,omitempty"`
@@ -138,7 +144,6 @@ type modelRegisterWireRequest struct {
 type modelRegisterWireResponse struct {
 	ModelRegisterResponse
 	TxID     string                              `json:"tx_id,omitempty"`
-	OutboxID string                              `json:"outbox_id,omitempty"`
 	Material *modelregistry.RegistrationMaterial `json:"material,omitempty"`
 }
 
@@ -524,6 +529,9 @@ func (s *Server) handleCurrentModelSelfTest(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleModelRegister(w http.ResponseWriter, r *http.Request) {
 	var req modelRegisterWireRequest
 	s.handle(w, r, &req, func(ctx context.Context) (any, error) {
+		if req.Mode == retiredViaBuilderMode {
+			return nil, errViaBuilderRetired
+		}
 		registryReq := modelregistry.RegisterRequest{
 			Manifest:               req.Manifest,
 			ModelRegistrationFee:   req.ModelRegistrationFee,
@@ -546,8 +554,7 @@ func (s *Server) handleModelRegister(w http.ResponseWriter, r *http.Request) {
 				Profile:      result.ProfileStage,
 				DryRun:       result.DryRun,
 			},
-			TxID:     result.TxID,
-			OutboxID: result.OutboxID,
+			TxID: result.TxID,
 		}
 		if req.Quote != nil {
 			response.Material = &result.Material
@@ -777,7 +784,6 @@ func (c *Client) ModelRegister(ctx context.Context, req modelregistry.RegisterRe
 		ProfileStage: out.Profile,
 		DryRun:       out.DryRun,
 		TxID:         out.TxID,
-		OutboxID:     out.OutboxID,
 	}
 	if out.Material != nil {
 		result.Material = *out.Material

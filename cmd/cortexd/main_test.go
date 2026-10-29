@@ -394,7 +394,7 @@ func TestDaemonOpensConfiguredStore(t *testing.T) {
 	}
 }
 
-func TestDaemonBackedRegistrationSupportsDirectAndViaBuilder(t *testing.T) {
+func TestDaemonBackedRegistrationSupportsDirectAndRefusesViaBuilder(t *testing.T) {
 	socketPath := startDaemonForTest(t)
 	client := adminapi.NewClient(socketPath)
 	manifest := mustDaemonManifest(t)
@@ -420,16 +420,13 @@ func TestDaemonBackedRegistrationSupportsDirectAndViaBuilder(t *testing.T) {
 		t.Fatalf("direct TxID is empty: %#v", direct)
 	}
 
-	viaBuilder, err := client.ModelRegister(context.Background(), modelregistry.RegisterRequest{
+	_, err = client.ModelRegister(context.Background(), modelregistry.RegisterRequest{
 		Manifest: manifest,
 		Quote:    quote,
-		Mode:     modelregistry.SubmitViaBuilder,
+		Mode:     modelregistry.SubmitMode("via-builder"),
 	})
-	if err != nil {
-		t.Fatalf("via-builder ModelRegister returned error: %v", err)
-	}
-	if viaBuilder.OutboxID == "" {
-		t.Fatalf("via-builder OutboxID is empty: %#v", viaBuilder)
+	if err == nil || !strings.Contains(err.Error(), "via-builder registration was retired with the NATS bus; use direct") {
+		t.Fatalf("via-builder ModelRegister error = %v, want the retirement refusal", err)
 	}
 }
 
@@ -516,23 +513,6 @@ func TestDaemonRealModeExposesBoundaryBackedModelRegistry(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "registration signer is required") {
 		t.Fatalf("ModelRegister direct error = %v, want offline operator signer requirement", err)
-	}
-
-	_, err = client.ModelRegister(context.Background(), modelregistry.RegisterRequest{
-		Manifest: mustDaemonManifest(t),
-		Quote: modelregistry.FeeQuote{
-			Height:              1,
-			ExpiresAtHeight:     30,
-			Denom:               "utrueopen",
-			TreasuryDestination: "trueopen1treasury",
-			FeeKind:             modelregistry.FeeKindRegistration,
-			Amount:              100,
-			GasLimit:            50,
-		},
-		Mode: modelregistry.SubmitViaBuilder,
-	})
-	if err == nil || !strings.Contains(err.Error(), "registration signer is required") {
-		t.Fatalf("ModelRegister via-builder error = %v, want offline operator signer requirement", err)
 	}
 }
 
@@ -664,10 +644,10 @@ func TestDaemonRealModeRejectsOnlineOperatorRegistration(t *testing.T) {
 			Amount:              100,
 			GasLimit:            50,
 		},
-		Mode: modelregistry.SubmitViaBuilder,
+		Mode: modelregistry.SubmitDirect,
 	})
 	if err == nil || !strings.Contains(err.Error(), "registration signer is required") {
-		t.Fatalf("ModelRegister via-builder error = %v, want offline operator signer requirement", err)
+		t.Fatalf("ModelRegister direct error = %v, want offline operator signer requirement", err)
 	}
 }
 
@@ -1406,15 +1386,6 @@ func assertReadyzStatus(t *testing.T, health *observability.Health, want int) {
 	}
 }
 
-func mustDaemonJSON(t *testing.T, value any) []byte {
-	t.Helper()
-	b, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("json.Marshal returned error: %v", err)
-	}
-	return b
-}
-
 func fakeDaemonConfig(socketPath string) string {
 	return fakeDaemonConfigWithStore(socketPath, "__KV_PATH__")
 }
@@ -1550,48 +1521,34 @@ func mustCurrentDaemonManifest(t *testing.T) modelregistry.CurrentManifest {
 	return manifest
 }
 
-// The startup barrier and the runner-error collector must not race as two
-// independent consumers. If a runner other than the barrier participant has
-// already failed and its error is queued, the group is failing, and the
-// workload must never be reported as running even though the subscription
-// itself succeeded.
-//
-// Note on scope: an exit only becomes observable to the group when the runner
-// goroutine records it, so a subscription completing in the same instant a
-// sibling returns is a genuine tie that no ordering can resolve -- and
-// reporting ready there is correct, because nothing had failed yet. What must
-// hold is that an exit the group could already have seen is never overtaken.
-func TestWorkloadNotReportedWhenAnotherRunnerHasFailed(t *testing.T) {
-	const iterations = 500
-	var violations atomic.Int64
-	for i := 0; i < iterations; i++ {
-		barrier := newStartupBarrier()
-		subscribed := barrier.expect()
-		failed := make(chan struct{})
-
-		runners := []runtimeRunner{
-			// Stands in for builderRunner/taskRunner failing during startup.
-			func(context.Context) error {
-				defer close(failed)
-				return errors.New("builder runner failed during startup")
-			},
-			// Stands in for a runner finishing its startup phase, after
-			// the sibling failure has had time to reach the group.
-			func(ctx context.Context) error {
-				<-failed
-				time.Sleep(100 * time.Microsecond)
-				subscribed()
-				<-ctx.Done()
-				return nil
-			},
-		}
-		barrier.seal()
-		_ = runRuntimeRunnerGroupWithStarted(context.Background(), runners, func() {}, func() {
-			violations.Add(1)
-		}, barrier)
+// The workload is reported as running once its runners are launched, and the
+// group returns the first runner error.
+func TestRuntimeRunnerGroupReportsStartAndReturnsTheFirstError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var starts atomic.Int64
+	done := make(chan error, 1)
+	go func() {
+		done <- runRuntimeRunnerGroupWithStarted(ctx, []runtimeRunner{func(ctx context.Context) error {
+			<-ctx.Done()
+			return nil
+		}}, func() { starts.Add(1) })
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for starts.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
 	}
-	if got := violations.Load(); got != 0 {
-		t.Fatalf("workload reported as running after a sibling runner had failed: %d / %d", got, iterations)
+	cancel()
+	if err := <-done; err != nil || starts.Load() != 1 {
+		t.Fatalf("healthy group: err=%v starts=%d, want nil and one start", err, starts.Load())
+	}
+
+	want := errors.New("runner failed")
+	err := runRuntimeRunnerGroupWithStarted(context.Background(), []runtimeRunner{
+		func(context.Context) error { return want },
+		func(ctx context.Context) error { <-ctx.Done(); return nil },
+	}, nil)
+	if !errors.Is(err, want) {
+		t.Fatalf("failing group error = %v, want %v", err, want)
 	}
 }
 
@@ -1896,22 +1853,6 @@ func captureCortexdLogs(t *testing.T) *syncBuffer {
 	logged := &syncBuffer{}
 	logtest.Install(t, observability.NewTextLogger(logged), log.Default())
 	return logged
-}
-
-func waitForCortexdLogRecord(t *testing.T, logged *syncBuffer, message string) string {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		for _, line := range strings.Split(logged.String(), "\n") {
-			if strings.Contains(line, "msg=") && strings.Contains(line, message) {
-				return line
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("log never reported %q:\n%s", message, logged.String())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
 }
 
 func assertCortexdLogRecord(t *testing.T, line string, level slog.Level, message string) {

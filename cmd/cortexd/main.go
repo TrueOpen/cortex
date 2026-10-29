@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -638,30 +637,20 @@ func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime
 				if err := rt.ActivateWorkload(readiness.ServiceAddress, readiness.ServicePubkey); err != nil {
 					return err
 				}
-				barrier := newStartupBarrier()
-				workload, workloadCleanup, err := workloadRunnersWithTaskRunner(cfg, rt, barrier, taskRunner)
-				if err != nil {
-					return err
-				}
-				barrier.seal()
-				return runRuntimeRunnerGroupWithStarted(ctx, workload, workloadCleanup, started, barrier)
+				return runRuntimeRunnerGroupWithStarted(ctx, workloadRunners(rt, taskRunner), started)
 			},
 		})
 		runners = append(runners, controller.Run)
 		return runners, cleanup, nil
 	}
 
-	legacyWorkload, legacyCleanup, err := workloadRunnersWithTaskRunner(cfg, rt, nil, taskRunner)
-	if err != nil {
-		return nil, cleanup, err
-	}
+	legacyWorkload := workloadRunners(rt, taskRunner)
 	// Without dynamic readiness the workload runners start unconditionally and
 	// run for the process lifetime, so the workload is live from here on.
 	if health != nil && len(legacyWorkload) > 0 {
 		_ = health.SetDependency(observability.DependencyWorkload, true)
 	}
 	runners = append(runners, legacyWorkload...)
-	cleanup = legacyCleanup
 	return runners, cleanup, nil
 }
 
@@ -698,87 +687,14 @@ func readinessObserver(health *observability.Health, readinessLog *observability
 	}
 }
 
-func workloadRunnersWithTaskRunner(cfg config.Config, rt *daemon.Runtime, barrier *startupBarrier, taskRunner *daemon.TaskRunner) ([]runtimeRunner, func(), error) {
-	if rt == nil {
-		return nil, func() {}, nil
+func workloadRunners(rt *daemon.Runtime, taskRunner *daemon.TaskRunner) []runtimeRunner {
+	if rt == nil || taskRunner == nil {
+		return nil
 	}
-	var runners []runtimeRunner
-	if taskRunner != nil {
-		runners = append(runners, taskRunner.Run)
-	}
-	return runners, func() {}, nil
+	return []runtimeRunner{taskRunner.Run}
 }
 
-// quoteNexusLogValue keeps these formatters' escaping identical to the
-// readiness log's: one rule for every key=value line cortexd emits.
-func quoteNexusLogValue(value string) string {
-	return observability.QuoteLogValue(value)
-}
-
-// startupBarrier releases once every runner with a startup phase has reported
-// that phase complete. Workload readiness waits on it, because spawning a
-// runner goroutine is not the same as the runner having done its job: a runner
-// that establishes its connections inside its goroutine is not serving until
-// they exist, no matter how many goroutines are alive.
-type startupBarrier struct {
-	mu      sync.Mutex
-	pending int
-	ready   chan struct{}
-	closed  bool
-}
-
-func newStartupBarrier() *startupBarrier {
-	return &startupBarrier{ready: make(chan struct{})}
-}
-
-// expect registers a startup phase and returns the signal that completes it.
-func (b *startupBarrier) expect() func() {
-	if b == nil {
-		return func() {}
-	}
-	b.mu.Lock()
-	b.pending++
-	b.mu.Unlock()
-	var once sync.Once
-	return func() { once.Do(b.complete) }
-}
-
-func (b *startupBarrier) complete() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.pending--
-	b.releaseLocked()
-}
-
-// seal declares that no further startup phases will be registered, releasing
-// the barrier when there were none.
-func (b *startupBarrier) seal() {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.releaseLocked()
-}
-
-func (b *startupBarrier) releaseLocked() {
-	if b.pending == 0 && !b.closed {
-		b.closed = true
-		close(b.ready)
-	}
-}
-
-func (b *startupBarrier) Ready() <-chan struct{} {
-	if b == nil {
-		closed := make(chan struct{})
-		close(closed)
-		return closed
-	}
-	return b.ready
-}
-
-func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunner, cleanup func(), started func(), barrier *startupBarrier) error {
-	defer cleanup()
+func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunner, started func()) error {
 	if len(runners) == 0 {
 		<-ctx.Done()
 		return nil
@@ -809,48 +725,17 @@ func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunn
 		}
 	}
 
-	// Startup phase. One loop consumes both runner exits and the startup
-	// barrier, so a runner that has already exited is always observed before
-	// the workload is reported as running. Racing a separate barrier goroutine
-	// against this collector let a completed subscription report readiness
-	// while another runner's failure was still sitting unread in errCh.
-	startupPending := started != nil
-	ready := barrier.Ready()
-	for startupPending && remaining > 0 {
-		// An already-finished runner wins over the barrier: its exit happened
-		// first, whether or not its error has been collected yet.
+	// The workload is reported as running unless a runner has already
+	// returned: its exit happened first, whether or not its error has been
+	// collected yet.
+	if started != nil {
 		select {
 		case err := <-errCh:
 			collect(err)
-			startupPending = false
-			continue
 		default:
-			if exited.Load() > 0 {
-				// A runner has returned; its error is on its way. Do not report
-				// the workload as running, and let the collector below drain.
-				startupPending = false
-				continue
+			if exited.Load() == 0 {
+				started()
 			}
-		}
-		select {
-		case err := <-errCh:
-			collect(err)
-			// Any runner exiting during startup means the group is going down,
-			// so the workload is not serving and is never reported as such.
-			startupPending = false
-		case <-ready:
-			// A runner may have exited while the barrier was releasing. Consume
-			// it if its error already landed; otherwise the exit counter still
-			// reveals that one returned, so readiness is withheld either way.
-			select {
-			case err := <-errCh:
-				collect(err)
-			default:
-				if exited.Load() == 0 {
-					started()
-				}
-			}
-			startupPending = false
 		}
 	}
 
@@ -1069,7 +954,6 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 		registryConfig.Signer = fakeModelRegistrationSigner
 		registryConfig.FeeGrant = modelregistry.StaticFeeGrant{Granter: "operator", Amount: 1_000_000, GasLimit: 1_000_000}
 		registryConfig.Submitter = fakeRegistrationSubmitter{}
-		registryConfig.Outbox = fakeRegistrationOutbox{}
 		return modelregistry.NewRegistry(registryConfig)
 	}
 	if rt == nil || rt.Store == nil {
@@ -1099,7 +983,7 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 			ChainID: cfg.ChainID, OperatorAddress: cfg.LocalIdentity.OperatorAddress,
 			Signer: signingClient, ServiceKeyRef: cfg.LocalIdentity.ServiceKeyRef, ServiceAddress: rt.ServiceAddress,
 			ServiceIdentity: func(ctx context.Context) (uint64, uint64, uint64, uint64, error) {
-				nonce, height, err := rt.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+				nonce, height, err := rt.TaskDataAuth.CommittedServiceBinding(ctx)
 				if err != nil {
 					return 0, 0, 0, 0, err
 				}
@@ -1214,10 +1098,4 @@ type fakeRegistrationSubmitter struct{}
 
 func (fakeRegistrationSubmitter) SubmitRegistration(_ context.Context, material modelregistry.RegistrationMaterial) (string, error) {
 	return "tx-" + material.ManifestHash, nil
-}
-
-type fakeRegistrationOutbox struct{}
-
-func (fakeRegistrationOutbox) WriteRegistration(_ context.Context, msg modelregistry.OutboxMessage) (string, error) {
-	return "outbox-" + msg.Material.ManifestHash, nil
 }

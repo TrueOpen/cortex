@@ -26,7 +26,7 @@ import (
 // ORDER_BROADCAST. Without it, a V7a fetch has nothing left but "receiving Builder
 // operator is required" and no candidate address anywhere in the log.
 func TestOpenVerifyFallsBackToTheSendingBuilderForOutputConfirmation(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	if fixture.snapshot.Assignment.BuilderOperatorAddress != "" {
 		t.Fatal("test premise: the on-chain snapshot carries no Builder address")
 	}
@@ -49,7 +49,7 @@ func TestOpenVerifyFallsBackToTheSendingBuilderForOutputConfirmation(t *testing.
 // this node is formally selected.
 func TestVerifyReadyCarriesOpenVerifyBuilderReceiptAndSelectionBeacon(t *testing.T) {
 	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OpenVerify was refused: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestVerifyReadyCarriesOpenVerifyBuilderReceiptAndSelectionBeacon(t *testing
 
 func TestVerifyReadyDoesNotInheritABuilderFromDifferentReceiptFacts(t *testing.T) {
 	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestVerifyReadyDoesNotInheritABuilderFromDifferentReceiptFacts(t *testing.T
 	}
 }
 
-func formalVerifyReadySnapshot(t *testing.T, fixture *outputAvailableFixture) (codec.Hash, chainclient.TaskSnapshot, codec.Hash) {
+func formalVerifyReadySnapshot(t *testing.T, fixture *openVerifyFixture) (codec.Hash, chainclient.TaskSnapshot, codec.Hash) {
 	t.Helper()
 	ctx := context.Background()
 	taskHash := codec.Hash(fixture.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
@@ -138,23 +138,23 @@ func formalVerifyReadySnapshot(t *testing.T, fixture *outputAvailableFixture) (c
 func TestOpenVerifyContradictionsNeverPersistTheDataReadyBuilder(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*outputAvailableFixture, *nexusv1.OpenVerifyV1)
+		mutate func(*openVerifyFixture, *nexusv1.OpenVerifyV1)
 	}{
-		{name: "missing task hash", mutate: func(_ *outputAvailableFixture, call *nexusv1.OpenVerifyV1) { call.TaskHash = nil }},
-		{name: "wrong task hash with local record", mutate: func(_ *outputAvailableFixture, call *nexusv1.OpenVerifyV1) {
+		{name: "missing task hash", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) { call.TaskHash = nil }},
+		{name: "wrong task hash with local record", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) {
 			wrong := codec.HashBytes([]byte("wrong-task-hash"))
 			call.TaskHash = append([]byte(nil), wrong[:]...)
 		}},
-		{name: "wrong model", mutate: func(_ *outputAvailableFixture, call *nexusv1.OpenVerifyV1) {
+		{name: "wrong model", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) {
 			call.ModelId = bytes.Repeat([]byte{0x0f}, 32)
 		}},
-		{name: "wrong profile", mutate: func(_ *outputAvailableFixture, call *nexusv1.OpenVerifyV1) { call.ProfileVersion = 2 }},
-		{name: "wrong round", mutate: func(_ *outputAvailableFixture, call *nexusv1.OpenVerifyV1) { call.VerifyRound = 2 }},
+		{name: "wrong profile", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) { call.ProfileVersion = 2 }},
+		{name: "wrong round", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) { call.VerifyRound = 2 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			fixture := newOutputAvailableFixture(t)
+			fixture := newOpenVerifyFixture(t)
 			call := fixture.openVerifyCall()
 			test.mutate(fixture, call)
 			if err := fixture.deliverOpenVerify(t, call); err == nil {
@@ -178,7 +178,7 @@ func TestOpenVerifyContradictionsNeverPersistTheDataReadyBuilder(t *testing.T) {
 
 func TestVerifyReadySurfacesAMalformedVerifierAdmission(t *testing.T) {
 	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	taskHash, ready, _ := formalVerifyReadySnapshot(t, fixture)
 	if err := fixture.runner.cfg.Store.PutRaw(ctx, layout.VerifyCandidateKey(layout.StoredHash(taskHash), 1), []byte("{")); err != nil {
 		t.Fatal(err)

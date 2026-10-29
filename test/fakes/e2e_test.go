@@ -78,7 +78,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		NowHeight:  func() (uint64, error) { return 100, nil },
 		Treasury:   "treasury-1",
 		FeeDenom:   "utrueopen",
-		Outbox:     registrationOutbox{},
 		SelfTester: passingSelfTest,
 		Signer: func(context.Context, modelregistry.RegistrationMaterial) (string, error) {
 			return strings.Repeat("ab", 64), nil
@@ -118,13 +117,14 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 			Amount:              10,
 			GasLimit:            10,
 		},
-		Mode: modelregistry.SubmitViaBuilder,
+		Mode:   modelregistry.SubmitDirect,
+		DryRun: true,
 	})
 	if err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
-	if registration.ManifestHash != manifest.Hash || registration.OutboxID == "" || registration.TxID != "" {
-		t.Fatalf("registration = %#v, want manifest hash and Builder outbox", registration)
+	if registration.ManifestHash != manifest.Hash || !registration.DryRun || registration.Material.SignedEnvelope == "" || registration.TxID != "" {
+		t.Fatalf("registration = %#v, want a signed dry-run registration", registration)
 	}
 	status, err := registry.Support(ctx, modelregistry.SupportRequest{ModelID: manifest.ModelID, Supported: true, DryRun: true})
 	if err != nil {
@@ -276,7 +276,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		VerifierAddress:           verifierAddress,
 		ModelServiceID:            "fake-model-service",
 		Model:                     model,
-		Builder:                   builder,
 		Persistence:               verifierPersistence{persistence},
 		ChainID:                   "chain-fake",
 		SignerAddress:             verifierAddress,
@@ -479,7 +478,6 @@ func TestFakeBackedFlowRejectsNonCanonicalAssignmentTaskID(t *testing.T) {
 		WorkerAddress:             "worker-1",
 		ModelServiceID:            "fake-model-service",
 		Model:                     model,
-		Builder:                   builder,
 		InferDeadlineDeltaHeights: 20,
 		ChainID:                   "chain-fake",
 		SignerAddress:             "worker-1",
@@ -984,12 +982,6 @@ func passingSelfTest(_ context.Context, manifest modelregistry.Manifest) (modelr
 			ManifestHash: manifest.Hash,
 		},
 	}, nil
-}
-
-type registrationOutbox struct{}
-
-func (registrationOutbox) WriteRegistration(_ context.Context, msg modelregistry.OutboxMessage) (string, error) {
-	return "outbox-" + msg.Material.ManifestHash, nil
 }
 
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {

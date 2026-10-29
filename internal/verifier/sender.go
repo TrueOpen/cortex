@@ -10,6 +10,11 @@ import (
 // FrameSender delivers Verifier messages to Builders. Phase 1 carries them on
 // every DispatchStream the node holds (internal/dispatchstream); the Phase 0
 // bus subjects are retired.
+//
+// Error contract: a delivery failure is retryable unless the sender marks it
+// with builderclient.Permanent. The Verifier passes a Permanent error through
+// unchanged and wraps every other error as builderclient.Retryable, so a
+// sender only has to mark the refusals no retry can fix.
 type FrameSender interface {
 	SendVerifierHandraise(context.Context, *taskv1.VerifierHandraiseV1) error
 }

@@ -112,9 +112,9 @@ func (w *stepVerifierWindow) close() {
 // newRedriveFixture is the Verifier-side world of the devnet failure: a Builder
 // whose OPEN_VERIFY arrives before the candidate window exists, and a chain
 // whose height the test moves by hand.
-func newRedriveFixture(t *testing.T) (*outputAvailableFixture, *movableChainStatus, *stepVerifierWindow) {
+func newRedriveFixture(t *testing.T) (*openVerifyFixture, *movableChainStatus, *stepVerifierWindow) {
 	t.Helper()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	chain := &movableChainStatus{height: 10, chainID: "chain"}
 	fixture.runner.cfg.ChainStatus = chain
 	window := &stepVerifierWindow{

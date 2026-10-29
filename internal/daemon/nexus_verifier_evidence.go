@@ -178,7 +178,7 @@ func (p nexusVerifierEvidencePublisher) verifierConfirmationHeight(ctx context.C
 		}
 		return height, nil
 	}
-	_, height, err := p.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	_, height, err := p.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	return height, err
 }
 

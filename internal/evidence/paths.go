@@ -65,7 +65,7 @@ const (
 // classForKind maps an artifact kind onto its publication class. INPUT and
 // OUTPUT are the two singleton classes the protocol names; every other kind
 // Cortex keeps locally - evidence openings, signed responsibility material,
-// settlement material, outbox payloads - is an evidence artifact.
+// settlement material, storage confirmations - is an evidence artifact.
 func classForKind(kind string) objectClass {
 	switch kind {
 	case string(layout.ArtifactTaskInput), "worker-input":

@@ -38,6 +38,7 @@ type WorkerDecision struct {
 	AuditSummary                    string
 }
 
+// EvaluateWorkerPrecheck is reserved for dispatch offer admission (S4).
 func EvaluateWorkerPrecheck(in WorkerPrecheckInput) WorkerDecision {
 	decision := WorkerDecision{
 		SupportEligibility:              in.SupportState,

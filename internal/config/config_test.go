@@ -426,10 +426,6 @@ health: {}
 	}
 }
 
-func envelopeBoundMS(value uint64) *uint64 {
-	return &value
-}
-
 func TestLoadFileEmptyYAMLUsesDefaultsThenValidates(t *testing.T) {
 	path := writeConfig(t, "")
 
@@ -1719,7 +1715,10 @@ nexus:
 }
 
 func TestRetiredNATSFieldsAreRejected(t *testing.T) {
-	for _, field := range []string{"nats_url", "nats_user_key_file", "jetstream_stream", "envelope_auth_mode"} {
+	for _, field := range []string{
+		"nats_url", "nats_ca_file", "nats_creds_file", "nats_user_key_file", "jetstream_stream",
+		"envelope_auth_mode", "envelope_ttl_ms", "envelope_clock_skew_ms", "subscribe_models", "subscribe_tasks",
+	} {
 		path := writeConfig(t, `
 chain_id: trueopen-devnet-1
 admin:
@@ -1739,8 +1738,9 @@ nexus:
   `+field+`: x
 `)
 		_, err := LoadFileWithOverrides(path, nil)
-		if err == nil || !strings.Contains(err.Error(), field) {
-			t.Fatalf("nexus.%s is retired with the bus and must be rejected, got %v", field, err)
+		want := "nexus." + field + " was retired with the NATS bus (wire 916e393); remove it"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("nexus.%s is retired with the bus and must be rejected with %q, got %v", field, want, err)
 		}
 	}
 }

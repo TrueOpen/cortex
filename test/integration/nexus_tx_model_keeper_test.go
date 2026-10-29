@@ -124,7 +124,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		NowHeight:  func() (uint64, error) { return 100, nil },
 		Treasury:   "treasury-1",
 		FeeDenom:   "utrueopen",
-		Outbox:     integrationRegistrationOutbox{},
 		SelfTester: passingSelfTest,
 		Signer: func(context.Context, modelregistry.RegistrationMaterial) (string, error) {
 			return strings.Repeat("ab", 64), nil
@@ -182,13 +181,14 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 			Amount:              10,
 			GasLimit:            50,
 		},
-		Mode: modelregistry.SubmitViaBuilder,
+		Mode:   modelregistry.SubmitDirect,
+		DryRun: true,
 	})
 	if err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
-	if registration.OutboxID == "" || registration.TxID != "" || len(rpc.broadcasts) != 0 {
-		t.Fatalf("registration = %#v broadcasts=%d, want Builder outbox without unregistered Keeper tx", registration, len(rpc.broadcasts))
+	if !registration.DryRun || registration.Material.SignedEnvelope == "" || registration.TxID != "" || len(rpc.broadcasts) != 0 {
+		t.Fatalf("registration = %#v broadcasts=%d, want a signed dry run without unregistered Keeper tx", registration, len(rpc.broadcasts))
 	}
 	intent, err := registry.PrepareOperatorSupportIntent(ctx, modelregistry.SupportRequest{ModelID: manifest.ModelID, ProfileVersion: "1", Supported: true})
 	if err != nil || intent.Message.OperatorAddress != workerAddress {
@@ -450,7 +450,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		VerifierAddress: verifierAddr,
 		ModelServiceID:  modelSvcID,
 		Model:           model,
-		Builder:         builder,
 		Persistence:     verifierPersistence{persistence},
 		ChainID:         chainID,
 		SignerAddress:   verifierServiceAddress,
@@ -812,12 +811,6 @@ func (r *workerSnapshotReader) TaskSnapshot(ctx context.Context, taskID string) 
 		},
 		CurrentContract: true,
 	}, nil
-}
-
-type integrationRegistrationOutbox struct{}
-
-func (integrationRegistrationOutbox) WriteRegistration(_ context.Context, msg modelregistry.OutboxMessage) (string, error) {
-	return "registration-" + msg.Material.ManifestHash, nil
 }
 
 // integrationSettlementMessage builds the frozen MsgSettleTask: task_id plus the

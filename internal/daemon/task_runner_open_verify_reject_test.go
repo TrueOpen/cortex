@@ -20,7 +20,7 @@ import (
 // behaviour is to report an error carrying the reject code and keep the redelivery
 // alive until the chain sweeps the task at its deadline.
 func TestOpenVerifyPrecheckRejectionIsReportedAndRetried(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	noSlots := staticEligibility{verifierInput: policy.VerifierPrecheckInput{
 		ChainSynced: true, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 0, SupportFreshnessWindow: 20,
 		SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 0,

@@ -92,19 +92,6 @@ func newNexusHTTPClient(base *http.Client, timeout time.Duration) *http.Client {
 	return client
 }
 
-// NewNexusHTTPClient builds the same kind of Nexus HTTP client the task-data client
-// uses: bounded timeouts, a same-origin redirect policy, and a transport pooled by
-// tls_pubkey_hash (see tlspin.go). Callers outside this package that send ordinary
-// HTTP requests to the same nexus ingress (natsidentity's sentinel fetch) use it, so
-// the pin is checked exactly as it is for task-data instead of each assembling its own
-// client. A timeout <= 0 means Nexus's default data timeout.
-func NewNexusHTTPClient(timeout time.Duration) *http.Client {
-	if timeout <= 0 {
-		timeout = nexusDataTimeout
-	}
-	return newNexusHTTPClient(nil, timeout)
-}
-
 func sameNexusOrigin(left, right *url.URL) bool {
 	if left == nil || right == nil {
 		return false

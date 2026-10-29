@@ -92,7 +92,7 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 			}
 		}
 	}
-	persistence := &evidenceWorkerPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, store: e.cfg.Store, builder: e.cfg.Builder, persist: e.persist}
+	persistence := &evidenceWorkerPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, store: e.cfg.Store, persist: e.persist}
 	signerAddress, signerPubkey := resolveSigningIdentity(e.cfg, e.cfg.LocalWorkerAddress)
 	wcfg := worker.Config{WorkerAddress: e.cfg.LocalWorkerAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, TaskData: e.cfg.TaskData, TaskDataAuth: e.cfg.TaskDataAuth, Tx: e.cfg.Tx, Persistence: persistence, InferDeadlineDeltaHeights: e.cfg.InferDeadlineDeltaHeights, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, SignerPubkey: signerPubkey, Signer: e.cfg.Signer, FakeOutput: e.cfg.FakeOutput, PackageStore: e.cfg.OutputPackages, ReceivingBuilder: e.cfg.ReceivingBuilder, TaskFacts: e.cfg.TaskFacts, EvidenceSchemaHash: evidenceSchemaHash, ProfileEvidenceRequirements: requirements, RequiredTopK: requiredTopK, CrashHook: e.cfg.CrashHook, SnapshotReader: newTaskSnapshotReader(e.cfg.TaskReader, task.SessionID), Trace: e.cfg.Trace}
 	wcfg.PreresolvedBuilders = preresolved
@@ -302,7 +302,7 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 		tasktrace.Uint("commit_deadline_height", task.CommitDeadlineHeight),
 		tasktrace.Uint("reveal_deadline_height", task.RevealDeadlineHeight),
 		tasktrace.Uint("verify_deadline_height", task.DeadlineHeight))
-	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, builder: e.cfg.Builder}
+	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence}
 	fetch := func() (builderclient.OutputPackage, WorkerEvidence, error) {
 		pkg, err := e.cfg.OutputConfirmer.ConfirmOutput(ctx, commitments)
 		if err != nil {
@@ -372,7 +372,7 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay})
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: inferReceiptHash, Member: member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: expiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
 	if resume {
 		if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil {
@@ -428,7 +428,7 @@ func (e *productionVerifyExecutor) verifyRoundIdentity(ctx context.Context, task
 	signerAddress, _ := resolveSigningIdentity(e.cfg, e.cfg.LocalVerifierAddress)
 	// Preimage field 6 of every frozen §5.14 verifier stage wire: one committed
 	// read of this node's current ServiceKey binding.
-	authorizationNonce, _, err := e.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	authorizationNonce, _, err := e.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	if err != nil {
 		return verifyRoundIdentity{}, builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the verifier envelopes: %w", err))
 	}
@@ -496,8 +496,8 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
-	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, builder: e.cfg.Builder}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}})
+	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence}
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: identity.inferReceiptHash, Member: identity.member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: identity.handraiseExpiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
 	reveal, err := v.HandleRevealPhaseStarted(ctx, state)
 	if err != nil {
@@ -600,18 +600,6 @@ type inferReceiptRef struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// builderMessageRef holds only the metadata of an outbox message; the payload
-// lives in the evidence store under worker-outbox:<key>.
-type builderMessageRef struct {
-	Digest  string `json:"digest"`
-	TaskID  string `json:"task_id"`
-	Subject string `json:"subject"`
-	Status  string `json:"status"`
-}
-
-// storageConfirmationRef holds only the metadata of a storage confirmation; the
-// signature bytes live in the evidence store under
-// worker-confirmation:<key>.
 // evidenceWorkerPersistence persists worker artifacts in the evidence store and
 // commits their references through the provided persist callback. It keeps no
 // phase field; presence of an artifact in the store is the state.
@@ -620,7 +608,6 @@ type evidenceWorkerPersistence struct {
 	task        *store.InferTask
 	evidence    *evidence.Store
 	store       *store.Store
-	builder     builderclient.Client
 	persist     func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error
 	evidenceRef map[string]layout.EvidenceArtifact
 }
@@ -668,7 +655,7 @@ func (p *evidenceWorkerPersistence) trackArtifact(kind string, data []byte) {
 	case kind == "worker-infer-receipt", strings.HasPrefix(kind, "worker-infer-receipt:"):
 		ak = layout.ArtifactInferReceipt
 	default:
-		// Operational artifacts such as outbox payloads and storage confirmations
+		// Operational artifacts such as storage confirmations and their metadata
 		// are durable in the evidence store but are not part of the evidence manifest.
 		return
 	}
@@ -1061,7 +1048,6 @@ type evidenceVerifierPersistence struct {
 	taskHash codec.Hash
 	task     *store.VerifyTask
 	evidence *evidence.Store
-	builder  builderclient.Client
 }
 
 func (p *evidenceVerifierPersistence) WriteEvidence(ctx context.Context, r verifier.EvidenceRecord) error {

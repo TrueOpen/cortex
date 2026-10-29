@@ -497,15 +497,6 @@ func (r *recordingEndpoints) ResolveBuilderEndpoint(_ context.Context, operator 
 	return endpoint, nil
 }
 
-func testMembership(t *testing.T, builders ...string) *builderdirectory.Membership {
-	t.Helper()
-	members, err := builderdirectory.NewMembership(staticBuilderSet{builders: builders}, builderdirectory.MembershipOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return members
-}
-
 // staticBuilderSet is a fixed active BuilderSet.
 type staticBuilderSet struct {
 	builders []string

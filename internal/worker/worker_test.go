@@ -26,7 +26,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
-	"github.com/TrueOpen/cortex/internal/policy"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
@@ -841,7 +840,7 @@ const workerTestRequiredTopK = 1
 const workerTestModelID = "0101010101010101010101010101010101010101010101010101010101010101"
 
 // workerTestHandraiseNonce is the committed ServiceKey authorization_nonce a
-// handraise caller reads with taskdataauth.CommittedBusEnvelopeIdentity and hands
+// handraise caller reads with taskdataauth.CommittedServiceBinding and hands
 // to EvaluateAndHandraise for envelope field 7. It is deliberately not 1 so an
 // envelope that carried a default rather than the caller's value is visible.
 const workerTestHandraiseNonce = uint64(23)
@@ -889,21 +888,6 @@ func workerTestServedTaskFacts(taskID string) taskfacts.Facts {
 			GenerationParamsDigest: chainclient.ProtoBytes32(generation[:]),
 		},
 	}
-}
-
-// workerTestAcceptedTaskHash stands in for TaskCoreState.accepted_task_hash as
-// the frozen Query/Task response serves it. It is deliberately unrelated to
-// event.OrderDigest so a test asserting the relayed task_hash catches the
-func workerTestCandidateMember() builderclient.CandidateMemberRefMessage {
-	return builderclient.CandidateMemberRefMessage{
-		CandidatePoolSnapshotID: strings.Repeat("31", 32), Slot: 1, SlotVersion: 1,
-		OperatorAddress: workerTestOperatorAddress,
-	}
-}
-
-// order-digest substitution the frozen contract forbids.
-func workerTestHandraiseTaskHash(orderDigest codec.Hash) codec.Hash {
-	return codec.HashWithDomain("TEST_TASK_ORDER_HASH_V1", orderDigest[:])
 }
 
 // workerTestTaskFacts is the honest reader: it answers for the task it was asked
@@ -1435,22 +1419,6 @@ func snapshotFromEvent(event chainclient.AssignmentFinalized) chainclient.TaskSn
 
 func canonicalTaskID(sessionID string, orderSequence uint64) string {
 	return identity.TaskIDString(sessionID, orderSequence)
-}
-
-func validWorkerPrecheck() policy.WorkerPrecheckInput {
-	return policy.WorkerPrecheckInput{
-		ChainSynced:                     true,
-		CurrentHeight:                   100,
-		SupportState:                    policy.SupportActive,
-		SupportLastConfirmedHeight:      95,
-		SupportFreshnessWindow:          30,
-		Profile:                         modelservice.CapabilityLLMTextV1,
-		SupportedProfiles:               []string{modelservice.CapabilityLLMTextV1},
-		AvailableSlots:                  1,
-		CapacitySnapshotRef:             "capacity://snapshot/1",
-		SelfRescueGasAvailable:          true,
-		SelfRescueGasBudgetNanoTRUEOPEN: 10,
-	}
 }
 
 // The relayed facts must be exactly the signed receipt's, with no locally

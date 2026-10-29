@@ -118,9 +118,9 @@ func (r *TaskRunner) applyVerifierAssignment(ctx context.Context, message *nexus
 
 // admitOpenVerify consumes OPEN_VERIFY (§5.6), the Core-tier call for Verifier
 // handraises. It is the Verifier-side counterpart of OPEN_TASK: the Builder
-// opens the window, every Verifier candidate that can serve this task raises its
-// hand on trueopen.handraise.verifier.<task_id>, and the selected set is decided on
-// chain afterwards.
+// opens the window, every Verifier candidate that can serve this task sends its
+// VerifierHandraise frame back to the Builder over the node frame stream, and the
+// selected set is decided on chain afterwards.
 //
 // Every delivery converges on raiseVerifierHand and shares its at-most-once
 // claim, so a task that receives the call more than once still raises its hand
@@ -460,10 +460,12 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	if message.InferReceiptHash != (codec.Hash{}) && message.InferReceiptHash != codec.Hash(snapshot.InferReceipt.InferReceiptHash) {
 		return fmt.Errorf("%s infer_receipt_hash does not match Keeper infer receipt", message.Kind)
 	}
-	if r.cfg.Builder == nil {
-		return builderclient.Retryable(fmt.Errorf("builder client is required for Verifier handraise"))
+	if r.cfg.VerifierSender == nil {
+		return builderclient.Permanent(fmt.Errorf("verifier frame sender is not configured"))
 	}
-	// V3 is done, and it was done above. data-plane-and-evidence-transfer.md §6 is the basis for this
+	// V3 is done, and it was done above. data-plane-and-evidence-transfer.md §6 (written
+	// when ORDER_BROADCAST was still a NATS subject; its metadata now rides the
+	// OpenVerify frame) is the basis for this
 	// section, and it nails the reverse direction down too: "the metadata a candidate
 	// Worker/Verifier needs is broadcast by the ORDER_BROADCAST / OPEN_VERIFY control
 	// messages and is not obtained through the data query interface", while
@@ -573,11 +575,11 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	signerAddress, _ := resolveSigningIdentity(r.cfg, r.cfg.LocalVerifierAddress)
 	// service_authorization_nonce from one committed read of this node's own
 	// current ServiceKey binding.
-	authorizationNonce, _, err := r.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	authorizationNonce, _, err := r.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("read current Cortex service binding for the VerifierHandraise: %w", err))
 	}
-	v := verifier.New(verifier.Config{VerifierAddress: r.cfg.LocalVerifierAddress, Builder: r.cfg.Builder, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, VerifyDeadlineDeltaHeight: r.cfg.VerifyDeadlineDeltaHeight, FakeOutput: r.cfg.FakeOutput, Sender: r.cfg.VerifierSender, ServiceAuthorizationNonce: authorizationNonce, MaxOutputBytes: r.cfg.MaxOutputBytes, Trace: r.cfg.Trace})
+	v := verifier.New(verifier.Config{VerifierAddress: r.cfg.LocalVerifierAddress, ChainID: r.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: r.cfg.SignerKeyRef, Signer: r.cfg.Signer, VerifyDeadlineDeltaHeight: r.cfg.VerifyDeadlineDeltaHeight, FakeOutput: r.cfg.FakeOutput, Sender: r.cfg.VerifierSender, ServiceAuthorizationNonce: authorizationNonce, MaxOutputBytes: r.cfg.MaxOutputBytes, Trace: r.cfg.Trace})
 	result, err := v.EvaluateAndHandraise(ctx, state)
 	if err != nil && (builderclient.IsRetryable(err) || modelservice.IsRetryable(err)) {
 		return builderclient.Retryable(err)

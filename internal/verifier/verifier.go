@@ -33,7 +33,6 @@ type Config struct {
 	VerifierAddress string
 	ModelServiceID  string
 	Model           modelservice.Client
-	Builder         builderclient.Client
 	// Sender delivers the signed VerifierHandraise to Builders. A Verifier with
 	// no sender refuses to sign one; see NewFrameSenderGuard.
 	Sender                    FrameSender
@@ -303,7 +302,10 @@ func (v *Verifier) EvaluateAndHandraise(ctx context.Context, state TaskState) (H
 		return HandraiseResult{}, err
 	}
 	if err := sender.SendVerifierHandraise(ctx, message); err != nil {
-		return HandraiseResult{}, err
+		if builderclient.IsPermanent(err) {
+			return HandraiseResult{}, err
+		}
+		return HandraiseResult{}, builderclient.Retryable(fmt.Errorf("deliver verifier handraise: %w", err))
 	}
 	return HandraiseResult{Signed: true, Decision: decision}, nil
 }

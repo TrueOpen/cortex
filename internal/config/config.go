@@ -534,6 +534,9 @@ func decodeConfigError(data []byte, err error) error {
 		}
 	}
 	if strings.Contains(err.Error(), "not found in type") {
+		if problem := retiredNATSFieldProblem(path); problem != "" {
+			return fmt.Errorf("decode config: %s", problem)
+		}
 		section, field, nested := strings.Cut(path, ".")
 		if nested {
 			return fmt.Errorf("decode config: unknown %s field %q: %w", section, field, err)
@@ -1086,6 +1089,25 @@ func retiredDutiesProblem(duties []string) string {
 		return ""
 	}
 	return "local_identity.duties has been removed: every node now holds both the WORKER and the VERIFIER responsibility, so delete the key"
+}
+
+// retiredNATSFields are the nexus keys that configured the NATS bus. They are
+// named rather than left to the generic unknown-field error so an operator
+// upgrading an old config is told why the key went and what to do.
+var retiredNATSFields = map[string]bool{
+	"nexus.nats_url": true, "nexus.nats_ca_file": true, "nexus.nats_creds_file": true,
+	"nexus.nats_user_key_file": true, "nexus.jetstream_stream": true, "nexus.envelope_auth_mode": true,
+	"nexus.envelope_ttl_ms": true, "nexus.envelope_clock_skew_ms": true,
+	"nexus.subscribe_models": true, "nexus.subscribe_tasks": true,
+}
+
+// retiredNATSFieldProblem refuses a config that still sets a NATS bus key,
+// the same way retiredDutiesProblem refuses local_identity.duties.
+func retiredNATSFieldProblem(path string) string {
+	if !retiredNATSFields[path] {
+		return ""
+	}
+	return path + " was retired with the NATS bus (wire 916e393); remove it"
 }
 
 var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)

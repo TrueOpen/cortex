@@ -139,7 +139,7 @@ func (a *Authenticator) SignFetch(ctx context.Context, key builderclient.TaskDat
 	return a.SignRequest(ctx, "FetchTaskData", key, builderOperator, digest)
 }
 
-// CommittedBusEnvelopeIdentity returns the two values this node's own committed
+// CommittedServiceBinding returns the two values this node's own committed
 // chain view supplies to every outbound frozen wire: the
 // service_authorization_nonce Keeper currently holds for this Cortex node, and
 // the height Keeper served that binding at.
@@ -150,9 +150,8 @@ func (a *Authenticator) SignFetch(ctx context.Context, key builderclient.TaskDat
 //
 // The height is this node's own chain view. It is NOT for historical key
 // lookup, so do not pass it to a key, BuilderSet or binding query. It is
-// provenance a caller may log or bound freshness with, nothing more. (The name
-// predates the retirement of the Phase 0 bus envelope that once carried both.)
-func (a *Authenticator) CommittedBusEnvelopeIdentity(ctx context.Context) (uint64, uint64, error) {
+// provenance a caller may log or bound freshness with, nothing more.
+func (a *Authenticator) CommittedServiceBinding(ctx context.Context) (uint64, uint64, error) {
 	if a == nil {
 		return 0, 0, fmt.Errorf("task-data authenticator is required")
 	}
