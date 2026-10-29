@@ -89,3 +89,24 @@ func TestDedupPruneIsPerBuilderAndBatched(t *testing.T) {
 		t.Fatalf("builder a's prune touched builder ab's records (%d left)", n)
 	}
 }
+
+func TestDedupPruneDropsCorruptRecordWithItsExpiredIndex(t *testing.T) {
+	ctx := context.Background()
+	clk := &testClock{}
+	clk.ms.Store(1_000_000)
+	d := newTestDedup(t, "trueopen1b", clk)
+	key := d.key(variantRevoke, [32]byte{3})
+	if err := d.st.PutRaw(ctx, key, []byte("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.st.PutRaw(ctx, d.expiryKey(clk.now().UnixMilli()+10, key), nil); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(time.Second)
+	if err := d.prune(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if countPrefix(t, d.st, dedupPrefix) != 0 || countPrefix(t, d.st, string(d.indexPrefix)) != 0 {
+		t.Fatal("a corrupt record must go with its expired index entry")
+	}
+}

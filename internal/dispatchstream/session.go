@@ -58,7 +58,9 @@ type Config struct {
 	MaxMissed      int           // default 3
 	// HandlerTimeout bounds one Handler call. It must be below
 	// KeepaliveEvery*MaxMissed (the loop is blocked while a Handler runs);
-	// default half of that.
+	// default half of that. This only bounds our own keepalive window: the
+	// Builder's liveness threshold is its own deployment setting, and S9
+	// wiring must also pick a value safe against it.
 	HandlerTimeout time.Duration
 	Backoff        func(attempt int) time.Duration
 	Now            func() time.Time // default time.Now
@@ -391,7 +393,11 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 	label := "frame"
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("dispatchstream: cursor %d %s: %w", cursor, label, err)
+			prefix := "dispatchstream: "
+			if strings.HasPrefix(err.Error(), prefix) {
+				prefix = "" // inner error already names the package
+			}
+			err = fmt.Errorf("%scursor %d %s: %w", prefix, cursor, label, err)
 		}
 	}()
 	raw, err := unwrapEnvelope(envelope)
@@ -489,8 +495,10 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 			// delivery is left "received" and unacked, so it is redelivered.
 			return false, fmt.Errorf("session stopped during handler: %w", ctx.Err())
 		}
-		if timedOut {
-			return false, fmt.Errorf("handler exceeded %v (retryable, frame left unacked): %w", s.cfg.HandlerTimeout, context.DeadlineExceeded)
+		// A nil result is success even past the deadline: the work is done.
+		// An error after the deadline is taken as caused by it, so retryable.
+		if herr != nil && timedOut {
+			return false, fmt.Errorf("handler exceeded %v (retryable, frame left unacked): %w", s.cfg.HandlerTimeout, herr)
 		}
 		if herr != nil {
 			if builderclient.IsRetryable(herr) || errors.Is(herr, context.Canceled) || errors.Is(herr, context.DeadlineExceeded) {

@@ -774,6 +774,22 @@ func TestSessionHandlerOutcomes(t *testing.T) {
 		}
 	})
 
+	t.Run("handler that overruns its deadline but succeeds is acked once", func(t *testing.T) {
+		h := startSession(t, func(c *Config) { c.HandlerTimeout = 20 * time.Millisecond })
+		h.handler.setFail(func(ctx context.Context, _ int) error {
+			<-ctx.Done() // runs past the deadline, then reports success
+			return nil
+		})
+		c, nonce := h.bind(t)
+		c.send(revokeFrame(nonce, 1, revoke(t, 1, builderKeyHex)))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1 on the same stream, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 1 {
+			t.Fatalf("handler called %d times, want 1", n)
+		}
+	})
+
 	t.Run("failed done write is not acked and is redelivered", func(t *testing.T) {
 		h := startPrepared(t, nil, func(s *Session) { s.dedup = &failingDone{deliveries: s.dedup} })
 		c, nonce := h.bind(t)

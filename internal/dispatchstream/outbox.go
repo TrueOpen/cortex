@@ -126,8 +126,11 @@ func (o *outbox) decode(key, value []byte) (pending, error) {
 }
 
 // replayable returns, in sequence order, every retained unexpired message
-// with a sequence above after. Expired ones are left for prune; corrupt ones
-// are quarantined so they cannot wedge the session in a reconnect loop.
+// with a sequence above after. Expired ones are left for prune. Records that
+// do not decode -- corrupt, or carrying a variant this binary does not know
+// (e.g. written by a newer binary before a downgrade) -- are quarantined so
+// they cannot wedge the session in a reconnect loop. dispatch-outbox-bad/ is
+// never pruned: quarantined records are left for operators to inspect.
 func (o *outbox) replayable(ctx context.Context, nowMs int64, height, after uint64) ([]pending, error) {
 	var out []pending
 	var bad [][2][]byte

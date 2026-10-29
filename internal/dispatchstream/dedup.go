@@ -186,9 +186,9 @@ func (d *dedup) prune(ctx context.Context) error {
 }
 
 // pruneBatch removes up to d.batch expired index entries. A data record is
-// deleted only when its own expiry equals the index stamp; otherwise the
-// index entry is stale (the record was re-marked, or was corrupt when it
-// was) and only the index entry goes.
+// deleted when its own expiry equals the index stamp, or when it does not
+// decode; otherwise the index entry is stale (the record was re-marked) and
+// only the index entry goes.
 func (d *dedup) pruneBatch(ctx context.Context) (int, error) {
 	nowMs := d.now().UnixMilli()
 	head := len(d.indexPrefix) + 8
@@ -225,7 +225,11 @@ func (d *dedup) pruneBatch(ctx context.Context) (int, error) {
 			if err != nil {
 				return err
 			}
-			if rec, ok := d.decode(dataKey, raw); ok && rec.ExpiresAtUnixMs == stamp {
+			rec, ok := d.decode(dataKey, raw)
+			if !ok || rec.ExpiresAtUnixMs == stamp {
+				// A record that does not decode can never be matched to a
+				// live index entry; drop it with the expired one (decode has
+				// logged it at Warn).
 				if err := b.Delete(dataKey); err != nil {
 					return err
 				}

@@ -600,6 +600,7 @@ func (s *Store) DeleteRaw(ctx context.Context, key []byte) error {
 // ScanPrefix iterates over every key-value pair whose key begins with prefix
 // and calls fn for each. If fn returns an error, iteration stops and that
 // error is returned.
+// fn runs under the store mutex and must not call back into Store.
 func (s *Store) ScanPrefix(ctx context.Context, prefix []byte, fn func(key, value []byte) error) error {
 	return s.scan(ctx, prefix, prefix, fn)
 }
@@ -607,6 +608,7 @@ func (s *Store) ScanPrefix(ctx context.Context, prefix []byte, fn func(key, valu
 // ScanPrefixFrom is ScanPrefix starting at start (inclusive), which must
 // itself carry prefix. It lets an ordered queue resume past what it has
 // already consumed instead of rescanning from the beginning.
+// fn runs under the store mutex and must not call back into Store.
 func (s *Store) ScanPrefixFrom(ctx context.Context, prefix, start []byte, fn func(key, value []byte) error) error {
 	if !bytes.HasPrefix(start, prefix) {
 		return fmt.Errorf("scan start %q is outside prefix %q", start, prefix)
