@@ -76,3 +76,20 @@ func TestUnwrapEnvelopeIsStrict(t *testing.T) {
 		}
 	}
 }
+
+func TestInnerRawAndEnvelopeBound(t *testing.T) {
+	nonce := bytes.Repeat([]byte{9}, dispatch.StreamNonceSize)
+	payload := []byte{0x08, 0x05}
+	got, err := innerRaw(encodeFrame(nonce, 3, variantRevoke, payload), variantRevoke)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("innerRaw: %x %v", got, err)
+	}
+	if variantName(variantRevoke) != "nexus.v1.DispatchRevokeV1" {
+		t.Fatal(variantName(variantRevoke))
+	}
+	// The largest frame wire accepts, wrapped, is exactly the bound.
+	max := wrapEnvelope(make([]byte, dispatch.MaxMessageBytes))
+	if len(max) != maxEnvelopeBytes {
+		t.Fatalf("bound %d, largest envelope %d", maxEnvelopeBytes, len(max))
+	}
+}

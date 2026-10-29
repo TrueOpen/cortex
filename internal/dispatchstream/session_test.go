@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,13 +68,23 @@ func revoke(t *testing.T, tag byte, keyHex string) *nexusv1.DispatchRevokeV1 {
 	return m
 }
 
-// reject is a Cortex business message for the outbound path.
-func reject(tag byte) *taskv1.DispatchRejectV1 {
+// unsignedReject is a Cortex business message for the outbound path.
+func unsignedReject(tag byte) *taskv1.DispatchRejectV1 {
 	return &taskv1.DispatchRejectV1{
 		SchemaVersion: 1, ChainId: testChainID, TaskId: h32(tag), TaskHash: h32(tag + 1),
 		DispatchTicketHash: h32(tag + 2), ServiceAuthorizationNonce: 1,
+		Member: &taskv1.CandidateMemberRefV1{CandidatePoolSnapshotId: h32(tag + 3), Slot: 1, SlotVersion: 1, OperatorAddress: testOperator},
 	}
 }
+
+func signReject(m *taskv1.DispatchRejectV1) *taskv1.DispatchRejectV1 {
+	if err := dispatchwire.SignReject(context.Background(), m, keySigner(cortexKeyHex)); err != nil {
+		panic(err)
+	}
+	return m
+}
+
+func reject(tag byte) *taskv1.DispatchRejectV1 { return signReject(unsignedReject(tag)) }
 
 func revokeFrame(nonce []byte, cursor uint64, m *nexusv1.DispatchRevokeV1) *nexusv1.DispatchStreamFrameV1 {
 	return &nexusv1.DispatchStreamFrameV1{StreamNonce: nonce, Cursor: cursor, Message: &nexusv1.DispatchStreamFrameV1_Revoke{Revoke: m}}
@@ -120,38 +133,55 @@ func (h *recordingHandler) calls() []*nexusv1.DispatchStreamFrameV1 {
 
 type harness struct {
 	fake    *fakeNexus
-	session *Session
 	handler *recordingHandler
+	cfg     Config
+
+	mu      sync.Mutex
+	session *Session
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 func startSession(t *testing.T, tweak func(*Config)) *harness {
 	t.Helper()
 	fake, srv := startFakeNexus(t)
-	h := &recordingHandler{}
-	cfg := Config{
+	h := &harness{fake: fake, handler: &recordingHandler{}}
+	h.cfg = Config{
 		ChainID: testChainID, BuilderOperator: testOperator, CortexOperator: testOperator,
 		HTTPClient: srv.Client(), BaseURL: srv.URL,
 		Sign:           keySigner(cortexKeyHex),
 		AuthNonce:      func(context.Context) (uint64, error) { return 7, nil },
 		BuilderKey:     func(context.Context) ([]byte, error) { return pub(t, builderKeyHex), nil },
 		Store:          newTestStore(t),
-		Handler:        h,
+		Handler:        h.handler,
 		KeepaliveEvery: time.Hour,
+		PruneEvery:     time.Hour,
 		MaxMissed:      3,
 		Backoff:        func(int) time.Duration { return time.Millisecond },
 		Now:            func() time.Time { return time.UnixMilli(1_000_000) },
 		Height:         func() uint64 { return 100 },
 	}
 	if tweak != nil {
-		tweak(&cfg)
+		tweak(&h.cfg)
 	}
-	s, err := New(cfg)
+	h.run(t)
+	return h
+}
+
+// run starts a Session over the harness config and store, as a restarted
+// process would.
+func (h *harness) run(t *testing.T) {
+	t.Helper()
+	s, err := New(h.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
+	done := make(chan struct{})
+	go func() { _ = s.Run(ctx); close(done) }()
+	h.mu.Lock()
+	h.session, h.cancel, h.done = s, cancel, done
+	h.mu.Unlock()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -160,7 +190,31 @@ func startSession(t *testing.T, tweak func(*Config)) *harness {
 			t.Error("Run did not return after cancel")
 		}
 	})
-	return &harness{fake: fake, session: s, handler: h}
+}
+
+// crash stops the current Session abruptly; safe to call from the Handler.
+func (h *harness) crash() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancel()
+}
+
+func (h *harness) waitStopped(t *testing.T) {
+	t.Helper()
+	h.mu.Lock()
+	done := h.done
+	h.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(waitFor):
+		t.Fatal("session did not stop")
+	}
+}
+
+func (h *harness) current() *Session {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.session
 }
 
 // bind accepts the next connection and returns it with its stream nonce.
@@ -176,7 +230,7 @@ func (h *harness) bind(t *testing.T) (*fakeConn, []byte) {
 
 func (h *harness) enqueue(t *testing.T, m proto.Message) {
 	t.Helper()
-	if err := h.session.Enqueue(context.Background(), Outgoing{Message: m, ExpiryHeight: 1_000}); err != nil {
+	if err := h.current().Enqueue(context.Background(), Outgoing{Message: m, ExpiryHeight: 1_000}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -434,7 +488,7 @@ func TestSession(t *testing.T) {
 	t.Run("expired outbound messages are never sent", func(t *testing.T) {
 		h := startSession(t, nil)
 		c, _ := h.bind(t)
-		if err := h.session.Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiryHeight: 99}); err != nil {
+		if err := h.current().Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiryHeight: 99}); err != nil {
 			t.Fatal(err)
 		}
 		h.enqueue(t, reject(2))
@@ -447,10 +501,207 @@ func TestSession(t *testing.T) {
 func TestEnqueueRefusesBuilderVariantsAndMissingExpiry(t *testing.T) {
 	h := startSession(t, nil)
 	ctx := context.Background()
-	if err := h.session.Enqueue(ctx, Outgoing{Message: revoke(t, 1, builderKeyHex), ExpiryHeight: 5}); err == nil {
+	if err := h.current().Enqueue(ctx, Outgoing{Message: revoke(t, 1, builderKeyHex), ExpiryHeight: 5}); err == nil {
 		t.Fatal("a Builder variant cannot be sent by Cortex")
 	}
-	if err := h.session.Enqueue(ctx, Outgoing{Message: reject(1)}); err == nil {
+	if err := h.current().Enqueue(ctx, Outgoing{Message: reject(1)}); err == nil {
 		t.Fatal("an outbound message needs an expiry")
 	}
+}
+
+func countPrefix(t *testing.T, st interface {
+	ScanPrefix(context.Context, []byte, func(k, v []byte) error) error
+}, prefix string) int {
+	t.Helper()
+	n := 0
+	if err := st.ScanPrefix(context.Background(), []byte(prefix), func(_, _ []byte) error { n++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// eventually polls cond with 1ms pauses; used only where the observable is
+// store state written by the session's own ticker.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(waitFor)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestSessionAtLeastOnce(t *testing.T) {
+	t.Run("crash between received and done redelivers after restart", func(t *testing.T) {
+		h := startSession(t, nil)
+		h.handler.setFail(func(call int) error {
+			if call == 1 {
+				h.crash() // the process dies before the delivery is marked done
+			}
+			return nil
+		})
+		c, nonce := h.bind(t)
+		a := revoke(t, 1, builderKeyHex)
+		c.send(revokeFrame(nonce, 1, a))
+		h.waitStopped(t)
+		c.waitGone()
+		h.run(t)
+		c2, nonce2 := h.bind(t)
+		c2.send(revokeFrame(nonce2, 1, a))
+		if f := c2.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 2 {
+			t.Fatalf("a delivery never marked done must reach the handler again, got %d calls", n)
+		}
+	})
+
+	t.Run("replay after done across restart is suppressed", func(t *testing.T) {
+		h := startSession(t, nil)
+		c, nonce := h.bind(t)
+		a := revoke(t, 1, builderKeyHex)
+		c.send(revokeFrame(nonce, 1, a))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		h.crash()
+		h.waitStopped(t)
+		c.waitGone()
+		h.run(t)
+		c2, nonce2 := h.bind(t)
+		c2.send(revokeFrame(nonce2, 1, a))
+		if f := c2.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 1 {
+			t.Fatalf("handler called %d times, want 1", n)
+		}
+	})
+
+	t.Run("same cursor with different content is a protocol violation", func(t *testing.T) {
+		h := startSession(t, nil)
+		c, nonce := h.bind(t)
+		c.send(revokeFrame(nonce, 1, revoke(t, 1, builderKeyHex)))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		c.send(revokeFrame(nonce, 1, revoke(t, 9, builderKeyHex)))
+		c.waitGone()
+		h.bind(t)
+		if n := len(h.handler.calls()); n != 1 {
+			t.Fatalf("handler called %d times, want 1", n)
+		}
+	})
+
+	t.Run("oversized inbound frame is refused before the handler", func(t *testing.T) {
+		logs := &syncBuffer{}
+		h := startSession(t, func(c *Config) { c.Logger = slog.New(slog.NewTextHandler(logs, nil)) })
+		c, nonce := h.bind(t)
+		c.send(&nexusv1.DispatchStreamFrameV1{StreamNonce: nonce, Cursor: 1, Message: &nexusv1.DispatchStreamFrameV1_InputResponse{
+			InputResponse: &nexusv1.DispatchInputResponseV1{TaskId: h32(1), Input: make([]byte, dispatch.MaxMessageBytes)},
+		}})
+		c.waitGone()
+		h.bind(t)
+		if n := len(h.handler.calls()); n != 0 {
+			t.Fatalf("handler called %d times", n)
+		}
+		// Refused by the transport read bound, before strict decode.
+		if !strings.Contains(logs.String(), "is larger than configured max") {
+			t.Fatalf("frame was not refused by the read limit; log:\n%s", logs.String())
+		}
+	})
+
+	t.Run("backoff grows while only retryable failures and control frames arrive", func(t *testing.T) {
+		attempts := make(chan int, 16)
+		h := startSession(t, func(c *Config) {
+			c.Backoff = func(a int) time.Duration { attempts <- a; return time.Millisecond }
+		})
+		h.handler.setFail(func(int) error { return builderclient.Retryable(errors.New("busy")) })
+		a := revoke(t, 1, builderKeyHex)
+		for want := 0; want < 3; want++ {
+			c, nonce := h.bind(t)
+			c.send(keepaliveFrame(nonce, uint64(want+1)))
+			if f := c.recv(); f.GetKeepalive() == nil {
+				t.Fatalf("want keepalive echo, got %v", f)
+			}
+			c.send(revokeFrame(nonce, 1, a))
+			c.waitGone()
+			select {
+			case got := <-attempts:
+				if got != want {
+					t.Fatalf("reconnect %d used backoff attempt %d", want, got)
+				}
+			case <-time.After(waitFor):
+				t.Fatal("no backoff")
+			}
+		}
+	})
+
+	t.Run("prune runs on a ticker while bound", func(t *testing.T) {
+		var nowMs atomic.Int64
+		nowMs.Store(1_000_000)
+		h := startSession(t, func(c *Config) {
+			c.PruneEvery = 2 * time.Millisecond
+			c.DedupRetention = time.Hour
+			c.Now = func() time.Time { return time.UnixMilli(nowMs.Load()) }
+		})
+		c, nonce := h.bind(t)
+		c.send(revokeFrame(nonce, 1, revoke(t, 1, builderKeyHex)))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		if err := h.current().Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiresAtUnixMilli: 1_000_000 + 60_000}); err != nil {
+			t.Fatal(err)
+		}
+		c.recvSkippingKeepalive() // sent, never acked
+		if countPrefix(t, h.cfg.Store, dedupPrefix) != 1 || countPrefix(t, h.cfg.Store, outboxPrefix) != 1 {
+			t.Fatal("expected one dedup record and one outbox record")
+		}
+		nowMs.Add(2 * time.Hour.Milliseconds())
+		eventually(t, "ticker prune", func() bool {
+			return countPrefix(t, h.cfg.Store, dedupPrefix) == 0 && countPrefix(t, h.cfg.Store, outboxPrefix) == 0
+		})
+	})
+}
+
+func TestEnqueueBounds(t *testing.T) {
+	h := startSession(t, nil)
+	ctx := context.Background()
+	if err := h.current().Enqueue(ctx, Outgoing{Message: unsignedReject(1), ExpiryHeight: 500}); err == nil {
+		t.Fatal("an unsigned Cortex message must be refused")
+	}
+	// Size the message to 10 bytes under the limit: valid alone, but the
+	// worst-case frame around it (nonce, max cursor, tag, length) is not.
+	big := unsignedReject(2)
+	size := 0
+	for n := dispatch.MaxMessageBytes - 1000; size != dispatch.MaxMessageBytes-10; {
+		big.ChainId = string(bytes.Repeat([]byte{'x'}, n))
+		size = proto.Size(signReject(big))
+		n += dispatch.MaxMessageBytes - 10 - size
+	}
+	if raw, _ := proto.Marshal(big); dispatch.ValidateMessage(dispatchwire.Name(big), raw) != nil {
+		t.Fatal("test setup: the message alone must be within the limit")
+	}
+	if err := h.current().Enqueue(ctx, Outgoing{Message: big, ExpiryHeight: 500}); err == nil {
+		t.Fatal("a message whose worst-case frame exceeds the limit must be refused")
+	}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
 }

@@ -7,7 +7,8 @@ type keepalive struct {
 	outstanding uint64 // 0: none
 	lastLocal   uint64
 	lastPeer    uint64
-	missed      int // ticks that found the previous probe still unanswered
+	peerSeen    bool // a peer probe of 0 is still a probe
+	missed      int  // ticks that found the previous probe still unanswered
 }
 
 // probe returns the value to send, or false while one is outstanding (which
@@ -33,9 +34,9 @@ func (k *keepalive) received(v uint64) (uint64, bool) {
 		k.outstanding, k.missed = 0, 0
 		return 0, false
 	}
-	if v == k.lastPeer {
+	if k.peerSeen && v == k.lastPeer {
 		return 0, false
 	}
-	k.lastPeer = v
+	k.lastPeer, k.peerSeen = v, true
 	return v, true
 }

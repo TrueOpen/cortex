@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -42,13 +43,18 @@ type Config struct {
 	BaseURL       string
 	ClientOptions []connect.ClientOption
 
-	Sign       dispatchwire.DigestSigner
-	AuthNonce  func(context.Context) (uint64, error) // current service_authorization_nonce
-	BuilderKey func(context.Context) ([]byte, error) // QueryCurrentServiceKey(BUILDER, op)
+	Sign      dispatchwire.DigestSigner
+	AuthNonce func(context.Context) (uint64, error) // current service_authorization_nonce
+	// BuilderKey resolves the Builder's current on-chain service key
+	// (QueryCurrentServiceKey(BUILDER, op)). It is called for every
+	// Builder-signed frame; caching with rotation awareness is the caller's
+	// job (S9 wiring).
+	BuilderKey func(context.Context) ([]byte, error)
 	Store      *store.Store
 	Handler    Handler
 
 	KeepaliveEvery time.Duration // default 15s
+	PruneEvery     time.Duration // outbox + dedup prune while bound; default 10m
 	MaxMissed      int           // default 3
 	Backoff        func(attempt int) time.Duration
 	Now            func() time.Time
@@ -97,6 +103,9 @@ func New(cfg Config) (*Session, error) {
 	if cfg.KeepaliveEvery <= 0 {
 		cfg.KeepaliveEvery = 15 * time.Second
 	}
+	if cfg.PruneEvery <= 0 {
+		cfg.PruneEvery = 10 * time.Minute
+	}
 	if cfg.MaxMissed <= 0 {
 		cfg.MaxMissed = 3
 	}
@@ -116,13 +125,16 @@ func New(cfg Config) (*Session, error) {
 		cfg.Logger = slog.Default()
 	}
 	cfg.Logger = cfg.Logger.With("component", "dispatchstream", "builder", cfg.BuilderOperator)
-	opts := append([]connect.ClientOption{connect.WithCodec(rawCodec{})}, cfg.ClientOptions...)
+	opts := append([]connect.ClientOption{
+		connect.WithCodec(rawCodec{}),
+		connect.WithReadMaxBytes(maxEnvelopeBytes),
+	}, cfg.ClientOptions...)
 	return &Session{
 		cfg: cfg,
 		client: connect.NewClient[rawFrame, rawFrame](cfg.HTTPClient,
 			strings.TrimRight(cfg.BaseURL, "/")+nexusv1connect.IngressAPIDispatchStreamProcedure, opts...),
 		outbox: newOutbox(cfg.Store, cfg.BuilderOperator),
-		dedup:  newDedup(cfg.Store, cfg.BuilderOperator, cfg.DedupRetention),
+		dedup:  newDedup(cfg.Store, cfg.BuilderOperator, cfg.DedupRetention, cfg.Now),
 		kick:   make(chan struct{}, 1),
 	}, nil
 }
@@ -147,8 +159,22 @@ func (s *Session) Enqueue(ctx context.Context, p Outgoing) error {
 	if err != nil {
 		return err
 	}
-	if err := dispatch.ValidateMessage(dispatchwire.Name(p.Message), raw); err != nil {
-		return fmt.Errorf("dispatchstream: outbound %s: %w", dispatchwire.Name(p.Message), err)
+	name := dispatchwire.Name(p.Message)
+	if err := dispatch.ValidateMessage(name, raw); err != nil {
+		return fmt.Errorf("dispatchstream: outbound %s: %w", name, err)
+	}
+	// The largest frame this message can ever ride in (full nonce, maximal
+	// cursor) must still pass the peer's strict decoder.
+	worst := encodeFrame(make([]byte, dispatch.StreamNonceSize), math.MaxUint64, v, raw)
+	if err := dispatch.ValidateMessage(frameName, worst); err != nil {
+		return fmt.Errorf("dispatchstream: outbound %s does not fit a stream frame: %w", name, err)
+	}
+	sig := p.Message.ProtoReflect().Descriptor().Fields().ByName("service_signature")
+	if sig == nil {
+		return fmt.Errorf("dispatchstream: outbound %s is not Cortex-signed", name)
+	}
+	if n := len(p.Message.ProtoReflect().Get(sig).Bytes()); n != dispatch.SignatureSize {
+		return fmt.Errorf("dispatchstream: outbound %s carries a %d-byte signature, want %d", name, n, dispatch.SignatureSize)
 	}
 	if _, err := s.outbox.put(ctx, pending{Variant: v, Payload: raw, ExpiresAtUnixMilli: p.ExpiresAtUnixMilli, ExpiryHeight: p.ExpiryHeight}); err != nil {
 		return err
@@ -195,15 +221,22 @@ type conn struct {
 	ka      keepalive
 	seqOf   map[uint64]uint64 // outbound cursor -> outbox seq
 	sentSeq uint64            // highest outbox seq sent on this binding
+	// seen holds the digest of each recent inbound cursor, to tell a harmless
+	// duplicate from a different message reusing a cursor.
+	seen map[uint64][32]byte
 }
+
+// seenWindow bounds conn.seen; a duplicate older than this is refused.
+const seenWindow = 1024
 
 type received struct {
 	raw []byte
 	err error
 }
 
-// serve runs one binding. progressed reports whether the peer sent at least
-// one valid frame, which resets the backoff.
+// serve runs one binding. progressed reports business progress -- a business
+// frame handled to completion or one of ours acked -- which resets the
+// backoff. Control frames alone do not count.
 func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -213,7 +246,7 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	c := &conn{stream: s.client.CallBidiStream(ctx), nonce: nonce, seqOf: map[uint64]uint64{}}
+	c := &conn{stream: s.client.CallBidiStream(ctx), nonce: nonce, seqOf: map[uint64]uint64{}, seen: map[uint64][32]byte{}}
 	frames := make(chan received)
 	var wg sync.WaitGroup
 	defer func() {
@@ -251,6 +284,8 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	}
 	ticker := time.NewTicker(s.cfg.KeepaliveEvery)
 	defer ticker.Stop()
+	pruneTicker := time.NewTicker(s.cfg.PruneEvery)
+	defer pruneTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -259,6 +294,8 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 			if err := s.sendPending(ctx, c); err != nil {
 				return progressed, err
 			}
+		case <-pruneTicker.C:
+			s.prune(ctx)
 		case <-ticker.C:
 			v, ok := c.ka.probe(uint64(max(s.cfg.Now().UnixMilli(), 0)))
 			if !ok {
@@ -274,10 +311,13 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 			if r.err != nil {
 				return progressed, fmt.Errorf("receive: %w", r.err)
 			}
-			if err := s.handleFrame(ctx, c, r.raw); err != nil {
+			business, err := s.handleFrame(ctx, c, r.raw)
+			if business {
+				progressed = true
+			}
+			if err != nil {
 				return progressed, err
 			}
-			progressed = true
 		}
 	}
 }
@@ -323,99 +363,115 @@ func (s *Session) sendControl(c *conn, msg proto.Message) error {
 	return c.stream.Send(&rawFrame{b: wrapEnvelope(frame)})
 }
 
-// handleFrame applies one received frame. Any returned error drops the
-// binding; the peer then replays whatever this side has not acked.
-func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) error {
+// handleFrame applies one received frame. business reports progress (see
+// serve). Any returned error drops the binding; the peer then replays
+// whatever this side has not acked.
+func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (business bool, err error) {
 	raw, err := unwrapEnvelope(envelope)
 	if err != nil {
-		return err
+		return false, err
 	}
-	// Strict decode on the bytes as received. wire's decoder recurses into
-	// every nested message, so the inner business message is strictly
-	// validated here too and its deterministic re-encoding below carries
-	// exactly the fields the Builder signed.
+	// Strict decode on the bytes as received; it recurses into the inner
+	// message. Signature and digest are then taken from the received inner
+	// bytes, never from a re-encoding.
 	if err := dispatch.ValidateMessage(frameName, raw); err != nil {
-		return fmt.Errorf("strict decode: %w", err)
+		return false, fmt.Errorf("strict decode: %w", err)
 	}
 	frame := &nexusv1.DispatchStreamFrameV1{}
 	if err := proto.Unmarshal(raw, frame); err != nil {
-		return fmt.Errorf("unmarshal frame: %w", err)
+		return false, fmt.Errorf("unmarshal frame: %w", err)
 	}
 	if !bytes.Equal(frame.GetStreamNonce(), c.nonce) {
-		return errors.New("frame nonce does not match the binding")
+		return false, errors.New("frame nonce does not match the binding")
 	}
 	v, msg, _ := inner(frame) // ValidateMessage guarantees exactly one
 	switch {
 	case v == variantAck:
 		prev := c.out.acked
 		if err := c.out.ack(frame.GetAck().GetAckedCursor()); err != nil {
-			return err
+			return false, err
 		}
 		for cur := prev + 1; cur <= c.out.acked; cur++ {
 			if err := s.outbox.done(ctx, c.seqOf[cur]); err != nil {
-				return err
+				return true, err
 			}
 			delete(c.seqOf, cur)
 		}
-		return nil
+		return c.out.acked > prev, nil
 	case v == variantKeepalive:
 		if echo, reply := c.ka.received(frame.GetKeepalive().GetSentAtMs()); reply {
-			return s.sendControl(c, &nexusv1.StreamKeepaliveV1{SentAtMs: echo})
+			return false, s.sendControl(c, &nexusv1.StreamKeepaliveV1{SentAtMs: echo})
 		}
-		return nil
+		return false, nil
 	case !v.fromBuilder():
-		return fmt.Errorf("variant %d is not sent by a Builder", v)
+		return false, fmt.Errorf("variant %d is not sent by a Builder", v)
 	}
 
-	switch verdict := c.in.accept(frame.GetCursor()); verdict {
+	name := variantName(v)
+	in, err := innerRaw(raw, v)
+	if err != nil {
+		return false, err
+	}
+	digest, err := messageDigest(name, in, msg)
+	if err != nil {
+		return false, fmt.Errorf("%s digest: %w", name, err)
+	}
+	cursor := frame.GetCursor()
+	switch verdict := c.in.accept(cursor); verdict {
 	case cursorDuplicate:
-		return nil
+		if prev, ok := c.seen[cursor]; !ok || prev != digest {
+			return false, fmt.Errorf("inbound cursor %d reused for a different message", cursor)
+		}
+		return false, nil
 	case cursorNew:
+		c.seen[cursor] = digest
+		if cursor > seenWindow {
+			delete(c.seen, cursor-seenWindow)
+		}
 	default:
-		return fmt.Errorf("inbound cursor %d after %d: %s", frame.GetCursor(), c.in.ackable(), verdict)
+		return false, fmt.Errorf("inbound cursor %d after %d: %s", cursor, c.in.ackable(), verdict)
 	}
-	if err := s.verifyBuilder(ctx, msg); err != nil {
-		return err
+	if err := s.verifyBuilder(ctx, name, in); err != nil {
+		return false, err
 	}
-	key, err := s.dedup.key(v, msg)
+
+	// At-least-once: the record is "received" before the Handler runs and
+	// "done" after it finishes; only "done" suppresses a replay, and the ack
+	// follows "done". A crash in between redelivers.
+	key := s.dedup.key(v, digest)
+	done, err := s.dedup.delivered(ctx, key)
 	if err != nil {
-		return err
+		return false, err
 	}
-	// The claim is durable before the Handler runs, so the Handler sees each
-	// message at most once even across reconnects and restarts. A crash after
-	// the claim but before the Handler finishes loses the message; stream
-	// messages are hints and chain state remains the authority (see plan
-	// Architecture), so that is preferred over a double delivery.
-	first, err := s.dedup.claim(ctx, key)
-	if err != nil {
-		return err
-	}
-	if first {
+	if done {
+		s.cfg.Logger.Debug("dispatch frame already handled; acking replay", "variant", v, "cursor", cursor)
+	} else {
+		if err := s.dedup.mark(ctx, key, stateReceived); err != nil {
+			return false, err
+		}
 		if herr := s.cfg.Handler.HandleFrame(ctx, s.cfg.BuilderOperator, frame); herr != nil {
 			if builderclient.IsRetryable(herr) {
-				if rerr := s.dedup.release(ctx, key); rerr != nil {
-					s.cfg.Logger.Error("release dedup claim; the redelivery will be dropped", "err", rerr, "variant", v)
-				}
-				return fmt.Errorf("handler (retryable, frame left unacked): %w", herr)
+				return false, fmt.Errorf("handler (retryable, frame left unacked): %w", herr)
 			}
-			s.cfg.Logger.Warn("dispatch frame rejected by handler; acking", "err", herr, "variant", v, "cursor", frame.GetCursor())
+			s.cfg.Logger.Warn("dispatch frame rejected by handler; acking", "err", herr, "variant", v, "cursor", cursor)
 		}
-	} else {
-		s.cfg.Logger.Debug("dispatch frame already delivered; acking replay", "variant", v, "cursor", frame.GetCursor())
+		if err := s.dedup.mark(ctx, key, stateDone); err != nil {
+			return false, err
+		}
 	}
-	return s.sendControl(c, &nexusv1.StreamAckV1{AckedCursor: c.in.ackable()})
+	return true, s.sendControl(c, &nexusv1.StreamAckV1{AckedCursor: c.in.ackable()})
 }
 
-// verifyBuilder checks builder_service_signature against the Builder's
-// current on-chain key. Variants that are not themselves Builder-signed
-// (offer, handraise_root) carry signed sub-messages that their business
-// handlers verify in context (ticket, root + inclusion proof).
-func (s *Session) verifyBuilder(ctx context.Context, msg proto.Message) error {
+// verifyBuilder checks builder_service_signature on the received inner bytes
+// against the Builder's current on-chain key. Variants that are not
+// themselves Builder-signed (offer, handraise_root) are left to their
+// Handlers (see Handler).
+func (s *Session) verifyBuilder(ctx context.Context, name string, in []byte) error {
 	key, err := s.cfg.BuilderKey(ctx)
 	if err != nil {
 		return fmt.Errorf("resolve Builder service key: %w", err)
 	}
-	if err := dispatchwire.VerifyBuilderSigned(msg, key); err != nil && !errors.Is(err, dispatchwire.ErrNotBuilderSigned) {
+	if err := dispatchwire.VerifyBuilderSignedRaw(name, in, key); err != nil && !errors.Is(err, dispatchwire.ErrNotBuilderSigned) {
 		return err
 	}
 	return nil

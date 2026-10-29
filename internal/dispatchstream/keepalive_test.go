@@ -46,3 +46,13 @@ func TestKeepaliveSimultaneousProbes(t *testing.T) {
 		t.Fatal("after the echo a new probe may go out")
 	}
 }
+
+func TestKeepaliveEchoesPeerZeroOnce(t *testing.T) {
+	var k keepalive
+	if echo, reply := k.received(0); !reply || echo != 0 {
+		t.Fatal("a peer probe of 0 is still a probe and is echoed")
+	}
+	if _, reply := k.received(0); reply {
+		t.Fatal("a repeated 0 is not echoed again")
+	}
+}
