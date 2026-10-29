@@ -31,7 +31,7 @@ func TestVariantNumbersMatchGeneratedDescriptor(t *testing.T) {
 		if want[f.Name()] != variant(f.Number()) {
 			t.Fatalf("%s is field %d, pinned %d", f.Name(), f.Number(), want[f.Name()])
 		}
-		if f.Number() > 3 && !variant(f.Number()).control() {
+		if v := variant(f.Number()); v != variantBinding && v != variantAck && v != variantKeepalive {
 			if variant(f.Number()).fromCortex() == variant(f.Number()).fromBuilder() {
 				t.Fatalf("%s must belong to exactly one direction", f.Name())
 			}

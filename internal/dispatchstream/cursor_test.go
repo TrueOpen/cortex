@@ -29,8 +29,8 @@ func TestInboundCursorIsContiguousAndAckNeverCrossesGap(t *testing.T) {
 
 func TestOutboundAckBounds(t *testing.T) {
 	var out outbound
-	out.sent(1)
-	out.sent(2)
+	out.assign()
+	out.assign()
 	if err := out.ack(3); err == nil {
 		t.Fatal("ack beyond the last sent cursor must be a protocol violation")
 	}

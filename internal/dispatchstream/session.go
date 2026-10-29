@@ -56,10 +56,15 @@ type Config struct {
 	KeepaliveEvery time.Duration // default 15s
 	PruneEvery     time.Duration // outbox + dedup prune while bound; default 10m
 	MaxMissed      int           // default 3
+	// HandlerTimeout bounds one Handler call. It must be below
+	// KeepaliveEvery*MaxMissed (the loop is blocked while a Handler runs);
+	// default half of that.
+	HandlerTimeout time.Duration
 	Backoff        func(attempt int) time.Duration
-	Now            func() time.Time
+	Now            func() time.Time // default time.Now
 	// Height is the latest known chain height, for height-bound expiry of
-	// outbound messages. Zero means unknown: nothing expires by height.
+	// outbound messages; required. Zero means unknown: nothing expires by
+	// height.
 	Height         func() uint64
 	DedupRetention time.Duration // default DefaultDedupRetention
 	Rand           io.Reader     // stream nonces; default crypto/rand
@@ -79,11 +84,17 @@ type Session struct {
 	cfg     Config
 	client  *connect.Client[rawFrame, rawFrame]
 	outbox  *outbox
-	dedup   *dedup
+	dedup   deliveries
 	kick    chan struct{}
 	running atomic.Bool
+
+	// keepaliveTicks replaces the keepalive ticker when set (tests).
+	keepaliveTicks <-chan time.Time
 }
 
+// New builds a Session. There must be exactly one Session per Builder per
+// store: the outbox sequence, outbound replay and dedup records are keyed by
+// Builder and assume a single writer.
 func New(cfg Config) (*Session, error) {
 	var missing []string
 	for name, absent := range map[string]bool{
@@ -91,6 +102,7 @@ func New(cfg Config) (*Session, error) {
 		"CortexOperator": cfg.CortexOperator == "", "HTTPClient": cfg.HTTPClient == nil,
 		"BaseURL": cfg.BaseURL == "", "Sign": cfg.Sign == nil, "AuthNonce": cfg.AuthNonce == nil,
 		"BuilderKey": cfg.BuilderKey == nil, "Store": cfg.Store == nil, "Handler": cfg.Handler == nil,
+		"Height": cfg.Height == nil,
 	} {
 		if absent {
 			missing = append(missing, name)
@@ -109,14 +121,18 @@ func New(cfg Config) (*Session, error) {
 	if cfg.MaxMissed <= 0 {
 		cfg.MaxMissed = 3
 	}
+	window := cfg.KeepaliveEvery * time.Duration(cfg.MaxMissed)
+	if cfg.HandlerTimeout <= 0 {
+		cfg.HandlerTimeout = window / 2
+	}
+	if cfg.HandlerTimeout >= window {
+		return nil, fmt.Errorf("dispatchstream: HandlerTimeout %v must be below KeepaliveEvery*MaxMissed %v", cfg.HandlerTimeout, window)
+	}
 	if cfg.Backoff == nil {
 		cfg.Backoff = defaultBackoff
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
-	}
-	if cfg.Height == nil {
-		cfg.Height = func() uint64 { return 0 }
 	}
 	if cfg.Rand == nil {
 		cfg.Rand = rand.Reader
@@ -125,16 +141,18 @@ func New(cfg Config) (*Session, error) {
 		cfg.Logger = slog.Default()
 	}
 	cfg.Logger = cfg.Logger.With("component", "dispatchstream", "builder", cfg.BuilderOperator)
-	opts := append([]connect.ClientOption{
+	// The package's codec and read bound go last so caller options cannot
+	// override them.
+	opts := append(append([]connect.ClientOption(nil), cfg.ClientOptions...),
 		connect.WithCodec(rawCodec{}),
 		connect.WithReadMaxBytes(maxEnvelopeBytes),
-	}, cfg.ClientOptions...)
+	)
 	return &Session{
 		cfg: cfg,
 		client: connect.NewClient[rawFrame, rawFrame](cfg.HTTPClient,
 			strings.TrimRight(cfg.BaseURL, "/")+nexusv1connect.IngressAPIDispatchStreamProcedure, opts...),
-		outbox: newOutbox(cfg.Store, cfg.BuilderOperator),
-		dedup:  newDedup(cfg.Store, cfg.BuilderOperator, cfg.DedupRetention, cfg.Now),
+		outbox: newOutbox(cfg.Store, cfg.BuilderOperator, cfg.Logger),
+		dedup:  newDedup(cfg.Store, cfg.BuilderOperator, cfg.DedupRetention, cfg.Now, cfg.Logger),
 		kick:   make(chan struct{}, 1),
 	}, nil
 }
@@ -150,40 +168,41 @@ func defaultBackoff(attempt int) time.Duration {
 // Enqueue strictly validates and persists a business message, then wakes the
 // session to send it. It returns once the message is durable; delivery
 // follows on the current or a later binding until acked or expired.
-func (s *Session) Enqueue(ctx context.Context, p Outgoing) error {
+func (s *Session) Enqueue(ctx context.Context, p Outgoing) (seq uint64, err error) {
 	v, err := variantOf(p.Message)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	raw, err := dispatchwire.Raw(p.Message)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	name := dispatchwire.Name(p.Message)
 	if err := dispatch.ValidateMessage(name, raw); err != nil {
-		return fmt.Errorf("dispatchstream: outbound %s: %w", name, err)
+		return 0, fmt.Errorf("dispatchstream: outbound %s: %w", name, err)
 	}
 	// The largest frame this message can ever ride in (full nonce, maximal
 	// cursor) must still pass the peer's strict decoder.
 	worst := encodeFrame(make([]byte, dispatch.StreamNonceSize), math.MaxUint64, v, raw)
 	if err := dispatch.ValidateMessage(frameName, worst); err != nil {
-		return fmt.Errorf("dispatchstream: outbound %s does not fit a stream frame: %w", name, err)
+		return 0, fmt.Errorf("dispatchstream: outbound %s does not fit a stream frame: %w", name, err)
 	}
 	sig := p.Message.ProtoReflect().Descriptor().Fields().ByName("service_signature")
 	if sig == nil {
-		return fmt.Errorf("dispatchstream: outbound %s is not Cortex-signed", name)
+		return 0, fmt.Errorf("dispatchstream: outbound %s is not Cortex-signed", name)
 	}
 	if n := len(p.Message.ProtoReflect().Get(sig).Bytes()); n != dispatch.SignatureSize {
-		return fmt.Errorf("dispatchstream: outbound %s carries a %d-byte signature, want %d", name, n, dispatch.SignatureSize)
+		return 0, fmt.Errorf("dispatchstream: outbound %s carries a %d-byte signature, want %d", name, n, dispatch.SignatureSize)
 	}
-	if _, err := s.outbox.put(ctx, pending{Variant: v, Payload: raw, ExpiresAtUnixMilli: p.ExpiresAtUnixMilli, ExpiryHeight: p.ExpiryHeight}); err != nil {
-		return err
+	seq, err = s.outbox.put(ctx, pending{Variant: v, Payload: raw, ExpiresAtUnixMilli: p.ExpiresAtUnixMilli, ExpiryHeight: p.ExpiryHeight})
+	if err != nil {
+		return 0, err
 	}
 	select {
 	case s.kick <- struct{}{}:
 	default:
 	}
-	return nil
+	return seq, nil
 }
 
 // Run connects, serves and reconnects until ctx ends. It returns ctx.Err().
@@ -252,8 +271,8 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	defer func() {
 		cancel()
 		_ = c.stream.CloseRequest()
+		wg.Wait() // the reader is out of Receive before the response closes
 		_ = c.stream.CloseResponse()
-		wg.Wait()
 	}()
 	if err := c.stream.Send(&rawFrame{b: wrapEnvelope(bindingFrame)}); err != nil {
 		return false, fmt.Errorf("send binding: %w", err)
@@ -282,8 +301,12 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	if err := s.sendPending(ctx, c); err != nil {
 		return false, err
 	}
-	ticker := time.NewTicker(s.cfg.KeepaliveEvery)
-	defer ticker.Stop()
+	ticks := s.keepaliveTicks
+	if ticks == nil {
+		ticker := time.NewTicker(s.cfg.KeepaliveEvery)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
 	pruneTicker := time.NewTicker(s.cfg.PruneEvery)
 	defer pruneTicker.Stop()
 	for {
@@ -296,7 +319,7 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 			}
 		case <-pruneTicker.C:
 			s.prune(ctx)
-		case <-ticker.C:
+		case <-ticks:
 			v, ok := c.ka.probe(uint64(max(s.cfg.Now().UnixMilli(), 0)))
 			if !ok {
 				if c.ka.missed >= s.cfg.MaxMissed {
@@ -334,14 +357,11 @@ func (s *Session) prune(ctx context.Context) {
 // sendPending sends, in order, every retained unexpired message not yet sent
 // on this binding. On a fresh binding that is the replay of everything unacked.
 func (s *Session) sendPending(ctx context.Context, c *conn) error {
-	ps, err := s.outbox.replayable(ctx, s.cfg.Now().UnixMilli(), s.cfg.Height())
+	ps, err := s.outbox.replayable(ctx, s.cfg.Now().UnixMilli(), s.cfg.Height(), c.sentSeq)
 	if err != nil {
 		return err
 	}
 	for _, p := range ps {
-		if p.Seq <= c.sentSeq {
-			continue
-		}
 		cursor, err := c.out.assign()
 		if err != nil {
 			return err
@@ -367,6 +387,13 @@ func (s *Session) sendControl(c *conn, msg proto.Message) error {
 // serve). Any returned error drops the binding; the peer then replays
 // whatever this side has not acked.
 func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (business bool, err error) {
+	var cursor uint64
+	label := "frame"
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("dispatchstream: cursor %d %s: %w", cursor, label, err)
+		}
+	}()
 	raw, err := unwrapEnvelope(envelope)
 	if err != nil {
 		return false, err
@@ -385,6 +412,7 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 		return false, errors.New("frame nonce does not match the binding")
 	}
 	v, msg, _ := inner(frame) // ValidateMessage guarantees exactly one
+	cursor, label = frame.GetCursor(), variantName(v)
 	switch {
 	case v == variantAck:
 		prev := c.out.acked
@@ -416,10 +444,13 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 	if err != nil {
 		return false, fmt.Errorf("%s digest: %w", name, err)
 	}
-	cursor := frame.GetCursor()
 	switch verdict := c.in.accept(cursor); verdict {
 	case cursorDuplicate:
-		if prev, ok := c.seen[cursor]; !ok || prev != digest {
+		prev, ok := c.seen[cursor]
+		if !ok {
+			return false, fmt.Errorf("duplicate cursor %d outside the seen window", cursor)
+		}
+		if prev != digest {
 			return false, fmt.Errorf("inbound cursor %d reused for a different message", cursor)
 		}
 		return false, nil
@@ -449,8 +480,20 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 		if err := s.dedup.mark(ctx, key, stateReceived); err != nil {
 			return false, err
 		}
-		if herr := s.cfg.Handler.HandleFrame(ctx, s.cfg.BuilderOperator, frame); herr != nil {
-			if builderclient.IsRetryable(herr) {
+		hctx, hcancel := context.WithTimeout(ctx, s.cfg.HandlerTimeout)
+		herr := s.cfg.Handler.HandleFrame(hctx, s.cfg.BuilderOperator, frame)
+		timedOut := errors.Is(hctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+		hcancel()
+		if ctx.Err() != nil {
+			// The session is shutting down: whatever the Handler reported, the
+			// delivery is left "received" and unacked, so it is redelivered.
+			return false, fmt.Errorf("session stopped during handler: %w", ctx.Err())
+		}
+		if timedOut {
+			return false, fmt.Errorf("handler exceeded %v (retryable, frame left unacked): %w", s.cfg.HandlerTimeout, context.DeadlineExceeded)
+		}
+		if herr != nil {
+			if builderclient.IsRetryable(herr) || errors.Is(herr, context.Canceled) || errors.Is(herr, context.DeadlineExceeded) {
 				return false, fmt.Errorf("handler (retryable, frame left unacked): %w", herr)
 			}
 			s.cfg.Logger.Warn("dispatch frame rejected by handler; acking", "err", herr, "variant", v, "cursor", cursor)
@@ -474,31 +517,5 @@ func (s *Session) verifyBuilder(ctx context.Context, name string, in []byte) err
 	if err := dispatchwire.VerifyBuilderSignedRaw(name, in, key); err != nil && !errors.Is(err, dispatchwire.ErrNotBuilderSigned) {
 		return err
 	}
-	return nil
-}
-
-// rawFrame carries one stream message's protobuf bytes untouched.
-type rawFrame struct{ b []byte }
-
-// rawCodec replaces connect's "proto" codec for this client so the session
-// sees the exact bytes the Builder sent and sends exactly the bytes it built.
-type rawCodec struct{}
-
-func (rawCodec) Name() string { return "proto" }
-
-func (rawCodec) Marshal(v any) ([]byte, error) {
-	f, ok := v.(*rawFrame)
-	if !ok {
-		return nil, fmt.Errorf("dispatchstream: raw codec cannot marshal %T", v)
-	}
-	return f.b, nil
-}
-
-func (rawCodec) Unmarshal(data []byte, v any) error {
-	f, ok := v.(*rawFrame)
-	if !ok {
-		return fmt.Errorf("dispatchstream: raw codec cannot unmarshal into %T", v)
-	}
-	f.b = append([]byte(nil), data...) // connect reuses its read buffers
 	return nil
 }

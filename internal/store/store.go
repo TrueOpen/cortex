@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -600,6 +601,20 @@ func (s *Store) DeleteRaw(ctx context.Context, key []byte) error {
 // and calls fn for each. If fn returns an error, iteration stops and that
 // error is returned.
 func (s *Store) ScanPrefix(ctx context.Context, prefix []byte, fn func(key, value []byte) error) error {
+	return s.scan(ctx, prefix, prefix, fn)
+}
+
+// ScanPrefixFrom is ScanPrefix starting at start (inclusive), which must
+// itself carry prefix. It lets an ordered queue resume past what it has
+// already consumed instead of rescanning from the beginning.
+func (s *Store) ScanPrefixFrom(ctx context.Context, prefix, start []byte, fn func(key, value []byte) error) error {
+	if !bytes.HasPrefix(start, prefix) {
+		return fmt.Errorf("scan start %q is outside prefix %q", start, prefix)
+	}
+	return s.scan(ctx, prefix, start, fn)
+}
+
+func (s *Store) scan(ctx context.Context, prefix, start []byte, fn func(key, value []byte) error) error {
 	if err := contextError(ctx); err != nil {
 		return err
 	}
@@ -609,7 +624,7 @@ func (s *Store) ScanPrefix(ctx context.Context, prefix []byte, fn func(key, valu
 		return ErrClosed
 	}
 	iter, err := s.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
+		LowerBound: start,
 		UpperBound: prefixUpperBound(prefix),
 	})
 	if err != nil {

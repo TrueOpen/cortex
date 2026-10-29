@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/TrueOpen/cortex/internal/store"
@@ -43,22 +44,34 @@ func (p pending) validate() error {
 
 const (
 	outboxPrefix    = "dispatch-outbox/"
+	outboxBadPrefix = "dispatch-outbox-bad/"
 	outboxSeqPrefix = "dispatch-outbox-seq/"
+	// outboxPruneBatch caps the records one prune batch examines.
+	outboxPruneBatch = 1024
 )
+
+// errBatchFull stops a bounded scan.
+var errBatchFull = errors.New("dispatchstream: batch full")
 
 // outbox persists one Builder's outbound business messages, keyed by a local
 // sequence that survives reconnects and restarts.
 type outbox struct {
 	st      *store.Store
+	log     *slog.Logger
+	builder string
 	prefix  []byte
 	counter []byte
+	batch   int
 }
 
-func newOutbox(st *store.Store, builder string) *outbox {
+func newOutbox(st *store.Store, builder string, log *slog.Logger) *outbox {
 	return &outbox{
 		st:      st,
+		log:     log,
+		builder: builder,
 		prefix:  []byte(outboxPrefix + builder + "/"),
 		counter: []byte(outboxSeqPrefix + builder),
+		batch:   outboxPruneBatch,
 	}
 }
 
@@ -99,51 +112,103 @@ func (o *outbox) put(ctx context.Context, p pending) (uint64, error) {
 	return seq, nil
 }
 
-// replayable returns every retained unexpired message in sequence order.
-// Expired ones are left for prune to drop; they are never resent.
-func (o *outbox) replayable(ctx context.Context, nowMs int64, height uint64) ([]pending, error) {
+func (o *outbox) decode(key, value []byte) (pending, error) {
+	var p pending
+	seq, err := strconv.ParseUint(string(key[len(o.prefix):]), 10, 64)
+	if err != nil {
+		return p, fmt.Errorf("key: %w", err)
+	}
+	if err := json.Unmarshal(value, &p); err != nil {
+		return p, err
+	}
+	p.Seq = seq
+	return p, p.validate()
+}
+
+// replayable returns, in sequence order, every retained unexpired message
+// with a sequence above after. Expired ones are left for prune; corrupt ones
+// are quarantined so they cannot wedge the session in a reconnect loop.
+func (o *outbox) replayable(ctx context.Context, nowMs int64, height, after uint64) ([]pending, error) {
 	var out []pending
-	err := o.st.ScanPrefix(ctx, o.prefix, func(key, value []byte) error {
-		seq, err := strconv.ParseUint(string(key[len(o.prefix):]), 10, 64)
+	var bad [][2][]byte
+	err := o.st.ScanPrefixFrom(ctx, o.prefix, o.key(after+1), func(key, value []byte) error {
+		p, err := o.decode(key, value)
 		if err != nil {
-			return fmt.Errorf("dispatchstream: outbox key %q: %w", key, err)
+			o.log.Error("quarantining corrupt dispatch outbox record; it will not be sent", "key", string(key), "err", err)
+			bad = append(bad, [2][]byte{key, value})
+			return nil
 		}
-		var p pending
-		if err := json.Unmarshal(value, &p); err != nil {
-			return fmt.Errorf("dispatchstream: outbox record %d: %w", seq, err)
-		}
-		p.Seq = seq
 		if !p.expired(nowMs, height) {
 			out = append(out, p)
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	if len(bad) > 0 {
+		err = o.st.ApplyBatch(ctx, func(b *store.Batch) error {
+			for _, kv := range bad {
+				if err := b.Set(append([]byte(outboxBadPrefix+o.builder+"/"), kv[0][len(o.prefix):]...), kv[1]); err != nil {
+					return err
+				}
+				if err := b.Delete(kv[0]); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("dispatchstream: quarantine outbox records: %w", err)
+		}
+	}
+	return out, nil
 }
 
-// prune deletes expired messages.
+// prune deletes expired messages, examining o.batch records per store batch
+// and checking ctx between batches. Corrupt records are left to replayable's
+// quarantine.
 func (o *outbox) prune(ctx context.Context, nowMs int64, height uint64) error {
-	var dead [][]byte
-	err := o.st.ScanPrefix(ctx, o.prefix, func(key, value []byte) error {
-		// An unreadable record is left in place: replayable reports it
-		// rather than this silently dropping a message.
-		var p pending
-		if json.Unmarshal(value, &p) == nil && p.expired(nowMs, height) {
-			dead = append(dead, key)
+	start := o.prefix
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		return nil
-	})
-	if err != nil || len(dead) == 0 {
-		return err
-	}
-	return o.st.ApplyBatch(ctx, func(b *store.Batch) error {
-		for _, k := range dead {
-			if err := b.Delete(k); err != nil {
+		var dead [][]byte
+		var last []byte
+		seen := 0
+		err := o.st.ScanPrefixFrom(ctx, o.prefix, start, func(key, value []byte) error {
+			if seen == o.batch {
+				return errBatchFull
+			}
+			seen++
+			last = key
+			if p, err := o.decode(key, value); err == nil && p.expired(nowMs, height) {
+				dead = append(dead, key)
+			}
+			return nil
+		})
+		full := errors.Is(err, errBatchFull)
+		if err != nil && !full {
+			return err
+		}
+		if len(dead) > 0 {
+			if err := o.st.ApplyBatch(ctx, func(b *store.Batch) error {
+				for _, k := range dead {
+					if err := b.Delete(k); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
+		if !full {
+			return nil
+		}
+		start = append(last, 0) // the smallest key after last
+	}
 }
 
 // done drops an acked message.

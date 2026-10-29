@@ -1,7 +1,6 @@
 package dispatchstream
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -11,35 +10,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 )
-
-// Handler receives authenticated business frames.
-//
-// Delivery is at least once: a frame is recorded "received" before the
-// Handler runs and "done" after, and only "done" suppresses a replay. A crash
-// between the two, or a replay after DedupRetention, delivers the same signed
-// message again, so Handlers MUST be idempotent per message (keyed by the
-// ticket hash, task hash or similar).
-//
-// Returning an error that builderclient.IsRetryable reports leaves the frame
-// unacked: the session drops the connection and the Builder redelivers it.
-// Any other error (including builderclient.Permanent) is logged and the frame
-// is marked done and acked, because it would fail identically on redelivery.
-//
-// The session checks only the frame's own builder_service_signature. Handlers
-// own the content checks: the BuilderMessageBindingV1 fields of open_verify
-// and verifier_assignment (chain_id, builder_address, service authorization
-// nonce), and the ticket / handraise root + inclusion proof checks for offer
-// and handraise_root, whose outer messages are not themselves signed.
-type Handler interface {
-	HandleFrame(ctx context.Context, from string /*builder operator*/, frame *nexusv1.DispatchStreamFrameV1) error
-}
-
-// HandlerFunc adapts a function to Handler.
-type HandlerFunc func(ctx context.Context, from string, frame *nexusv1.DispatchStreamFrameV1) error
-
-func (f HandlerFunc) HandleFrame(ctx context.Context, from string, frame *nexusv1.DispatchStreamFrameV1) error {
-	return f(ctx, from, frame)
-}
 
 // variant is the DispatchStreamFrameV1 `message` oneof field number.
 type variant int32
@@ -70,10 +40,6 @@ const (
 	// DispatchStreamRequest/Response both wrap the frame as field 1.
 	envelopeFrameField protowire.Number = 1
 )
-
-func (v variant) control() bool {
-	return v == variantBinding || v == variantAck || v == variantKeepalive
-}
 
 // fromCortex lists the business variants this side sends.
 func (v variant) fromCortex() bool {
@@ -225,4 +191,30 @@ func unwrapEnvelope(raw []byte) ([]byte, error) {
 		return nil, fmt.Errorf("dispatchstream: response envelope has no frame")
 	}
 	return frame, nil
+}
+
+// rawFrame carries one stream message's protobuf bytes untouched.
+type rawFrame struct{ b []byte }
+
+// rawCodec replaces connect's "proto" codec for this client so the session
+// sees the exact bytes the Builder sent and sends exactly the bytes it built.
+type rawCodec struct{}
+
+func (rawCodec) Name() string { return "proto" }
+
+func (rawCodec) Marshal(v any) ([]byte, error) {
+	f, ok := v.(*rawFrame)
+	if !ok {
+		return nil, fmt.Errorf("dispatchstream: raw codec cannot marshal %T", v)
+	}
+	return f.b, nil
+}
+
+func (rawCodec) Unmarshal(data []byte, v any) error {
+	f, ok := v.(*rawFrame)
+	if !ok {
+		return fmt.Errorf("dispatchstream: raw codec cannot unmarshal into %T", v)
+	}
+	f.b = append([]byte(nil), data...) // connect reuses its read buffers
+	return nil
 }

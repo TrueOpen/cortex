@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
@@ -28,10 +29,19 @@ const DefaultDedupRetention = 24 * time.Hour
 const (
 	dedupPrefix       = "dispatch-dedup/"
 	dedupExpiryPrefix = "dispatch-dedup-exp/"
-	// dedupPruneLimit caps one prune pass so the store lock is not held for
-	// a whole backlog; later passes continue.
-	dedupPruneLimit = 4096
+	// dedupPruneBatch caps one prune batch so the store lock is not held for
+	// a whole backlog; prune loops over batches.
+	dedupPruneBatch = 1024
 )
+
+// deliveries is the delivery-record store the session uses; an interface
+// only so tests can inject write failures.
+type deliveries interface {
+	key(v variant, digest [32]byte) []byte
+	delivered(ctx context.Context, key []byte) (bool, error)
+	mark(ctx context.Context, key []byte, state deliveryState) error
+	prune(ctx context.Context) error
+}
 
 type deliveryState string
 
@@ -53,20 +63,27 @@ type dedupRecord struct {
 // cursor (cursors restart on every binding) does not reach the Handler again
 // once it has been fully handled. Keys are (builder operator, frame variant,
 // message digest). The once store holds a single state with wall-clock
-// expiry, so this is a small two-state record with its own expiry index, on
-// the session's injected clock.
+// expiry, so this is a small two-state record with its own per-Builder expiry
+// index, on the session's injected clock.
 type dedup struct {
-	st        *store.Store
-	builder   string
-	retention time.Duration
-	now       func() time.Time
+	st          *store.Store
+	builder     string
+	retention   time.Duration
+	now         func() time.Time
+	log         *slog.Logger
+	indexPrefix []byte
+	batch       int
 }
 
-func newDedup(st *store.Store, builder string, retention time.Duration, now func() time.Time) *dedup {
+func newDedup(st *store.Store, builder string, retention time.Duration, now func() time.Time, log *slog.Logger) *dedup {
 	if retention <= 0 {
 		retention = DefaultDedupRetention
 	}
-	return &dedup{st: st, builder: builder, retention: retention, now: now}
+	return &dedup{
+		st: st, builder: builder, retention: retention, now: now, log: log,
+		indexPrefix: []byte(dedupExpiryPrefix + builder + "/"),
+		batch:       dedupPruneBatch,
+	}
 }
 
 // messageDigest identifies a received inner message from its wire bytes.
@@ -100,12 +117,24 @@ func (d *dedup) key(v variant, digest [32]byte) []byte {
 	return fmt.Appendf(nil, "%s%s/%d/%s", dedupPrefix, d.builder, v, hex.EncodeToString(digest[:]))
 }
 
-func expiryKey(expiresAtMs int64, key []byte) []byte {
-	out := append([]byte(dedupExpiryPrefix), binary.BigEndian.AppendUint64(nil, uint64(expiresAtMs)+1<<63)...)
+// expiryKey orders index entries by expiry: the stamp is offset into unsigned
+// space so a negative millisecond value cannot sort after a positive one.
+func (d *dedup) expiryKey(expiresAtMs int64, key []byte) []byte {
+	out := append(append([]byte(nil), d.indexPrefix...), binary.BigEndian.AppendUint64(nil, uint64(expiresAtMs)+1<<63)...)
 	return append(out, key...)
 }
 
-// delivered reports whether an unexpired done record exists for key.
+func (d *dedup) decode(key, raw []byte) (dedupRecord, bool) {
+	var rec dedupRecord
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		d.log.Warn("skipping corrupt dispatch dedup record", "key", string(key), "err", err)
+		return rec, false
+	}
+	return rec, true
+}
+
+// delivered reports whether an unexpired done record exists for key. A
+// corrupt record counts as not done: redelivery is the at-least-once side.
 func (d *dedup) delivered(ctx context.Context, key []byte) (bool, error) {
 	raw, err := d.st.GetRaw(ctx, key)
 	if errors.Is(err, store.ErrNotFound) {
@@ -114,13 +143,8 @@ func (d *dedup) delivered(ctx context.Context, key []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	var rec dedupRecord
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		// Unreadable: treat as not done. At-least-once means redelivery is
-		// the safe side.
-		return false, nil
-	}
-	return rec.State == stateDone && d.now().UnixMilli() < rec.ExpiresAtUnixMs, nil
+	rec, ok := d.decode(key, raw)
+	return ok && rec.State == stateDone && d.now().UnixMilli() < rec.ExpiresAtUnixMs, nil
 }
 
 // mark durably writes state for key with a fresh expiry, moving its index.
@@ -128,13 +152,12 @@ func (d *dedup) mark(ctx context.Context, key []byte, state deliveryState) error
 	rec := dedupRecord{State: state, ExpiresAtUnixMs: d.now().Add(d.retention).UnixMilli()}
 	value, err := json.Marshal(rec)
 	if err != nil {
-		return err
+		return fmt.Errorf("dispatchstream: encode dedup record: %w", err)
 	}
 	return d.st.ApplyBatch(ctx, func(b *store.Batch) error {
 		if old, err := b.Get(key); err == nil {
-			var prev dedupRecord
-			if json.Unmarshal(old, &prev) == nil {
-				if err := b.Delete(expiryKey(prev.ExpiresAtUnixMs, key)); err != nil {
+			if prev, ok := d.decode(key, old); ok {
+				if err := b.Delete(d.expiryKey(prev.ExpiresAtUnixMs, key)); err != nil {
 					return err
 				}
 			}
@@ -144,28 +167,41 @@ func (d *dedup) mark(ctx context.Context, key []byte, state deliveryState) error
 		if err := b.Set(key, value); err != nil {
 			return err
 		}
-		return b.Set(expiryKey(rec.ExpiresAtUnixMs, key), nil)
+		return b.Set(d.expiryKey(rec.ExpiresAtUnixMs, key), nil)
 	})
 }
 
-// prune deletes expired records via the expiry index, oldest first, stopping
-// at the first live one.
+// prune deletes this Builder's expired records via its expiry index, oldest
+// first, in batches of d.batch until a batch comes back short.
 func (d *dedup) prune(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, err := d.pruneBatch(ctx)
+		if err != nil || n < d.batch {
+			return err
+		}
+	}
+}
+
+// pruneBatch removes up to d.batch expired index entries. A data record is
+// deleted only when its own expiry equals the index stamp; otherwise the
+// index entry is stale (the record was re-marked, or was corrupt when it
+// was) and only the index entry goes.
+func (d *dedup) pruneBatch(ctx context.Context) (int, error) {
 	nowMs := d.now().UnixMilli()
-	return d.st.ApplyBatch(ctx, func(b *store.Batch) error {
-		iter, err := b.NewIter([]byte(dedupExpiryPrefix))
+	head := len(d.indexPrefix) + 8
+	n := 0
+	err := d.st.ApplyBatch(ctx, func(b *store.Batch) error {
+		iter, err := b.NewIter(d.indexPrefix)
 		if err != nil {
 			return err
 		}
 		var victims [][]byte
-		for ok := iter.First(); ok && len(victims) < dedupPruneLimit; ok = iter.Next() {
+		for ok := iter.First(); ok && len(victims) < d.batch; ok = iter.Next() {
 			k := iter.Key()
-			if len(k) < len(dedupExpiryPrefix)+8 {
-				victims = append(victims, append([]byte(nil), k...))
-				continue
-			}
-			stamp := binary.BigEndian.Uint64(k[len(dedupExpiryPrefix):])
-			if int64(stamp-1<<63) > nowMs {
+			if len(k) >= head && int64(binary.BigEndian.Uint64(k[len(d.indexPrefix):])-1<<63) > nowMs {
 				break
 			}
 			victims = append(victims, append([]byte(nil), k...))
@@ -177,12 +213,26 @@ func (d *dedup) prune(ctx context.Context) error {
 			if err := b.Delete(k); err != nil {
 				return err
 			}
-			if len(k) >= len(dedupExpiryPrefix)+8 {
-				if err := b.Delete(k[len(dedupExpiryPrefix)+8:]); err != nil {
+			if len(k) < head {
+				continue
+			}
+			stamp := int64(binary.BigEndian.Uint64(k[len(d.indexPrefix):]) - 1<<63)
+			dataKey := k[head:]
+			raw, err := b.Get(dataKey)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if rec, ok := d.decode(dataKey, raw); ok && rec.ExpiresAtUnixMs == stamp {
+				if err := b.Delete(dataKey); err != nil {
 					return err
 				}
 			}
 		}
+		n = len(victims)
 		return nil
 	})
+	return n, err
 }

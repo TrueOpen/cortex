@@ -1,9 +1,3 @@
-// Package dispatchstream runs the Cortex end of one nexus.v1 DispatchStream:
-// binding, per-direction business cursors, cumulative acks, keepalive and
-// reconnect. Business handling lives behind Handler; this package guarantees
-// that each Builder-signed business message reaches it at most once per
-// Builder (across reconnects, see dedup.go) and is durably claimed before it
-// is acknowledged.
 package dispatchstream
 
 import (
@@ -68,12 +62,6 @@ func (o *outbound) assign() (uint64, error) {
 	}
 	o.next++
 	return o.next, nil
-}
-
-func (o *outbound) sent(c uint64) {
-	if c > o.next {
-		o.next = c
-	}
 }
 
 // ack applies a cumulative peer ack. Exceeding what was sent or going

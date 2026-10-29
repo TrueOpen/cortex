@@ -103,23 +103,24 @@ func keepaliveFrame(nonce []byte, v uint64) *nexusv1.DispatchStreamFrameV1 {
 type recordingHandler struct {
 	mu     sync.Mutex
 	frames []*nexusv1.DispatchStreamFrameV1
-	fail   func(call int) error
+	fail   func(ctx context.Context, call int) error
 }
 
-func (h *recordingHandler) HandleFrame(_ context.Context, from string, f *nexusv1.DispatchStreamFrameV1) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+func (h *recordingHandler) HandleFrame(ctx context.Context, from string, f *nexusv1.DispatchStreamFrameV1) error {
 	if from != testOperator {
 		panic("handler called for the wrong builder: " + from)
 	}
+	h.mu.Lock()
 	h.frames = append(h.frames, f)
-	if h.fail != nil {
-		return h.fail(len(h.frames))
+	fail, call := h.fail, len(h.frames)
+	h.mu.Unlock()
+	if fail != nil {
+		return fail(ctx, call)
 	}
 	return nil
 }
 
-func (h *recordingHandler) setFail(f func(call int) error) {
+func (h *recordingHandler) setFail(f func(ctx context.Context, call int) error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.fail = f
@@ -135,6 +136,7 @@ type harness struct {
 	fake    *fakeNexus
 	handler *recordingHandler
 	cfg     Config
+	prepare func(*Session) // test seams, applied before every Run
 
 	mu      sync.Mutex
 	session *Session
@@ -144,8 +146,13 @@ type harness struct {
 
 func startSession(t *testing.T, tweak func(*Config)) *harness {
 	t.Helper()
+	return startPrepared(t, tweak, nil)
+}
+
+func startPrepared(t *testing.T, tweak func(*Config), prepare func(*Session)) *harness {
+	t.Helper()
 	fake, srv := startFakeNexus(t)
-	h := &harness{fake: fake, handler: &recordingHandler{}}
+	h := &harness{fake: fake, handler: &recordingHandler{}, prepare: prepare}
 	h.cfg = Config{
 		ChainID: testChainID, BuilderOperator: testOperator, CortexOperator: testOperator,
 		HTTPClient: srv.Client(), BaseURL: srv.URL,
@@ -175,6 +182,9 @@ func (h *harness) run(t *testing.T) {
 	s, err := New(h.cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if h.prepare != nil {
+		h.prepare(s)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -230,7 +240,7 @@ func (h *harness) bind(t *testing.T) (*fakeConn, []byte) {
 
 func (h *harness) enqueue(t *testing.T, m proto.Message) {
 	t.Helper()
-	if err := h.current().Enqueue(context.Background(), Outgoing{Message: m, ExpiryHeight: 1_000}); err != nil {
+	if _, err := h.current().Enqueue(context.Background(), Outgoing{Message: m, ExpiryHeight: 1_000}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -390,18 +400,15 @@ func TestSession(t *testing.T) {
 	})
 
 	t.Run("missed keepalives force a reconnect", func(t *testing.T) {
-		h := startSession(t, func(c *Config) {
-			c.KeepaliveEvery = 2 * time.Millisecond
-			c.MaxMissed = 2
-		})
+		ticks := make(chan time.Time)
+		h := startPrepared(t, func(c *Config) { c.MaxMissed = 2 }, func(s *Session) { s.keepaliveTicks = ticks })
 		c, _ := h.bind(t)
-		go func() {
-			for {
-				if _, err := c.tryRecv(); err != nil {
-					return
-				}
-			}
-		}()
+		ticks <- time.Time{} // probe goes out
+		if f := c.recv(); f.GetKeepalive() == nil {
+			t.Fatalf("want a probe, got %v", f)
+		}
+		ticks <- time.Time{} // miss 1
+		ticks <- time.Time{} // miss 2 == MaxMissed: drop
 		c.waitGone()
 		h.bind(t)
 	})
@@ -455,7 +462,7 @@ func TestSession(t *testing.T) {
 
 	t.Run("retryable handler error leaves the frame unacked for redelivery", func(t *testing.T) {
 		h := startSession(t, nil)
-		h.handler.setFail(func(call int) error {
+		h.handler.setFail(func(_ context.Context, call int) error {
 			if call == 1 {
 				return builderclient.Retryable(errors.New("busy"))
 			}
@@ -477,7 +484,7 @@ func TestSession(t *testing.T) {
 
 	t.Run("permanent handler error is acked", func(t *testing.T) {
 		h := startSession(t, nil)
-		h.handler.setFail(func(int) error { return builderclient.Permanent(errors.New("bad offer")) })
+		h.handler.setFail(func(context.Context, int) error { return builderclient.Permanent(errors.New("bad offer")) })
 		c, nonce := h.bind(t)
 		c.send(revokeFrame(nonce, 1, revoke(t, 1, builderKeyHex)))
 		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
@@ -488,7 +495,7 @@ func TestSession(t *testing.T) {
 	t.Run("expired outbound messages are never sent", func(t *testing.T) {
 		h := startSession(t, nil)
 		c, _ := h.bind(t)
-		if err := h.current().Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiryHeight: 99}); err != nil {
+		if _, err := h.current().Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiryHeight: 99}); err != nil {
 			t.Fatal(err)
 		}
 		h.enqueue(t, reject(2))
@@ -501,10 +508,10 @@ func TestSession(t *testing.T) {
 func TestEnqueueRefusesBuilderVariantsAndMissingExpiry(t *testing.T) {
 	h := startSession(t, nil)
 	ctx := context.Background()
-	if err := h.current().Enqueue(ctx, Outgoing{Message: revoke(t, 1, builderKeyHex), ExpiryHeight: 5}); err == nil {
+	if _, err := h.current().Enqueue(ctx, Outgoing{Message: revoke(t, 1, builderKeyHex), ExpiryHeight: 5}); err == nil {
 		t.Fatal("a Builder variant cannot be sent by Cortex")
 	}
-	if err := h.current().Enqueue(ctx, Outgoing{Message: reject(1)}); err == nil {
+	if _, err := h.current().Enqueue(ctx, Outgoing{Message: reject(1)}); err == nil {
 		t.Fatal("an outbound message needs an expiry")
 	}
 }
@@ -520,7 +527,7 @@ func countPrefix(t *testing.T, st interface {
 	return n
 }
 
-// eventually polls cond with 1ms pauses; used only where the observable is
+// eventually polls cond with 5ms pauses; used only where the observable is
 // store state written by the session's own ticker.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -529,14 +536,16 @@ func eventually(t *testing.T, what string, cond func() bool) {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
 func TestSessionAtLeastOnce(t *testing.T) {
 	t.Run("crash between received and done redelivers after restart", func(t *testing.T) {
-		h := startSession(t, nil)
-		h.handler.setFail(func(call int) error {
+		// Store writes here ignore cancellation, so only the session's own
+		// "stopped during handler" check keeps the record from going done.
+		h := startPrepared(t, nil, func(s *Session) { s.dedup = detached{s.dedup} })
+		h.handler.setFail(func(_ context.Context, call int) error {
 			if call == 1 {
 				h.crash() // the process dies before the delivery is marked done
 			}
@@ -618,7 +627,7 @@ func TestSessionAtLeastOnce(t *testing.T) {
 		h := startSession(t, func(c *Config) {
 			c.Backoff = func(a int) time.Duration { attempts <- a; return time.Millisecond }
 		})
-		h.handler.setFail(func(int) error { return builderclient.Retryable(errors.New("busy")) })
+		h.handler.setFail(func(context.Context, int) error { return builderclient.Retryable(errors.New("busy")) })
 		a := revoke(t, 1, builderKeyHex)
 		for want := 0; want < 3; want++ {
 			c, nonce := h.bind(t)
@@ -652,7 +661,7 @@ func TestSessionAtLeastOnce(t *testing.T) {
 		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
 			t.Fatalf("want ack 1, got %v", f)
 		}
-		if err := h.current().Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiresAtUnixMilli: 1_000_000 + 60_000}); err != nil {
+		if _, err := h.current().Enqueue(context.Background(), Outgoing{Message: reject(1), ExpiresAtUnixMilli: 1_000_000 + 60_000}); err != nil {
 			t.Fatal(err)
 		}
 		c.recvSkippingKeepalive() // sent, never acked
@@ -669,7 +678,7 @@ func TestSessionAtLeastOnce(t *testing.T) {
 func TestEnqueueBounds(t *testing.T) {
 	h := startSession(t, nil)
 	ctx := context.Background()
-	if err := h.current().Enqueue(ctx, Outgoing{Message: unsignedReject(1), ExpiryHeight: 500}); err == nil {
+	if _, err := h.current().Enqueue(ctx, Outgoing{Message: unsignedReject(1), ExpiryHeight: 500}); err == nil {
 		t.Fatal("an unsigned Cortex message must be refused")
 	}
 	// Size the message to 10 bytes under the limit: valid alone, but the
@@ -684,7 +693,7 @@ func TestEnqueueBounds(t *testing.T) {
 	if raw, _ := proto.Marshal(big); dispatch.ValidateMessage(dispatchwire.Name(big), raw) != nil {
 		t.Fatal("test setup: the message alone must be within the limit")
 	}
-	if err := h.current().Enqueue(ctx, Outgoing{Message: big, ExpiryHeight: 500}); err == nil {
+	if _, err := h.current().Enqueue(ctx, Outgoing{Message: big, ExpiryHeight: 500}); err == nil {
 		t.Fatal("a message whose worst-case frame exceeds the limit must be refused")
 	}
 }
@@ -704,4 +713,107 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.b.String()
+}
+
+// failingDone wraps the real dedup and fails the first "done" write.
+type failingDone struct {
+	deliveries
+	failed atomic.Bool
+}
+
+func (f *failingDone) mark(ctx context.Context, key []byte, st deliveryState) error {
+	if st == stateDone && f.failed.CompareAndSwap(false, true) {
+		return errors.New("disk full")
+	}
+	return f.deliveries.mark(ctx, key, st)
+}
+
+func TestNewValidatesConfig(t *testing.T) {
+	h := startSession(t, nil)
+	cfg := h.cfg
+	cfg.Height = nil
+	if _, err := New(cfg); err == nil {
+		t.Fatal("Height is required")
+	}
+	cfg = h.cfg
+	cfg.KeepaliveEvery, cfg.MaxMissed, cfg.HandlerTimeout = time.Second, 3, 3*time.Second
+	if _, err := New(cfg); err == nil {
+		t.Fatal("HandlerTimeout must be below the keepalive liveness window")
+	}
+	cfg.HandlerTimeout = 0
+	s, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.cfg.HandlerTimeout <= 0 || s.cfg.HandlerTimeout >= 3*time.Second {
+		t.Fatalf("default HandlerTimeout %v must be within (0, KeepaliveEvery*MaxMissed)", s.cfg.HandlerTimeout)
+	}
+}
+
+func TestSessionHandlerOutcomes(t *testing.T) {
+	t.Run("handler past its timeout is not acked and is redelivered", func(t *testing.T) {
+		h := startSession(t, func(c *Config) { c.HandlerTimeout = 20 * time.Millisecond })
+		h.handler.setFail(func(ctx context.Context, call int) error {
+			if call == 1 {
+				<-ctx.Done() // blocks until the handler deadline
+				return ctx.Err()
+			}
+			return nil
+		})
+		c, nonce := h.bind(t)
+		a := revoke(t, 1, builderKeyHex)
+		c.send(revokeFrame(nonce, 1, a))
+		c.waitGone()
+		c2, nonce2 := h.bind(t)
+		c2.send(revokeFrame(nonce2, 1, a))
+		if f := c2.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 2 {
+			t.Fatalf("handler called %d times, want 2", n)
+		}
+	})
+
+	t.Run("failed done write is not acked and is redelivered", func(t *testing.T) {
+		h := startPrepared(t, nil, func(s *Session) { s.dedup = &failingDone{deliveries: s.dedup} })
+		c, nonce := h.bind(t)
+		a := revoke(t, 1, builderKeyHex)
+		c.send(revokeFrame(nonce, 1, a))
+		c.waitGone()
+		c2, nonce2 := h.bind(t)
+		c2.send(revokeFrame(nonce2, 1, a))
+		if f := c2.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 2 {
+			t.Fatalf("handler called %d times, want 2", n)
+		}
+	})
+
+	t.Run("replay after dedup retention reaches the handler again", func(t *testing.T) {
+		clk := &testClock{}
+		clk.ms.Store(1_000_000)
+		h := startSession(t, func(c *Config) { c.Now = clk.now; c.DedupRetention = time.Hour })
+		c, nonce := h.bind(t)
+		a := revoke(t, 1, builderKeyHex)
+		c.send(revokeFrame(nonce, 1, a))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		clk.advance(2 * time.Hour)
+		c.send(revokeFrame(nonce, 2, a))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 2 {
+			t.Fatalf("want ack 2, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 2 {
+			t.Fatalf("handler called %d times, want 2", n)
+		}
+	})
+}
+
+// detached performs dedup writes even after the session context ends.
+type detached struct{ deliveries }
+
+func (d detached) mark(_ context.Context, key []byte, st deliveryState) error {
+	return d.deliveries.mark(context.Background(), key, st)
 }
