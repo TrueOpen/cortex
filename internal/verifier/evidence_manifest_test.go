@@ -36,7 +36,7 @@ func TestVerifierFinalizesExactCommittedEvidenceBeforePublishing(t *testing.T) {
 			t.Fatal("evidence finalized for another task")
 		}
 		bundleHash := evidencebundle.Hash(manifest)
-		if !bytes.Equal(manifest, before.EvidenceManifest) || !bytes.Equal(proof, before.MetricMaterial.AggregateProof.Bytes) ||
+		if !bytes.Equal(receipt.VerifierValueRoot, before.MetricMaterial.VerifierValueRoot[:]) || codec.HashBytes(proof) != codec.Hash(receipt.AggregateProofHash) ||
 			!bytes.Equal(receipt.VerifierEvidenceBundleHash, bundleHash[:]) || receipt.VerifierEvidenceManifestSizeBytes != uint64(len(manifest)) ||
 			!bytes.Equal(receipt.Salt, before.Salt[:]) || receipt.SchemaVersion != nodewire.ResultReceiptSchemaVersionV3 {
 			t.Fatal("published evidence differs from the committed bundle")
@@ -74,39 +74,66 @@ func TestVerifierEvidencePublisherFailurePreventsResultPublication(t *testing.T)
 }
 
 func TestVerifierRestoreRejectsAlteredCommitMaterial(t *testing.T) {
-	for _, field := range []string{"result_reveal", "salt", "commit_hash", "evidence_manifest", "aggregate_proof", "metric_root", "metric_summary"} {
+	alter := func(t *testing.T, h harness, kind, field string) {
+		t.Helper()
+		for i := range h.persistence.evidence {
+			record := &h.persistence.evidence[i]
+			if record.Kind != kind {
+				continue
+			}
+			var value map[string]any
+			if err := json.Unmarshal(record.Data, &value); err != nil {
+				t.Fatal(err)
+			}
+			switch field {
+			case "metric_summary":
+				value["metric_material"].(map[string]any)["metric_summary"].(map[string]any)["finite_count"] = 100
+			case "aggregate_proof", "metric_root":
+				value["metric_material"].(map[string]any)[field] = hex.EncodeToString(bytes.Repeat([]byte{0x91}, 32))
+			case "evidence_manifest":
+				raw, _ := hex.DecodeString(value[field].(string))
+				value[field] = hex.EncodeToString(append(raw, '\n'))
+			default:
+				value[field] = hex.EncodeToString(bytes.Repeat([]byte{0x92}, 32))
+			}
+			var err error
+			if record.Data, err = json.Marshal(value); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// Written before the commit left this node.
+	for _, field := range []string{"salt", "commit_hash", "verifier_value_root"} {
 		t.Run(field, func(t *testing.T) {
 			h := newHarness(t)
 			state := h.validTask()
 			state.OpenVerifyAccepted = true
 			verifyLocally(t, h, state)
-			for i := range h.persistence.evidence {
-				record := &h.persistence.evidence[i]
-				if record.Kind != verifierFullResultRevealEvidenceKind {
-					continue
-				}
-				var value map[string]any
-				if err := json.Unmarshal(record.Data, &value); err != nil {
-					t.Fatal(err)
-				}
-				switch field {
-				case "metric_summary":
-					value["metric_material"].(map[string]any)["metric_summary"].(map[string]any)["finite_count"] = 100
-				case "aggregate_proof", "metric_root":
-					value["metric_material"].(map[string]any)[field] = hex.EncodeToString(bytes.Repeat([]byte{0x91}, 32))
-				case "evidence_manifest":
-					raw, _ := hex.DecodeString(value[field].(string))
-					value[field] = hex.EncodeToString(append(raw, '\n'))
-				default:
-					value[field] = hex.EncodeToString(bytes.Repeat([]byte{0x92}, 32))
-				}
-				var err error
-				record.Data, err = json.Marshal(value)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
+			alter(t, h, verifierFullResultRevealEvidenceKind, field)
 			h.verifier = New(h.verifier.cfg)
+			result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
+			if !errors.Is(err, ErrResultReceiptInputUnavailable) || result.Signed {
+				t.Fatalf("altered %s accepted: result=%+v err=%v", field, result, err)
+			}
+		})
+	}
+	// Written in REVEALING, before anything is published.
+	for _, field := range []string{"result_reveal", "evidence_manifest", "aggregate_proof", "metric_root", "metric_summary"} {
+		t.Run(field, func(t *testing.T) {
+			h := newHarness(t)
+			state := h.validTask()
+			state.OpenVerifyAccepted = true
+			verifyLocally(t, h, state)
+			h.verifier.cfg.EvidencePublisher = evidencePublisherStub{publish: func(TaskState, nodewire.ResultReceiptV3, []byte, []byte) error {
+				return errors.New("builder down")
+			}}
+			if _, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state); err == nil {
+				t.Fatal("the reveal published through a failing publisher")
+			}
+			alter(t, h, verifierRevealMaterialEvidenceKind, field)
+			cfg := h.verifier.cfg
+			cfg.EvidencePublisher = evidencePublisherStub{}
+			h.verifier = New(cfg)
 			result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
 			if !errors.Is(err, ErrResultReceiptInputUnavailable) || result.Signed {
 				t.Fatalf("altered %s accepted: result=%+v err=%v", field, result, err)

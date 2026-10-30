@@ -40,6 +40,7 @@ import (
 	"strings"
 
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
@@ -70,6 +71,12 @@ type RevealResult struct {
 	// Keeper's reveal window and not by some other deadline.
 	ExpiryHeight        uint64
 	ResultSigningDigest codec.Hash
+	// ResultDigest is SHA256 of the result payload; ResultReveal,
+	// EvidenceManifest and MetricMaterial are the second phase's output.
+	ResultDigest     codec.Hash
+	ResultReveal     []byte
+	EvidenceManifest []byte
+	MetricMaterial   metric.Material
 }
 
 // HandleRevealPhaseStarted assembles, signs and publishes the frozen
@@ -124,6 +131,24 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 	if err != nil {
 		return RevealResult{}, err
 	}
+	// The commit bound this Verifier's leaves under the index it held then; a
+	// changed assignment is not this commit's round any more (S7 Q14). Checked
+	// on every attempt, not only the one that builds the material.
+	if index, err := selectedVerifierIndex(state, v.cfg.VerifierAddress); err != nil {
+		return RevealResult{}, fmt.Errorf("%w: %w", ErrResultReceiptInputUnavailable, err)
+	} else if index != reveal.selectedIndex {
+		return RevealResult{}, fmt.Errorf("%w: selected verifier index is %d now and was %d at commit",
+			ErrResultReceiptInputUnavailable, index, reveal.selectedIndex)
+	}
+	if len(reveal.ResultReveal) == 0 {
+		// Second phase (CD §6.2 V14a–V14c): only now, REVEALING, is the
+		// Worker's B-level material read.
+		if reveal, err = v.buildReveal(ctx, state, facts, reveal); err != nil {
+			v.cfg.Trace.ErrorEvent("verify_reveal_material_refused",
+				tasktrace.Str("task", state.TaskID), tasktrace.Uint("verify_round", state.VerifyRound), tasktrace.Err("reason", err))
+			return RevealResult{}, err
+		}
+	}
 	if err := v.validateRevealSource(ctx, state, facts, reveal); err != nil {
 		return RevealResult{}, err
 	}
@@ -174,6 +199,8 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 		tasktrace.Uint("expiry_height", resultWire.ExpiryHeight))
 	return RevealResult{
 		Signed: true, ExpiryHeight: resultWire.ExpiryHeight, ResultSigningDigest: resultSigningDigest,
+		ResultDigest: codec.HashBytes(reveal.ResultReveal), ResultReveal: reveal.ResultReveal,
+		EvidenceManifest: reveal.EvidenceManifest, MetricMaterial: reveal.MetricMaterial,
 	}, nil
 }
 
@@ -190,88 +217,119 @@ func metricSummaryHashOrZero(summary nodewire.MetricSummaryV1) codec.Hash {
 	return digest
 }
 
-// revealSource is one verify run's output as the reveal needs it: the compact
-// reveal bytes and the metric material derived from the same run.
+// revealSource is one round's reveal input: the commit state persisted before
+// the commit left this node and, once the second phase has run, the reveal
+// material derived in REVEALING.
 type revealSource struct {
-	ResultReveal     []byte
-	MetricMaterial   metric.Material
-	EvidenceManifest []byte
-	Salt             codec.Hash
-	CommitHash       codec.Hash
+	ResultReveal      []byte
+	MetricMaterial    metric.Material
+	EvidenceManifest  []byte
+	Salt              codec.Hash
+	CommitHash        codec.Hash
+	verifierLeaves    []nodewire.PositionValueV1
+	requiredTopK      uint32
+	selectedIndex     uint32
+	positionValuesRef string
 }
 
-// persistedReveal restores the verify run's reveal source. Pebble is the
-// authority - the reveal phase can open after a restart, and the in-memory map
-// only serves the tests and single-process paths that have no evidence reader.
-//
-// The metric material is deliberately allowed to be absent here rather than
-// refused: the credential gate is the single place that decides what a missing
-// preimage value means, and duplicating that judgement in the reader would give
-// the same failure two different error messages.
+// persistedCommitState is the commit-state record's projection the reveal
+// reads (verifier.go persistResult writes it).
+type persistedCommitState struct {
+	TaskID            string                     `json:"task_id"`
+	VerifyRound       uint64                     `json:"verify_round"`
+	Salt              string                     `json:"salt"`
+	CommitHash        string                     `json:"commit_hash"`
+	VerifierValueRoot string                     `json:"verifier_value_root"`
+	RequiredTopK      uint32                     `json:"required_top_k"`
+	SelectedIndex     uint32                     `json:"selected_verifier_index"`
+	VerifierLeaves    []nodewire.PositionValueV1 `json:"verifier_leaves"`
+	PositionValuesRef string                     `json:"position_values_ref"`
+}
+
+// persistedReveal restores the commit state and, once the second phase has
+// run, the reveal material. ResultReveal empty means the B level has not
+// been read yet. Pebble is the authority - the reveal phase can open after a
+// restart - and the in-memory map only serves paths with no evidence reader.
 func (v *Verifier) persistedReveal(ctx context.Context, state TaskState) (revealSource, error) {
-	if reader, ok := v.cfg.Persistence.(verifierEvidenceReader); ok {
-		data, err := reader.ReadVerifierEvidence(ctx, verifierFullResultRevealEvidenceKind)
-		if err != nil {
-			return revealSource{}, fmt.Errorf("%w: read persisted result_reveal: %v", ErrResultReceiptInputUnavailable, err)
-		}
-		var persisted struct {
-			TaskID           string                   `json:"task_id"`
-			VerifyRound      uint64                   `json:"verify_round"`
-			ResultReveal     string                   `json:"result_reveal"`
-			EvidenceManifest string                   `json:"evidence_manifest"`
-			Salt             string                   `json:"salt"`
-			CommitHash       string                   `json:"commit_hash"`
-			MetricMaterial   *persistedMetricMaterial `json:"metric_material"`
-		}
-		if err := json.Unmarshal(data, &persisted); err != nil {
-			return revealSource{}, fmt.Errorf("%w: decode persisted result_reveal: %v", ErrResultReceiptInputUnavailable, err)
-		}
-		if persisted.TaskID != state.TaskID || persisted.VerifyRound != state.VerifyRound {
-			return revealSource{}, fmt.Errorf(
-				"%w: persisted result_reveal belongs to task %q round %d, want task %q round %d",
-				ErrResultReceiptInputUnavailable, persisted.TaskID, persisted.VerifyRound, state.TaskID, state.VerifyRound)
-		}
-		if persisted.ResultReveal == "" {
-			return revealSource{}, fmt.Errorf("%w: persisted result_reveal is empty", ErrResultReceiptInputUnavailable)
-		}
-		// The record holds the framed reveal bytes as hex. A record written by
-		// the retired compact `p00000000=...|salt=...` text encoding fails to
-		// decode here, and that is the correct outcome rather than a migration
-		// gap: its bytes are not the bytes the commit already on chain bound, so
-		// a credential built from them could never satisfy keeper §10.11 rule 5.
-		revealBytes, err := hex.DecodeString(persisted.ResultReveal)
-		if err != nil || len(revealBytes) == 0 {
-			return revealSource{}, fmt.Errorf(
-				"%w: persisted result_reveal is not canonical hex-encoded reveal bytes", ErrResultReceiptInputUnavailable)
-		}
-		manifest, err := hex.DecodeString(persisted.EvidenceManifest)
-		if err != nil || len(manifest) == 0 {
-			return revealSource{}, fmt.Errorf("%w: persisted evidence_manifest is not hex-encoded manifest bytes", ErrResultReceiptInputUnavailable)
-		}
-		salt, err := hash32FromHex("salt", persisted.Salt)
-		if err != nil {
-			return revealSource{}, fmt.Errorf("%w: %w", ErrResultReceiptInputUnavailable, err)
-		}
-		commitHash, err := hash32FromHex("commit_hash", persisted.CommitHash)
-		if err != nil {
-			return revealSource{}, fmt.Errorf("%w: %w", ErrResultReceiptInputUnavailable, err)
-		}
-		source := revealSource{ResultReveal: revealBytes, EvidenceManifest: manifest, Salt: salt, CommitHash: commitHash}
-		if persisted.MetricMaterial != nil {
-			material, err := persisted.MetricMaterial.restore()
-			if err != nil {
-				return revealSource{}, fmt.Errorf("%w: persisted metric material: %v", ErrResultReceiptInputUnavailable, err)
+	fail := func(format string, args ...any) (revealSource, error) {
+		return revealSource{}, fmt.Errorf("%w: "+format, append([]any{ErrResultReceiptInputUnavailable}, args...)...)
+	}
+	reader, ok := v.cfg.Persistence.(verifierEvidenceReader)
+	if !ok {
+		prefix := fmt.Sprintf("%s/%d/%s/", state.TaskID, state.VerifyRound, v.cfg.VerifierAddress)
+		for key, result := range v.results {
+			if strings.HasPrefix(key, prefix) && result.verifierLeaves != nil {
+				return revealSource{
+					Salt: result.Salt, CommitHash: result.CommitHash,
+					MetricMaterial: metric.Material{VerifierValueRoot: result.MetricMaterial.VerifierValueRoot},
+					verifierLeaves: result.verifierLeaves, requiredTopK: result.requiredTopK,
+					selectedIndex: result.selectedIndex, positionValuesRef: result.positionValuesRef,
+				}, nil
 			}
-			source.MetricMaterial = material
 		}
+		return fail("no commit state is persisted or held in memory for task %s round %d", state.TaskID, state.VerifyRound)
+	}
+	data, err := reader.ReadVerifierEvidence(ctx, verifierFullResultRevealEvidenceKind)
+	if err != nil {
+		return fail("read persisted commit state: %v", err)
+	}
+	var c persistedCommitState
+	if err := json.Unmarshal(data, &c); err != nil {
+		return fail("decode persisted commit state: %v", err)
+	}
+	if c.TaskID != state.TaskID || c.VerifyRound != state.VerifyRound {
+		return fail("persisted commit state belongs to task %q round %d, want task %q round %d", c.TaskID, c.VerifyRound, state.TaskID, state.VerifyRound)
+	}
+	salt, err := hash32FromHex("salt", c.Salt)
+	if err != nil {
+		return fail("%v", err)
+	}
+	commitHash, err := hash32FromHex("commit_hash", c.CommitHash)
+	if err != nil {
+		return fail("%v", err)
+	}
+	root, err := hash32FromHex("verifier_value_root", c.VerifierValueRoot)
+	if err != nil {
+		return fail("%v", err)
+	}
+	if c.RequiredTopK == 0 || c.VerifierLeaves == nil {
+		return fail("persisted commit state carries no verifier value leaves (written by an earlier build)")
+	}
+	source := revealSource{
+		Salt: salt, CommitHash: commitHash, MetricMaterial: metric.Material{VerifierValueRoot: root},
+		verifierLeaves: c.VerifierLeaves, requiredTopK: c.RequiredTopK, selectedIndex: c.SelectedIndex, positionValuesRef: c.PositionValuesRef,
+	}
+	data, err = reader.ReadVerifierEvidence(ctx, verifierRevealMaterialEvidenceKind)
+	if errors.Is(err, evidence.ErrArtifactNotFound) {
 		return source, nil
 	}
-
-	prefix := fmt.Sprintf("%s/%d/%s/", state.TaskID, state.VerifyRound, v.cfg.VerifierAddress)
-	for key, result := range v.results {
-		if strings.HasPrefix(key, prefix) && len(result.ResultReveal) > 0 {
-			return revealSource{ResultReveal: result.ResultReveal, MetricMaterial: result.MetricMaterial, EvidenceManifest: result.EvidenceManifest, Salt: result.Salt, CommitHash: result.CommitHash}, nil
-		}
+	if err != nil {
+		return fail("read persisted reveal material: %v", err)
 	}
-	return revealSource{}, fmt.Errorf("%w: result_reveal has no persisted or in-memory source", ErrResultReceiptInputUnavailable)
+	var m persistedRevealMaterial
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fail("decode persisted reveal material: %v", err)
+	}
+	if m.TaskID != state.TaskID || m.VerifyRound != state.VerifyRound || m.MetricMaterial == nil {
+		return fail("persisted reveal material belongs to another round or carries no metric material")
+	}
+	// The record holds the framed reveal bytes as hex; anything else is refused
+	// rather than turned into a credential over different bytes.
+	revealBytes, err := hex.DecodeString(m.ResultReveal)
+	if err != nil || len(revealBytes) == 0 {
+		return fail("persisted result_reveal is not canonical hex-encoded reveal bytes")
+	}
+	manifest, err := hex.DecodeString(m.EvidenceManifest)
+	if err != nil || len(manifest) == 0 {
+		return fail("persisted evidence_manifest is not hex-encoded manifest bytes")
+	}
+	material, err := m.MetricMaterial.restore()
+	if err != nil {
+		return fail("persisted metric material: %v", err)
+	}
+	if material.VerifierValueRoot != root {
+		return fail("persisted metric material names verifier_value_root %s, the commit bound %s", material.VerifierValueRoot, root)
+	}
+	source.ResultReveal, source.EvidenceManifest, source.MetricMaterial = revealBytes, manifest, material
+	return source, nil
 }

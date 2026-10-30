@@ -3,14 +3,13 @@ package verifier
 // The metric material: where it is produced, where it is consumed, and why
 // those are two different turns of the process.
 //
-// metric_root, metric_summary and aggregate_proof_hash are derived from the
-// prefill/teacher-forcing run, which happens in HandleOpenVerifyAccepted. They
-// are CONSUMED in HandleRevealPhaseStarted, which the chain opens later - after
-// the commits are counted - and which a restarted process must still be able to
-// serve. So the material is persisted beside the compact reveal it belongs to,
-// in the same evidence record and under the same task/round identity check: the
-// two are one run's output, and a reveal assembled from one run's metrics and
-// another run's values would be a credential nothing can reproduce.
+// metric_root, metric_summary and aggregate_proof_hash are derived in the
+// second phase (reveal_material.go), after the round is REVEALING and the
+// Worker's B-level values are read; they are persisted under
+// verifier-reveal-material before the credential is signed. The commit phase
+// persists only this Verifier's own value leaves and verifier_value_root, so a
+// restarted process can still derive the material: the leaves are one run's
+// output, and the reveal compares the Worker's values against exactly them.
 
 import (
 	"encoding/hex"

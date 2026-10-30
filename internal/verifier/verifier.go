@@ -195,9 +195,11 @@ type HandraiseResult struct {
 type VerifyResult struct {
 	Started                bool
 	VerificationSampleSeed codec.Hash
-	ResultDigest           codec.Hash
-	// ResultReveal stores the canonical 18-field VerifierResultPayloadV2 bytes.
-	// The commit binds verifier_value_root and the salt, not this payload.
+	// ResultDigest, ResultReveal and EvidenceManifest are the second phase's
+	// output (RevealResult). They stay empty at commit time: the payload needs
+	// the Worker's B-level values, which ADR-0023 releases only in REVEALING.
+	// The commit binds verifier_value_root and the salt, not the payload.
+	ResultDigest     codec.Hash
 	ResultReveal     []byte
 	EvidenceManifest []byte
 	CommitHash       codec.Hash
@@ -209,16 +211,24 @@ type VerifyResult struct {
 	Salt                   codec.Hash
 	MainMismatchCount      int
 	SampleValueSequenceRef string
-	// MetricMaterial is metric_root, the typed MetricSummaryV1 and the
-	// aggregate proof this run produced. It is derived at verify time and
-	// consumed at reveal time, so it is persisted beside the compact reveal
-	// rather than only returned here; see metric_material.go.
+	// MetricMaterial carries only VerifierValueRoot at commit time. metric_root,
+	// the summary and the aggregate proof are derived in the reveal phase
+	// (reveal_material.go); see metric_material.go.
 	MetricMaterial metric.Material
 	// CommitDelivery is what happened to the signed commit: which exit carried
 	// it, and whether the chain confirmed it. It is filled in before the result
 	// credential is attempted, so a caller that only reaches the frozen
 	// result-body gap still learns whether the commit landed.
 	CommitDelivery CommitDelivery
+
+	// The commit record's half of the reveal source: this run's verifier
+	// value leaves (the verifier side of every metric leaf, CD §6.2 V14c), the
+	// required_top_k they were framed under, the selected index at commit
+	// time and, on the fake transport only, the Worker position-values ref.
+	verifierLeaves    []nodewire.PositionValueV1
+	requiredTopK      uint32
+	selectedIndex     uint32
+	positionValuesRef string
 }
 
 func New(cfg Config) *Verifier {
@@ -432,7 +442,11 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if !state.OpenVerifyAccepted || !slices.Contains(state.AssignedVerifiers, v.cfg.VerifierAddress) {
 		return VerifyResult{}, nil
 	}
-	if _, err := selectedVerifierIndex(state, v.cfg.VerifierAddress); err != nil {
+	if len(state.ConfirmedWorkerValues) > 0 {
+		return VerifyResult{}, fmt.Errorf("%w (task %s round %d)", ErrBLevelBeforeCommit, state.TaskID, state.VerifyRound)
+	}
+	selectedIndex, err := selectedVerifierIndex(state, v.cfg.VerifierAddress)
+	if err != nil {
 		return VerifyResult{}, err
 	}
 	// A commit already signed and persisted for this round is only
@@ -508,20 +522,22 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if metricBound {
 		requiredTopK = metricBinding.RequiredTopK
 	}
-	evidence, err := v.workerEvidence(ctx, state, evidenceLimits, requiredTopK, facts.AcceptedTaskHash)
+	// First phase: A-level only (CD §6.2 V7a). The value bundle is not
+	// requested, read or cached until REVEALING (reveal_material.go).
+	tokens, err := v.workerTokenEvidence(ctx, state, evidenceLimits)
 	if err != nil {
 		return VerifyResult{}, err
 	}
 	if !v.cfg.FakeOutput {
-		if err := v.validateAcceptedWorkerEvidence(ctx, state, lockedProfile, evidenceLimits, output.Data, evidence); err != nil {
+		if err := v.validateWorkerTokenEvidence(ctx, state, lockedProfile, evidenceLimits, output.Data, tokens); err != nil {
 			return VerifyResult{}, err
 		}
 	}
-	tokenIDs, err := evidence.tokenIDs()
+	tokenIDs, err := tokens.tokenIDs()
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	generation, generationDigest, err := v.taskGeneration(ctx, state, evidence.generationParams)
+	generation, generationDigest, err := v.taskGeneration(ctx, state, tokens.generationParams)
 	if err != nil {
 		return VerifyResult{}, err
 	}
@@ -581,33 +597,24 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	// The metric pipeline runs on the values this same Verify call produced, not
-	// on a re-read of the persisted artifact: the value root, metric_root and the
-	// reveal have to describe one run, and a second read is a second source that
-	// can disagree with the first.
-	var metricMaterial metric.Material
-	if metricBound {
-		verifierLeaves, verifierValueRoot, err := v.verifierValueLeaves(state, facts.AcceptedTaskHash, requiredTopK, resp.VerifierValues)
-		if err != nil {
-			_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
-			return VerifyResult{}, err
-		}
-		metricMaterial, err = buildMetricMaterial(metricBinding, metricBound, verifierValueRoot, evidence.workerLeaves, verifierLeaves)
-		if err != nil {
-			_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
-			return VerifyResult{}, err
-		}
-	}
-	if !hasMetricMaterial(metricMaterial) {
-		// Fail closed rather than reaching for a substitute. The commit binds
-		// verifier_value_root and the reveal carries metric material; without a
-		// locked profile neither exists, and there is no value that makes them
-		// re-derivable.
+	// verifier_value_root is fixed by this Verifier's own prefill and nothing
+	// else (CD §6.2 V9). The Worker's values are not read here.
+	if !metricBound {
 		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
 		return VerifyResult{}, fmt.Errorf(
-			"%w: the commit needs verifier_value_root and the reveal needs metric material, and this run "+
-				"produced neither, so no commit this Keeper can re-derive at full reveal exists",
-			ErrVerifyCommitInputUnavailable)
+			"%w: the commit needs verifier_value_root, framed under the locked profile's required_top_k, "+
+				"and this node has no locked profile to frame it under", ErrVerifyCommitInputUnavailable)
+	}
+	verifierLeaves, verifierValueRoot, err := v.verifierValueLeaves(state, facts.AcceptedTaskHash, requiredTopK, resp.VerifierValues)
+	if err != nil {
+		_ = v.persistModelServiceJob(ctx, jobID, state.TaskID, "failed", "verify")
+		return VerifyResult{}, err
+	}
+	if verifierLeaves == nil {
+		// A zero-token output has no leaves, and that is a fact the record
+		// keeps: nil would persist as null, which the reveal reads as a record
+		// written by an earlier build.
+		verifierLeaves = []nodewire.PositionValueV1{}
 	}
 	// The task identity enters the commitment as raw Hash32 bytes.
 	commitTaskID, err := hex.DecodeString(state.TaskID)
@@ -617,46 +624,22 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	}
 	if state.VerifyRound > math.MaxUint32 {
 		return VerifyResult{}, fmt.Errorf(
-			"%w: commit verify_round %d does not fit the frozen uint32 field",
-			ErrVerifyCommitInputUnavailable, state.VerifyRound)
+			"%w: commit verify_round %d does not fit the frozen uint32 field", ErrVerifyCommitInputUnavailable, state.VerifyRound)
 	}
-	commitVerifyRound := uint32(state.VerifyRound)
-	if metricMaterial.LeafCount < 0 || metricMaterial.LeafCount > math.MaxUint32 {
+	if uint64(len(verifierLeaves)) > math.MaxUint32 {
 		return VerifyResult{}, fmt.Errorf(
-			"%w: metric_leaf_count %d does not fit the uint32 the reveal and the receipt carry",
-			ErrVerifyCommitInputUnavailable, metricMaterial.LeafCount)
+			"%w: %d verifier value leaves do not fit the uint32 metric_leaf_count", ErrVerifyCommitInputUnavailable, len(verifierLeaves))
 	}
-	// The salt comes from a CSPRNG and is persisted with
-	// verifier_value_root before the commit leaves this node; a retry reuses
-	// the persisted one (see persistedCommit) and never draws again.
+	// The salt comes from a CSPRNG and is persisted with verifier_value_root
+	// before the commit leaves this node; a retry reuses the persisted one (see
+	// persistedCommit) and never draws again.
 	salt, err := randomSalt()
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	manifest, err := (evidencebundle.Manifest{
-		Version: 1, ChainID: v.cfg.ChainID, TaskID: state.TaskID,
-		TaskHash: hex.EncodeToString(facts.AcceptedTaskHash), VerifyRound: commitVerifyRound,
-		EvidenceKind: evidencebundle.KindVerifierValueOpening,
-		ProducerKind: "VERIFIER", ProducerOperator: v.cfg.VerifierAddress,
-		EvidenceSchemaHash: metricBinding.EvidenceSchemaHash.String(),
-		Artifacts:          []evidencebundle.Artifact{evidencebundle.NewArtifact(builderclient.EvidenceArtifactAggregateProof, metricMaterial.AggregateProof.Bytes)},
-	}).Encode()
-	if err != nil {
-		return VerifyResult{}, fmt.Errorf("build verifier evidence manifest: %w", err)
-	}
-	resultReveal, err := canonicalResultPayload(v.cfg, state, facts, metricMaterial, manifest)
-	if err != nil {
-		return VerifyResult{}, fmt.Errorf("%w: %w", ErrVerifyCommitInputUnavailable, err)
-	}
-	resultDigest := codec.HashBytes(resultReveal)
 	commitHash, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{
-		ChainID:                 v.cfg.ChainID,
-		TaskID:                  commitTaskID,
-		TaskHash:                facts.AcceptedTaskHash,
-		VerifyRound:             commitVerifyRound,
-		VerifierOperatorAddress: v.cfg.VerifierAddress,
-		VerifierValueRoot:       metricMaterial.VerifierValueRoot[:],
-		Salt:                    salt[:],
+		ChainID: v.cfg.ChainID, TaskID: commitTaskID, TaskHash: facts.AcceptedTaskHash, VerifyRound: uint32(state.VerifyRound),
+		VerifierOperatorAddress: v.cfg.VerifierAddress, VerifierValueRoot: verifierValueRoot[:], Salt: salt[:],
 	})
 	if err != nil {
 		return VerifyResult{}, fmt.Errorf("derive frozen commit_hash: %w", err)
@@ -689,34 +672,21 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 		tasktrace.Hash("infer_receipt_hash", state.InferReceiptHash),
 		tasktrace.Hash("verification_sample_seed", seed),
 		tasktrace.Bool("seed_from_keeper", state.VerificationSampleSeed != codec.Hash{}),
-		tasktrace.Hash("worker_value_root", evidence.workerValueRoot),
-		tasktrace.Hash("verifier_value_root", metricMaterial.VerifierValueRoot),
-		tasktrace.Hash("salt", salt), tasktrace.Hash("result_digest", resultDigest),
-		tasktrace.Hash("commit_hash", commitHash),
+		tasktrace.Hash("verifier_value_root", verifierValueRoot),
+		tasktrace.Int("verifier_leaf_count", len(verifierLeaves)),
+		tasktrace.Hash("salt", salt), tasktrace.Hash("commit_hash", commitHash),
 		tasktrace.Hash("commit_signing_digest", commitSigningDigest),
 		tasktrace.Int("main_mismatch_count", resp.MainMismatchCount),
 		tasktrace.Int("sample_values", len(values)),
-		// The metric material, printed at the point it is produced. metric_root
-		// is what a later opening is checked against, and metric_leaf_count is
-		// the only place the tree's length is recorded - the tree itself carries
-		// no length.
-		tasktrace.Hash("metric_root", metricMaterial.Root),
-		tasktrace.Int("metric_leaf_count", metricMaterial.LeafCount),
-		tasktrace.Hash("aggregate_proof_hash", metricMaterial.AggregateProof.Hash),
 		tasktrace.Uint("open_verify_height", state.OpenVerifyHeight),
 		tasktrace.Uint("commit_deadline_height", state.CommitDeadlineHeight))
 	result := VerifyResult{
-		Started:                true,
-		VerificationSampleSeed: seed,
-		ResultDigest:           resultDigest,
-		ResultReveal:           resultReveal,
-		EvidenceManifest:       manifest,
-		CommitHash:             commitHash,
-		CommitWire:             commitWire,
-		Salt:                   salt,
-		MainMismatchCount:      resp.MainMismatchCount,
-		SampleValueSequenceRef: resp.SampleValueSequenceRef,
-		MetricMaterial:         metricMaterial,
+		Started: true, VerificationSampleSeed: seed,
+		CommitHash: commitHash, CommitWire: commitWire, Salt: salt,
+		MainMismatchCount: resp.MainMismatchCount, SampleValueSequenceRef: resp.SampleValueSequenceRef,
+		MetricMaterial: metric.Material{VerifierValueRoot: verifierValueRoot},
+		verifierLeaves: verifierLeaves, requiredTopK: requiredTopK, selectedIndex: selectedIndex,
+		positionValuesRef: state.OutputPackage.PositionValuesRef,
 	}
 	if err := v.persistResult(ctx, state, result, values); err != nil {
 		return VerifyResult{}, err
@@ -727,19 +697,11 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if err := v.persistModelServiceJob(ctx, jobID, state.TaskID, "succeeded", "verify"); err != nil {
 		return VerifyResult{}, err
 	}
-	// The commit exit runs HERE, between the local records and the result
-	// credential, because those are two independent obligations and the second
-	// one is still blocked. The commit is complete and signed; the result
-	// receipt still has no producer for metric_root, metric_summary,
-	// and aggregate_proof_hash. Delivering the commit after
-	// the result credential would mean no commit ever reaches the chain until
-	// those three exist, which is how a signed commit came to live only in
-	// verifier-result-commit-receipt.
-	//
-	// The result is returned beside a delivery failure for the same reason it is
-	// returned beside the credential gap: the verification really happened, its
-	// evidence is stored, and the caller must be able to see it next to why the
-	// commit did not land.
+	// The commit exit runs HERE, after the local records: the signed commit,
+	// its salt and the verifier leaves it binds are durable before anything
+	// leaves this node. The result is returned beside a delivery failure,
+	// because the verification really happened and the caller must be able to
+	// see it next to why the commit did not land.
 	delivery, err := v.deliverCommit(ctx, state, result)
 	result.CommitDelivery = delivery
 	// A commit that did not reach the chain is an ERROR-level milestone, not an
@@ -769,20 +731,10 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	if err != nil {
 		return result, err
 	}
-	// The reveal STOPS here, and that is the whole point of this boundary.
-	//
-	// Task-04-Verification-flow.md admits MsgSubmitVerifyResult only after
-	// EventRevealPhaseStarted, and the Keeper handler refuses any reveal that
-	// arrives before the task enters REVEALING. A reveal assembled on this line
-	// would be assembled at commit time by construction, so it could only ever be
-	// early -- and it would also be assembled with reveal_deadline_height still
-	// zero, because keeper §10.7 writes that height exactly once, inside
-	// StartRevealPhase. Both facts made the reveal a tail of the commit that
-	// could never succeed, and its failure buried the commit's own outcome.
-	//
-	// The reveal is a separate responsibility with a separate trigger:
-	// HandleRevealPhaseStarted, driven by the Keeper event of that name. See
-	// reveal.go.
+	// The reveal STOPS here. It is a separate responsibility with a separate
+	// trigger: HandleRevealPhaseStarted, driven by the Keeper event of that
+	// name, which is also the only point the Worker's B-level values may be
+	// read (ADR-0023). See reveal.go and reveal_material.go.
 	v.results[resultKey] = result
 	return result, nil
 }
@@ -961,33 +913,24 @@ func (v *Verifier) persistResult(ctx context.Context, state TaskState, result Ve
 	}); err != nil {
 		return err
 	}
+	// The commit state: one write makes the signed commit, the salt and the
+	// verifier value leaves it binds durable together (CD §6.2 V9, V12). The
+	// selected index is kept so the reveal can refuse a changed assignment.
 	revealRecord := map[string]any{
 		"task_id":                  state.TaskID,
 		"verify_round":             state.VerifyRound,
 		"verification_sample_seed": result.VerificationSampleSeed,
-		"result_digest":            result.ResultDigest,
-		// Hex rather than raw, because the reveal is framed bytes now and JSON
-		// has no byte string. The reader refuses anything that is not hex, which
-		// is also how a record written by the retired compact text encoding is
-		// rejected instead of being turned into a credential whose commit_hash
-		// was derived from different bytes entirely.
-		"result_reveal": hex.EncodeToString(result.ResultReveal),
-		"salt":          result.Salt.String(),
-		"commit_hash":   result.CommitHash.String(),
-		// The signed commit rides in the same record as the salt and the root
-		// it binds, so one write makes the whole commit durable and a retry
-		// re-delivers these exact bytes.
-		"commit_wire":         result.CommitWire,
-		"evidence_manifest":   hex.EncodeToString(result.EvidenceManifest),
-		"values_evidence_ref": evidenceRef(valuePayload),
+		"salt":                     result.Salt.String(),
+		"commit_hash":              result.CommitHash.String(),
+		"commit_wire":              result.CommitWire,
+		"verifier_value_root":      result.MetricMaterial.VerifierValueRoot.String(),
+		"required_top_k":           result.requiredTopK,
+		"selected_verifier_index":  result.selectedIndex,
+		"verifier_leaves":          result.verifierLeaves,
+		"values_evidence_ref":      evidenceRef(valuePayload),
 	}
-	// The metric material rides in the same record as the compact reveal, under
-	// the same task/round identity, because the reveal credential needs both and
-	// they are one run's output. It is omitted rather than written as zeros when
-	// the run produced none, so a reader can tell "this node had no locked
-	// profile" from "this node measured zero".
-	if hasMetricMaterial(result.MetricMaterial) {
-		revealRecord["metric_material"] = projectMetricMaterial(result.MetricMaterial)
+	if result.positionValuesRef != "" {
+		revealRecord["position_values_ref"] = result.positionValuesRef
 	}
 	revealPayload, err := json.Marshal(revealRecord)
 	if err != nil {

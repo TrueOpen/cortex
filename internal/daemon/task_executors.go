@@ -372,7 +372,6 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	state.ConfirmedOutputChunkLengths = pkg.OutputChunkLengths
 	state.ConfirmedInputTokenIDs = workerEvidence.InputTokenIDs
 	state.ConfirmedGeneratedTokenIDs = workerEvidence.GeneratedTokenIDs
-	state.ConfirmedWorkerValues = workerEvidence.WorkerValues
 	state.ConfirmedGenerationParams = workerEvidence.GenerationParams
 	state.ConfirmedInferReceipt = pkg.SignedInferReceipt
 	result, err := v.HandleOpenVerifyAccepted(ctx, state)

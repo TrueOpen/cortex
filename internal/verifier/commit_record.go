@@ -14,6 +14,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/metric"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
@@ -114,7 +115,6 @@ func (v *Verifier) persistedCommit(ctx context.Context, state TaskState) (Verify
 		TaskID                 string                   `json:"task_id"`
 		VerifyRound            uint64                   `json:"verify_round"`
 		VerificationSampleSeed codec.Hash               `json:"verification_sample_seed"`
-		ResultDigest           codec.Hash               `json:"result_digest"`
 		CommitWire             *nodewire.VerifyCommitV1 `json:"commit_wire"`
 	}
 	if err := json.Unmarshal(data, &record); err != nil {
@@ -135,9 +135,11 @@ func (v *Verifier) persistedCommit(ctx context.Context, state TaskState) (Verify
 		return VerifyResult{}, false, fmt.Errorf("persisted verify commit for task %s round %d is not the signed commit of its commit_hash", state.TaskID, state.VerifyRound)
 	}
 	return VerifyResult{
-		Started: true, VerificationSampleSeed: record.VerificationSampleSeed, ResultDigest: record.ResultDigest,
-		ResultReveal: source.ResultReveal, EvidenceManifest: source.EvidenceManifest,
-		CommitHash: source.CommitHash, CommitWire: *record.CommitWire, Salt: source.Salt, MetricMaterial: source.MetricMaterial,
+		Started: true, VerificationSampleSeed: record.VerificationSampleSeed,
+		CommitHash: source.CommitHash, CommitWire: *record.CommitWire, Salt: source.Salt,
+		MetricMaterial: metric.Material{VerifierValueRoot: source.MetricMaterial.VerifierValueRoot},
+		verifierLeaves: source.verifierLeaves, requiredTopK: source.requiredTopK,
+		selectedIndex: source.selectedIndex, positionValuesRef: source.positionValuesRef,
 	}, true, nil
 }
 

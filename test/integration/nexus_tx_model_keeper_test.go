@@ -423,7 +423,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	}
 	verifierState.ConfirmedInputTokenIDs = tokenBundle[builderclient.EvidenceArtifactInputTokenIDs]
 	verifierState.ConfirmedGeneratedTokenIDs = tokenBundle[builderclient.EvidenceArtifactGeneratedTokenIDs]
-	verifierState.ConfirmedWorkerValues = valueBundle[builderclient.EvidenceArtifactWorkerValues]
 	verifierState.ConfirmedGenerationParams = tokenBundle[builderclient.EvidenceArtifactGenerationParams]
 	var verifyTraceRecords []observability.LogRecord
 	verifierPrivate := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{0x71}, 32))
@@ -603,7 +602,6 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	for _, field := range []string{
 		"commit_hash=" + verifyResult.CommitHash.String(),
 		"verification_sample_seed=" + verifyResult.VerificationSampleSeed.String(),
-		"result_digest=" + verifyResult.ResultDigest.String(),
 		"output_hash=" + outputPackage.OutputHash.String(),
 		"package_hash=" + outputPackage.PackageHash.String(),
 		"commit_signing_digest=",
@@ -618,7 +616,10 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	// the frozen result body, where the only remaining gap is the metric
 	// pipeline. generation_params_digest is not a gap: the verifier reads it
 	// through chainclient.KeeperABCIClient.TaskReceiptFacts, which this rig serves.
-	revealNotStarted := verifierState
+	// ADR-0023: the B-level value bundle is handed over only in REVEALING.
+	revealState := verifierState
+	revealState.ConfirmedWorkerValues = valueBundle[builderclient.EvidenceArtifactWorkerValues]
+	revealNotStarted := revealState
 	revealNotStarted.RevealDeadlineHeight = 0
 	if _, err := verifierNode.HandleRevealPhaseStarted(ctx, revealNotStarted); !errors.Is(err, verifier.ErrRevealPhaseNotStarted) {
 		t.Fatalf("HandleRevealPhaseStarted before the phase = %v, want the reveal phase reported as not started", err)
@@ -629,11 +630,11 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	verifyCallsBeforeRestart := modelServer.VerifyCalls()
 	finalizeFailure := errors.New("Builder rejected verifier evidence finalization")
 	taskData.verifierFinalizeErr = finalizeFailure
-	if result, err := verifierNode.HandleRevealPhaseStarted(ctx, verifierState); !errors.Is(err, finalizeFailure) || result.Signed {
+	if result, err := verifierNode.HandleRevealPhaseStarted(ctx, revealState); !errors.Is(err, finalizeFailure) || result.Signed {
 		t.Fatalf("reveal with failed finalization = %+v, %v", result, err)
 	}
 	taskData.verifierFinalizeErr = nil
-	reveal, err := verifierNode.HandleRevealPhaseStarted(ctx, verifierState)
+	reveal, err := verifierNode.HandleRevealPhaseStarted(ctx, revealState)
 	if err != nil {
 		t.Fatalf("HandleRevealPhaseStarted error = %v, want a complete result credential", err)
 	}
@@ -645,15 +646,17 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	}
 	finalizedReceipt := taskData.FinalizedVerifierEvidence[0].Receipt
 	if !bytes.Equal(finalizedReceipt.Salt, verifyResult.Salt[:]) ||
-		finalizedReceipt.VerifierEvidenceManifestSizeBytes != uint64(len(verifyResult.EvidenceManifest)) {
+		finalizedReceipt.VerifierEvidenceManifestSizeBytes != uint64(len(reveal.EvidenceManifest)) {
 		t.Fatal("finalization lost the persisted salt or manifest size")
 	}
 	// The three values this whole metric pipeline exists to produce, read off
-	// the verify run that produced them rather than off the credential alone.
-	if verifyResult.MetricMaterial.Root.IsZero() ||
-		verifyResult.MetricMaterial.AggregateProof.Hash.IsZero() ||
-		verifyResult.MetricMaterial.LeafCount == 0 {
-		t.Fatalf("verify produced no metric material: %#v", verifyResult.MetricMaterial)
+	// the reveal that derived them (ADR-0023: they need the B level), bound to
+	// the verifier_value_root the commit fixed.
+	if reveal.MetricMaterial.Root.IsZero() ||
+		reveal.MetricMaterial.AggregateProof.Hash.IsZero() ||
+		reveal.MetricMaterial.LeafCount == 0 ||
+		reveal.MetricMaterial.VerifierValueRoot != verifyResult.MetricMaterial.VerifierValueRoot {
+		t.Fatalf("reveal produced no metric material over the committed root: %#v", reveal.MetricMaterial)
 	}
 	facts, err := generation.TaskFacts(ctx, taskID)
 	if err != nil {
@@ -663,7 +666,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 		chainID: chainID, taskID: taskID, workerAddress: workerAddress, verifierAddress: verifierAddr,
 		facts: facts, profile: integrationLockedProfile(modelID), finishReason: nodewire.FinishReasonV1EosToken,
 		inferReceipt: infer.TaskDataReceipt, workerBundle: workerPersistence{persistence}.WorkerBundle,
-		commit: verifyResult.CommitWire, salt: verifyResult.Salt, material: verifyResult.MetricMaterial, result: finalizedReceipt,
+		commit: verifyResult.CommitWire, salt: verifyResult.Salt, material: reveal.MetricMaterial, result: finalizedReceipt,
 	})
 
 	settlementManager := verifier.NewSettlementManager(verifier.SettlementConfig{

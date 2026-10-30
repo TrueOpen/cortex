@@ -451,8 +451,11 @@ func TestVerifyStoresEvidenceAndCommitMaterialsWithoutFullRevealInSettleInput(t 
 
 	result := verifyLocally(t, h, state)
 
-	if result.CommitHash == (codec.Hash{}) || result.ResultDigest == (codec.Hash{}) || result.Salt == (codec.Hash{}) {
+	if result.CommitHash == (codec.Hash{}) || result.Salt == (codec.Hash{}) || result.MetricMaterial.VerifierValueRoot.IsZero() {
 		t.Fatalf("missing commit materials: %#v", result)
+	}
+	if !result.ResultDigest.IsZero() {
+		t.Fatalf("result digest %s exists at commit time; the reveal payload is built only once the round is REVEALING", result.ResultDigest)
 	}
 	if len(h.persistence.evidence) != 4 {
 		t.Fatalf("evidence writes = %d, want V_i, reveal skeleton, commit receipt, confirmed delivery", len(h.persistence.evidence))
@@ -818,7 +821,7 @@ func TestRevealCredentialIsCompleteOnceTheMetricPipelineRuns(t *testing.T) {
 	h := newHarness(t)
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
-	result := verifyLocally(t, h, state)
+	verifyLocally(t, h, state)
 
 	reveal := revealLocally(t, h, state)
 	if !reveal.Signed {
@@ -829,7 +832,7 @@ func TestRevealCredentialIsCompleteOnceTheMetricPipelineRuns(t *testing.T) {
 	}
 	// The three values this issue exists to produce, checked against the ones
 	// the verify run derived rather than merely against "not zero".
-	material := result.MetricMaterial
+	material := reveal.MetricMaterial
 	if material.Root.IsZero() || material.AggregateProof.Hash.IsZero() || material.LeafCount == 0 {
 		t.Fatalf("verify produced no metric material: %#v", material)
 	}
@@ -864,15 +867,12 @@ func TestRevealCredentialIsCompleteAfterVerifierRestart(t *testing.T) {
 	// The restarted process must sign the SAME body, not merely some body: the
 	// commit already on chain is bound to this run's material.
 	receipt := publishedResultReceipt(t, h)
-	if !bytes.Equal(receipt.MetricRoot, before.MetricMaterial.Root[:]) {
-		t.Fatalf("metric_root after restart = %x, want the persisted %x", receipt.MetricRoot, before.MetricMaterial.Root[:])
+	if !bytes.Equal(receipt.VerifierValueRoot, before.MetricMaterial.VerifierValueRoot[:]) || !bytes.Equal(receipt.Salt, before.Salt[:]) {
+		t.Fatalf("receipt after restart carries root %x salt %x, want the committed %s and %s",
+			receipt.VerifierValueRoot, receipt.Salt, before.MetricMaterial.VerifierValueRoot, before.Salt)
 	}
-	if !bytes.Equal(receipt.AggregateProofHash, before.MetricMaterial.AggregateProof.Hash[:]) {
-		t.Fatalf("aggregate_proof_hash after restart = %x, want the persisted %x",
-			receipt.AggregateProofHash, before.MetricMaterial.AggregateProof.Hash[:])
-	}
-	if receipt.MetricSummary != before.MetricMaterial.Summary {
-		t.Fatalf("metric_summary after restart = %#v, want the persisted %#v", receipt.MetricSummary, before.MetricMaterial.Summary)
+	if !bytes.Equal(receipt.MetricRoot, reveal.MetricMaterial.Root[:]) || receipt.MetricSummary != reveal.MetricMaterial.Summary {
+		t.Fatal("the signed metric material differs from the material the reveal derived")
 	}
 }
 
@@ -1867,25 +1867,20 @@ func TestVerifierRejectsOversizedTrace(t *testing.T) {
 	}
 }
 
+// The B-level bound is enforced where the B level is read: the reveal
+// (ADR-0023). The commit half never fetches position values at all.
 func TestVerifierRejectsOversizedPositionValues(t *testing.T) {
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(100, []int32{int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening)})})
+	h := newHarness(t)
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
-	// Token-id material fits within the bound, position-value material exceeds it.
-	state.OutputPackage.TokenIDsRef = h.model.PutArtifactForTest(make([]byte, 50))
-	state.OutputPackage.PositionValuesRef = h.model.PutArtifactForTest(make([]byte, 101))
-	state.OutputPackage.PackageHash = codec.HashWithDomain(
-		"TRUEOPEN_OUTPUT_PACKAGE_V1",
-		[]byte(state.OutputPackage.TaskID),
-		[]byte(state.OutputPackage.OutputRef),
-		[]byte(state.OutputPackage.TokenIDsRef),
-		[]byte(state.OutputPackage.PositionValuesRef),
-		state.OutputPackage.OutputHash[:],
-	)
+	verifyLocally(t, h, state)
+	profile := fixtureLockedProfile()
+	profile.Profile.VerificationProfile.EvidenceSchema.RequiredInferEvidence[0].MaxEncodedSizeBytes = chainclient.Uint64String(1)
+	h.verifier.cfg.ProfileReader = &fixtureProfileReader{profile: profileWithHash(t, profile)}
 
-	_, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if err == nil || !errors.Is(err, modelservice.ErrArtifactSizeExceeded) {
-		t.Fatalf("expected size limit exceeded error, got: %v", err)
+	result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
+	if err == nil || !errors.Is(err, modelservice.ErrArtifactSizeExceeded) || result.Signed {
+		t.Fatalf("expected size limit exceeded error before signing, got: %+v, %v", result, err)
 	}
 }
 
