@@ -332,8 +332,15 @@ func (g *handraiseGates) support(ctx context.Context, height uint64, bond chainc
 	if err != nil {
 		return errScopeRead{err}
 	}
+	return scopeSupportProblem(scope, bond, g.operator, p.modelHex, p.Version)
+}
+
+// scopeSupportProblem is H2 (and CD §5.1 check 4) on an already read scope:
+// nil when the profile is registered, bonded, capable, declared and fresh for
+// operator. The standing handraise and the Dispatcher share it.
+func scopeSupportProblem(scope chainclient.CommittedModelSupportScope, bond chainclient.ServiceBondSnapshot, operator, modelHex string, version uint32) error {
 	prof := scope.Profile
-	if prof.Profile.ModelID != p.modelHex || prof.Profile.ProfileVersion.Uint32() != p.Version {
+	if prof.Profile.ModelID != modelHex || prof.Profile.ProfileVersion.Uint32() != version {
 		return fmt.Errorf("Keeper profile identity does not match")
 	}
 	modelStatus, profileStatus := strings.ToUpper(prof.Model.Status), strings.ToUpper(prof.Profile.Status)
@@ -346,13 +353,13 @@ func (g *handraiseGates) support(ctx context.Context, height uint64, bond chainc
 	if err := scope.Capability.Validate(); err != nil {
 		return err
 	}
-	if scope.Capability.OperatorAddress != g.operator || scope.Capability.ModelID != p.modelHex || !scope.Capability.InferenceCapability {
+	if scope.Capability.OperatorAddress != operator || scope.Capability.ModelID != modelHex || !scope.Capability.InferenceCapability {
 		return fmt.Errorf("no inference capability")
 	}
 	if err := scope.Support.Validate(); err != nil {
 		return err
 	}
-	if scope.Support.OperatorAddress != g.operator || scope.Support.ModelID != p.modelHex || !scope.Support.DeclaredSupport {
+	if scope.Support.OperatorAddress != operator || scope.Support.ModelID != modelHex || !scope.Support.DeclaredSupport {
 		return fmt.Errorf("support is not declared")
 	}
 	if scope.EpochLengthBlocks == 0 {

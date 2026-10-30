@@ -1010,6 +1010,9 @@ func mergeInferRecords(existing, new InferRecord) (InferRecord, error) {
 	if conflict := mergeStoredHash(&merged.GenerationParamsDigest, new.GenerationParamsDigest); conflict {
 		return InferRecord{}, fmt.Errorf("%w: infer.GenerationParamsDigest", ErrConflict)
 	}
+	if conflict := mergeStoredHash(&merged.DispatchTicketHash, new.DispatchTicketHash); conflict {
+		return InferRecord{}, fmt.Errorf("%w: infer.DispatchTicketHash", ErrConflict)
+	}
 	if new.WinnerConfirmHeight != 0 && merged.WinnerConfirmHeight != 0 && new.WinnerConfirmHeight != merged.WinnerConfirmHeight {
 		return InferRecord{}, fmt.Errorf("%w: infer.WinnerConfirmHeight", ErrConflict)
 	}

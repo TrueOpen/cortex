@@ -129,6 +129,9 @@ type InferRecord struct {
 
 	// TaskID mirrors the task record for diagnostics and admin listing.
 	TaskID string `json:"task_id"`
+	// DispatchTicketHash is the ticket this responsibility executes (Phase 1).
+	// Write-once; a new dispatch round replaces the record instead (S4).
+	DispatchTicketHash StoredHash `json:"dispatch_ticket_hash"`
 
 	GenerationParamsDigest StoredHash `json:"generation_params_digest"`
 	WinnerConfirmHeight    uint64     `json:"winner_confirm_height"`

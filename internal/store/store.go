@@ -41,22 +41,25 @@ type Store struct {
 }
 
 type InferTask struct {
-	TaskID           string     `json:"task_id"`
-	SessionID        string     `json:"session_id"`
-	OrderSequence    uint64     `json:"order_sequence"`
-	AssignmentDigest codec.Hash `json:"assignment_digest"`
-	OrderDigest      codec.Hash `json:"order_digest"`
-	ModelID          string     `json:"model_id"`
-	ProfileVersion   uint32     `json:"profile_version"`
-	Capability       string     `json:"capability"`
-	DeadlineHeight   uint64     `json:"deadline_height"`
-	InputCID         string     `json:"input_cid"`
-	InputDigest      codec.Hash `json:"input_digest"`
-	Stage            string     `json:"stage"`
-	RetryCount       uint32     `json:"retry_count"`
-	RetryAtHeight    uint64     `json:"retry_at_height"`
-	RetryAtUnixMilli int64      `json:"retry_at_unix_milli"`
-	LastError        string     `json:"last_error"`
+	TaskID string `json:"task_id"`
+	// DispatchTicketHash is the Phase 1 ticket this responsibility executes;
+	// S5 binds the output stream and receipt to it.
+	DispatchTicketHash codec.Hash `json:"dispatch_ticket_hash"`
+	SessionID          string     `json:"session_id"`
+	OrderSequence      uint64     `json:"order_sequence"`
+	AssignmentDigest   codec.Hash `json:"assignment_digest"`
+	OrderDigest        codec.Hash `json:"order_digest"`
+	ModelID            string     `json:"model_id"`
+	ProfileVersion     uint32     `json:"profile_version"`
+	Capability         string     `json:"capability"`
+	DeadlineHeight     uint64     `json:"deadline_height"`
+	InputCID           string     `json:"input_cid"`
+	InputDigest        codec.Hash `json:"input_digest"`
+	Stage              string     `json:"stage"`
+	RetryCount         uint32     `json:"retry_count"`
+	RetryAtHeight      uint64     `json:"retry_at_height"`
+	RetryAtUnixMilli   int64      `json:"retry_at_unix_milli"`
+	LastError          string     `json:"last_error"`
 	// AutoHalted, HaltCode and HaltReason mirror layout.AutoHalt: the local
 	// scheduler must not re-enter the executor for this responsibility. See the
 	// AutoHalt doc comment for why it is neither task-terminal nor
