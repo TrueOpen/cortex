@@ -485,13 +485,8 @@ func (r *TaskRunner) raiseVerifierHandOnce(ctx context.Context, tip chainTip, me
 	// MsgReportDataUnavailable. The fields the handraise signature binds (§5.9) carry no
 	// size and no Builder-local state either.
 	//
-	// This node cannot produce that remedy, for the reason written in
-	// missingDataUnavailableRemedy (task_runner_run.go): the bitmap has to follow the
-	// frozen order of TaskBuilderSelectionState.selected_task_builders, and the frozen
-	// task.v1.Query service has no rpc that returns that list. So this is not a
-	// "write it later", it is one missing chain read; the gap is reported together with
-	// LastError and responsibility_stopped when the commit deadline closes the window,
-	// instead of living only in a comment.
+	// The selected Verifier produces that remedy itself (verify_reports.go) once it is
+	// selected and the A-level set stays unavailable.
 	//
 	// The object itself is downloaded by RunVerify only after the chain has confirmed this
 	// node was selected (V7a), and that path is authorised as a selected verifier, which

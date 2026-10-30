@@ -95,16 +95,10 @@ func TestVerifyResponsibilityStopsOnceTheCommitDeadlinePassed(t *testing.T) {
 			t.Fatalf("responsibility_stopped = %q, want it to carry %s", line, want)
 		}
 	}
-	// Letting the commit deadline pass without a commit is exactly the state
-	// 02-data-plane-and-evidence-transfer.md §5 answers with MsgReportDataUnavailable, and Cortex
-	// cannot produce one -- the bitmap order it needs has no read on the frozen
-	// Query service. Saying nothing here is how that stayed a source comment for
-	// as long as it did, so the debt is stated where the window closes.
+	// A commit deadline that passes with no commit and no report missed the V7b
+	// window; the stop says so.
 	if !strings.Contains(rec.LastError, "MsgReportDataUnavailable") {
-		t.Fatalf("last error = %q, want the unpaid V7b remedy named", rec.LastError)
-	}
-	if !strings.Contains(rec.LastError, "selected_task_builders") {
-		t.Fatalf("last error = %q, want the missing chain read named", rec.LastError)
+		t.Fatalf("last error = %q, want the missed V7b remedy named", rec.LastError)
 	}
 }
 

@@ -483,29 +483,12 @@ type taskDeadline struct {
 	note   string
 }
 
-// missingDataUnavailableRemedy is what a Verifier owes the chain when it lets a
-// commit deadline pass without a commit, and cannot pay.
-//
-// 02-data-plane-and-evidence-transfer.md §5 gives the remedy: a selected Verifier that retried the
-// fixed Task Builders and still could not obtain complete, commitment-checked
-// data submits MsgReportDataUnavailable, marking the Builders that failed it with
-// "a bitmap in Task Builder order". §7 makes it the only local failure that enters
-// protocol attribution at all -- "local diagnostic information does not enter
-// consensus".
-//
-// Cortex cannot build that bitmap. The order it must be expressed in is
-// TaskBuilderSelectionState.selected_task_builders (keeper-data-structure-contract.md §6.5,
-// the same frozen order §10.4/§10.5 derive the bitmap from), and the frozen
-// task.v1.Query service registers no rpc that returns it: QueryTaskBuilders
-// is named in the state's own contract but is not on the service, and no frozen
-// task event carries the list either. MsgReportDataUnavailable itself IS
-// registered ACTIVE (msg_verification.proto), and it refuses a bitmap with
-// out-of-range or trailing bits -- so a guessed order is not a degraded report,
-// it is a rejected tx and a Verifier that believes it reported when it did not.
-//
-// The step without an authoritative read is refused rather than guessed.
-// Remove this note when the read lands and wire the producer beside it.
-const missingDataUnavailableRemedy = "the V7b remedy (MsgReportDataUnavailable) is owed and cannot be submitted: its Task Builder bitmap must follow TaskBuilderSelectionState.selected_task_builders, and the frozen task.v1.Query service registers no rpc serving that list"
+// missedDataUnavailableRemedy is what a commit deadline that passed with no
+// commit leaves behind: either the A-level set kept failing and the V7b
+// window (the last dataUnavailableReportMarginBlocks blocks, verify_reports.go)
+// was missed, or the round never reached a report. It is named so an operator
+// escalates.
+const missedDataUnavailableRemedy = "no commit and no MsgReportDataUnavailable reached the chain before the commit deadline (CD §6.2 V7b)"
 
 // inferDeadline is the infer deadline and nothing else. A Worker's whole
 // responsibility ends at it.
@@ -549,7 +532,7 @@ func verifyDeadline(task store.VerifyTask) taskDeadline {
 		return taskDeadline{
 			height: task.CommitDeadlineHeight,
 			label:  "commit deadline",
-			note:   missingDataUnavailableRemedy,
+			note:   missedDataUnavailableRemedy,
 		}
 	}
 	return taskDeadline{height: task.DeadlineHeight, label: "task deadline"}

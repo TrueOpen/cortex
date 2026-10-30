@@ -90,6 +90,7 @@ func (k Kind) Valid() bool {
 		MsgSubmitInferReceipt,
 		MsgSubmitVerifyCommit,
 		MsgSubmitVerifyResult,
+		MsgReportDataUnavailable,
 		MsgSettleTask,
 		MsgSweepDeadline:
 		return true

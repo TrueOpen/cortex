@@ -133,7 +133,7 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 			state.Assignment.SelectedWorker == msg.Receipt.WorkerOperatorAddress &&
 			state.InferReceipt.OutputHash.String() == msg.Receipt.OutputHash.Hex(), err
 
-	case MsgSubmitVerifyCommit, MsgSubmitVerifyResult:
+	case MsgSubmitVerifyCommit, MsgSubmitVerifyResult, MsgReportDataUnavailable:
 		// The frozen Keeper registers no public Query RPC for CommitState or
 		// ResultReceiptState. A code-0 DeliverTx inclusion is therefore the
 		// strongest externally observable proof.

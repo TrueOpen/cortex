@@ -331,7 +331,8 @@ const (
 	VerifyRoundV1 ProtoUint32 = 1
 )
 
-// Frozen task.v1.EvidenceKind value names. UNSPECIFIED is never written.
+// Frozen task.v1.EvidenceKind value names. UNSPECIFIED is written only by
+// MsgReportDataUnavailable (report_data_unavailable.go).
 const (
 	EvidenceKindWorkerValueOpening    = "EVIDENCE_KIND_WORKER_VALUE_OPENING"
 	EvidenceKindVerifierValueOpening  = "EVIDENCE_KIND_VERIFIER_VALUE_OPENING"
@@ -520,6 +521,8 @@ func ValidateMessagePayload(kind Kind, payload []byte) error {
 		target = &SubmitVerifyCommitMessage{}
 	case MsgSubmitVerifyResult:
 		target = &SubmitVerifyResultMessage{}
+	case MsgReportDataUnavailable:
+		target = &ReportDataUnavailableMessage{}
 	case MsgSettleTask:
 		target = &SettleTaskMessage{}
 	case MsgSweepDeadline:
@@ -547,6 +550,8 @@ func ValidateMessagePayload(kind Kind, payload []byte) error {
 	case *SubmitVerifyCommitMessage:
 		return validateMessageType(kind, *value)
 	case *SubmitVerifyResultMessage:
+		return validateMessageType(kind, *value)
+	case *ReportDataUnavailableMessage:
 		return validateMessageType(kind, *value)
 	case *SettleTaskMessage:
 		return validateMessageType(kind, *value)
@@ -632,6 +637,12 @@ func validateMessageType(kind Kind, value any) error {
 			return messageTypeMismatch(kind)
 		}
 		return validateSubmitVerifyResult(m)
+	case MsgReportDataUnavailable:
+		m, ok := value.(ReportDataUnavailableMessage)
+		if !ok {
+			return messageTypeMismatch(kind)
+		}
+		return validateReportDataUnavailable(m)
 	case MsgSettleTask:
 		m, ok := value.(SettleTaskMessage)
 		if !ok {

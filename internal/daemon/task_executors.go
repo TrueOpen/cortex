@@ -289,7 +289,8 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	var workerEvidence WorkerEvidence
 	if !resume {
 		if pkg, workerEvidence, err = fetch(); err != nil {
-			return task, false, err
+			stopped, rerr := e.reportOrWait(ctx, task, persistence, builders, servedBy, err)
+			return stopped, false, rerr
 		}
 	}
 	identity, err := e.verifyRoundIdentity(ctx, taskHash, task)
@@ -324,7 +325,8 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 			return e.verifyCommitted(taskHash, task, result), false, nil
 		}
 		if pkg, workerEvidence, err = fetch(); err != nil {
-			return task, false, err
+			stopped, rerr := e.reportOrWait(ctx, task, persistence, builders, servedBy, err)
+			return stopped, false, rerr
 		}
 	}
 	state.OutputPackage, state.ConfirmedOutput, state.OutputConfirmed = outputPackageSummary(pkg), pkg.Output, true
@@ -343,10 +345,16 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 		}
 		return stopped, false, retryErr
 	}
+	if errors.Is(err, verifier.ErrWorkerEvidenceInvalid) {
+		// S7 Q9: A-level content that matched its commitment but is illegal
+		// (the output is not the decode of the committed tokens) is reported
+		// at once against the Builder that served it; this node does not commit.
+		stopped, rerr := e.reportOrWait(ctx, task, persistence, builders, servedBy, err)
+		return stopped, false, rerr
+	}
 	if err != nil {
 		return task, false, err
 	}
-	_ = servedBy // S7-10 reports against the Builder that served the A level.
 	return e.verifyCommitted(taskHash, task, result), false, nil
 }
 
@@ -455,9 +463,13 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
-	workerValues, workerReceipt, _, err := e.confirmWorkerValueEvidence(ctx, taskHash, task, persistence, builders)
+	workerValues, workerReceipt, servedBy, err := e.confirmWorkerValueEvidence(ctx, taskHash, task, persistence, builders)
 	if err != nil {
-		return task, false, err
+		// Every fixed Task Builder failed the B level: inside the reveal
+		// window's margin this becomes the V14b report and the round is not
+		// revealed (S7 Q8).
+		stopped, rerr := e.reportOrWait(ctx, task, persistence, builders, servedBy, err)
+		return stopped, false, rerr
 	}
 	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}, Notices: e.cfg.VerifyNotices, ResultSubmitter: resultExit})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: identity.inferReceiptHash, Member: identity.member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: identity.handraiseExpiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
@@ -466,6 +478,10 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		state.ConfirmedInferReceipt = workerReceipt
 	}
 	reveal, err := v.HandleRevealPhaseStarted(ctx, state)
+	if errors.Is(err, verifier.ErrWorkerEvidenceInvalid) {
+		stopped, rerr := e.reportOrWait(ctx, task, persistence, builders, servedBy, err)
+		return stopped, false, rerr
+	}
 	if err != nil {
 		return task, false, err
 	}
