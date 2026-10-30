@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -25,8 +26,16 @@ type endpointKeeper struct {
 	// committedHeight is the height the application has committed; zero means the
 	// default 900. Reads are served from it and pinned to it.
 	committedHeight uint64
-	// pinned records the heights the pinned sub-reads were issued at.
+	// pinned records the heights the pinned sub-reads were issued at. The
+	// resolver issues those reads concurrently, so mu guards it.
+	mu     sync.Mutex
 	pinned []uint64
+}
+
+func (k *endpointKeeper) recordPinned(height uint64) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.pinned = append(k.pinned, height)
 }
 
 func (k *endpointKeeper) servedHeight() uint64 {
@@ -48,7 +57,7 @@ func (k *endpointKeeper) CommittedBuilder(context.Context, string) (chainclient.
 }
 
 func (k *endpointKeeper) ServiceDescriptor(_ context.Context, _, _ string, height uint64) (chainclient.ServiceDescriptorSnapshot, error) {
-	k.pinned = append(k.pinned, height)
+	k.recordPinned(height)
 	if k.descriptorErr != nil {
 		return chainclient.ServiceDescriptorSnapshot{}, k.descriptorErr
 	}
@@ -56,7 +65,7 @@ func (k *endpointKeeper) ServiceDescriptor(_ context.Context, _, _ string, heigh
 }
 
 func (k *endpointKeeper) CurrentServiceKey(_ context.Context, participantType, operatorAddress string, height uint64) (chainclient.ServiceKeySnapshot, error) {
-	k.pinned = append(k.pinned, height)
+	k.recordPinned(height)
 	return k.currentServiceKey(participantType, operatorAddress)
 }
 

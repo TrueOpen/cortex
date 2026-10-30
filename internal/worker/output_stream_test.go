@@ -557,13 +557,14 @@ func TestOutputRecorderRecoversCompletedUnsignedTail(t *testing.T) {
 
 type failingSecondFrameSigner struct {
 	signer.DigestSigner
-	calls int
+	// The header is signed on its own goroutine while frames are signed, so
+	// the counter must be safe for concurrent calls.
+	calls atomic.Int32
 }
 
 func (s *failingSecondFrameSigner) SignDigest(ctx context.Context, request signer.DigestRequest) ([]byte, error) {
-	s.calls++
 	// Call 1 signs the output stream header, call 2 the first frame.
-	if s.calls == 3 {
+	if s.calls.Add(1) == 3 {
 		return nil, signer.ErrRetryable
 	}
 	return s.DigestSigner.SignDigest(ctx, request)
