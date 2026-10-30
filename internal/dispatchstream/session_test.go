@@ -352,26 +352,29 @@ func TestSession(t *testing.T) {
 		}
 	})
 
-	t.Run("duplicate inbound cursor is delivered once", func(t *testing.T) {
-		h := startSession(t, nil)
-		c, nonce := h.bind(t)
-		a, b := revoke(t, 1, builderKeyHex), revoke(t, 5, builderKeyHex)
-		c.send(revokeFrame(nonce, 1, a))
-		c.send(revokeFrame(nonce, 1, a))
-		c.send(revokeFrame(nonce, 2, b))
-		for {
-			f := c.recvSkippingKeepalive()
-			if f.GetAck() == nil {
-				t.Fatalf("want acks, got %v", f)
+	// The contract requires contiguous inbound cursors within a binding and
+	// Nexus enforces it: any repeat, identical or not, ends the stream. The
+	// frame before the repeat reaches the handler exactly once.
+	for name, second := range map[string]func(t *testing.T) *nexusv1.DispatchRevokeV1{
+		"identical": func(t *testing.T) *nexusv1.DispatchRevokeV1 { return revoke(t, 1, builderKeyHex) },
+		"different": func(t *testing.T) *nexusv1.DispatchRevokeV1 { return revoke(t, 5, builderKeyHex) },
+	} {
+		t.Run("repeated inbound cursor ends the stream ("+name+")", func(t *testing.T) {
+			h := startSession(t, nil)
+			c, nonce := h.bind(t)
+			a := revoke(t, 1, builderKeyHex)
+			c.send(revokeFrame(nonce, 1, a))
+			if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+				t.Fatalf("want ack 1, got %v", f)
 			}
-			if f.GetAck().GetAckedCursor() == 2 {
-				break
+			c.send(revokeFrame(nonce, 1, second(t)))
+			c.waitGone()
+			h.bind(t)
+			if got := h.handler.calls(); len(got) != 1 || !proto.Equal(got[0].GetRevoke(), a) {
+				t.Fatalf("handler must see the first frame once and nothing else, got %d calls", len(got))
 			}
-		}
-		if got := h.handler.calls(); len(got) != 2 || !proto.Equal(got[0].GetRevoke(), a) || !proto.Equal(got[1].GetRevoke(), b) {
-			t.Fatalf("handler must see a then b once each, got %d calls", len(got))
-		}
-	})
+		})
+	}
 
 	t.Run("nonce mismatch drops the stream before the handler", func(t *testing.T) {
 		h := startSession(t, nil)

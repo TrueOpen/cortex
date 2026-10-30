@@ -51,6 +51,17 @@ func (e keeperHandraiseEligibility) Verifier(ctx context.Context, candidate Veri
 	if err != nil {
 		return policy.VerifierPrecheckInput{}, err
 	}
+	// A registered but not yet active service-key rotation stops new duty
+	// (CD §8.4) -- the same chain fact the standing handraise gates read. For
+	// this round it is a fact, not a moment, so the refusal is permanent; only
+	// a failed read is retryable.
+	key, err := e.cfg.Keeper.CurrentServiceKey(ctx, chainclient.ParticipantTypeCortexNode, e.cfg.OperatorAddress, height)
+	if err != nil {
+		return policy.VerifierPrecheckInput{}, builderclient.Retryable(fmt.Errorf("query Keeper current service key for handraise: %w", err))
+	}
+	if key.HasPendingRotation {
+		return policy.VerifierPrecheckInput{}, fmt.Errorf("Cortex service key rotation is pending (effective at height %d); no new Verifier duty until it activates", key.PendingRotation.EffectiveHeight)
+	}
 	return policy.VerifierPrecheckInput{
 		ChainSynced: true, CurrentHeight: height, SupportState: supportState,
 		SupportLastConfirmedHeight: support.LastRefreshHeight.Uint64(), SupportFreshnessWindow: freshnessWindow, Profile: candidate.Capability,

@@ -253,6 +253,9 @@ type handraiseKeeper struct {
 	bond       chainclient.ServiceBondSnapshot
 	capability chainclient.ModelCapabilitySnapshot
 	support    chainclient.ModelSupportSnapshot
+	serviceKey chainclient.ServiceKeySnapshot
+	keyErr     error
+	keyReads   *[]uint64 // heights CurrentServiceKey was read at, when set
 }
 
 func (k handraiseKeeper) Params(context.Context) (chainclient.ParamsSnapshot, error) {
@@ -271,8 +274,11 @@ func (k handraiseKeeper) ServiceBond(context.Context, string) (chainclient.Servi
 	return k.bond, nil
 }
 
-func (k handraiseKeeper) CurrentServiceKey(context.Context, string, string, uint64) (chainclient.ServiceKeySnapshot, error) {
-	return chainclient.ServiceKeySnapshot{}, nil
+func (k handraiseKeeper) CurrentServiceKey(_ context.Context, _, _ string, height uint64) (chainclient.ServiceKeySnapshot, error) {
+	if k.keyReads != nil {
+		*k.keyReads = append(*k.keyReads, height)
+	}
+	return k.serviceKey, k.keyErr
 }
 
 func (k handraiseKeeper) ModelCapability(context.Context, string, string) (chainclient.ModelCapabilitySnapshot, error) {

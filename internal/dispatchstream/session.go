@@ -247,13 +247,7 @@ type conn struct {
 	ka      keepalive
 	seqOf   map[uint64]uint64 // outbound cursor -> outbox seq
 	sentSeq uint64            // highest outbox seq sent on this binding
-	// seen holds the digest of each recent inbound cursor, to tell a harmless
-	// duplicate from a different message reusing a cursor.
-	seen map[uint64][32]byte
 }
-
-// seenWindow bounds conn.seen; a duplicate older than this is refused.
-const seenWindow = 1024
 
 type received struct {
 	raw []byte
@@ -272,7 +266,7 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	c := &conn{stream: s.client.CallBidiStream(ctx), nonce: nonce, seqOf: map[uint64]uint64{}, seen: map[uint64][32]byte{}}
+	c := &conn{stream: s.client.CallBidiStream(ctx), nonce: nonce, seqOf: map[uint64]uint64{}}
 	frames := make(chan received)
 	var wg sync.WaitGroup
 	defer func() {
@@ -458,22 +452,11 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 	if err != nil {
 		return false, fmt.Errorf("%s digest: %w", name, err)
 	}
-	switch verdict := c.in.accept(cursor); verdict {
-	case cursorDuplicate:
-		prev, ok := c.seen[cursor]
-		if !ok {
-			return false, fmt.Errorf("duplicate cursor %d outside the seen window", cursor)
-		}
-		if prev != digest {
-			return false, fmt.Errorf("inbound cursor %d reused for a different message", cursor)
-		}
-		return false, nil
-	case cursorNew:
-		c.seen[cursor] = digest
-		if cursor > seenWindow {
-			delete(c.seen, cursor-seenWindow)
-		}
-	default:
+	// Inbound cursors must be contiguous within a binding (PHASE1_CONTRACT;
+	// Nexus enforces the same): a repeat, identical or not, is a violation
+	// that ends the stream like a gap does. Replays across bindings are
+	// absorbed by the dedup records below, not by cursor.
+	if verdict := c.in.accept(cursor); verdict != cursorNew {
 		return false, fmt.Errorf("inbound cursor %d after %d: %s", cursor, c.in.ackable(), verdict)
 	}
 	if err := s.verifyBuilder(ctx, name, in); err != nil {

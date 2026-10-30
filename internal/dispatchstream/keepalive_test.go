@@ -56,3 +56,65 @@ func TestKeepaliveEchoesPeerZeroOnce(t *testing.T) {
 		t.Fatal("a repeated 0 is not echoed again")
 	}
 }
+
+func TestKeepaliveLocalProbesAreEvenAndStrictlyIncreasing(t *testing.T) {
+	var k keepalive
+	var last uint64
+	for _, now := range []uint64{0, 1, 101, 101, 100, 7, 1_000_001, 1_000_002, 1_000_003} {
+		p, ok := k.probe(now)
+		if !ok {
+			t.Fatalf("probe(%d) refused", now)
+		}
+		if p%2 != 0 || p <= last {
+			t.Fatalf("probe(%d) = %d after %d: local probes must be even and strictly increasing", now, p, last)
+		}
+		last = p
+		if _, reply := k.received(p); reply {
+			t.Fatalf("our echo %d was not consumed", p)
+		}
+	}
+}
+
+// Nexus probes with odd values (ms|1). A peer probe carrying exactly the odd
+// value our own clock reading would have produced must be echoed, never taken
+// as the echo of our outstanding probe.
+func TestKeepalivePeerOddProbeCollidingWithOurClockIsEchoed(t *testing.T) {
+	var k keepalive
+	ours, _ := k.probe(10_001) // our clock reads odd
+	if ours != 10_000 {
+		t.Fatalf("probe = %d, want the even 10000", ours)
+	}
+	// ours+1 is 10001, the odd value our clock read; ours-1 is the other
+	// odd neighbour.
+	for _, peer := range []uint64{ours + 1, ours - 1} {
+		echo, reply := k.received(peer)
+		if !reply || echo != peer {
+			t.Fatalf("peer probe %d was consumed as our echo", peer)
+		}
+		if k.outstanding != ours {
+			t.Fatalf("peer probe %d cleared our outstanding probe", peer)
+		}
+	}
+	if _, reply := k.received(ours); reply || k.outstanding != 0 {
+		t.Fatal("our real echo must still be consumed")
+	}
+}
+
+func TestKeepalivePeerOddValueNeverMatchesOutstanding(t *testing.T) {
+	for now := uint64(0); now < 2_000; now++ {
+		var k keepalive
+		k.lastLocal = now / 3 * 2 // vary the bump path
+		ours, ok := k.probe(now)
+		if !ok {
+			t.Fatal("probe refused")
+		}
+		for _, peer := range []uint64{now | 1, ours | 1, ours + 1, ours - 1} {
+			if peer == ours {
+				t.Fatalf("now=%d: odd peer value %d equals our outstanding %d", now, peer, ours)
+			}
+			if _, reply := k.received(peer); !reply && k.outstanding == 0 {
+				t.Fatalf("now=%d: odd peer value %d consumed our probe %d", now, peer, ours)
+			}
+		}
+	}
+}
