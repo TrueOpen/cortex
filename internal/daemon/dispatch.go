@@ -97,6 +97,9 @@ type DispatcherConfig struct {
 	// AcceptSignMargin is how much of the accept window must remain to sign
 	// (C4). Local, default 0.
 	AcceptSignMargin time.Duration
+	InputRequestTTL  time.Duration // expiry of a re-sent input request; default 30s
+	InputRetryEvery  time.Duration // re-request input this long after the last request; default 5s
+	SweepEvery       time.Duration // default 250ms
 
 	Chain     DispatchChainView
 	Local     HandraiseLocal // WorkloadReady and Draining; capacity is Leases
@@ -111,18 +114,20 @@ type DispatcherConfig struct {
 	Logger    *slog.Logger
 }
 
-// Dispatcher answers DispatchOfferV1 and DispatchRevokeV1 for every
-// configured Builder (CD §4.2.0, §5.1, §5.2 W1–W4). Every handler is
-// idempotent per message, as the at-least-once stream Handler contract
-// requires.
+// Dispatcher answers DispatchOfferV1, DispatchRevokeV1 and
+// DispatchInputResponseV1 for every configured Builder (CD §4.2.0, §5.1, §5.2
+// W1–W5). Every handler is idempotent per message, as the at-least-once
+// stream Handler contract requires.
 type Dispatcher struct {
 	cfg      DispatcherConfig
 	profiles map[HandraiseProfile]bool
 
-	work sync.Mutex // one offer or revoke at a time
+	work sync.Mutex // one offer, revoke, input response or sweep at a time
 
 	mu       sync.Mutex
 	deadline map[layout.StoredHash]time.Time // C4 accept deadlines seen by this process
+	rebound  map[string]bool
+	wake     chan struct{}
 }
 
 // NewDispatcher validates cfg and fills local defaults.
@@ -150,6 +155,15 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	if cfg.MaxInputBytes == 0 || cfg.MaxInputBytes > defaultTaskDataMaxBytes {
 		cfg.MaxInputBytes = defaultTaskDataMaxBytes
 	}
+	if cfg.InputRequestTTL <= 0 {
+		cfg.InputRequestTTL = 30 * time.Second
+	}
+	if cfg.InputRetryEvery <= 0 {
+		cfg.InputRetryEvery = 5 * time.Second
+	}
+	if cfg.SweepEvery <= 0 {
+		cfg.SweepEvery = 250 * time.Millisecond
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -165,7 +179,13 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 		}
 		profiles[p] = true
 	}
-	d := &Dispatcher{cfg: cfg, profiles: profiles, deadline: map[layout.StoredHash]time.Time{}}
+	d := &Dispatcher{
+		cfg: cfg, profiles: profiles, deadline: map[layout.StoredHash]time.Time{},
+		rebound: map[string]bool{}, wake: make(chan struct{}, 1),
+	}
+	if err := d.recoverLeases(ctx); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -178,6 +198,8 @@ func (d *Dispatcher) HandleFrame(ctx context.Context, from string, f *nexusv1.Di
 		return d.HandleOffer(ctx, from, f.GetOffer())
 	case f.GetRevoke() != nil:
 		return d.HandleRevoke(ctx, from, f.GetRevoke())
+	case f.GetInputResponse() != nil:
+		return d.HandleInputResponse(ctx, from, f.GetInputResponse())
 	}
 	return fmt.Errorf("dispatcher: frame variant is not a Worker dispatch message")
 }
