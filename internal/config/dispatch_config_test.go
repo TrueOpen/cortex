@@ -32,7 +32,7 @@ func TestDispatchRootHistoryDefaultsOutsideValidate(t *testing.T) {
 	cfg := validConfig()
 	for _, n := range []int{-1, 4097} {
 		cfg.Dispatch.Handraise.RootHistory = n
-		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dispatch.handraise.root_history") {
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dispatch.handraise.root_history must be 0 (default) or 1–4096") {
 			t.Fatalf("root_history %d: %v", n, err)
 		}
 	}

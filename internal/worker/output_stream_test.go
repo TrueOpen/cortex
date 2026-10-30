@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -555,16 +556,30 @@ func TestOutputRecorderRecoversCompletedUnsignedTail(t *testing.T) {
 	}
 }
 
+// failingSecondFrameSigner fails the second output frame signature. The
+// stream header is told apart by its digest, not by call order: it is signed
+// on its own goroutine, concurrently with the frames.
 type failingSecondFrameSigner struct {
 	signer.DigestSigner
-	// The header is signed on its own goroutine while frames are signed, so
-	// the counter must be safe for concurrent calls.
-	calls atomic.Int32
+	header codec.Hash // the OutputStreamHeaderV2 signing digest
+	frames atomic.Int32
+}
+
+func newFailingSecondFrameSigner(t *testing.T, h harness, event chainclient.AssignmentFinalized, inner signer.DigestSigner) *failingSecondFrameSigner {
+	t.Helper()
+	facts, err := h.worker.taskFacts(context.Background(), event.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := builderclient.OutputStreamHeaderDigest(h.worker.cfg.ChainID, codec.Hash(facts.AcceptedTaskHash).String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &failingSecondFrameSigner{DigestSigner: inner, header: header}
 }
 
 func (s *failingSecondFrameSigner) SignDigest(ctx context.Context, request signer.DigestRequest) ([]byte, error) {
-	// Call 1 signs the output stream header, call 2 the first frame.
-	if s.calls.Add(1) == 3 {
+	if request.Digest != s.header && s.frames.Add(1) == 2 {
 		return nil, signer.ErrRetryable
 	}
 	return s.DigestSigner.SignDigest(ctx, request)
@@ -615,7 +630,7 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 			service.SetStreamInference(true)
 			h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "deferred-frame"
 			if failure == "signer" {
-				h.worker.cfg.Signer = &failingSecondFrameSigner{DigestSigner: h.signer}
+				h.worker.cfg.Signer = newFailingSecondFrameSigner(t, h, event, h.signer)
 			} else {
 				h.persistence.evidenceWriteError = func(record EvidenceRecord) error {
 					if record.Kind == OutputStreamFrameKind(1) {

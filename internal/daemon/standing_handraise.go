@@ -101,8 +101,13 @@ var errHandraiseEnqueue = errors.New("enqueue standing handraise")
 //
 // S9 wiring: each Session's Config.OnBound must call Rebound, and the
 // handraiser needs the Sessions as enqueuers. Build the Sessions first with
-// a late-bound OnBound closure over the handraiser variable (assigned before
-// any Session runs), then pass the Sessions here.
+// a late-bound OnBound that loads the handraiser from an atomic.Pointer and
+// nil-checks it, then pass the Sessions here and store the result:
+//
+//	var hr atomic.Pointer[StandingHandraiser]
+//	OnBound: func(b string) { if h := hr.Load(); h != nil { h.Rebound(b) } }
+//	...
+//	hr.Store(h)
 func NewStandingHandraiser(ctx context.Context, cfg StandingHandraiseConfig) (*StandingHandraiser, error) {
 	var missing []string
 	for name, absent := range map[string]bool{
@@ -199,11 +204,15 @@ func (h *StandingHandraiser) Notify() {
 }
 
 // Rebound requests a fresh handraise to builder. It is the
-// dispatchstream.Config.OnBound of that Builder's session (S9 wiring).
+// dispatchstream.Config.OnBound of that Builder's session (S9 wiring). A new
+// binding also ends any enqueue backoff: the next attempt goes out at once.
 func (h *StandingHandraiser) Rebound(builder string) {
 	h.mu.Lock()
 	if _, ok := h.gen[builder]; ok {
 		h.gen[builder]++
+		if bo := h.backoff[builder]; bo != nil {
+			bo.retryAt = time.Time{}
+		}
 	}
 	h.mu.Unlock()
 	h.Notify()
@@ -267,6 +276,8 @@ func loggable(err error) error {
 }
 
 func (h *StandingHandraiser) pruneStep(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, h.passTimeout)
+	defer cancel()
 	height, err := h.cfg.Chain.CommittedHeight(ctx)
 	if err == nil {
 		h.pruneFrom, err = h.db.pruneBatch(ctx, height, h.pruneFrom)

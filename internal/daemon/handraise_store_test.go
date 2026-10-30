@@ -230,3 +230,46 @@ func TestHandraiseStorePruneRemovesTheOrderKeyOfACorruptRoot(t *testing.T) {
 		t.Fatal("the order key of a corrupt root was orphaned")
 	}
 }
+
+func TestHandraiseStoreHealsACorruptRootOnRedelivery(t *testing.T) {
+	ctx := context.Background()
+	s := handraiseStore{st: openHandraiseTestStore(t)}
+	other := HeldRoot{Builder: "b1", RootDigest: [32]byte{2}, RootHeight: 9, RootVersion: 3, ReceivedHeight: 100}
+	r := HeldRoot{Builder: "b1", RootDigest: [32]byte{1}, RootHeight: 9, RootVersion: 3, ReceivedHeight: 100, Admitted: true}
+	for _, x := range []HeldRoot{r, other} {
+		if _, _, err := s.putRoot(ctx, x, 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.st.PutRaw(ctx, hrRootKey("b1", hrDigestHex(r.RootDigest)), []byte("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.holdsRoot(ctx, "b1", r.RootDigest); err != nil || ok {
+		t.Fatalf("holdsRoot on an undecodable record = %v %v, want false", ok, err)
+	}
+	held, stored, err := s.putRoot(ctx, r, 10)
+	if err != nil || !stored {
+		t.Fatalf("redelivery over a corrupt record: stored=%v err=%v, want it healed", stored, err)
+	}
+	if !held.Admitted || !held.Equivocal {
+		t.Fatalf("healed record %+v: equivocation is re-checked against the other digest only", held)
+	}
+	if ok, _ := s.holdsRoot(ctx, "b1", r.RootDigest); !ok {
+		t.Fatal("the healed root is held again")
+	}
+	if roots, err := s.latestRoots(ctx, "b1", 10); err != nil || len(roots) != 2 {
+		t.Fatalf("latestRoots after healing = %d %v", len(roots), err)
+	}
+
+	// Alone at its slot, the healed record must not count itself.
+	s2 := handraiseStore{st: openHandraiseTestStore(t)}
+	if _, _, err := s2.putRoot(ctx, r, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.st.PutRaw(ctx, hrRootKey("b1", hrDigestHex(r.RootDigest)), []byte("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	if held, _, err := s2.putRoot(ctx, r, 10); err != nil || held.Equivocal {
+		t.Fatalf("healed alone: %+v %v, want not equivocal", held, err)
+	}
+}

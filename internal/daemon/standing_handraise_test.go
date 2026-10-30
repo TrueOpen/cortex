@@ -359,6 +359,9 @@ func TestStandingHandraiseChainFactsAreReadOncePerHeight(t *testing.T) {
 		t.Fatalf("a new height made %d chain calls, want one round of 9", got)
 	}
 	x.chain.with(func(f *fakeHandraiseChain) {
+		if f.unpinned != 0 {
+			t.Errorf("%d gate reads were not pinned to the committed height", f.unpinned)
+		}
 		for h := range f.readHeights {
 			if h < 100 || h > 102 {
 				t.Errorf("pinned read at height %d", h)
@@ -390,5 +393,33 @@ func TestNewStandingHandraiserRejectsANilEnqueuer(t *testing.T) {
 	cfg.Builders = map[string]HandraiseEnqueuer{hrBuilderA: x.a, hrBuilderB: nil}
 	if _, err := NewStandingHandraiser(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), hrBuilderB) {
 		t.Fatalf("err = %v, want the nil enqueuer named", err)
+	}
+}
+
+func TestStandingHandraiseReboundClearsTheEnqueueBackoff(t *testing.T) {
+	x := newHRHarness(t, nil)
+	x.warm()
+	x.a.setFail(errors.New("outbox unwritable"))
+	x.h.Rebound(hrBuilderA)
+	if err := x.try(100*time.Millisecond, 101); err == nil {
+		t.Fatal("a failed enqueue must surface")
+	}
+	x.a.setFail(nil)
+	x.h.Rebound(hrBuilderA) // a fresh binding: the outbox is writable again
+	x.step(100*time.Millisecond, 101)
+	if got := issueOf(x.a); len(got) != 2 {
+		t.Fatalf("a Rebound must not wait out the backoff: %v", got)
+	}
+}
+
+func TestStandingHandraisePruneStepIsBoundedByThePassTimeout(t *testing.T) {
+	x := newHRHarness(t, func(c *StandingHandraiseConfig) { c.Heartbeat, c.TTL = time.Second, 4*time.Second })
+	x.chain.with(func(f *fakeHandraiseChain) { f.hangHeight = true })
+	done := make(chan struct{})
+	go func() { x.h.pruneStep(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(x.h.passTimeout + 5*time.Second):
+		t.Fatal("pruneStep blocked past its timeout")
 	}
 }

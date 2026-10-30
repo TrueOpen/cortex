@@ -117,7 +117,7 @@ const maxDurationMS = uint64(math.MaxInt64 / int64(time.Millisecond))
 func (d DispatchConfig) problems() []string {
 	var problems []string
 	if d.Handraise.RootHistory < 0 || d.Handraise.RootHistory > 4096 {
-		problems = append(problems, "dispatch.handraise.root_history must be between 1 and 4096")
+		problems = append(problems, "dispatch.handraise.root_history must be 0 (default) or 1–4096")
 	}
 	keys := make([]string, 0, len(d.MinPriceBid))
 	for key := range d.MinPriceBid {

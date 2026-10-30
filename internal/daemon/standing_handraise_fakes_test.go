@@ -118,6 +118,9 @@ type fakeHandraiseChain struct {
 	// the heights the pinned ones were issued at.
 	gateCalls   int
 	readHeights map[uint64]bool
+	unpinned    int // gate reads not pinned to a height
+	// hangHeight makes CommittedHeight block until its context ends.
+	hangHeight bool
 }
 
 func newFakeHandraiseChain(t testing.TB) *fakeHandraiseChain {
@@ -153,9 +156,11 @@ func newFakeHandraiseChain(t testing.TB) *fakeHandraiseChain {
 // gateRead counts one gate read; the caller holds f.mu.
 func (f *fakeHandraiseChain) gateRead(height uint64) {
 	f.gateCalls++
-	if height != 0 {
-		f.readHeights[height] = true
+	if height == 0 {
+		f.unpinned++
+		return
 	}
+	f.readHeights[height] = true
 }
 
 func (f *fakeHandraiseChain) calls() int {
@@ -170,23 +175,28 @@ func (f *fakeHandraiseChain) with(fn func(*fakeHandraiseChain)) {
 	fn(f)
 }
 
-func (f *fakeHandraiseChain) CommittedHeight(context.Context) (uint64, error) {
+func (f *fakeHandraiseChain) CommittedHeight(ctx context.Context) (uint64, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.height, nil
+	hang, height := f.hangHeight, f.height
+	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}
+	return height, nil
 }
 
-func (f *fakeHandraiseChain) CortexNode(context.Context, string) (chainclient.CortexNodeSnapshot, error) {
+func (f *fakeHandraiseChain) CortexNodeAt(_ context.Context, _ string, height uint64) (chainclient.CortexNodeSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.gateRead(0)
+	f.gateRead(height)
 	return f.node, f.nodeErr
 }
 
-func (f *fakeHandraiseChain) ServiceBond(context.Context, string) (chainclient.ServiceBondSnapshot, error) {
+func (f *fakeHandraiseChain) ServiceBondAt(_ context.Context, _ string, height uint64) (chainclient.ServiceBondSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.gateRead(0)
+	f.gateRead(height)
 	return f.bond, nil
 }
 

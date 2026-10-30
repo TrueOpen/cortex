@@ -15,13 +15,12 @@ import (
 )
 
 // HandraiseChainView is the chain authority the standing handraise reads.
-// *chainclient.KeeperABCIClient satisfies it. The gate reads are pinned to
-// one committed height where the client has a height-pinned read; CortexNode
-// and ServiceBond have none and read the latest state.
+// *chainclient.KeeperABCIClient satisfies it. Every gate read is pinned to
+// one committed height.
 type HandraiseChainView interface {
 	CommittedHeight(context.Context) (uint64, error)
-	CortexNode(context.Context, string) (chainclient.CortexNodeSnapshot, error)
-	ServiceBond(context.Context, string) (chainclient.ServiceBondSnapshot, error)
+	CortexNodeAt(ctx context.Context, operatorAddress string, height uint64) (chainclient.CortexNodeSnapshot, error)
+	ServiceBondAt(ctx context.Context, operatorAddress string, height uint64) (chainclient.ServiceBondSnapshot, error)
 	CurrentServiceKey(ctx context.Context, participantType, operatorAddress string, height uint64) (chainclient.ServiceKeySnapshot, error)
 	CurrentCandidateMemberAt(ctx context.Context, operatorAddress string, height uint64) (chainclient.CandidateMemberRefSnapshot, error)
 	ModelSupportScopeAt(ctx context.Context, operatorAddress, modelID, profileVersion string, height uint64) (chainclient.CommittedModelSupportScope, error)
@@ -205,7 +204,7 @@ func (g *handraiseGates) chainFacts(ctx context.Context, height uint64) *chainFa
 	if keyErr == nil {
 		f.authNonce, f.authKnown = key.AuthorizationNonce.Uint64(), true
 	}
-	bond, stop, factual, readErr := g.identityStop(ctx, key, keyErr)
+	bond, stop, factual, readErr := g.identityStop(ctx, height, key, keyErr)
 	f.stop, f.factual, f.readFailed = stop, factual, readErr
 	if f.stop == "" {
 		member, err := g.chain.CurrentCandidateMemberAt(ctx, g.operator, height)
@@ -227,15 +226,15 @@ func (g *handraiseGates) chainFacts(ctx context.Context, height uint64) *chainFa
 
 // identityStop is H1 on the node, bond and key, and the rotation stop.
 // readErr reports a stop caused by a failed read.
-func (g *handraiseGates) identityStop(ctx context.Context, key chainclient.ServiceKeySnapshot, keyErr error) (bond chainclient.ServiceBondSnapshot, stop string, factual, readErr bool) {
-	node, err := g.chain.CortexNode(ctx, g.operator)
+func (g *handraiseGates) identityStop(ctx context.Context, height uint64, key chainclient.ServiceKeySnapshot, keyErr error) (bond chainclient.ServiceBondSnapshot, stop string, factual, readErr bool) {
+	node, err := g.chain.CortexNodeAt(ctx, g.operator, height)
 	if err != nil {
 		return bond, "H1: read Cortex node: " + err.Error(), false, true
 	}
 	if node.OperatorAddress != g.operator || (!strings.EqualFold(node.Status, "REGISTERED") && !strings.EqualFold(node.Status, "ACTIVE")) {
 		return bond, "H1: Cortex node status " + node.Status, true, keyErr != nil
 	}
-	bond, err = g.chain.ServiceBond(ctx, g.operator)
+	bond, err = g.chain.ServiceBondAt(ctx, g.operator, height)
 	if err != nil {
 		return bond, "H1: read service bond: " + err.Error(), false, true
 	}

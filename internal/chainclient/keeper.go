@@ -113,10 +113,23 @@ func (c *KeeperABCIClient) Params(ctx context.Context) (ParamsSnapshot, error) {
 }
 
 func (c *KeeperABCIClient) CortexNode(ctx context.Context, operatorAddress string) (CortexNodeSnapshot, error) {
+	return c.cortexNodeAt(ctx, operatorAddress, 0)
+}
+
+// CortexNodeAt is CortexNode pinned to height, which must have come from
+// CommittedHeight.
+func (c *KeeperABCIClient) CortexNodeAt(ctx context.Context, operatorAddress string, height uint64) (CortexNodeSnapshot, error) {
+	if height == 0 {
+		return CortexNodeSnapshot{}, fmt.Errorf("Cortex node query height is required")
+	}
+	return c.cortexNodeAt(ctx, operatorAddress, height)
+}
+
+func (c *KeeperABCIClient) cortexNodeAt(ctx context.Context, operatorAddress string, height uint64) (CortexNodeSnapshot, error) {
 	operatorAddress = strings.TrimSpace(operatorAddress)
 	request := &hubv1.QueryCortexNodeRequest{OperatorAddress: operatorAddress}
 	var response hubv1.QueryCortexNodeResponse
-	if err := c.query(ctx, hubQuery+"CortexNode", 0, request, &response); err != nil {
+	if err := c.query(ctx, hubQuery+"CortexNode", height, request, &response); err != nil {
 		return CortexNodeSnapshot{}, err
 	}
 	node := response.Node
@@ -152,10 +165,23 @@ func (c *KeeperABCIClient) CortexNode(ctx context.Context, operatorAddress strin
 }
 
 func (c *KeeperABCIClient) ServiceBond(ctx context.Context, operatorAddress string) (ServiceBondSnapshot, error) {
+	return c.serviceBondAt(ctx, operatorAddress, 0)
+}
+
+// ServiceBondAt is ServiceBond pinned to height, which must have come from
+// CommittedHeight.
+func (c *KeeperABCIClient) ServiceBondAt(ctx context.Context, operatorAddress string, height uint64) (ServiceBondSnapshot, error) {
+	if height == 0 {
+		return ServiceBondSnapshot{}, fmt.Errorf("service bond query height is required")
+	}
+	return c.serviceBondAt(ctx, operatorAddress, height)
+}
+
+func (c *KeeperABCIClient) serviceBondAt(ctx context.Context, operatorAddress string, height uint64) (ServiceBondSnapshot, error) {
 	operatorAddress = strings.TrimSpace(operatorAddress)
 	request := &hubv1.QueryServiceBondRequest{OperatorAddress: operatorAddress}
 	var response hubv1.QueryServiceBondResponse
-	if err := c.query(ctx, hubQuery+"ServiceBond", 0, request, &response); err != nil {
+	if err := c.query(ctx, hubQuery+"ServiceBond", height, request, &response); err != nil {
 		return ServiceBondSnapshot{}, err
 	}
 	if response.Bond == nil {

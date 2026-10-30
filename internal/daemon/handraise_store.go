@@ -36,7 +36,6 @@ const (
 
 var (
 	errHandraiseScanStop = errors.New("handraise store: stop scan")
-	errCorruptHeldRoot   = errors.New("handraise store: held root record is unreadable")
 )
 
 type sentHandraise struct {
@@ -191,23 +190,36 @@ func (s handraiseStore) hasSent(ctx context.Context, builder string, digest [32]
 	return s.exists(ctx, hrSentKey(builder, hrDigestHex(digest)))
 }
 
+// holdsRoot reports a retained, readable root: an undecodable record is
+// not held (a redelivery heals it, see putRoot).
 func (s handraiseStore) holdsRoot(ctx context.Context, builder string, digest [32]byte) (bool, error) {
-	return s.exists(ctx, hrRootKey(builder, hrDigestHex(digest)))
+	raw, err := s.st.GetRaw(ctx, hrRootKey(builder, hrDigestHex(digest)))
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	var r HeldRoot
+	return json.Unmarshal(raw, &r) == nil, nil
 }
 
 // putRoot stores r once per digest and returns the record held: r with
 // Equivocal set when another digest is already held at the same
 // (root_height, root_version), or, on a redelivery (stored=false), the record
-// stored before. It also extends the retention of the handraise r proves to
-// cover r's own.
+// stored before. A stored record that no longer decodes is overwritten with
+// the freshly verified r (stored=true): the digest fixes (root_height,
+// root_version), so its order key is the same. It also extends the retention
+// of the handraise r proves to cover r's own.
 func (s handraiseStore) putRoot(ctx context.Context, r HeldRoot, retention uint64) (held HeldRoot, stored bool, err error) {
 	d := hrDigestHex(r.RootDigest)
+	own := hrOrderKey(r.Builder, r.RootHeight, r.RootVersion, d)
 	err = s.st.ApplyBatch(ctx, func(b *store.Batch) error {
 		if v, err := b.Get(hrRootKey(r.Builder, d)); err == nil {
-			if err := json.Unmarshal(v, &held); err != nil {
-				return fmt.Errorf("%w: %s: %w", errCorruptHeldRoot, d, err)
+			if json.Unmarshal(v, &held) == nil {
+				return nil
 			}
-			return nil
+			held = HeldRoot{} // corrupt: heal it below
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
@@ -215,7 +227,13 @@ func (s handraiseStore) putRoot(ctx context.Context, r HeldRoot, retention uint6
 		if err != nil {
 			return err
 		}
-		r.Equivocal = it.First()
+		r.Equivocal = false
+		for ok := it.First(); ok; ok = it.Next() {
+			if string(it.Key()) != string(own) {
+				r.Equivocal = true
+				break
+			}
+		}
 		if err := it.Close(); err != nil {
 			return err
 		}
@@ -231,7 +249,7 @@ func (s handraiseStore) putRoot(ctx context.Context, r HeldRoot, retention uint6
 		if err := b.Set(hrRootKey(r.Builder, d), value); err != nil {
 			return err
 		}
-		if err := b.Set(hrOrderKey(r.Builder, r.RootHeight, r.RootVersion, d), []byte{}); err != nil {
+		if err := b.Set(own, []byte{}); err != nil {
 			return err
 		}
 		return b.Set(hrRootExpiryKey(retainUntil, r.Builder, d, r.RootHeight, r.RootVersion), []byte{})

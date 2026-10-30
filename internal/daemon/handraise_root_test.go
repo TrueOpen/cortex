@@ -287,3 +287,29 @@ func TestHandraiseRootNotAdmittedAlertSurvivesACrash(t *testing.T) {
 		t.Fatalf("the redelivery is idempotent for admission: %v", alertKinds(x))
 	}
 }
+
+func TestHandraiseRootRedeliveryHealsACorruptRecord(t *testing.T) {
+	ctx := context.Background()
+	x := newHRHarness(t, nil)
+	x.warm()
+	n := hrRootNotice(t, hrBuilderA, hrBuilderKey, 300, 0, admittedLeaf(x.a.handraises()[0]))
+	if err := x.h.HandleRootNotice(ctx, hrBuilderA, n); err != nil {
+		t.Fatal(err)
+	}
+	d, err := dispatchwire.Digest(n.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := x.st.PutRaw(ctx, hrRootKey(hrBuilderA, hrDigestHex(d)), []byte("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := x.h.HoldsRoot(ctx, hrBuilderA, d); ok {
+		t.Fatal("an undecodable root is not held")
+	}
+	if err := x.h.HandleRootNotice(ctx, hrBuilderA, n); err != nil {
+		t.Fatalf("a redelivery heals the record and returns normally: %v", err)
+	}
+	if ok, _ := x.h.HoldsRoot(ctx, hrBuilderA, d); !ok {
+		t.Fatal("the healed root is held")
+	}
+}

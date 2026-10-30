@@ -80,9 +80,6 @@ func (h *StandingHandraiser) HandleRootNotice(ctx context.Context, builder strin
 		ReceivedHeight: height, ReceivedAtUnixMs: h.cfg.Now().UnixMilli(), Notice: raw,
 	}
 	held, _, err := h.db.putRoot(ctx, r, h.cfg.RetentionBlocks)
-	if errors.Is(err, errCorruptHeldRoot) {
-		return fmt.Errorf("persist handraise root: %w", err) // retrying cannot help
-	}
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("persist handraise root: %w", err))
 	}
