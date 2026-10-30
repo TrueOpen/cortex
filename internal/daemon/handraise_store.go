@@ -397,3 +397,60 @@ func (s handraiseStore) pruneBatch(ctx context.Context, height uint64, from []by
 	}
 	return next, nil
 }
+
+// rootByDigest reads one retained root; ok=false when absent or unreadable.
+func (s handraiseStore) rootByDigest(ctx context.Context, builder string, digest [32]byte) (HeldRoot, bool, error) {
+	raw, err := s.st.GetRaw(ctx, hrRootKey(builder, hrDigestHex(digest)))
+	if errors.Is(err, store.ErrNotFound) {
+		return HeldRoot{}, false, nil
+	}
+	if err != nil {
+		return HeldRoot{}, false, err
+	}
+	var r HeldRoot
+	if json.Unmarshal(raw, &r) != nil {
+		return HeldRoot{}, false, nil
+	}
+	return r, true, nil
+}
+
+// rootsUpTo returns up to limit of builder's readable roots with
+// root_height <= maxHeight, newest (root_height, root_version) first.
+func (s handraiseStore) rootsUpTo(ctx context.Context, builder string, maxHeight uint64, limit int) ([]HeldRoot, error) {
+	prefix := hrOrderBuilderPrefix(builder)
+	var digests [][32]byte
+	err := s.st.ScanPrefix(ctx, prefix, func(key, _ []byte) error {
+		if len(digests) == limit {
+			return errHandraiseScanStop
+		}
+		parts := strings.Split(string(key[len(prefix):]), "/")
+		if len(parts) != 3 {
+			return fmt.Errorf("handraise root order key %q is malformed", key)
+		}
+		inv, err := strconv.ParseUint(parts[0], 16, 64)
+		if err != nil {
+			return fmt.Errorf("handraise root order key %q is malformed", key)
+		}
+		if ^inv > maxHeight {
+			return nil
+		}
+		raw, err := hex.DecodeString(parts[2])
+		if err != nil || len(raw) != 32 {
+			return fmt.Errorf("handraise root order key %q is malformed", key)
+		}
+		digests = append(digests, [32]byte(raw))
+		return nil
+	})
+	if err != nil && !errors.Is(err, errHandraiseScanStop) {
+		return nil, err
+	}
+	out := make([]HeldRoot, 0, len(digests))
+	for _, d := range digests {
+		if r, ok, err := s.rootByDigest(ctx, builder, d); err != nil {
+			return nil, err
+		} else if ok {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}

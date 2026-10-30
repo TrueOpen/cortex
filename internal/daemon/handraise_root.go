@@ -149,3 +149,14 @@ func (h *StandingHandraiser) Admission(builder string) (HeldRoot, bool) {
 	r, ok := h.admission[builder]
 	return r, ok
 }
+
+// RootByDigest returns builder's retained root with this digest (S8).
+func (h *StandingHandraiser) RootByDigest(ctx context.Context, builder string, digest [32]byte) (HeldRoot, bool, error) {
+	return h.db.rootByDigest(ctx, builder, digest)
+}
+
+// RootsUpTo returns builder's retained roots with root_height <= max, newest
+// first: the candidates for KC §10.17 source (b).
+func (h *StandingHandraiser) RootsUpTo(ctx context.Context, builder string, maxRootHeight uint64, limit int) ([]HeldRoot, error) {
+	return h.db.rootsUpTo(ctx, builder, maxRootHeight, limit)
+}
