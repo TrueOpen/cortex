@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -28,8 +27,11 @@ import (
 // DispatchRejectV1, as in wire's dispatch vectors.
 const dispatchMessageSchemaVersion = 1
 
-// maxWindowMs keeps accept_deadline_ms inside time.Duration.
-const maxWindowMs = uint64(math.MaxInt64 / int64(time.Millisecond))
+// maxAcceptWindow caps the local C4 window taken from accept_deadline_ms (a
+// Builder-clock number this node does not trust): a Builder cannot make this
+// node hold an answer, a lease or a deadline entry open for longer. Real
+// windows are seconds; it needs no configuration.
+const maxAcceptWindow = 5 * time.Minute
 
 // ErrOfferDropped marks a DispatchOfferV1 that failed CD §5.1 check 1: it is
 // not this node's ticket to answer, so it is logged and dropped and no reject
@@ -60,7 +62,7 @@ var _ DispatchChainView = (*chainclient.KeeperABCIClient)(nil)
 type DispatchHandraise interface {
 	Current(builder string) (CurrentHandraise, bool)
 	HoldsRoot(ctx context.Context, builder string, digest [32]byte) (bool, error)
-	Refresh(context.Context) error
+	Refresh(ctx context.Context, builder string) error
 	Notify()
 }
 
@@ -122,7 +124,12 @@ type Dispatcher struct {
 	cfg      DispatcherConfig
 	profiles map[HandraiseProfile]bool
 
-	work sync.Mutex // one offer, revoke, input response or sweep at a time
+	chain *dispatchFacts // cfg.Chain with per-height memo (I3)
+
+	// work serialises the store-side state machine: offer answers, revokes,
+	// input responses and sweeps. It is a semaphore so a waiter gives up with
+	// its context; chain reads for an offer happen before it is taken.
+	work chan struct{}
 
 	mu       sync.Mutex
 	deadline map[layout.StoredHash]time.Time // C4 accept deadlines seen by this process
@@ -180,7 +187,8 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 		profiles[p] = true
 	}
 	d := &Dispatcher{
-		cfg: cfg, profiles: profiles, deadline: map[layout.StoredHash]time.Time{},
+		cfg: cfg, chain: newDispatchFacts(cfg.Chain), work: make(chan struct{}, 1),
+		profiles: profiles, deadline: map[layout.StoredHash]time.Time{},
 		rebound: map[string]bool{}, wake: make(chan struct{}, 1),
 	}
 	if err := d.recoverLeases(ctx); err != nil {
@@ -188,6 +196,19 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	}
 	return d, nil
 }
+
+// lock takes the work semaphore, or gives up with ctx: a stream Handler must
+// return within its HandlerTimeout, and waiting longer is retryable.
+func (d *Dispatcher) lock(ctx context.Context) error {
+	select {
+	case d.work <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return builderclient.Retryable(fmt.Errorf("dispatcher busy: %w", ctx.Err()))
+	}
+}
+
+func (d *Dispatcher) unlock() { <-d.work }
 
 // HandleFrame is the stream Handler for the Worker dispatch variants. S9
 // routes handraise_root to the StandingHandraiser and the Verifier variants
@@ -217,19 +238,29 @@ func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, windowMs uint64, rec 
 	if persisted && rec.AcceptDeadlineUnixMs != 0 {
 		at = time.UnixMilli(rec.AcceptDeadlineUnixMs)
 	} else {
-		at = d.cfg.Now().Add(time.Duration(min(windowMs, maxWindowMs)) * time.Millisecond)
+		window := maxAcceptWindow
+		if windowMs < uint64(maxAcceptWindow/time.Millisecond) {
+			window = time.Duration(windowMs) * time.Millisecond
+		}
+		at = d.cfg.Now().Add(window)
 	}
 	d.deadline[ticket] = at
 	return at
 }
 
 func (d *Dispatcher) acceptDeadline(rec layout.DispatchRecord) time.Time {
+	return d.deadlineOf(rec.TicketHash, rec.AcceptDeadlineUnixMs)
+}
+
+// deadlineOf is the C4 deadline this process noted for ticket, else the
+// persisted one.
+func (d *Dispatcher) deadlineOf(ticket layout.StoredHash, persistedMs int64) time.Time {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if at, ok := d.deadline[rec.TicketHash]; ok {
+	if at, ok := d.deadline[ticket]; ok {
 		return at
 	}
-	return time.UnixMilli(rec.AcceptDeadlineUnixMs)
+	return time.UnixMilli(persistedMs)
 }
 
 func (d *Dispatcher) forgetDeadline(ticket layout.StoredHash) {
@@ -238,26 +269,50 @@ func (d *Dispatcher) forgetDeadline(ticket layout.StoredHash) {
 	delete(d.deadline, ticket)
 }
 
-// drop logs a check-1 failure and returns it as ErrOfferDropped.
-func (d *Dispatcher) drop(builder string, ticket layout.StoredHash, err error) error {
-	d.cfg.Logger.Info("dispatch offer dropped (CD §5.1 check 1; no reject is signed)",
+// drop logs an offer that is not answered (CD §5.1 check 1, or nothing left
+// to answer) and returns it as ErrOfferDropped. With a ticket, the caller
+// holds the work lock: a lease a redelivery left behind goes back unless the
+// ticket is accepted (I1).
+func (d *Dispatcher) drop(ctx context.Context, builder string, ticket layout.StoredHash, err error) error {
+	if !ticket.IsZero() {
+		if rerr := d.releaseIfNotAccepted(ctx, ticket); rerr != nil {
+			return rerr
+		}
+	}
+	d.cfg.Logger.Info("dispatch offer dropped (no reject is signed)",
 		"builder", builder, "ticket", ticket.String(), "err", err)
 	return fmt.Errorf("%w: %w", ErrOfferDropped, err)
 }
 
-// release moves rec to state, stops its inference and returns its lease.
-func (d *Dispatcher) release(ctx context.Context, rec layout.DispatchRecord, state layout.DispatchState, why string) error {
-	if _, err := layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
-		r.State, r.StateReason = state, why
-		return nil
-	}); err != nil {
-		return builderclient.Retryable(fmt.Errorf("record %s: %w", state, err))
+// releaseIfNotAccepted returns ticket's lease unless its record is accepted:
+// the rule recoverLeases applies at start, and the sweep past the deadline.
+func (d *Dispatcher) releaseIfNotAccepted(ctx context.Context, ticket layout.StoredHash) error {
+	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
 	}
+	if err == nil && rec.State == layout.DispatchAccepted {
+		return nil
+	}
+	return d.releaseLease(ctx, ticket)
+}
+
+// release ends rec's local responsibility: it stops the inference, returns
+// the lease, and only then writes state (dropping staged input in the same
+// batch). Stop and release are idempotent, so a failure anywhere leaves the
+// ticket in its old state for the sweep or the redelivery to finish (I2).
+func (d *Dispatcher) release(ctx context.Context, rec layout.DispatchRecord, state layout.DispatchState, why string) error {
 	if err := d.cfg.Infer.StopDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash); err != nil {
 		return builderclient.Retryable(fmt.Errorf("stop inference: %w", err))
 	}
 	if err := d.releaseLease(ctx, rec.TicketHash); err != nil {
 		return err
+	}
+	if _, err := layout.UpdateDispatchDroppingInput(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
+		r.State, r.StateReason = state, why
+		return nil
+	}); err != nil {
+		return builderclient.Retryable(fmt.Errorf("record %s: %w", state, err))
 	}
 	d.forgetDeadline(rec.TicketHash)
 	d.cfg.Logger.Info("dispatch ticket released", "builder", rec.Builder, "ticket", rec.TicketHash.String(), "state", state, "why", why)
@@ -298,6 +353,17 @@ func (d *Dispatcher) supersede(ctx context.Context, builder string, t *taskv1.Di
 		}
 	}
 	return nil
+}
+
+// enqueueErr classifies an Enqueue failure: a message the outbox refuses as
+// invalid can never be sent (permanent); anything else is a failure to persist
+// it (retryable).
+func enqueueErr(what string, err error) error {
+	err = fmt.Errorf("enqueue %s: %w", what, err)
+	if errors.Is(err, dispatchstream.ErrInvalidOutgoing) {
+		return err
+	}
+	return builderclient.Retryable(err)
 }
 
 func profileOf(modelHex string, version uint32) (HandraiseProfile, error) {

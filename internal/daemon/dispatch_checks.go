@@ -15,7 +15,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
-	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
@@ -56,16 +55,17 @@ func refuse(reason taskv1.DispatchRejectReasonV1, class, format string, args ...
 }
 
 // prechecks runs CD §5.1 checks 2, 2a, 3, 4, 6 and 7 in that order, every
-// chain read pinned to height. Check 5 is the lease. A nil verdict and nil
-// error means accept; an error is a failed read (retryable).
-func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, height uint64) (*verdict, error) {
-	if v, err := d.checkOrder(ctx, t, so, height); v != nil || err != nil {
+// chain read pinned to height. oraw is the order carrier as received. Check 5
+// is the lease. A nil verdict and nil error means accept; an error is a
+// failed read (retryable).
+func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, height uint64) (*verdict, error) {
+	if v, err := d.checkOrder(ctx, t, so, oraw, height); v != nil || err != nil {
 		return v, err
 	}
 	o := so.GetOrder()
 	modelHex := hex.EncodeToString(o.GetModelId())
 	version := o.GetProfileVersion()
-	scope, err := d.cfg.Chain.ModelSupportScopeAt(ctx, d.cfg.Operator, modelHex, strconv.FormatUint(uint64(version), 10), height)
+	scope, err := d.chain.ModelSupportScopeAt(ctx, d.cfg.Operator, modelHex, strconv.FormatUint(uint64(version), 10), height)
 	haveScope := err == nil
 	if err != nil && !errors.Is(err, chainclient.ErrNotFound) {
 		return nil, builderclient.Retryable(fmt.Errorf("support scope: %w", err))
@@ -84,24 +84,27 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 }
 
 // checkOrder is check 2 (order structure, user signature, task identity,
-// session, expiry, BuilderSet) and 2a (bound_change_height).
-func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, height uint64) (*verdict, error) {
-	raw, err := dispatchwire.Raw(so)
-	if err != nil {
-		return refuse(reasonInvalid, classOrderInvalid, "encode order: %v", err), nil
+// session owner and status, expiry, BuilderSet) and 2a (bound_change_height).
+// The carrier is decoded once.
+func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, height uint64) (*verdict, error) {
+	// No EVM chain id is configured at this layer, so a carrier that states
+	// no signature_chain_id (signed before the field existed) has no known
+	// EIP-712 domain. Such legacy carriers are out of scope for Phase 1
+	// dispatch and are refused by name (M3).
+	view, err := nodewire.ParseSignedOrder(hex.EncodeToString(oraw), 0, d.cfg.FeeDenom)
+	if errors.Is(err, nodewire.ErrNoSignatureChainID) {
+		return refuse(reasonInvalid, classOrderInvalid, "legacy order carrier without signature_chain_id is not accepted for Phase 1 dispatch"), nil
 	}
-	carrier := hex.EncodeToString(raw)
-	taskHash, facts, err := nodewire.TaskOrderHashAndFactsSignedOrderHex(carrier)
 	if err != nil {
 		return refuse(reasonInvalid, classOrderInvalid, "order: %v", err), nil
 	}
-	o := so.GetOrder()
+	facts, o := view.Facts, so.GetOrder()
 	taskID := identity.TaskID(facts.SessionID, facts.OrderSequence)
 	switch {
 	case facts.ChainID != d.cfg.ChainID:
 		return refuse(reasonInvalid, classOrderInvalid, "order chain_id %q", facts.ChainID), nil
-	case !bytes.Equal(taskHash[:], t.GetTaskHash()):
-		return refuse(reasonInvalid, classOrderInvalid, "order hashes to %x, the ticket binds task_hash %x", taskHash, t.GetTaskHash()), nil
+	case !bytes.Equal(view.TaskHash[:], t.GetTaskHash()):
+		return refuse(reasonInvalid, classOrderInvalid, "order hashes to %x, the ticket binds task_hash %x", view.TaskHash, t.GetTaskHash()), nil
 	case taskID == (codec.Hash{}) || !bytes.Equal(taskID[:], t.GetTaskId()):
 		return refuse(reasonInvalid, classOrderInvalid, "order derives task_id %x, the ticket binds %x", taskID, t.GetTaskId()), nil
 	case len(o.GetSessionId()) != 32 || !bytes.Equal(o.GetSessionId(), t.GetSessionId()) || o.GetOrderSequence() != t.GetOrderSequence():
@@ -110,32 +113,31 @@ func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1,
 	if o.GetOrderExpireHeight() <= height {
 		return refuse(reasonExpired, classOrderExpired, "order_expire_height %d <= committed height %d", o.GetOrderExpireHeight(), height), nil
 	}
-	signer, err := nodewire.SignedOrderSigner(carrier, 0, d.cfg.FeeDenom)
-	if err != nil {
-		return refuse(reasonInvalid, classOrderInvalid, "user signature: %v", err), nil
-	}
 	user, err := nodewire.CanonicalOperatorAddressBytes("user_address", o.GetUserAddress())
 	if err != nil {
 		return refuse(reasonInvalid, classOrderInvalid, "%v", err), nil
 	}
-	session, err := d.cfg.Chain.SessionAt(ctx, o.GetSessionId(), height)
+	session, err := d.chain.SessionAt(ctx, o.GetSessionId(), height)
 	if errors.Is(err, chainclient.ErrNotFound) {
 		return refuse(reasonInvalid, classOrderInvalid, "the session is not on chain"), nil
 	}
 	if err != nil {
 		return nil, builderclient.Retryable(fmt.Errorf("session: %w", err))
 	}
-	if session.Status == "CLOSED" {
-		return refuse(reasonInvalid, classOrderInvalid, "the session is closed"), nil
+	if session.Status != "ACTIVE" && session.Status != "IDLE" {
+		return refuse(reasonInvalid, classOrderInvalid, "the session is %s", session.Status), nil
 	}
-	if !bytes.Equal(signer, user) {
-		delegated := len(session.SessionKey) == 20 && bytes.Equal(signer, session.SessionKey) &&
+	if o.GetUserAddress() != session.OwnerUserAddress {
+		return refuse(reasonInvalid, classOrderInvalid, "order user %s is not the session owner %s", o.GetUserAddress(), session.OwnerUserAddress), nil
+	}
+	if !bytes.Equal(view.Signer, user) {
+		delegated := len(session.SessionKey) == 20 && bytes.Equal(view.Signer, session.SessionKey) &&
 			o.GetSessionAnchorHeight() >= session.SessionKeySetHeight && height <= session.SessionKeyExpiryHeight
 		if !delegated {
 			return refuse(reasonInvalid, classOrderInvalid, "the order is signed by neither user_address nor a live session key"), nil
 		}
 	}
-	set, err := d.cfg.Chain.BuilderSetAt(ctx, height)
+	set, err := d.chain.BuilderSetAt(ctx, height)
 	if err != nil {
 		return nil, builderclient.Retryable(fmt.Errorf("BuilderSet: %w", err))
 	}
@@ -159,7 +161,10 @@ func (d *Dispatcher) checkNode(ctx context.Context, o *taskv1.TaskOrderV3, scope
 	if !d.cfg.Local.WorkloadReady(ctx) {
 		return bond, refuse(reasonNoCapacity, classNodeIneligible, "workload not ready"), nil
 	}
-	node, err := d.cfg.Chain.CortexNodeAt(ctx, d.cfg.Operator, height)
+	node, err := d.chain.CortexNodeAt(ctx, d.cfg.Operator, height)
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return bond, refuse(reasonNoCapacity, classNodeIneligible, "this node is not registered on chain"), nil
+	}
 	if err != nil {
 		return bond, nil, builderclient.Retryable(fmt.Errorf("Cortex node: %w", err))
 	}
@@ -169,7 +174,10 @@ func (d *Dispatcher) checkNode(ctx context.Context, o *taskv1.TaskOrderV3, scope
 	if drain, _ := d.cfg.Local.Draining(); drain {
 		return bond, refuse(reasonNoCapacity, classNodeIneligible, "draining"), nil
 	}
-	bond, err = d.cfg.Chain.ServiceBondAt(ctx, d.cfg.Operator, height)
+	bond, err = d.chain.ServiceBondAt(ctx, d.cfg.Operator, height)
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return bond, refuse(reasonNoCapacity, classNodeIneligible, "this node has no service bond on chain"), nil
+	}
 	if err != nil {
 		return bond, nil, builderclient.Retryable(fmt.Errorf("service bond: %w", err))
 	}
@@ -187,7 +195,7 @@ func (d *Dispatcher) checkNode(ctx context.Context, o *taskv1.TaskOrderV3, scope
 	if stake := scope.Profile.Profile.MinStake.Uint64(); available < stake {
 		return bond, refuse(reasonNoCapacity, classWinnerIneligible, "available bond %d is below min_stake %d", available, stake), nil
 	}
-	lp, err := d.cfg.Chain.WorkerLiabilityParamsAt(ctx, height)
+	lp, err := d.chain.WorkerLiabilityParamsAt(ctx, height)
 	if err != nil {
 		return bond, nil, builderclient.Retryable(fmt.Errorf("liability params: %w", err))
 	}

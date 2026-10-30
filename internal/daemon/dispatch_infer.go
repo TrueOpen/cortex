@@ -49,6 +49,18 @@ func (r *TaskRunner) StartDispatchedInfer(ctx context.Context, e DispatchInferEn
 	if r == nil || r.cfg.Store == nil {
 		return fmt.Errorf("task runner store is required")
 	}
+	// A repeated start (a redelivered last chunk after a crash) must not
+	// re-admit the record: that would reset the stage the runner reached
+	// (I5). Another ticket's responsibility for the task is a conflict.
+	switch cur, err := layout.GetInferRecord(ctx, r.cfg.Store, e.TaskHash); {
+	case err == nil && cur.DispatchTicketHash == e.TicketHash:
+		r.Wake()
+		return nil
+	case err == nil:
+		return fmt.Errorf("%w: task %s already runs for ticket %s", layout.ErrConflict, e.TaskHash, cur.DispatchTicketHash)
+	case !errors.Is(err, store.ErrNotFound):
+		return fmt.Errorf("read infer record: %w", err)
+	}
 	task := layout.TaskRecord{
 		SessionID: e.SessionID, OrderSequence: e.OrderSequence, ModelID: e.ModelID, ProfileVersion: e.ProfileVersion,
 		InputDigest: e.InputHash, AcceptedInputHash: e.InputHash, InputSizeBytes: e.InputSizeBytes,

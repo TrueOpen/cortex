@@ -21,17 +21,21 @@ import (
 // maxInputChunks bounds chunk_count independently of input_size_bytes.
 const maxInputChunks = 1 << 16
 
-// HandleInputResponse stores one DispatchInputResponseV1 chunk, deduplicated
-// by (ticket, chunk) (CD §7.2 I1a). When every chunk is present the input is
-// checked against input_hash and input_size_bytes, published under the task
-// hash and the inference is started (W5, TD §5.1).
+// HandleInputResponse stages one DispatchInputResponseV1 chunk, deduplicated
+// by (ticket, chunk) (CD §7.2 I1a). Staging is bounded by input_size_bytes and
+// per chunk, and counted in the same batch as the chunk (C1). When the count
+// says every chunk is in, the input is assembled once, checked against
+// input_hash, published under the task hash and the inference is started
+// (W5, TD §5.1).
 func (d *Dispatcher) HandleInputResponse(ctx context.Context, builder string, r *nexusv1.DispatchInputResponseV1) error {
-	d.work.Lock()
-	defer d.work.Unlock()
 	ticket, ok := hash32(r.GetDispatchTicketHash())
 	if !ok {
 		return errors.New("dispatch input: dispatch_ticket_hash is not 32 bytes")
 	}
+	if err := d.lock(ctx); err != nil {
+		return err
+	}
+	defer d.unlock()
 	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("dispatch input for unknown ticket %s", ticket)
@@ -52,56 +56,38 @@ func (d *Dispatcher) HandleInputResponse(ctx context.Context, builder string, r 
 		return fmt.Errorf("dispatch input does not match ticket %s", ticket)
 	case count == 0 || index >= count || count > maxInputChunks || uint64(count) > rec.InputSizeBytes:
 		return fmt.Errorf("dispatch input chunk %d of %d is out of range", index, count)
-	case len(chunk) == 0 || uint64(len(chunk)) > rec.InputSizeBytes:
-		return fmt.Errorf("dispatch input chunk %d has %d bytes", index, len(chunk))
-	case rec.InputChunkCount != 0 && rec.InputChunkCount != count:
-		return fmt.Errorf("dispatch input chunk_count changed from %d to %d", rec.InputChunkCount, count)
+	case len(chunk) == 0:
+		return fmt.Errorf("dispatch input chunk %d is empty", index)
 	}
-	if _, err := layout.PutDispatchInputChunk(ctx, d.cfg.Store, ticket, index, chunk); err != nil {
-		if errors.Is(err, layout.ErrConflict) {
-			return fmt.Errorf("dispatch input chunk %d of ticket %s arrived again with different bytes: %w", index, ticket, err)
-		}
-		return builderclient.Retryable(fmt.Errorf("store input chunk: %w", err))
+	rec, _, err = layout.StageDispatchInputChunk(ctx, d.cfg.Store, ticket, index, count, chunk)
+	if errors.Is(err, layout.ErrConflict) || errors.Is(err, layout.ErrInputBound) {
+		return fmt.Errorf("dispatch input chunk %d of ticket %s refused: %w", index, ticket, err)
 	}
-	if rec.InputChunkCount == 0 {
-		if rec, err = layout.UpdateDispatch(ctx, d.cfg.Store, ticket, func(x *layout.DispatchRecord) error {
-			x.InputChunkCount = count
-			return nil
-		}); err != nil {
-			return builderclient.Retryable(fmt.Errorf("record chunk count: %w", err))
-		}
-	}
-	chunks, err := layout.DispatchInputChunks(ctx, d.cfg.Store, ticket)
 	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("read input chunks: %w", err))
+		return builderclient.Retryable(fmt.Errorf("stage input chunk: %w", err))
 	}
-	if uint32(len(chunks)) < rec.InputChunkCount {
+	if rec.InputChunksReceived < rec.InputChunkCount {
 		return nil
 	}
-	return d.commitInput(ctx, rec, chunks)
+	return d.commitInput(ctx, rec)
 }
 
 // commitInput assembles, verifies, publishes and starts. Every step is
-// idempotent, so a crash anywhere is repaired by the redelivered last chunk.
-func (d *Dispatcher) commitInput(ctx context.Context, rec layout.DispatchRecord, chunks map[uint32][]byte) error {
-	input := make([]byte, 0, rec.InputSizeBytes)
-	for i := uint32(0); i < rec.InputChunkCount; i++ {
-		c, ok := chunks[i]
-		if !ok {
-			return nil
+// idempotent, so a crash anywhere is repaired by a redelivered chunk or the
+// sweep's re-request.
+func (d *Dispatcher) commitInput(ctx context.Context, rec layout.DispatchRecord) error {
+	var input []byte
+	var err error
+	if rec.InputStagedBytes == rec.InputSizeBytes {
+		input, err = layout.AssembleDispatchInput(ctx, d.cfg.Store, rec.TicketHash, rec.InputChunkCount, rec.InputSizeBytes)
+		if err != nil {
+			return builderclient.Retryable(fmt.Errorf("assemble input: %w", err))
 		}
-		input = append(input, c...)
 	}
-	if uint64(len(input)) != rec.InputSizeBytes || codec.HashBytes(input) != codec.Hash(rec.InputHash) {
+	if input == nil || codec.HashBytes(input) != codec.Hash(rec.InputHash) {
 		// TD §5.1: unverified bytes never reach the model. Forget them and
 		// let the sweep ask again.
-		if err := layout.DeleteDispatchInputChunks(ctx, d.cfg.Store, rec.TicketHash); err != nil {
-			return builderclient.Retryable(fmt.Errorf("discard input chunks: %w", err))
-		}
-		if _, err := layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(x *layout.DispatchRecord) error {
-			x.InputChunkCount, x.InputRequestedAtUnixMs = 0, 0
-			return nil
-		}); err != nil {
+		if _, err := layout.ResetDispatchInput(ctx, d.cfg.Store, rec.TicketHash); err != nil {
 			return builderclient.Retryable(fmt.Errorf("reset input: %w", err))
 		}
 		return fmt.Errorf("input for ticket %s does not match input_hash/input_size_bytes; discarded", rec.TicketHash)
@@ -125,16 +111,18 @@ func (d *Dispatcher) commitInput(ctx context.Context, rec layout.DispatchRecord,
 		WorkerAddress: d.cfg.Operator, BuilderSetID: o.GetBuilderSetId(), BuilderSetHash: bytes.Clone(o.GetBuilderSetHash()),
 		ClaimFromHeight: rec.ClaimFromHeight,
 	}); err != nil {
+		if errors.Is(err, layout.ErrConflict) {
+			// Another ticket owns this task's responsibility; no redelivery
+			// changes that (I6).
+			return fmt.Errorf("start inference for ticket %s: %w", rec.TicketHash, err)
+		}
 		return builderclient.Retryable(fmt.Errorf("start inference: %w", err))
 	}
-	if _, err := layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(x *layout.DispatchRecord) error {
+	if _, err := layout.UpdateDispatchDroppingInput(ctx, d.cfg.Store, rec.TicketHash, func(x *layout.DispatchRecord) error {
 		x.InputCommitted = true
 		return nil
 	}); err != nil {
 		return builderclient.Retryable(fmt.Errorf("record input committed: %w", err))
-	}
-	if err := layout.DeleteDispatchInputChunks(ctx, d.cfg.Store, rec.TicketHash); err != nil {
-		d.cfg.Logger.Warn("drop committed input chunks", "ticket", rec.TicketHash.String(), "err", err)
 	}
 	d.forgetDeadline(rec.TicketHash)
 	d.cfg.Logger.Info("dispatch input committed; inference started", "ticket", rec.TicketHash.String(), "task_hash", rec.TaskHash.String())

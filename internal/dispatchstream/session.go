@@ -78,6 +78,11 @@ type Config struct {
 	Logger  *slog.Logger
 }
 
+// ErrInvalidOutgoing marks an Enqueue refusal of the message itself (wrong
+// variant, not strictly decodable, unsigned, no expiry): enqueueing it again
+// can never succeed. Any other Enqueue error is a failure to persist it.
+var ErrInvalidOutgoing = errors.New("dispatchstream: invalid outbound message")
+
 // Outgoing is a signed Cortex business message to deliver to the Builder.
 // Exactly one expiry bound is required; an expired message is never resent.
 type Outgoing struct {
@@ -97,6 +102,8 @@ type Session struct {
 
 	// keepaliveTicks replaces the keepalive ticker when set (tests).
 	keepaliveTicks <-chan time.Time
+	// sendFrame sends one business frame; nil means c.stream.Send (tests).
+	sendFrame func(*conn, *rawFrame) error
 
 	// bootSeq is the outbox sequence when this Session was built: anything at
 	// or below it may have been sent by an earlier process.
@@ -192,32 +199,11 @@ func defaultBackoff(attempt int) time.Duration {
 // session to send it. It returns once the message is durable; delivery
 // follows on the current or a later binding until acked or expired.
 func (s *Session) Enqueue(ctx context.Context, p Outgoing) (seq uint64, err error) {
-	v, err := variantOf(p.Message)
+	rec, err := s.checkOutgoing(p)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ErrInvalidOutgoing, err)
 	}
-	raw, err := dispatchwire.Raw(p.Message)
-	if err != nil {
-		return 0, err
-	}
-	name := dispatchwire.Name(p.Message)
-	if err := dispatch.ValidateMessage(name, raw); err != nil {
-		return 0, fmt.Errorf("dispatchstream: outbound %s: %w", name, err)
-	}
-	// The largest frame this message can ever ride in (full nonce, maximal
-	// cursor) must still pass the peer's strict decoder.
-	worst := encodeFrame(make([]byte, dispatch.StreamNonceSize), math.MaxUint64, v, raw)
-	if err := dispatch.ValidateMessage(frameName, worst); err != nil {
-		return 0, fmt.Errorf("dispatchstream: outbound %s does not fit a stream frame: %w", name, err)
-	}
-	sig := p.Message.ProtoReflect().Descriptor().Fields().ByName("service_signature")
-	if sig == nil {
-		return 0, fmt.Errorf("dispatchstream: outbound %s is not Cortex-signed", name)
-	}
-	if n := len(p.Message.ProtoReflect().Get(sig).Bytes()); n != dispatch.SignatureSize {
-		return 0, fmt.Errorf("dispatchstream: outbound %s carries a %d-byte signature, want %d", name, n, dispatch.SignatureSize)
-	}
-	seq, err = s.outbox.put(ctx, pending{Variant: v, Payload: raw, ExpiresAtUnixMilli: p.ExpiresAtUnixMilli, ExpiryHeight: p.ExpiryHeight})
+	seq, err = s.outbox.put(ctx, rec)
 	if err != nil {
 		return 0, err
 	}
@@ -226,6 +212,37 @@ func (s *Session) Enqueue(ctx context.Context, p Outgoing) (seq uint64, err erro
 	default:
 	}
 	return seq, nil
+}
+
+// checkOutgoing is Enqueue's validation of the message itself.
+func (s *Session) checkOutgoing(p Outgoing) (pending, error) {
+	v, err := variantOf(p.Message)
+	if err != nil {
+		return pending{}, err
+	}
+	raw, err := dispatchwire.Raw(p.Message)
+	if err != nil {
+		return pending{}, err
+	}
+	name := dispatchwire.Name(p.Message)
+	if err := dispatch.ValidateMessage(name, raw); err != nil {
+		return pending{}, fmt.Errorf("dispatchstream: outbound %s: %w", name, err)
+	}
+	// The largest frame this message can ever ride in (full nonce, maximal
+	// cursor) must still pass the peer's strict decoder.
+	worst := encodeFrame(make([]byte, dispatch.StreamNonceSize), math.MaxUint64, v, raw)
+	if err := dispatch.ValidateMessage(frameName, worst); err != nil {
+		return pending{}, fmt.Errorf("dispatchstream: outbound %s does not fit a stream frame: %w", name, err)
+	}
+	sig := p.Message.ProtoReflect().Descriptor().Fields().ByName("service_signature")
+	if sig == nil {
+		return pending{}, fmt.Errorf("dispatchstream: outbound %s is not Cortex-signed", name)
+	}
+	if n := len(p.Message.ProtoReflect().Get(sig).Bytes()); n != dispatch.SignatureSize {
+		return pending{}, fmt.Errorf("dispatchstream: outbound %s carries a %d-byte signature, want %d", name, n, dispatch.SignatureSize)
+	}
+	rec := pending{Variant: v, Payload: raw, ExpiresAtUnixMilli: p.ExpiresAtUnixMilli, ExpiryHeight: p.ExpiryHeight}
+	return rec, rec.validate()
 }
 
 // Run connects, serves and reconnects until ctx ends. It returns ctx.Err().
@@ -380,9 +397,10 @@ func (s *Session) prune(ctx context.Context) {
 const sentMemory = 24 * time.Hour
 
 // WasSent reports whether the business message Enqueue returned seq for may
-// have reached the Builder: it was written to a stream by this Session, or it
-// was enqueued before this Session was built (an earlier process may have
-// sent it). False means it was certainly never transmitted -- the only case
+// have reached the Builder: this Session picked it for a stream (it is marked
+// before the Send is attempted, and a message that expired by then is marked
+// and skipped), or it was enqueued before this Session was built (an earlier
+// process may have sent it). False means it was certainly never transmitted -- the only case
 // in which a Cortex may treat a signed accept as never given (CD §4.2.0, C4).
 func (s *Session) WasSent(seq uint64) bool {
 	if seq <= s.bootSeq {
@@ -423,17 +441,31 @@ func (s *Session) sendPending(ctx context.Context, c *conn) error {
 	if err != nil {
 		return err
 	}
+	send := s.sendFrame
+	if send == nil {
+		send = func(c *conn, f *rawFrame) error { return c.stream.Send(f) }
+	}
 	for _, p := range ps {
+		// Marked before Send: a failed Send may still have put bytes on the
+		// wire, and a false "maybe sent" is safe where a false "not sent" is
+		// not (WasSent).
+		s.markSent(p.Seq)
+		// Re-checked after marking: a caller that saw this message unsent at
+		// its deadline may already have given it up, so it must not go out
+		// now. Clock and height are the ones that caller reads.
+		if p.expired(s.cfg.Now().UnixMilli(), s.cfg.Height()) {
+			c.sentSeq = p.Seq
+			continue
+		}
 		cursor, err := c.out.assign()
 		if err != nil {
 			return err
 		}
-		if err := c.stream.Send(&rawFrame{b: wrapEnvelope(encodeFrame(c.nonce, cursor, p.Variant, p.Payload))}); err != nil {
+		if err := send(c, &rawFrame{b: wrapEnvelope(encodeFrame(c.nonce, cursor, p.Variant, p.Payload))}); err != nil {
 			return fmt.Errorf("send cursor %d: %w", cursor, err)
 		}
 		c.seqOf[cursor] = p.Seq
 		c.sentSeq = p.Seq
-		s.markSent(p.Seq)
 	}
 	return nil
 }

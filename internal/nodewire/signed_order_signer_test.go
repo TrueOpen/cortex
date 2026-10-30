@@ -3,6 +3,7 @@ package nodewire
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -68,5 +69,53 @@ func TestSignedOrderSignerRecoversTheSigningAccount(t *testing.T) {
 	}
 	if _, err := EVMAccountAddress("trueopen", wallet.PubKey().SerializeCompressed()); err == nil {
 		t.Fatal("only the 65-byte uncompressed point derives an EVM account")
+	}
+}
+
+// ParseSignedOrder decodes the carrier once and answers task hash, facts and
+// signer together; a carrier that states no signature_chain_id needs a
+// fallback chain id, and without one it is refused by name.
+func TestParseSignedOrderAnswersOnce(t *testing.T) {
+	var order taskv1.TaskOrderV3
+	if err := protojson.Unmarshal(goldenTaskOrderJSON(t), &order); err != nil {
+		t.Fatal(err)
+	}
+	wallet := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{1}, 32))
+	var err error
+	if order.UserAddress, err = EVMAccountAddress("trueopen", wallet.PubKey().SerializeUncompressed()); err != nil {
+		t.Fatal(err)
+	}
+	walletRaw, err := CanonicalOperatorAddressBytes("user_address", order.UserAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carrier := func(chainID uint64) string {
+		digest, err := TaskOrderSigningDigest(&order, 4242, "uusdc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		compact := ecdsa.SignCompact(wallet, digest[:], false)
+		raw, err := proto.Marshal(&taskv1.SignedOrderV2{Order: &order, SignatureScheme: "eip712",
+			UserSignature: append(append([]byte(nil), compact[1:]...), compact[0]), SignatureChainId: chainID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hex.EncodeToString(raw)
+	}
+	stated := carrier(4242)
+	view, err := ParseSignedOrder(stated, 0, "uusdc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, facts, err := TaskOrderHashAndFactsSignedOrderHex(stated)
+	if err != nil || view.TaskHash != hash || view.Facts.SessionID != facts.SessionID || view.Facts.SignatureChainID != 4242 || !bytes.Equal(view.Signer, walletRaw) {
+		t.Fatalf("view = %+v, %v", view, err)
+	}
+	legacy := carrier(0)
+	if _, err := ParseSignedOrder(legacy, 0, "uusdc"); !errors.Is(err, ErrNoSignatureChainID) {
+		t.Fatalf("legacy carrier without a fallback: err = %v, want ErrNoSignatureChainID", err)
+	}
+	if view, err := ParseSignedOrder(legacy, 4242, "uusdc"); err != nil || !bytes.Equal(view.Signer, walletRaw) {
+		t.Fatalf("legacy carrier with the fallback: %+v, %v", view, err)
 	}
 }

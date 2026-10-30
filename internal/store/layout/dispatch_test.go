@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/store"
 )
 
 func dispatchRec(label string) DispatchRecord {
@@ -231,5 +233,143 @@ func TestDispatchInputChunksAreWriteOnce(t *testing.T) {
 	}
 	if chunks, _ := DispatchInputChunks(ctx, s, hash("u")); len(chunks) != 1 {
 		t.Fatal("another ticket's chunks are untouched")
+	}
+}
+
+func acceptedForInput(t *testing.T, s *store.Store, size uint64) DispatchRecord {
+	t.Helper()
+	ctx := context.Background()
+	rec := dispatchRec("in")
+	rec.InputSizeBytes = size
+	if _, _, err := PutDispatchOffer(ctx, s, rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := UpdateDispatch(ctx, s, rec.TicketHash, accept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// C1: staging is bounded by input_size_bytes and per chunk, counted in the
+// same batch as the chunk, and assembled in index order into one buffer.
+func TestStageDispatchInputChunkIsBoundedAndCounted(t *testing.T) {
+	ctx := context.Background()
+	s := openTestLayout(t)
+	rec := acceptedForInput(t, s, 10)
+	got, stored, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 1, 3, []byte("4567"))
+	if err != nil || !stored || got.InputChunkCount != 3 || got.InputChunksReceived != 1 || got.InputStagedBytes != 4 {
+		t.Fatalf("first chunk = %+v, %v, %v", got, stored, err)
+	}
+	if got, stored, err = StageDispatchInputChunk(ctx, s, rec.TicketHash, 1, 3, []byte("4567")); err != nil || stored || got.InputChunksReceived != 1 {
+		t.Fatalf("a redelivered chunk counts once: %+v, %v, %v", got, stored, err)
+	}
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 1, 3, []byte("xxxx")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed bytes: err = %v", err)
+	}
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 4, []byte("0")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed chunk_count: err = %v", err)
+	}
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 3, []byte("0123456")); !errors.Is(err, ErrInputBound) {
+		t.Fatalf("4+7 > 10 staged bytes: err = %v", err)
+	}
+	if got, _ := GetDispatchRecord(ctx, s, rec.TicketHash); got.InputStagedBytes != 4 || got.InputChunksReceived != 1 {
+		t.Fatalf("a refused chunk changes nothing: %+v", got)
+	}
+	if chunks, _ := DispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 1 {
+		t.Fatalf("a refused chunk is not stored: %d chunks", len(chunks))
+	}
+	for i, c := range []string{"0123", "89"} {
+		if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, []uint32{0, 2}[i], 3, []byte(c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ = GetDispatchRecord(ctx, s, rec.TicketHash)
+	if got.InputChunksReceived != 3 || got.InputStagedBytes != 10 {
+		t.Fatalf("complete by counter: %+v", got)
+	}
+	input, err := AssembleDispatchInput(ctx, s, rec.TicketHash, 3, 10)
+	if err != nil || string(input) != "0123456789" || cap(input) != 10 {
+		t.Fatalf("assembled %q (cap %d), %v", input, cap(input), err)
+	}
+	if _, err := ResetDispatchInput(ctx, s, rec.TicketHash); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = GetDispatchRecord(ctx, s, rec.TicketHash)
+	if got.InputChunkCount != 0 || got.InputChunksReceived != 0 || got.InputStagedBytes != 0 {
+		t.Fatalf("reset = %+v", got)
+	}
+	if chunks, _ := DispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 0 {
+		t.Fatal("reset drops the chunks")
+	}
+}
+
+func TestDispatchInputChunkLimit(t *testing.T) {
+	ctx := context.Background()
+	s := openTestLayout(t)
+	rec := acceptedForInput(t, s, 100_000)
+	limit := DispatchInputChunkLimit(100_000, 10)
+	if limit != 2*10_000+inputChunkSlack {
+		t.Fatalf("limit = %d", limit)
+	}
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 10, bytes.Repeat([]byte{1}, int(limit)+1)); !errors.Is(err, ErrInputBound) {
+		t.Fatalf("a chunk far above an even share: err = %v", err)
+	}
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 10, bytes.Repeat([]byte{1}, 16_384)); err != nil {
+		t.Fatalf("fixed-size chunking (16 KiB chunks of a 100 KB input) fits: %v", err)
+	}
+}
+
+// I7: terminal transitions drop staged input in the same batch.
+func TestDispatchTerminalStatesDropStagedInput(t *testing.T) {
+	ctx := context.Background()
+	s := openTestLayout(t)
+	rec := acceptedForInput(t, s, 10)
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 2, []byte("01234")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateDispatchDroppingInput(ctx, s, rec.TicketHash, func(r *DispatchRecord) error { r.State = DispatchSuperseded; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if chunks, _ := DispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 0 {
+		t.Fatal("superseded drops its chunks")
+	}
+	b := dispatchRec("b")
+	if _, _, err := PutDispatchOffer(ctx, s, b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateDispatch(ctx, s, b.TicketHash, accept); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := StageDispatchInputChunk(ctx, s, b.TicketHash, 0, 2, []byte("01234")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PutDispatchRevoke(ctx, s, b.TicketHash, b.TaskID, b.Builder, []byte("revoke")); err != nil {
+		t.Fatal(err)
+	}
+	if chunks, _ := DispatchInputChunks(ctx, s, b.TicketHash); len(chunks) != 0 {
+		t.Fatal("a revoke drops the chunks")
+	}
+}
+
+// M5: the open index carries what the sweep decides on.
+func TestOpenDispatchEntriesAreSlimAndCurrent(t *testing.T) {
+	ctx := context.Background()
+	s := openTestLayout(t)
+	rec := acceptedForInput(t, s, 10)
+	if _, err := UpdateDispatch(ctx, s, rec.TicketHash, func(r *DispatchRecord) error {
+		r.AcceptSeq, r.InputRequestSeq, r.InputRequestedAtUnixMs = 3, 4, 77
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	es, err := OpenDispatchEntries(ctx, s)
+	if err != nil || len(es) != 1 {
+		t.Fatalf("entries = %v, %v", es, err)
+	}
+	e := es[0]
+	if e.TicketHash != rec.TicketHash || e.Builder != rec.Builder || e.AcceptDeadlineUnixMs != rec.AcceptDeadlineUnixMs ||
+		e.AcceptSeq != 3 || e.InputRequestSeq != 4 || e.InputRequestedAtUnixMs != 77 || e.ClaimFromHeight != rec.ClaimFromHeight || e.AcceptEnqueuing {
+		t.Fatalf("entry = %+v", e)
 	}
 }

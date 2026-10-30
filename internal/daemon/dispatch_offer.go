@@ -21,66 +21,67 @@ import (
 )
 
 // HandleOffer answers one DispatchOfferV1 from builder, the stream's
-// authenticated peer (CD §5.1 checks 1–7, §5.2 W1–W4). Every chain fact it
-// reads is pinned to one committed height.
+// authenticated peer (CD §5.1 checks 1–7, §5.2 W1–W4). Every chain fact is
+// read at one committed height, before the work lock is taken (I3); under the
+// lock the record is checked again and the answer is persisted and enqueued.
 func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nexusv1.DispatchOfferV1) error {
-	d.work.Lock()
-	defer d.work.Unlock()
 	enq, ok := d.cfg.Builders[builder]
 	if !ok {
-		return d.drop(builder, layout.StoredHash{}, fmt.Errorf("offer from unconfigured Builder %s", builder))
+		return d.drop(ctx, builder, layout.StoredHash{}, fmt.Errorf("offer from unconfigured Builder %s", builder))
 	}
 	t, so := offer.GetTicket(), offer.GetSignedOrder()
 	if t == nil || so.GetOrder() == nil {
-		return d.drop(builder, layout.StoredHash{}, errors.New("offer carries no ticket or no signed order"))
+		return d.drop(ctx, builder, layout.StoredHash{}, errors.New("offer carries no ticket or no signed order"))
 	}
 	digest, err := dispatchwire.Digest(t)
 	if err != nil {
-		return d.drop(builder, layout.StoredHash{}, err)
+		return d.drop(ctx, builder, layout.StoredHash{}, err)
 	}
 	ticket := layout.StoredHash(digest)
 	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
 	switch {
 	case err == nil && rec.State != layout.DispatchOffered:
 		// The first answer is final; a redelivery is answered from the
-		// record and never re-evaluated (CD §7.2 I1a). This is also how
-		// "no reject was signed for this ticket" holds before any accept.
-		return d.resume(ctx, enq, rec)
+		// record and never re-evaluated (CD §7.2 I1a).
+		if err := d.lock(ctx); err != nil {
+			return err
+		}
+		defer d.unlock()
+		return d.resumeCurrent(ctx, enq, ticket)
 	case err != nil && !errors.Is(err, store.ErrNotFound):
 		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
 	}
 	deadline := d.noteReceipt(ticket, t.GetAcceptDeadlineMs(), rec, err == nil)
-	height, err := d.cfg.Chain.CommittedHeight(ctx)
-	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("committed height: %w", err))
-	}
-
-	// Check 1: legitimacy. Failure is dropped; no reject is ever signed.
-	if err := d.checkHandraise(builder, height); err != nil {
-		return d.drop(builder, ticket, err)
-	}
 	if !d.cfg.Now().Add(d.cfg.AcceptSignMargin).Before(deadline) {
-		return d.drop(builder, ticket, fmt.Errorf("accept_deadline_ms %d leaves no time to answer (C4)", t.GetAcceptDeadlineMs()))
-	}
-	tc, err := d.ticketContext(ctx, builder, t, so.GetOrder(), height)
-	if err != nil {
-		if builderclient.IsRetryable(err) {
+		// C4, before any chain read: nothing could be signed in time.
+		if err := d.lock(ctx); err != nil {
 			return err
 		}
-		return d.drop(builder, ticket, err)
+		defer d.unlock()
+		return d.drop(ctx, builder, ticket, fmt.Errorf("accept_deadline_ms %d leaves no time to answer (C4)", t.GetAcceptDeadlineMs()))
 	}
-	if err := dispatchwire.CheckTicket(t, tc); err != nil {
-		return d.drop(builder, ticket, err)
+	ev, dropErr, err := d.evaluateOffer(ctx, builder, t, so)
+	if err != nil {
+		return err
+	}
+	if err := d.lock(ctx); err != nil {
+		return err
+	}
+	defer d.unlock()
+	if dropErr != nil {
+		return d.drop(ctx, builder, ticket, dropErr)
+	}
+	switch rec, err = layout.GetDispatchRecord(ctx, d.cfg.Store, ticket); {
+	case err == nil && rec.State != layout.DispatchOffered:
+		return d.resume(ctx, enq, rec) // answered or revoked while we read
+	case err != nil && !errors.Is(err, store.ErrNotFound):
+		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
 	}
 
 	// W1: ticket and order are durable before any answer.
-	params, err := d.cfg.Chain.DispatchParamsAt(ctx, height)
-	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("dispatch params: %w", err))
-	}
-	rec, err = d.persistOffer(ctx, builder, ticket, t, so, deadline, params)
+	rec, err = d.persistOffer(ctx, builder, ticket, t, so.GetOrder(), ev, deadline)
 	if errors.Is(err, layout.ErrConflict) {
-		return d.drop(builder, ticket, err)
+		return d.drop(ctx, builder, ticket, err)
 	}
 	if err != nil {
 		return builderclient.Retryable(err)
@@ -88,33 +89,13 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 	if rec.State != layout.DispatchOffered {
 		return d.resume(ctx, enq, rec) // its revoke arrived first
 	}
+	if ev.verdict != nil {
+		return d.reject(ctx, enq, rec, t, ev.nonce, ev.verdict)
+	}
+	// W3: only a round that passed every check replaces an older one, and
+	// before capacity is judged (M2).
 	if err := d.supersede(ctx, builder, t, ticket); err != nil {
 		return err
-	}
-
-	// issue #83: after check 1, before any accept. A pending rotation of this
-	// node's service key refuses new tickets with a signed NO_CAPACITY reject
-	// (Q3); accepted ones finish under the current (old) key.
-	key, err := d.cfg.Chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeCortexNode, d.cfg.Operator, height)
-	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("Cortex service key: %w", err))
-	}
-	if key.Status != "ACTIVE" {
-		return d.drop(builder, ticket, fmt.Errorf("this node's service key is %s; nothing can be signed", key.Status))
-	}
-	nonce := key.AuthorizationNonce.Uint64()
-	if key.HasPendingRotation {
-		return d.reject(ctx, enq, rec, t, nonce, refuse(reasonNoCapacity, classRotationPending,
-			"service key rotation pending (effective at %d)", key.PendingRotation.EffectiveHeight))
-	}
-
-	// Checks 2, 2a, 3, 4, 6, 7.
-	v, err := d.prechecks(ctx, t, so, height)
-	if err != nil {
-		return err
-	}
-	if v != nil {
-		return d.reject(ctx, enq, rec, t, nonce, v)
 	}
 
 	// Check 5 and W3: the lease is the capacity reservation.
@@ -127,15 +108,76 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 	}
 	if !ok {
 		// CD §5.1: a capacity change re-signs the standing handraise before
-		// the reject, so a reject never contradicts the newest offer.
+		// the reject, so a reject never contradicts the newest offer. Only
+		// this Builder's handraise matters here.
 		if cur, found := d.cfg.Handraise.Current(builder); found && !cur.Withdrawn && cur.State.FreeSlots > 0 {
-			if err := d.cfg.Handraise.Refresh(ctx); err != nil {
+			if err := d.cfg.Handraise.Refresh(ctx, builder); err != nil {
 				return builderclient.Retryable(fmt.Errorf("re-sign the standing handraise before a capacity reject: %w", err))
 			}
 		}
-		return d.reject(ctx, enq, rec, t, nonce, refuse(reasonNoCapacity, classNoFreeSlot, "no free slot"))
+		return d.reject(ctx, enq, rec, t, ev.nonce, refuse(reasonNoCapacity, classNoFreeSlot, "no free slot"))
 	}
-	return d.accept(ctx, enq, rec, t, nonce)
+	return d.accept(ctx, enq, rec, t, ev.nonce)
+}
+
+// offerEval is what one offer evaluation read and decided before the lock.
+type offerEval struct {
+	traw, oraw []byte // ticket and order exactly as received, encoded once
+	params     chainclient.DispatchParamsSnapshot
+	nonce      uint64   // this node's current service_authorization_nonce
+	verdict    *verdict // nil: accept if capacity allows
+}
+
+// evaluateOffer runs check 1, the rotation stop (issue #83) and checks 2–7
+// at one committed height, without the work lock. drop is a check-1 failure
+// (no reject is signed); err is a failed read (retryable).
+func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2) (ev offerEval, drop, err error) {
+	height, err := d.chain.CommittedHeight(ctx)
+	if err != nil {
+		return ev, nil, builderclient.Retryable(fmt.Errorf("committed height: %w", err))
+	}
+	// Check 1: legitimacy.
+	if err := d.checkHandraise(builder, height); err != nil {
+		return ev, err, nil
+	}
+	tc, err := d.ticketContext(ctx, builder, t, so.GetOrder(), height)
+	if err != nil {
+		if builderclient.IsRetryable(err) {
+			return ev, nil, err
+		}
+		return ev, err, nil
+	}
+	if err := dispatchwire.CheckTicket(t, tc); err != nil {
+		return ev, err, nil
+	}
+	if ev.traw, err = dispatchwire.Raw(t); err != nil {
+		return ev, err, nil
+	}
+	if ev.oraw, err = dispatchwire.Raw(so); err != nil {
+		return ev, err, nil
+	}
+	if ev.params, err = d.chain.DispatchParamsAt(ctx, height); err != nil {
+		return ev, nil, builderclient.Retryable(fmt.Errorf("dispatch params: %w", err))
+	}
+	// issue #83: after check 1, before any accept. A pending rotation of this
+	// node's service key refuses new tickets with a signed NO_CAPACITY reject
+	// (Q3); accepted ones finish under the current (old) key.
+	key, err := d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeCortexNode, d.cfg.Operator, height)
+	if err != nil {
+		return ev, nil, builderclient.Retryable(fmt.Errorf("Cortex service key: %w", err))
+	}
+	if key.Status != "ACTIVE" {
+		return ev, fmt.Errorf("this node's service key is %s; nothing can be signed", key.Status), nil
+	}
+	ev.nonce = key.AuthorizationNonce.Uint64()
+	if key.HasPendingRotation {
+		ev.verdict = refuse(reasonNoCapacity, classRotationPending,
+			"service key rotation pending (effective at %d)", key.PendingRotation.EffectiveHeight)
+		return ev, nil, nil
+	}
+	// Checks 2, 2a, 3, 4, 6, 7.
+	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, height)
+	return ev, nil, err
 }
 
 // checkHandraise is check 1's "the Builder is in this node's valid standing
@@ -156,7 +198,10 @@ func (d *Dispatcher) checkHandraise(builder string, height uint64) error {
 // and this node's own roots. Read failures are retryable; anything else drops.
 func (d *Dispatcher) ticketContext(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, o *taskv1.TaskOrderV3, height uint64) (dispatchwire.TicketContext, error) {
 	var tc dispatchwire.TicketContext
-	key, err := d.cfg.Chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, builder, height)
+	key, err := d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, builder, height)
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return tc, fmt.Errorf("Builder %s has no service key on chain: %w", builder, err) // check-1 drop (I6)
+	}
 	if err != nil {
 		return tc, builderclient.Retryable(fmt.Errorf("Builder %s service key: %w", builder, err))
 	}
@@ -167,11 +212,14 @@ func (d *Dispatcher) ticketContext(ctx context.Context, builder string, t *taskv
 	if err != nil {
 		return tc, fmt.Errorf("Builder %s service key: %w", builder, err)
 	}
-	vrf, err := d.cfg.Chain.BuilderVrfKeyAt(ctx, builder, height)
+	vrf, err := d.chain.BuilderVrfKeyAt(ctx, builder, height)
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return tc, fmt.Errorf("Builder %s has no VRF key on chain: %w", builder, err) // check-1 drop (I6)
+	}
 	if err != nil {
 		return tc, builderclient.Retryable(fmt.Errorf("Builder %s VRF key: %w", builder, err))
 	}
-	ep, err := d.cfg.Chain.DispatchEpochAt(ctx, o.GetEarliestSubmitHeight(), height)
+	ep, err := d.chain.DispatchEpochAt(ctx, o.GetEarliestSubmitHeight(), height)
 	if err != nil {
 		return tc, builderclient.Retryable(fmt.Errorf("epoch beacon: %w", err))
 	}
@@ -202,21 +250,13 @@ func (d *Dispatcher) ticketContext(ctx context.Context, builder string, t *taskv
 }
 
 func (d *Dispatcher) persistOffer(ctx context.Context, builder string, ticket layout.StoredHash, t *taskv1.DispatchTicketV1,
-	so *taskv1.SignedOrderV2, deadline time.Time, p chainclient.DispatchParamsSnapshot) (layout.DispatchRecord, error) {
-	traw, err := dispatchwire.Raw(t)
-	if err != nil {
-		return layout.DispatchRecord{}, err
-	}
-	oraw, err := dispatchwire.Raw(so)
-	if err != nil {
-		return layout.DispatchRecord{}, err
-	}
-	o := so.GetOrder()
+	order *taskv1.TaskOrderV3, ev offerEval, deadline time.Time) (layout.DispatchRecord, error) {
+	traw, oraw, p := ev.traw, ev.oraw, ev.params
 	rec := layout.DispatchRecord{
 		TicketHash: ticket, OrderSequence: t.GetOrderSequence(), DispatchRound: t.GetDispatchRound(), Builder: builder,
-		ModelID: hex.EncodeToString(o.GetModelId()), ProfileVersion: o.GetProfileVersion(), InputSizeBytes: o.GetInputSizeBytes(),
+		ModelID: hex.EncodeToString(order.GetModelId()), ProfileVersion: order.GetProfileVersion(), InputSizeBytes: order.GetInputSizeBytes(),
 		Ticket: traw, SignedOrder: oraw, ReceivedAtUnixMs: d.cfg.Now().UnixMilli(), AcceptDeadlineUnixMs: deadline.UnixMilli(),
-		ClaimFromHeight: hrAddSat(max(o.GetEarliestSubmitHeight(), t.GetBoundChangeHeight()), p.RecordDeadlineBlocks),
+		ClaimFromHeight: hrAddSat(max(order.GetEarliestSubmitHeight(), t.GetBoundChangeHeight()), p.RecordDeadlineBlocks),
 	}
 	copy(rec.TaskID[:], t.GetTaskId())
 	copy(rec.TaskHash[:], t.GetTaskHash())
@@ -226,10 +266,24 @@ func (d *Dispatcher) persistOffer(ctx context.Context, builder string, ticket la
 	return stored, err
 }
 
-// resume answers a redelivered offer from its record.
+// resumeCurrent re-reads ticket's record under the work lock and resumes it.
+func (d *Dispatcher) resumeCurrent(ctx context.Context, enq DispatchEnqueuer, ticket layout.StoredHash) error {
+	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
+	}
+	return d.resume(ctx, enq, rec)
+}
+
+// resume answers a redelivered offer from its record. The caller holds the
+// work lock.
 func (d *Dispatcher) resume(ctx context.Context, enq DispatchEnqueuer, rec layout.DispatchRecord) error {
 	switch rec.State {
 	case layout.DispatchRejected:
+		// A crash may have come between the reject and its lease release.
+		if err := d.releaseLease(ctx, rec.TicketHash); err != nil {
+			return err
+		}
 		return d.sendReject(ctx, enq, rec)
 	case layout.DispatchAccepted:
 		if rec.InputCommitted {
@@ -237,12 +291,12 @@ func (d *Dispatcher) resume(ctx context.Context, enq DispatchEnqueuer, rec layou
 		}
 		return d.sendAccept(ctx, enq, rec)
 	}
-	return d.drop(rec.Builder, rec.TicketHash, fmt.Errorf("ticket is already %s", rec.State))
+	return d.drop(ctx, rec.Builder, rec.TicketHash, fmt.Errorf("ticket is already %s", rec.State))
 }
 
 func (d *Dispatcher) reject(ctx context.Context, enq DispatchEnqueuer, rec layout.DispatchRecord, t *taskv1.DispatchTicketV1, nonce uint64, v *verdict) error {
 	if !d.cfg.Now().Before(d.acceptDeadline(rec)) {
-		return d.drop(rec.Builder, rec.TicketHash, fmt.Errorf("%s, but the accept deadline passed; nothing is signed", v.detail))
+		return d.drop(ctx, rec.Builder, rec.TicketHash, fmt.Errorf("%s, but the accept deadline passed; nothing is signed", v.detail))
 	}
 	m := &taskv1.DispatchRejectV1{
 		SchemaVersion: dispatchMessageSchemaVersion, ChainId: d.cfg.ChainID,
@@ -269,6 +323,10 @@ func (d *Dispatcher) reject(ctx context.Context, enq DispatchEnqueuer, rec layou
 	}
 	d.cfg.Logger.Info("dispatch ticket rejected", "builder", rec.Builder, "ticket", rec.TicketHash.String(),
 		"reason", v.reason.String(), "class", v.class, "builder_side", v.builderSide, "detail", v.detail)
+	// A lease an earlier attempt took for this ticket goes back (I1).
+	if err := d.releaseLease(ctx, rec.TicketHash); err != nil {
+		return err
+	}
 	return d.sendReject(ctx, enq, stored)
 }
 
@@ -286,7 +344,7 @@ func (d *Dispatcher) sendReject(ctx context.Context, enq DispatchEnqueuer, rec l
 	}
 	seq, err := enq.Enqueue(ctx, dispatchstream.Outgoing{Message: m, ExpiresAtUnixMilli: deadline.UnixMilli()})
 	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("enqueue reject: %w", err))
+		return enqueueErr("reject", err)
 	}
 	if _, err := layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 		r.RejectSeq = seq
@@ -301,10 +359,7 @@ func (d *Dispatcher) sendReject(ctx context.Context, enq DispatchEnqueuer, rec l
 func (d *Dispatcher) accept(ctx context.Context, enq DispatchEnqueuer, rec layout.DispatchRecord, t *taskv1.DispatchTicketV1, nonce uint64) error {
 	// W4: never sign after the deadline (C4); the lease taken for it goes back.
 	if !d.cfg.Now().Add(d.cfg.AcceptSignMargin).Before(d.acceptDeadline(rec)) {
-		if err := d.releaseLease(ctx, rec.TicketHash); err != nil {
-			return err
-		}
-		return d.drop(rec.Builder, rec.TicketHash, errors.New("accept deadline passed before the accept was signed (C4)"))
+		return d.drop(ctx, rec.Builder, rec.TicketHash, errors.New("accept deadline passed before the accept was signed (C4)"))
 	}
 	m := &taskv1.DispatchAcceptV1{
 		SchemaVersion: dispatchMessageSchemaVersion, ChainId: d.cfg.ChainID,
@@ -360,6 +415,10 @@ func (d *Dispatcher) sendAccept(ctx context.Context, enq DispatchEnqueuer, rec l
 		if err := proto.Unmarshal(rec.Accept, m); err != nil {
 			return fmt.Errorf("stored accept: %w", err)
 		}
+		// While AcceptEnqueuing is set the accept may already be in the
+		// outbox; enqueueing the same signed bytes again is harmless (the
+		// Builder dedupes by digest, and acks the copy) and is the only way
+		// to be sure it is there before the deadline (M7).
 		if !rec.AcceptEnqueuing {
 			var err error
 			if rec, err = layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
@@ -376,9 +435,9 @@ func (d *Dispatcher) sendAccept(ctx context.Context, enq DispatchEnqueuer, rec l
 				r.AcceptEnqueuing = false
 				return nil
 			}); uerr != nil {
-				err = errors.Join(err, uerr)
+				return builderclient.Retryable(fmt.Errorf("enqueue accept: %w", errors.Join(err, uerr)))
 			}
-			return builderclient.Retryable(fmt.Errorf("enqueue accept: %w", err))
+			return enqueueErr("accept", err)
 		}
 		if rec, err = layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 			r.AcceptSeq, r.AcceptEnqueuing = seq, false
@@ -412,7 +471,7 @@ func (d *Dispatcher) requestInput(ctx context.Context, enq DispatchEnqueuer, rec
 	}
 	seq, err := enq.Enqueue(ctx, dispatchstream.Outgoing{Message: m, ExpiresAtUnixMilli: expires.UnixMilli()})
 	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("enqueue input request: %w", err))
+		return enqueueErr("input request", err)
 	}
 	now := d.cfg.Now().UnixMilli()
 	if _, err := layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {

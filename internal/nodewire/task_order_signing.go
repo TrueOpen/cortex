@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"unicode/utf8"
@@ -61,36 +62,61 @@ func taskOrderTypedDigest(order taskOrderV3, taskHash codec.Hash, evmChainID uin
 	return digest
 }
 
-// SignedOrderSigner recovers the 20-byte account that produced the carrier's
-// user_signature. It does not decide whether that account may sign for the
-// session: the wallet branch is signer == user_address, the delegated branch
-// (wire v0.5.1) is signer == StreamState.session_key, and only the caller
-// holds StreamState.
-//
-// The domain chain id is the one the carrier states: the signing wallet chose
-// it and the signature covers it, so it is read from the carrier rather than
-// configured. evmChainID is the fallback for a carrier that states none, which
-// is every carrier signed before the field existed, when the chain's own EVM
-// chain id was the authoritative domain.
-func SignedOrderSigner(value string, evmChainID uint64, feeDenom string) ([]byte, error) {
-	if _, _, err := TaskOrderHashAndFactsSignedOrderHex(value); err != nil {
-		return nil, err
-	}
-	raw, _ := hex.DecodeString(value)
-	carrier, err := decodeSignedOrderV2(raw)
+// ErrNoSignatureChainID: the carrier states no signature_chain_id and the
+// caller supplied no fallback EVM chain id, so its EIP-712 domain is unknown.
+var ErrNoSignatureChainID = errors.New("SignedOrderV2 states no signature_chain_id and no fallback EVM chain id was given")
+
+// SignedOrderView is one decode of a SignedOrderV2 carrier: the canonical
+// task_hash, the order facts and the recovered signing account.
+type SignedOrderView struct {
+	TaskHash codec.Hash
+	Facts    TaskOrderFacts
+	// Signer is the 20-byte account that produced user_signature. Whether it
+	// may sign for the session is the caller's decision: the wallet branch is
+	// Signer == user_address, the delegated branch (wire v0.5.1) is Signer ==
+	// StreamState.session_key, and only the caller holds StreamState.
+	Signer []byte
+}
+
+// ParseSignedOrder decodes the carrier once and returns its task hash, facts
+// and signer. The EIP-712 domain chain id is the one the carrier states: the
+// signing wallet chose it and the signature covers it, so it is read from the
+// carrier rather than configured. evmChainID is the fallback for a carrier
+// that states none, which is every carrier signed before the field existed,
+// when the chain's own EVM chain id was the authoritative domain; with
+// evmChainID 0 such a carrier is refused with ErrNoSignatureChainID.
+func ParseSignedOrder(value string, evmChainID uint64, feeDenom string) (SignedOrderView, error) {
+	carrier, err := parseSignedOrderHex(value)
 	if err != nil {
-		return nil, err
+		return SignedOrderView{}, err
 	}
-	digest, err := taskOrderSigningDigest(carrier.order, carrier.domainChainID(evmChainID), feeDenom)
+	taskHash, err := taskOrderHash(carrier.order)
 	if err != nil {
-		return nil, err
+		return SignedOrderView{}, err
 	}
+	domain := carrier.domainChainID(evmChainID)
+	if domain == 0 {
+		return SignedOrderView{}, ErrNoSignatureChainID
+	}
+	if feeDenom == "" || !utf8.ValidString(feeDenom) {
+		return SignedOrderView{}, fmt.Errorf("authoritative EVM chain ID and fee denomination are required")
+	}
+	digest := taskOrderTypedDigest(carrier.order, taskHash, domain, feeDenom)
 	compact := append([]byte{carrier.userSignature[64]}, carrier.userSignature[:64]...)
 	pub, _, err := ecdsa.RecoverCompact(compact, digest[:])
 	if err != nil {
-		return nil, fmt.Errorf("recover order signer: %w", err)
+		return SignedOrderView{}, fmt.Errorf("recover order signer: %w", err)
 	}
-	return orderKeccak(pub.SerializeUncompressed()[1:])[12:], nil
+	return SignedOrderView{TaskHash: taskHash, Facts: carrier.facts(), Signer: orderKeccak(pub.SerializeUncompressed()[1:])[12:]}, nil
+}
+
+// SignedOrderSigner is ParseSignedOrder's Signer.
+func SignedOrderSigner(value string, evmChainID uint64, feeDenom string) ([]byte, error) {
+	view, err := ParseSignedOrder(value, evmChainID, feeDenom)
+	if err != nil {
+		return nil, err
+	}
+	return view.Signer, nil
 }
 
 // EVMAccountAddress is the Bech32 account of an EVM-style secp256k1 key: the

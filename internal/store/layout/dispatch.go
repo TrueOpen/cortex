@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,6 +14,11 @@ import (
 
 // Phase 1 dispatch keys (CD §10 DispatchRecord, TaskProfileLease). Before the
 // record entry everything is keyed by dispatch_ticket_hash.
+//
+// TODO(S5/S6): nothing here deletes dispatch records or their task index.
+// S5 adds the task_id merge key at record time; S6 owns deleting records,
+// task-index entries and revoke tombstones after the claim window and
+// dispatch_evidence_retention_blocks.
 const (
 	dispatchTicketPrefix    = "dispatch-ticket/"
 	dispatchTaskPrefix      = "dispatch-task/"
@@ -129,7 +135,12 @@ type DispatchRecord struct {
 	InputRequestSeq        uint64 `json:"input_request_seq,omitempty"`
 	InputRequestedAtUnixMs int64  `json:"input_requested_at_unix_ms,omitempty"`
 	InputChunkCount        uint32 `json:"input_chunk_count,omitempty"`
-	InputCommitted         bool   `json:"input_committed,omitempty"`
+	// InputChunksReceived and InputStagedBytes count the distinct chunks
+	// staged so far and their bytes. They change in the same batch as the
+	// chunk itself, so completeness is read from them, never from a scan.
+	InputChunksReceived uint32 `json:"input_chunks_received,omitempty"`
+	InputStagedBytes    uint64 `json:"input_staged_bytes,omitempty"`
+	InputCommitted      bool   `json:"input_committed,omitempty"`
 
 	Revoke []byte `json:"revoke,omitempty"`
 }
@@ -147,12 +158,29 @@ type WorkerLease struct {
 	ExpiryHeight uint64 `json:"expiry_height"`
 }
 
+// DispatchOpenEntry is the open index value: what the sweep decides on, so
+// it loads a full record only for a ticket it acts on.
+type DispatchOpenEntry struct {
+	TicketHash             StoredHash `json:"-"`
+	Builder                string     `json:"builder_operator"`
+	AcceptDeadlineUnixMs   int64      `json:"accept_deadline_unix_ms,omitempty"`
+	AcceptSeq              uint64     `json:"accept_seq,omitempty"`
+	AcceptEnqueuing        bool       `json:"accept_enqueuing,omitempty"`
+	InputRequestSeq        uint64     `json:"input_request_seq,omitempty"`
+	InputRequestedAtUnixMs int64      `json:"input_requested_at_unix_ms,omitempty"`
+	ClaimFromHeight        uint64     `json:"claim_from_height,omitempty"`
+}
+
 func putDispatch(b *store.Batch, rec DispatchRecord) error {
 	if err := putBatchJSON(b, DispatchTicketKey(rec.TicketHash), rec); err != nil {
 		return err
 	}
 	if rec.State == DispatchAccepted && !rec.InputCommitted {
-		return b.Set(DispatchOpenKey(rec.TicketHash), []byte{})
+		return putBatchJSON(b, DispatchOpenKey(rec.TicketHash), DispatchOpenEntry{
+			Builder: rec.Builder, AcceptDeadlineUnixMs: rec.AcceptDeadlineUnixMs, AcceptSeq: rec.AcceptSeq,
+			AcceptEnqueuing: rec.AcceptEnqueuing, InputRequestSeq: rec.InputRequestSeq,
+			InputRequestedAtUnixMs: rec.InputRequestedAtUnixMs, ClaimFromHeight: rec.ClaimFromHeight,
+		})
 	}
 	return b.Delete(DispatchOpenKey(rec.TicketHash))
 }
@@ -239,6 +267,17 @@ func PutDispatchOffer(ctx context.Context, s *store.Store, rec DispatchRecord) (
 // UpdateDispatch applies fn to the stored record atomically, refusing any
 // change checkDispatchUpdate forbids, and keeps the open index current.
 func UpdateDispatch(ctx context.Context, s *store.Store, ticket StoredHash, fn func(*DispatchRecord) error) (DispatchRecord, error) {
+	return updateDispatch(ctx, s, ticket, false, fn)
+}
+
+// UpdateDispatchDroppingInput is UpdateDispatch that also deletes the
+// ticket's staged input chunks in the same batch: for a terminal state, or
+// once the input is committed.
+func UpdateDispatchDroppingInput(ctx context.Context, s *store.Store, ticket StoredHash, fn func(*DispatchRecord) error) (DispatchRecord, error) {
+	return updateDispatch(ctx, s, ticket, true, fn)
+}
+
+func updateDispatch(ctx context.Context, s *store.Store, ticket StoredHash, dropInput bool, fn func(*DispatchRecord) error) (DispatchRecord, error) {
 	var out DispatchRecord
 	err := s.ApplyBatch(ctx, func(b *store.Batch) error {
 		var cur DispatchRecord
@@ -253,6 +292,11 @@ func UpdateDispatch(ctx context.Context, s *store.Store, ticket StoredHash, fn f
 			return err
 		}
 		out = next
+		if dropInput {
+			if err := deletePrefixedKeysInBatch(b, dispatchInputTicketPrefix(ticket)); err != nil {
+				return err
+			}
+		}
 		return putDispatch(b, next)
 	})
 	if err != nil {
@@ -263,7 +307,11 @@ func UpdateDispatch(ctx context.Context, s *store.Store, ticket StoredHash, fn f
 
 // PutDispatchRevoke records a DispatchRevokeV1 (RBF). An unknown ticket gets a
 // tombstone so the offer, if it still arrives, is dropped. A rejected ticket
-// stays rejected; any other moves to revoked.
+// stays rejected; any other moves to revoked. Staged input is dropped in the
+// same batch.
+//
+// TODO(S6): tombstones and revoked records are never deleted here; S6 owns
+// their GC once dispatch_evidence_retention_blocks has passed.
 func PutDispatchRevoke(ctx context.Context, s *store.Store, ticket, taskID StoredHash, builder string, raw []byte) (DispatchRecord, error) {
 	if ticket.IsZero() || taskID.IsZero() || builder == "" || len(raw) == 0 {
 		return DispatchRecord{}, fmt.Errorf("dispatch revoke is incomplete")
@@ -297,6 +345,9 @@ func PutDispatchRevoke(ctx context.Context, s *store.Store, ticket, taskID Store
 			return err
 		}
 		out = next
+		if err := deletePrefixedKeysInBatch(b, dispatchInputTicketPrefix(ticket)); err != nil {
+			return err
+		}
 		return putDispatch(b, next)
 	})
 	if err != nil {
@@ -345,6 +396,26 @@ func DispatchRecordsForTask(ctx context.Context, s *store.Store, taskID StoredHa
 		return nil, err
 	}
 	return getDispatchRecords(ctx, s, tickets)
+}
+
+// OpenDispatchEntries returns the open index: accepted tickets whose input is
+// not committed, without loading their records.
+func OpenDispatchEntries(ctx context.Context, s *store.Store) ([]DispatchOpenEntry, error) {
+	prefix := []byte(dispatchOpenPrefix)
+	var out []DispatchOpenEntry
+	err := s.ScanPrefix(ctx, prefix, func(key, value []byte) error {
+		var e DispatchOpenEntry
+		if len(key) != len(prefix)+len(e.TicketHash) {
+			return fmt.Errorf("malformed key under %q", prefix)
+		}
+		if err := json.Unmarshal(value, &e); err != nil {
+			return fmt.Errorf("open dispatch entry: %w", err)
+		}
+		copy(e.TicketHash[:], key[len(prefix):])
+		out = append(out, e)
+		return nil
+	})
+	return out, err
 }
 
 // OpenDispatches returns accepted tickets whose input is not committed.
@@ -434,6 +505,126 @@ func CountWorkerLeases(ctx context.Context, s *store.Store) (uint32, error) {
 // WorkerTicketLeases lists the tickets holding a pre-record lease.
 func WorkerTicketLeases(ctx context.Context, s *store.Store) ([]StoredHash, error) {
 	return scanHashes(ctx, s, []byte(workerTicketLeasePrefix))
+}
+
+// ErrInputBound refuses a chunk that would stage more than input_size_bytes,
+// or one far larger than an even share of it.
+var ErrInputBound = errors.New("dispatch input chunk out of bounds")
+
+// inputChunkSlack is the constant part of DispatchInputChunkLimit, for small
+// inputs split unevenly.
+const inputChunkSlack = 4096
+
+// DispatchInputChunkLimit bounds one chunk of a size-byte input sent as count
+// chunks. Wire fixes no chunking rule, so it has to admit both an even split
+// (every chunk at most ceil(size/count)) and fixed-size chunking with a short
+// last chunk, where a chunk can reach almost twice the even share (size C+1
+// as two chunks: C and 1). Twice the even share plus a small constant admits
+// both; the cumulative bound (input_size_bytes) is the hard one.
+func DispatchInputChunkLimit(size uint64, count uint32) uint64 {
+	if count == 0 {
+		return 0
+	}
+	share := size / uint64(count)
+	if size%uint64(count) != 0 {
+		share++
+	}
+	return 2*share + inputChunkSlack
+}
+
+// StageDispatchInputChunk stores chunk index of an accepted ticket's input and
+// counts it, in one batch. A redelivered identical chunk is a no-op
+// (stored=false); different bytes or a different chunk_count are ErrConflict;
+// a chunk that would take the staged total past input_size_bytes, or exceeds
+// DispatchInputChunkLimit, is ErrInputBound and changes nothing. A ticket
+// that is not accepted, or whose input is committed, is returned unchanged.
+func StageDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredHash, index, count uint32, data []byte) (DispatchRecord, bool, error) {
+	var out DispatchRecord
+	stored := false
+	err := s.ApplyBatch(ctx, func(b *store.Batch) error {
+		var rec DispatchRecord
+		if err := getBatchJSON(b, DispatchTicketKey(ticket), &rec); err != nil {
+			return err
+		}
+		out = rec
+		if rec.State != DispatchAccepted || rec.InputCommitted {
+			return nil
+		}
+		if count == 0 || index >= count {
+			return fmt.Errorf("%w: chunk %d of %d", ErrInputBound, index, count)
+		}
+		if rec.InputChunkCount != 0 && rec.InputChunkCount != count {
+			return fmt.Errorf("%w: input chunk_count changed from %d to %d", ErrConflict, rec.InputChunkCount, count)
+		}
+		key := DispatchInputChunkKey(ticket, index)
+		cur, err := b.Get(key)
+		switch {
+		case err == nil:
+			if !bytes.Equal(cur, data) {
+				return fmt.Errorf("%w: input chunk %d of ticket %s", ErrConflict, index, ticket)
+			}
+			return nil
+		case !errors.Is(err, store.ErrNotFound):
+			return err
+		}
+		size := uint64(len(data))
+		if size > rec.InputSizeBytes-rec.InputStagedBytes {
+			return fmt.Errorf("%w: %d staged + %d exceeds input_size_bytes %d", ErrInputBound, rec.InputStagedBytes, size, rec.InputSizeBytes)
+		}
+		if limit := DispatchInputChunkLimit(rec.InputSizeBytes, count); size > limit {
+			return fmt.Errorf("%w: chunk of %d bytes exceeds %d for %d chunks of %d bytes", ErrInputBound, size, limit, count, rec.InputSizeBytes)
+		}
+		if err := b.Set(key, data); err != nil {
+			return err
+		}
+		rec.InputChunkCount = count
+		rec.InputChunksReceived++
+		rec.InputStagedBytes += size
+		stored, out = true, rec
+		return putDispatch(b, rec)
+	})
+	if err != nil {
+		return DispatchRecord{}, false, err
+	}
+	return out, stored, nil
+}
+
+// AssembleDispatchInput reads ticket's count chunks in index order into one
+// buffer of exactly size bytes: peak memory is the input once.
+func AssembleDispatchInput(ctx context.Context, s *store.Store, ticket StoredHash, count uint32, size uint64) ([]byte, error) {
+	prefix := dispatchInputTicketPrefix(ticket)
+	out := make([]byte, 0, size)
+	next := uint32(0)
+	err := s.ScanPrefix(ctx, prefix, func(key, value []byte) error {
+		if len(key) != len(prefix)+4 {
+			return fmt.Errorf("malformed input chunk key under %q", prefix)
+		}
+		if index := binary.BigEndian.Uint32(key[len(prefix):]); index != next || index >= count {
+			return fmt.Errorf("input chunk %d where %d of %d was expected", index, next, count)
+		}
+		if uint64(len(value)) > size-uint64(len(out)) {
+			return fmt.Errorf("input chunks exceed %d bytes", size)
+		}
+		out = append(out, value...)
+		next++
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if next != count || uint64(len(out)) != size {
+		return nil, fmt.Errorf("input has %d of %d chunks and %d of %d bytes", next, count, len(out), size)
+	}
+	return out, nil
+}
+
+// ResetDispatchInput forgets ticket's staged input (chunks and counters) so
+// it is requested again at once.
+func ResetDispatchInput(ctx context.Context, s *store.Store, ticket StoredHash) (DispatchRecord, error) {
+	return UpdateDispatchDroppingInput(ctx, s, ticket, func(r *DispatchRecord) error {
+		r.InputChunkCount, r.InputChunksReceived, r.InputStagedBytes, r.InputRequestedAtUnixMs = 0, 0, 0, 0
+		return nil
+	})
 }
 
 // PutDispatchInputChunk stores chunk index of ticket's input once: identical

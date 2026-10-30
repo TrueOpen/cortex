@@ -45,19 +45,25 @@ func (d *Dispatcher) Rebound(builder string) {
 	}
 }
 
-// Sweep walks accepted tickets whose input is not committed:
+// Sweep walks accepted tickets whose input is not committed, from the slim
+// open index (M5), loading a full record only for a ticket it acts on:
 //   - accept not enqueued yet and the deadline not passed: enqueue it (and the
 //     first input request);
 //   - accept certainly never transmitted and the deadline passed:
 //     accept-unsent, lease released, never resent (C4);
 //   - accept that may have been transmitted (WasSent, or an enqueue whose
 //     outcome was never recorded, Q9): re-request input after
-//     InputRetryEvery or a rebind. It stays accepted past the deadline; S6
-//     settles it at D_ticket.
+//     InputRetryEvery or a rebind, until the committed height reaches
+//     D_ticket. It stays accepted past the deadline; S6 settles it.
+//
+// Then it gives back the lease of any ticket that is not accepted and whose
+// deadline passed: an offer left unanswered by a failed attempt (I1).
 func (d *Dispatcher) Sweep(ctx context.Context) error {
-	d.work.Lock()
-	defer d.work.Unlock()
-	recs, err := layout.OpenDispatches(ctx, d.cfg.Store)
+	if err := d.lock(ctx); err != nil {
+		return err
+	}
+	defer d.unlock()
+	entries, err := layout.OpenDispatchEntries(ctx, d.cfg.Store)
 	if err != nil {
 		return fmt.Errorf("dispatcher: open tickets: %w", err)
 	}
@@ -67,27 +73,77 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 	d.mu.Unlock()
 	now := d.cfg.Now()
 	var errs []error
-	for _, rec := range recs {
-		enq, ok := d.cfg.Builders[rec.Builder]
+	// The claim-height stop needs the chain height; without it no input is
+	// re-requested this pass.
+	height, herr := d.chain.CommittedHeight(ctx)
+	if herr != nil {
+		errs = append(errs, fmt.Errorf("committed height: %w", herr))
+	}
+	for _, e := range entries {
+		enq, ok := d.cfg.Builders[e.Builder]
 		if !ok {
 			continue
 		}
-		maybeSent := (rec.AcceptSeq != 0 && enq.WasSent(rec.AcceptSeq)) || (rec.AcceptSeq == 0 && rec.AcceptEnqueuing)
-		live := now.Before(d.acceptDeadline(rec))
-		var err error
+		maybeSent := (e.AcceptSeq != 0 && enq.WasSent(e.AcceptSeq)) || (e.AcceptSeq == 0 && e.AcceptEnqueuing)
+		live := now.Before(d.deadlineOf(e.TicketHash, e.AcceptDeadlineUnixMs))
+		due := rebound[e.Builder] || now.Sub(time.UnixMilli(e.InputRequestedAtUnixMs)) >= d.cfg.InputRetryEvery
+		// TODO(S6): at D_ticket (ClaimFromHeight) a ticket whose input never
+		// arrived becomes S6's (PENDING_CLAIM); the sweep stops asking (I8).
+		claimable := herr != nil || height >= e.ClaimFromHeight
+		var act func(layout.DispatchRecord) error
 		switch {
-		case rec.AcceptSeq == 0 && live:
-			err = d.sendAccept(ctx, enq, rec)
+		case e.AcceptSeq == 0 && live:
+			act = func(rec layout.DispatchRecord) error { return d.sendAccept(ctx, enq, rec) }
 		case !maybeSent && !live:
-			err = d.release(ctx, rec, layout.DispatchAcceptUnsent, "the accept was never transmitted before the accept deadline (C4); it is not resent")
-		case maybeSent && (rebound[rec.Builder] || now.Sub(time.UnixMilli(rec.InputRequestedAtUnixMs)) >= d.cfg.InputRetryEvery):
-			err = d.requestInput(ctx, enq, rec, now.Add(d.cfg.InputRequestTTL))
+			act = func(rec layout.DispatchRecord) error {
+				return d.release(ctx, rec, layout.DispatchAcceptUnsent, "the accept was never transmitted before the accept deadline (C4); it is not resent")
+			}
+		case maybeSent && due && !claimable:
+			act = func(rec layout.DispatchRecord) error {
+				return d.requestInput(ctx, enq, rec, now.Add(d.cfg.InputRequestTTL))
+			}
+		}
+		if act == nil {
+			continue
+		}
+		rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, e.TicketHash)
+		if err == nil {
+			err = act(rec)
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("ticket %s: %w", rec.TicketHash, err))
+			errs = append(errs, fmt.Errorf("ticket %s: %w", e.TicketHash, err))
 		}
 	}
+	if err := d.releaseStaleLeases(ctx, now); err != nil {
+		errs = append(errs, err)
+	}
 	d.pruneDeadlines(now)
+	return errors.Join(errs...)
+}
+
+// releaseStaleLeases applies recoverLeases' rule while running, but only past
+// the deadline: before it a redelivered offer may still reuse the lease.
+func (d *Dispatcher) releaseStaleLeases(ctx context.Context, now time.Time) error {
+	tickets, err := layout.WorkerTicketLeases(ctx, d.cfg.Store)
+	if err != nil {
+		return fmt.Errorf("dispatcher: list leases: %w", err)
+	}
+	var errs []error
+	for _, ticket := range tickets {
+		rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
+		switch {
+		case err != nil && !errors.Is(err, store.ErrNotFound):
+			errs = append(errs, fmt.Errorf("lease %s: %w", ticket, err))
+			continue
+		case err == nil && (rec.State == layout.DispatchAccepted || now.Before(d.acceptDeadline(rec))):
+			continue
+		}
+		if err := d.releaseLease(ctx, ticket); err != nil {
+			errs = append(errs, fmt.Errorf("lease %s: %w", ticket, err))
+			continue
+		}
+		d.cfg.Logger.Info("released the lease of an offer left unanswered", "ticket", ticket.String())
+	}
 	return errors.Join(errs...)
 }
 

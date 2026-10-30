@@ -240,7 +240,7 @@ func (h *StandingHandraiser) Run(ctx context.Context) error {
 	prune := time.NewTicker(h.cfg.PruneEvery)
 	defer prune.Stop()
 	for {
-		if err := loggable(h.Refresh(ctx)); err != nil && ctx.Err() == nil {
+		if err := loggable(h.refreshAll(ctx)); err != nil && ctx.Err() == nil {
 			h.cfg.Logger.Warn("standing handraise pass failed", "err", err)
 		}
 		select {
@@ -260,11 +260,57 @@ func (h *StandingHandraiser) Run(ctx context.Context) error {
 // Refresh runs one evaluation now and returns once every handraise it
 // decided is signed, persisted and enqueued. The Dispatcher calls it before a
 // capacity reject (CD §5.1 "容量变化先重签常驻举手再拒单"): the new handraise
-// enters the same Builder outbox ahead of the reject.
-func (h *StandingHandraiser) Refresh(ctx context.Context) error {
+// enters the same Builder outbox ahead of the reject. Only errors that bear
+// on builder are returned, and a builder whose enqueue is backing off cannot
+// be refreshed: its newest handraise may not be in its outbox.
+func (h *StandingHandraiser) Refresh(ctx context.Context, builder string) error {
+	if err := errorsFor(h.refreshAll(ctx), builder); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	bo := h.backoff[builder]
+	h.mu.Unlock()
+	if bo != nil {
+		return fmt.Errorf("standing handraise to %s: enqueue backing off after %d failures", builder, bo.failures)
+	}
+	return nil
+}
+
+// refreshAll is one evaluation for every Builder.
+func (h *StandingHandraiser) refreshAll(ctx context.Context) error {
 	h.evalMu.Lock()
 	defer h.evalMu.Unlock()
 	return h.evaluate(ctx)
+}
+
+// handraiseBuilderError is one Builder's failure within a pass.
+type handraiseBuilderError struct {
+	builder string
+	err     error
+}
+
+func (e *handraiseBuilderError) Error() string { return "Builder " + e.builder + ": " + e.err.Error() }
+func (e *handraiseBuilderError) Unwrap() error { return e.err }
+
+// errorsFor keeps the parts of a pass's error that are builder's own or
+// concern every Builder.
+func errorsFor(err error, builder string) error {
+	if err == nil {
+		return nil
+	}
+	parts := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		parts = joined.Unwrap()
+	}
+	var keep []error
+	for _, e := range parts {
+		var be *handraiseBuilderError
+		if errors.As(e, &be) && be.builder != builder {
+			continue
+		}
+		keep = append(keep, e)
+	}
+	return errors.Join(keep...)
 }
 
 // loggable drops the enqueue failures the backoff already logs.
@@ -358,7 +404,7 @@ func (h *StandingHandraiser) evaluate(ctx context.Context) error {
 			continue
 		}
 		if err := h.send(ctx, b, height, now, st, act == handraiseWithdraw, last, reason, gen); err != nil {
-			errs = append(errs, fmt.Errorf("Builder %s: %w", b, err))
+			errs = append(errs, &handraiseBuilderError{builder: b, err: err})
 		}
 	}
 	return errors.Join(errs...)

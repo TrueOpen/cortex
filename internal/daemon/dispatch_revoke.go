@@ -15,10 +15,12 @@ import (
 // verified builder_service_signature on the received bytes against builder's
 // current key (dispatchstream.Handler contract, Q10). CD §4.2.0 撤回: stop at
 // once, release the lease, never claim (S6 reads State), keep ticket and
-// revoke.
+// revoke. Staged input is dropped with the state change (I7).
 func (d *Dispatcher) HandleRevoke(ctx context.Context, builder string, rv *nexusv1.DispatchRevokeV1) error {
-	d.work.Lock()
-	defer d.work.Unlock()
+	if err := d.lock(ctx); err != nil {
+		return err
+	}
+	defer d.unlock()
 	if rv.GetReason() != nexusv1.DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_RBF {
 		return fmt.Errorf("dispatch revoke from %s: reason %v is outside the closed set (RBF only)", builder, rv.GetReason())
 	}

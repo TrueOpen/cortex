@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -101,6 +103,12 @@ func TestDispatchOfferCheckOneDropsWithoutSigning(t *testing.T) {
 		}},
 		{"accept deadline", hrBuilderA, func(x *dispatchHarness) { x.fx.ticket.AcceptDeadlineMs = 0; x.fx.signTicket(hrBuilderKey) }},
 		{"unverified beacon", hrBuilderA, func(x *dispatchHarness) { x.chain.with(func(f *fakeDispatchChain) { f.epoch.Verified = false }) }},
+		{"Builder service key not on chain (I6)", hrBuilderA, func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) { delete(f.builderKeys, hrBuilderA) })
+		}},
+		{"Builder VRF key not on chain (I6)", hrBuilderA, func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) { f.vrfErr = fmt.Errorf("vrf: %w", chainclient.ErrNotFound) })
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -173,6 +181,19 @@ func TestDispatchOfferRejectsWithTheClosedReasonSet(t *testing.T) {
 			x.fx.ticket.InputHash = bytes.Repeat([]byte{7}, 32)
 			x.fx.signTicket(hrBuilderKey)
 		}, invalid, classInputMismatch, false},
+		{"order user is not the session owner (check 2)", func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) { f.session.OwnerUserAddress = hrCortex })
+		}, invalid, classOrderInvalid, false},
+		{"session status UNSPECIFIED (check 2)", func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) { f.session.Status = "UNSPECIFIED" })
+		}, invalid, classOrderInvalid, false},
+		{"legacy carrier without signature_chain_id (M3)", func(x *dispatchHarness) { x.fx.order.SignatureChainId = 0 }, invalid, classOrderInvalid, false},
+		{"Cortex node not on chain (I6)", func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) { f.nodeErr = fmt.Errorf("node: %w", chainclient.ErrNotFound) })
+		}, noCapacity, classNodeIneligible, false},
+		{"service bond not on chain (I6)", func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) { f.bondErr = fmt.Errorf("bond: %w", chainclient.ErrNotFound) })
+		}, noCapacity, classNodeIneligible, false},
 		{"input above the local limit", func(x *dispatchHarness) {
 			x.reconfigure(func(c *DispatcherConfig) { c.MaxInputBytes = 8 })
 		}, noCapacity, classInputTooLarge, false},

@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -263,9 +265,12 @@ type fakeDispatchChain struct {
 	liability   chainclient.WorkerLiabilityParamsSnapshot
 	scopes      map[string]chainclient.CommittedModelSupportScope
 	// heightCalls counts CommittedHeight; readHeights counts the pinned reads
-	// per height.
+	// per height and calls per method.
 	heightCalls int
 	readHeights map[uint64]int
+	calls       map[string]int
+	// Injected read failures.
+	nodeErr, bondErr, vrfErr error
 }
 
 func newFakeDispatchChain(t testing.TB, f *offerFixture) *fakeDispatchChain {
@@ -283,12 +288,13 @@ func newFakeDispatchChain(t testing.TB, f *offerFixture) *fakeDispatchChain {
 		epoch: chainclient.DispatchEpochSnapshot{Height: 150, EpochLengthBlocks: f.epoch.Length, BeaconHeight: f.epoch.BeaconHeight,
 			Randomness: dpHex(t, f.epoch.BeaconHex), Verified: true},
 		session: chainclient.SessionSnapshot{Height: 150, SessionID: bytes.Clone(f.ticket.SessionId), Status: "ACTIVE",
-			BoundBuilder: hrBuilderA, BoundChangeHeight: 105},
+			OwnerUserAddress: f.order.Order.UserAddress,
+			BoundBuilder:     hrBuilderA, BoundChangeHeight: 105},
 		set:         chainclient.BuilderSetSnapshot{BuilderSetVersion: 1, BuilderSetID: "7", SetHash: setHash, Builders: []string{hrBuilderA, hrBuilderB}},
 		params:      chainclient.DispatchParamsSnapshot{Height: 150, RecordDeadlineBlocks: dpRecordDeadline},
 		liability:   chainclient.WorkerLiabilityParamsSnapshot{Height: 150, MinTaskLiability: 10, OrderCoverageBps: 10_000},
 		scopes:      map[string]chainclient.CommittedModelSupportScope{config.MinPriceBidKey(hrModelAB, 1): freshScope(hrModelAB, 1)},
-		readHeights: map[uint64]int{},
+		readHeights: map[uint64]int{}, calls: map[string]int{},
 	}
 }
 
@@ -310,6 +316,16 @@ func (f *fakeDispatchChain) CommittedHeight(context.Context) (uint64, error) {
 // pinned records one height-pinned read; the caller holds f.mu.
 func (f *fakeDispatchChain) pinned(height uint64) {
 	f.readHeights[height]++
+	pc, _, _, _ := runtime.Caller(1)
+	name := runtime.FuncForPC(pc).Name()
+	f.calls[name[strings.LastIndex(name, ".")+1:]]++
+}
+
+// callCount reports how often a read method ran.
+func (f *fakeDispatchChain) callCount(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[method]
 }
 
 // reads returns the CommittedHeight calls and the heights reads were pinned to.
@@ -323,14 +339,14 @@ func (f *fakeDispatchChain) CortexNodeAt(_ context.Context, _ string, height uin
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pinned(height)
-	return f.node, nil
+	return f.node, f.nodeErr
 }
 
 func (f *fakeDispatchChain) ServiceBondAt(_ context.Context, _ string, height uint64) (chainclient.ServiceBondSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pinned(height)
-	return f.bond, nil
+	return f.bond, f.bondErr
 }
 
 func (f *fakeDispatchChain) CurrentServiceKey(_ context.Context, participant, operator string, height uint64) (chainclient.ServiceKeySnapshot, error) {
@@ -361,7 +377,7 @@ func (f *fakeDispatchChain) BuilderVrfKeyAt(_ context.Context, _ string, height 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pinned(height)
-	return f.vrf, nil
+	return f.vrf, f.vrfErr
 }
 
 func (f *fakeDispatchChain) BuilderSetAt(_ context.Context, height uint64) (chainclient.BuilderSetSnapshot, error) {
@@ -429,7 +445,7 @@ func (h *fakeDispatchHandraise) HoldsRoot(_ context.Context, _ string, d [32]byt
 	return h.roots[d], nil
 }
 
-func (h *fakeDispatchHandraise) Refresh(context.Context) error {
+func (h *fakeDispatchHandraise) Refresh(context.Context, string) error {
 	h.mu.Lock()
 	err := h.refreshErr
 	h.mu.Unlock()
@@ -499,7 +515,7 @@ func (q *fakeDispatchEnqueuer) Enqueue(_ context.Context, p dispatchstream.Outgo
 	}
 	name := dispatchwire.Name(p.Message)
 	if err := dispatch.ValidateMessage(name, raw); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", dispatchstream.ErrInvalidOutgoing, err)
 	}
 	q.sent = append(q.sent, p)
 	q.log.add("enqueue:" + name)
@@ -550,14 +566,18 @@ func (q *fakeDispatchEnqueuer) outgoing(i int) dispatchstream.Outgoing {
 }
 
 type fakeInferStarter struct {
-	mu      sync.Mutex
-	started []DispatchInferEntry
-	stops   []layout.StoredHash // ticket hashes
+	mu                sync.Mutex
+	started           []DispatchInferEntry
+	stops             []layout.StoredHash // ticket hashes
+	startErr, stopErr error
 }
 
 func (f *fakeInferStarter) StartDispatchedInfer(_ context.Context, e DispatchInferEntry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.startErr != nil {
+		return f.startErr
+	}
 	f.started = append(f.started, e)
 	return nil
 }
@@ -565,8 +585,17 @@ func (f *fakeInferStarter) StartDispatchedInfer(_ context.Context, e DispatchInf
 func (f *fakeInferStarter) StopDispatchedInfer(_ context.Context, _, ticket layout.StoredHash) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.stopErr != nil {
+		return f.stopErr
+	}
 	f.stops = append(f.stops, ticket)
 	return nil
+}
+
+func (f *fakeInferStarter) setErrs(start, stop error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.startErr, f.stopErr = start, stop
 }
 
 func (f *fakeInferStarter) starts() []DispatchInferEntry {
@@ -597,6 +626,33 @@ type dispatchHarness struct {
 	capacity uint32
 	tweak    func(*DispatcherConfig)
 	d        *Dispatcher
+
+	signMu  sync.Mutex
+	signErr error // every signature fails while set
+	// signDuring, when set, runs with signCancel after a signature is made:
+	// a test ends the caller's context there so the next store write fails.
+	signDuring func(context.CancelFunc)
+	signCancel context.CancelFunc
+}
+
+func (x *dispatchHarness) setSignErr(err error) {
+	x.signMu.Lock()
+	defer x.signMu.Unlock()
+	x.signErr = err
+}
+
+func (x *dispatchHarness) sign(ctx context.Context, d [32]byte) ([]byte, error) {
+	x.signMu.Lock()
+	err := x.signErr
+	x.signMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	sig, err := hrSigner(hrCortexKey)(ctx, d)
+	if x.signDuring != nil && x.signCancel != nil {
+		x.signDuring(x.signCancel)
+	}
+	return sig, err
 }
 
 func newDispatchHarness(t *testing.T, capacity uint32, tweak func(*DispatcherConfig)) *dispatchHarness {
@@ -632,7 +688,7 @@ func (x *dispatchHarness) open() {
 	cfg := DispatcherConfig{
 		ChainID: dpChainID, Operator: hrCortex, FeeDenom: dpFeeDenom, Profiles: hrProfileRefs(), MinPriceBid: hrBids(),
 		Chain: x.chain, Local: x.local, Handraise: x.hr, Leases: leases, Infer: x.infer, Inputs: x.ev,
-		Sign: hrSigner(hrCortexKey), Store: x.st, Builders: map[string]DispatchEnqueuer{hrBuilderA: x.a},
+		Sign: x.sign, Store: x.st, Builders: map[string]DispatchEnqueuer{hrBuilderA: x.a},
 		Now: func() time.Time { return x.now },
 	}
 	if x.tweak != nil {
