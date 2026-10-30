@@ -41,7 +41,7 @@ func TestHandraiseGates(t *testing.T) {
 
 	t.Run("all gates open", func(t *testing.T) {
 		chain, local := open()
-		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, true)
+		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true)
 		offered(t, r, ab1, ab2, cd1)
 		if r.state.FreeSlots != 3 || r.state.AuthNonce != 7 || r.state.Member.Slot != 4 || r.state.Member.SlotVersion != 2 || r.state.Member.Operator != hrCortex {
 			t.Fatalf("state %+v", r.state)
@@ -50,26 +50,26 @@ func TestHandraiseGates(t *testing.T) {
 	t.Run("H1 workload not ready is not a fact", func(t *testing.T) {
 		chain, local := open()
 		local.ready = false
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), false)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), false)
 	})
 	t.Run("H1 failed chain read is not a fact", func(t *testing.T) {
 		chain, local := open()
 		chain.nodeErr = errors.New("rpc down")
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), false)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), false)
 	})
 	t.Run("H1 unbonding bond is a fact", func(t *testing.T) {
 		chain, local := open()
 		chain.bond.Status = "UNBONDING"
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), true)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), true)
 	})
 	t.Run("H1 Builder VRF key unreadable", func(t *testing.T) {
 		chain, local := open()
 		chain.vrfErr[hrBuilderB] = errors.New("not registered")
 		g := newTestGates(t, chain, local, hrBids())
-		if err := g.builder(ctx, hrBuilderA); err != nil {
+		if err := g.builder(ctx, 100, hrBuilderA); err != nil {
 			t.Fatal(err)
 		}
-		if err := g.builder(ctx, hrBuilderB); err == nil {
+		if err := g.builder(ctx, 100, hrBuilderB); err == nil {
 			t.Fatal("a Builder whose VRF key cannot be read gets no handraise")
 		}
 	})
@@ -78,25 +78,25 @@ func TestHandraiseGates(t *testing.T) {
 		s := chain.scopes[config.MinPriceBidKey(hrModelCD, 1)]
 		s.Support.SupportFreshUntilEpoch = 10 // height 1000 / 100 = epoch 10
 		chain.scopes[config.MinPriceBidKey(hrModelCD, 1)] = s
-		offered(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), ab1, ab2)
+		offered(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), ab1, ab2)
 	})
 	t.Run("H2 bond below min_stake drops that profile", func(t *testing.T) {
 		chain, local := open()
 		s := chain.scopes[config.MinPriceBidKey(hrModelAB, 2)]
 		s.Profile.Profile.MinStake = 5_000
 		chain.scopes[config.MinPriceBidKey(hrModelAB, 2)] = s
-		offered(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), ab1, cd1)
+		offered(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), ab1, cd1)
 	})
 	t.Run("H4 missing min_price_bid drops that profile", func(t *testing.T) {
 		chain, local := open()
 		bids := hrBids()
 		delete(bids, config.MinPriceBidKey(hrModelAB, 1))
-		offered(t, newTestGates(t, chain, local, bids).evaluate(ctx, true), ab2, cd1)
+		offered(t, newTestGates(t, chain, local, bids).evaluate(ctx, 100, true), ab2, cd1)
 	})
 	t.Run("H3 runtime not ready offers zero slots", func(t *testing.T) {
 		chain, local := open()
 		local.freeOK, local.free = false, 9
-		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, true)
+		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true)
 		offered(t, r, ab1, ab2, cd1)
 		if r.state.FreeSlots != 0 {
 			t.Fatalf("free = %d, want 0", r.state.FreeSlots)
@@ -105,38 +105,69 @@ func TestHandraiseGates(t *testing.T) {
 	t.Run("pending service key rotation stops, as a fact, with the nonce", func(t *testing.T) {
 		chain, local := open()
 		chain.cortexKey.HasPendingRotation = true
-		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, true)
+		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true)
 		stopped(t, r, true)
 		if r.authNonce != 7 {
 			t.Fatalf("authNonce = %d", r.authNonce)
 		}
 	})
+	t.Run("a stop fact read before the key still carries the current nonce", func(t *testing.T) {
+		chain, local := open()
+		chain.bond.Status = "UNBONDING"
+		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true)
+		stopped(t, r, true)
+		if !r.authKnown || r.authNonce != 7 {
+			t.Fatalf("withdrawal nonce %d known=%v, want 7", r.authNonce, r.authKnown)
+		}
+		chain.cortexKeyErr = errors.New("rpc down")
+		r = newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true)
+		stopped(t, r, true)
+		if r.authKnown {
+			t.Fatal("an unreadable key leaves the nonce unknown, so the last one is kept")
+		}
+	})
+	t.Run("a non-ACTIVE Cortex key is not a fact to withdraw on", func(t *testing.T) {
+		chain, local := open()
+		chain.cortexKey.Status = "REVOKED"
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), false)
+	})
+	t.Run("a profile whose read failed stays offered if it was offered", func(t *testing.T) {
+		chain, local := open()
+		chain.scopeErrFor[config.MinPriceBidKey(hrModelCD, 1)] = errors.New("rpc down")
+		r := newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true)
+		offered(t, r, ab1, ab2)
+		prev := handraiseState{Profiles: []HandraiseProfile{ab1, cd1}}
+		st, _, _ := r.offer(&prev)
+		if st == nil || !slices.Equal(st.Profiles, []HandraiseProfile{ab1, ab2, cd1}) {
+			t.Fatalf("offer against the last state = %+v", st)
+		}
+	})
 	t.Run("node drain stops, as a fact", func(t *testing.T) {
 		chain, local := open()
 		local.drain = true
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), true)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), true)
 	})
 	t.Run("profile drain drops only that profile", func(t *testing.T) {
 		chain, local := open()
 		local.drainProfiles = map[HandraiseProfile]bool{cd1: true}
-		offered(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), ab1, ab2)
+		offered(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), ab1, ab2)
 	})
 	t.Run("no servable profile is a fact", func(t *testing.T) {
 		chain, local := open()
-		stopped(t, newTestGates(t, chain, local, map[string]uint64{}).evaluate(ctx, true), true)
+		stopped(t, newTestGates(t, chain, local, map[string]uint64{}).evaluate(ctx, 100, true), true)
 	})
 	t.Run("profiles lost to failed reads are not a fact", func(t *testing.T) {
 		chain, local := open()
 		chain.scopeErr = errors.New("rpc down")
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), false)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), false)
 	})
 	t.Run("a support scope Keeper does not have is a fact", func(t *testing.T) {
 		chain, local := open()
 		chain.scopes = map[string]chainclient.CommittedModelSupportScope{}
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, true), true)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, true), true)
 	})
 	t.Run("unknown block interval is not a fact", func(t *testing.T) {
 		chain, local := open()
-		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, false), false)
+		stopped(t, newTestGates(t, chain, local, hrBids()).evaluate(ctx, 100, false), false)
 	})
 }

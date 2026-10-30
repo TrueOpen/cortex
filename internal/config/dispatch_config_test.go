@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -19,8 +20,35 @@ func TestValidateDispatchHeartbeatMustBeBelowTTL(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if cfg.Dispatch.Handraise.RootHistory != DefaultHandraiseRootHistory {
-		t.Fatalf("RootHistory = %d, want default %d", cfg.Dispatch.Handraise.RootHistory, DefaultHandraiseRootHistory)
+	if cfg.Dispatch.Handraise.RootHistory != 0 {
+		t.Fatal("Validate must not fill defaults; defaults() does")
+	}
+}
+
+func TestDispatchRootHistoryDefaultsOutsideValidate(t *testing.T) {
+	if got := defaults().Dispatch.Handraise.RootHistory; got != DefaultHandraiseRootHistory {
+		t.Fatalf("defaults() root_history = %d, want %d", got, DefaultHandraiseRootHistory)
+	}
+	cfg := validConfig()
+	for _, n := range []int{-1, 4097} {
+		cfg.Dispatch.Handraise.RootHistory = n
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dispatch.handraise.root_history") {
+			t.Fatalf("root_history %d: %v", n, err)
+		}
+	}
+}
+
+func TestValidateDispatchMillisecondsFitADuration(t *testing.T) {
+	cfg := validConfig()
+	cfg.Dispatch = DispatchConfig{
+		EvidenceRetentionBlocks: 1,
+		Handraise:               HandraiseConfig{HeartbeatMS: 1, TTLMS: math.MaxUint64, MinChangeIntervalMS: math.MaxUint64 / 2},
+	}
+	err := cfg.Validate()
+	for _, f := range []string{"dispatch.handraise.ttl_ms", "dispatch.handraise.min_change_interval_ms"} {
+		if err == nil || !strings.Contains(err.Error(), f+" is too large") {
+			t.Fatalf("Validate() error = %v, want %s too large", err, f)
+		}
 	}
 }
 
@@ -93,6 +121,9 @@ dispatch:
 		t.Fatal(err)
 	}
 	d := cfg.Dispatch
+	if d.Handraise.RootHistory != DefaultHandraiseRootHistory {
+		t.Fatalf("a loaded config gets the root_history default, got %d", d.Handraise.RootHistory)
+	}
 	if d.EvidenceRetentionBlocks != 200_000 || d.Handraise.HeartbeatMS != 10_000 || d.Handraise.TTLMS != 30_000 ||
 		d.Handraise.MinChangeIntervalMS != 500 || d.MinPriceBid[MinPriceBidKey(model, 1)] != 25 {
 		t.Fatalf("Dispatch = %+v", d)

@@ -55,6 +55,15 @@ func (c *KeeperABCIClient) CurrentCandidateMember(ctx context.Context, operatorA
 	if err != nil {
 		return CandidateMemberRefSnapshot{}, err
 	}
+	return c.CurrentCandidateMemberAt(ctx, operatorAddress, height)
+}
+
+// CurrentCandidateMemberAt is CurrentCandidateMember pinned to height, which
+// must have come from CommittedHeight.
+func (c *KeeperABCIClient) CurrentCandidateMemberAt(ctx context.Context, operatorAddress string, height uint64) (CandidateMemberRefSnapshot, error) {
+	if height == 0 {
+		return CandidateMemberRefSnapshot{}, fmt.Errorf("candidate member query height is required")
+	}
 	// Pinned to height throughout, so an order admitted in the same block as
 	// another reuses its answer. Only a found member is kept.
 	return memoPinned(ctx, c, pinnedReadKey{kind: "current_candidate_member", args: operatorAddress, height: height}, func(ctx context.Context) (CandidateMemberRefSnapshot, error) {

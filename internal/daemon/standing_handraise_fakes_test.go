@@ -105,12 +105,19 @@ type fakeHandraiseChain struct {
 	nodeErr       error
 	bond          chainclient.ServiceBondSnapshot
 	cortexKey     chainclient.ServiceKeySnapshot
+	cortexKeyErr  error
 	builderKeys   map[string]chainclient.ServiceKeySnapshot
 	builderKeyErr error
 	member        chainclient.CandidateMemberRefSnapshot
 	scopes        map[string]chainclient.CommittedModelSupportScope
 	scopeErr      error
+	scopeErrFor   map[string]error // by MinPriceBidKey
 	vrfErr        map[string]error
+	// gateCalls counts the gate's chain reads (everything but
+	// CommittedHeight and the root path's Builder key); readHeights records
+	// the heights the pinned ones were issued at.
+	gateCalls   int
+	readHeights map[uint64]bool
 }
 
 func newFakeHandraiseChain(t testing.TB) *fakeHandraiseChain {
@@ -139,8 +146,22 @@ func newFakeHandraiseChain(t testing.TB) *fakeHandraiseChain {
 			config.MinPriceBidKey(hrModelAB, 2): freshScope(hrModelAB, 2),
 			config.MinPriceBidKey(hrModelCD, 1): freshScope(hrModelCD, 1),
 		},
-		vrfErr: map[string]error{},
+		scopeErrFor: map[string]error{}, vrfErr: map[string]error{}, readHeights: map[uint64]bool{},
 	}
+}
+
+// gateRead counts one gate read; the caller holds f.mu.
+func (f *fakeHandraiseChain) gateRead(height uint64) {
+	f.gateCalls++
+	if height != 0 {
+		f.readHeights[height] = true
+	}
+}
+
+func (f *fakeHandraiseChain) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gateCalls
 }
 
 func (f *fakeHandraiseChain) with(fn func(*fakeHandraiseChain)) {
@@ -158,20 +179,33 @@ func (f *fakeHandraiseChain) CommittedHeight(context.Context) (uint64, error) {
 func (f *fakeHandraiseChain) CortexNode(context.Context, string) (chainclient.CortexNodeSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gateRead(0)
 	return f.node, f.nodeErr
 }
 
 func (f *fakeHandraiseChain) ServiceBond(context.Context, string) (chainclient.ServiceBondSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gateRead(0)
 	return f.bond, nil
 }
 
+func (f *fakeHandraiseChain) CurrentServiceKey(_ context.Context, participant, _ string, height uint64) (chainclient.ServiceKeySnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gateRead(height)
+	if participant != chainclient.ParticipantTypeCortexNode {
+		return chainclient.ServiceKeySnapshot{}, fmt.Errorf("gate read a %s key", participant)
+	}
+	return f.cortexKey, f.cortexKeyErr
+}
+
+// CommittedCurrentServiceKey serves the root path's Builder key reads.
 func (f *fakeHandraiseChain) CommittedCurrentServiceKey(_ context.Context, participant, operator string) (chainclient.ServiceKeySnapshot, uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if participant == chainclient.ParticipantTypeCortexNode {
-		return f.cortexKey, f.height, nil
+	if participant != chainclient.ParticipantTypeBuilder {
+		return chainclient.ServiceKeySnapshot{}, 0, fmt.Errorf("root path read a %s key", participant)
 	}
 	if f.builderKeyErr != nil {
 		return chainclient.ServiceKeySnapshot{}, 0, f.builderKeyErr
@@ -183,15 +217,17 @@ func (f *fakeHandraiseChain) CommittedCurrentServiceKey(_ context.Context, parti
 	return k, f.height, nil
 }
 
-func (f *fakeHandraiseChain) CurrentCandidateMember(context.Context, string) (chainclient.CandidateMemberRefSnapshot, error) {
+func (f *fakeHandraiseChain) CurrentCandidateMemberAt(_ context.Context, _ string, height uint64) (chainclient.CandidateMemberRefSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gateRead(height)
 	return f.member, nil
 }
 
-func (f *fakeHandraiseChain) CommittedModelSupportScope(_ context.Context, _, modelID, version string) (chainclient.CommittedModelSupportScope, error) {
+func (f *fakeHandraiseChain) ModelSupportScopeAt(_ context.Context, _, modelID, version string, height uint64) (chainclient.CommittedModelSupportScope, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gateRead(height)
 	if f.scopeErr != nil {
 		return chainclient.CommittedModelSupportScope{}, f.scopeErr
 	}
@@ -199,16 +235,21 @@ func (f *fakeHandraiseChain) CommittedModelSupportScope(_ context.Context, _, mo
 	if err != nil {
 		return chainclient.CommittedModelSupportScope{}, err
 	}
-	s, ok := f.scopes[config.MinPriceBidKey(modelID, uint32(v))]
+	key := config.MinPriceBidKey(modelID, uint32(v))
+	if err := f.scopeErrFor[key]; err != nil {
+		return chainclient.CommittedModelSupportScope{}, err
+	}
+	s, ok := f.scopes[key]
 	if !ok {
 		return chainclient.CommittedModelSupportScope{}, fmt.Errorf("no support scope for %s@%s: %w", modelID, version, chainclient.ErrNotFound)
 	}
 	return s, nil
 }
 
-func (f *fakeHandraiseChain) BuilderVrfKey(_ context.Context, builder string) (chainclient.VrfKeySnapshot, error) {
+func (f *fakeHandraiseChain) BuilderVrfKeyAt(_ context.Context, builder string, height uint64) (chainclient.VrfKeySnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.gateRead(height)
 	if err := f.vrfErr[builder]; err != nil {
 		return chainclient.VrfKeySnapshot{}, err
 	}
@@ -242,7 +283,7 @@ func (l *fakeHandraiseLocal) Draining() (bool, map[HandraiseProfile]bool) {
 	return l.drain, maps.Clone(l.drainProfiles)
 }
 
-func (l *fakeHandraiseLocal) FreeSlots() (uint32, bool) {
+func (l *fakeHandraiseLocal) FreeSlots(context.Context) (uint32, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.free, l.freeOK
@@ -251,14 +292,21 @@ func (l *fakeHandraiseLocal) FreeSlots() (uint32, bool) {
 // fakeEnqueuer stands in for dispatchstream.Session; it applies wire's strict
 // decoder the way Session.Enqueue does.
 type fakeEnqueuer struct {
-	mu   sync.Mutex
-	sent []dispatchstream.Outgoing
-	fail error
+	mu    sync.Mutex
+	sent  []dispatchstream.Outgoing
+	fail  error
+	tries int
+	// during runs inside Enqueue, before it returns; optional.
+	during func()
 }
 
 func (f *fakeEnqueuer) Enqueue(_ context.Context, p dispatchstream.Outgoing) (uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.tries++
+	if f.during != nil {
+		f.during()
+	}
 	if f.fail != nil {
 		return 0, f.fail
 	}

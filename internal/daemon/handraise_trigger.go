@@ -120,6 +120,9 @@ func decideHandraise(now time.Time, height uint64, last *CurrentHandraise, want 
 	since := now.Sub(last.sentAt())
 	switch {
 	case last.Withdrawn:
+		// Recovery from a fact (rotation activated, drain ended, a profile
+		// came back): the withdrawal advertised nothing, so this is not
+		// growth of a live offer and is not held for the minimum interval.
 		return handraiseSend, "reopen"
 	case resend:
 		return handraiseSend, "resend"
@@ -151,24 +154,50 @@ type clockSample struct {
 type blockClock struct {
 	samples []clockSample
 	seed    time.Duration // last persisted estimate, used until two heights are seen
+	// maxAge drops samples older than this before a new one is added, so a
+	// chain halt does not inflate the estimate for long; 0 keeps them all.
+	maxAge time.Duration
+	last   time.Duration // the last estimate taken from samples
 }
 
 func (c *blockClock) observe(height uint64, at time.Time) {
 	if n := len(c.samples); n > 0 && height <= c.samples[n-1].height {
 		return
 	}
+	if c.maxAge > 0 {
+		cut := 0
+		for cut < len(c.samples) && at.Sub(c.samples[cut].at) > c.maxAge {
+			cut++
+		}
+		c.samples = c.samples[cut:]
+	}
 	c.samples = append(c.samples, clockSample{height, at})
 	if len(c.samples) > blockClockWindow {
 		c.samples = c.samples[len(c.samples)-blockClockWindow:]
 	}
+	if d, ok := c.fromSamples(); ok {
+		c.last = d
+	}
 }
 
-func (c *blockClock) interval() (time.Duration, bool) {
+func (c *blockClock) fromSamples() (time.Duration, bool) {
 	if n := len(c.samples); n >= 2 {
 		first, last := c.samples[0], c.samples[n-1]
 		if d := last.at.Sub(first.at) / time.Duration(last.height-first.height); d > 0 {
 			return d, true
 		}
+	}
+	return 0, false
+}
+
+// interval is the estimate from the samples, else the last one taken before
+// old samples were dropped, else the persisted seed.
+func (c *blockClock) interval() (time.Duration, bool) {
+	if d, ok := c.fromSamples(); ok {
+		return d, true
+	}
+	if c.last > 0 {
+		return c.last, true
 	}
 	return c.seed, c.seed > 0
 }

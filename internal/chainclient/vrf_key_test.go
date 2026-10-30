@@ -48,3 +48,17 @@ func TestBuilderVrfKeyRefusesAMalformedKey(t *testing.T) {
 		t.Fatal("a VRF key that is not 32 bytes must be refused")
 	}
 }
+
+func TestBuilderVrfKeyAtPinsTheGivenHeight(t *testing.T) {
+	key := bytes.Repeat([]byte{7}, 32)
+	server := newABCITestServer(t, func(path, height string, data []byte) (proto.Message, uint32, string) {
+		if path != hubQuery+"VrfKey" || height != "777" {
+			t.Fatalf("query %q at height %q, want VrfKey at 777", path, height)
+		}
+		return &hubv1.QueryVrfKeyResponse{ActiveVrfPubkey: key}, 0, ""
+	})
+	t.Cleanup(server.Close)
+	if _, err := NewKeeperABCIClient(server.URL).BuilderVrfKeyAt(context.Background(), "trueopen1builder", 777); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -107,14 +107,16 @@ func parseMinPriceBidKey(key string) error {
 	return nil
 }
 
-// problems validates the block and fills the local default. The four shared
-// timings are all-or-nothing; S9 makes them required in real mode.
-func (d *DispatchConfig) problems() []string {
+// maxDurationMS is the largest millisecond count a time.Duration holds.
+const maxDurationMS = uint64(math.MaxInt64 / int64(time.Millisecond))
+
+// problems validates the block. It fills nothing: root_history's default
+// comes from defaults(), and 0 (a Config built without it) means the
+// consumer's default. The four shared timings are all-or-nothing; S9 makes
+// them required in real mode.
+func (d DispatchConfig) problems() []string {
 	var problems []string
-	if d.Handraise.RootHistory == 0 {
-		d.Handraise.RootHistory = DefaultHandraiseRootHistory
-	}
-	if d.Handraise.RootHistory < 1 || d.Handraise.RootHistory > 4096 {
+	if d.Handraise.RootHistory < 0 || d.Handraise.RootHistory > 4096 {
 		problems = append(problems, "dispatch.handraise.root_history must be between 1 and 4096")
 	}
 	keys := make([]string, 0, len(d.MinPriceBid))
@@ -150,6 +152,11 @@ func (d *DispatchConfig) problems() []string {
 	for _, f := range timings {
 		if f.value == 0 {
 			problems = append(problems, f.field+" is required once any dispatch handraise timing is set (参数表; no built-in default)")
+		}
+	}
+	for _, f := range timings[1:] {
+		if f.value > maxDurationMS {
+			problems = append(problems, fmt.Sprintf("%s is too large (at most %d)", f.field, maxDurationMS))
 		}
 	}
 	if h.HeartbeatMS != 0 && h.TTLMS != 0 && h.HeartbeatMS >= h.TTLMS {
@@ -1161,6 +1168,7 @@ func defaults() Config {
 			SweepGracePeriod: time.Hour,
 		},
 		Signer:     SignerConfig{ReadinessProofIntervalMS: 30000},
+		Dispatch:   DispatchConfig{Handraise: HandraiseConfig{RootHistory: DefaultHandraiseRootHistory}},
 		Tx:         TxConfig{FeeDenom: "uusdc"},
 		SelfRescue: SelfRescueConfig{Enabled: false},
 		Health: HealthConfig{

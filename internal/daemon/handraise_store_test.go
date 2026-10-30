@@ -42,13 +42,13 @@ func TestHandraiseStoreSendLog(t *testing.T) {
 		}
 	}
 	// Kept through expiry_height + retention = 125, gone after.
-	if err := s.prune(ctx, 125); err != nil {
+	if err := pruneAll(ctx, s, 125); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.hasSent(ctx, "b1", [32]byte{1}); !ok {
 		t.Fatal("pruned before its retention ended")
 	}
-	if err := s.prune(ctx, 126); err != nil {
+	if err := pruneAll(ctx, s, 126); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.hasSent(ctx, "b1", [32]byte{1}); ok {
@@ -64,11 +64,11 @@ func TestHandraiseStoreRoots(t *testing.T) {
 	}
 	put := func(r HeldRoot) (bool, bool) {
 		t.Helper()
-		stored, equivocal, err := s.putRoot(ctx, r, 10)
+		held, stored, err := s.putRoot(ctx, r, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return stored, equivocal
+		return stored, held.Equivocal
 	}
 	if stored, eq := put(root(200, 0, 1)); !stored || eq {
 		t.Fatal("first root must be stored")
@@ -82,13 +82,16 @@ func TestHandraiseStoreRoots(t *testing.T) {
 	if stored, eq := put(root(201, 0, 5)); !stored || !eq {
 		t.Fatal("a second digest at the same (root_height, root_version) is equivocation and is kept")
 	}
-	latest, err := s.latestRoots(ctx, "b1", 3)
+	latest, err := s.latestRootDigests(ctx, "b1", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var tags []byte
-	for _, r := range latest {
-		tags = append(tags, r.RootDigest[0])
+	for _, d := range latest {
+		tags = append(tags, d[0])
+	}
+	if newest, err := s.latestRoots(ctx, "b1", 1); err != nil || len(newest) != 1 || newest[0].RootDigest[0] != 4 {
+		t.Fatalf("latestRoots(1) = %v %v", newest, err)
 	}
 	if !bytes.Equal(tags, []byte{4, 5, 2}) {
 		t.Fatalf("newest-first roots %v, want [4 5 2]", tags)
@@ -99,7 +102,7 @@ func TestHandraiseStoreRoots(t *testing.T) {
 	if ok, _ := s.holdsRoot(ctx, "b2", [32]byte{3}); ok {
 		t.Fatal("roots are per Builder")
 	}
-	if err := s.prune(ctx, 111); err != nil { // received 100 + retention 10
+	if err := pruneAll(ctx, s, 111); err != nil { // received 100 + retention 10
 		t.Fatal(err)
 	}
 	for tag := byte(1); tag <= 5; tag++ {
@@ -107,7 +110,7 @@ func TestHandraiseStoreRoots(t *testing.T) {
 			t.Fatalf("root %d kept past retention", tag)
 		}
 	}
-	if latest, _ := s.latestRoots(ctx, "b1", 10); len(latest) != 0 {
+	if latest, _ := s.latestRootDigests(ctx, "b1", 10); len(latest) != 0 {
 		t.Fatal("the order index must be pruned with its roots")
 	}
 }
@@ -125,7 +128,7 @@ func TestHandraiseStorePruneDropsAMalformedIndexKey(t *testing.T) {
 	if err := s.recordSend(ctx, "b1", cur, sentHandraise{IssuedHeight: 1, ExpiryHeight: 2}, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.prune(ctx, 100); err != nil {
+	if err := pruneAll(ctx, s, 100); err != nil {
 		t.Fatalf("a malformed index key must not wedge pruning: %v", err)
 	}
 	if ok, _ := s.hasSent(ctx, "b1", [32]byte{1}); ok {
@@ -137,5 +140,93 @@ func TestHandraiseStorePruneDropsAMalformedIndexKey(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("%d index keys left, want 0", n)
+	}
+}
+
+// pruneAll runs prune batches until none is left, as successive Run ticks do.
+func pruneAll(ctx context.Context, s handraiseStore, height uint64) error {
+	var from []byte
+	for {
+		next, err := s.pruneBatch(ctx, height, from)
+		if err != nil || next == nil {
+			return err
+		}
+		from = next
+	}
+}
+
+func TestHandraiseStorePrunesOneBatchPerCall(t *testing.T) {
+	ctx := context.Background()
+	s := handraiseStore{st: openHandraiseTestStore(t), batch: 2}
+	for i := range byte(5) {
+		cur := CurrentHandraise{IssuedHeight: 1, ExpiryHeight: 2, Digest: [32]byte{i + 1}}
+		if err := s.recordSend(ctx, "b1", cur, sentHandraise{IssuedHeight: 1, ExpiryHeight: 2}, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	left := func() int { return sentLogSizeOf(t, s, "b1") }
+	next, err := s.pruneBatch(ctx, 100, nil)
+	if err != nil || next == nil || left() != 3 {
+		t.Fatalf("first batch: next=%q err=%v left=%d, want 3 left and a resume key", next, err, left())
+	}
+	next, _ = s.pruneBatch(ctx, 100, next)
+	if next == nil || left() != 1 {
+		t.Fatalf("second batch left %d", left())
+	}
+	if next, _ = s.pruneBatch(ctx, 100, next); next != nil || left() != 0 {
+		t.Fatalf("last batch: next=%q left=%d", next, left())
+	}
+}
+
+func sentLogSizeOf(t *testing.T, s handraiseStore, builder string) int {
+	t.Helper()
+	n := 0
+	if err := s.st.ScanPrefix(context.Background(), []byte(hrSentPrefix+builder+"/"), func(_, _ []byte) error { n++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// A root received late keeps the handraise it proves at least as long as
+// itself.
+func TestHandraiseStoreRootExtendsTheProvedHandraiseRetention(t *testing.T) {
+	ctx := context.Background()
+	s := handraiseStore{st: openHandraiseTestStore(t)}
+	standing := [32]byte{7}
+	if err := s.recordSend(ctx, "b1", CurrentHandraise{ExpiryHeight: 115, Digest: standing}, sentHandraise{ExpiryHeight: 115}, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.putRoot(ctx, HeldRoot{Builder: "b1", RootDigest: [32]byte{1}, StandingDigest: standing, RootHeight: 5, ReceivedHeight: 200}, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneAll(ctx, s, 150); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.hasSent(ctx, "b1", standing); !ok {
+		t.Fatal("the proved handraise was pruned before the root that proves it")
+	}
+	if err := pruneAll(ctx, s, 211); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.hasSent(ctx, "b1", standing); ok {
+		t.Fatal("kept past the root's retention")
+	}
+}
+
+func TestHandraiseStorePruneRemovesTheOrderKeyOfACorruptRoot(t *testing.T) {
+	ctx := context.Background()
+	s := handraiseStore{st: openHandraiseTestStore(t)}
+	r := HeldRoot{Builder: "b1", RootDigest: [32]byte{1}, RootHeight: 9, RootVersion: 3, ReceivedHeight: 100}
+	if _, _, err := s.putRoot(ctx, r, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.PutRaw(ctx, hrRootKey("b1", hrDigestHex(r.RootDigest)), []byte("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneAll(ctx, s, 111); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := s.latestRootDigests(ctx, "b1", 10); len(d) != 0 {
+		t.Fatal("the order key of a corrupt root was orphaned")
 	}
 }

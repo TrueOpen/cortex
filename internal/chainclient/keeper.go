@@ -578,6 +578,23 @@ func (c *KeeperABCIClient) CommittedModelSupportScope(ctx context.Context, opera
 	if err != nil {
 		return CommittedModelSupportScope{}, err
 	}
+	return c.modelSupportScopeMemo(ctx, operatorAddress, modelID, version, height)
+}
+
+// ModelSupportScopeAt is CommittedModelSupportScope pinned to height, which
+// must have come from CommittedHeight.
+func (c *KeeperABCIClient) ModelSupportScopeAt(ctx context.Context, operatorAddress, modelID, profileVersion string, height uint64) (CommittedModelSupportScope, error) {
+	version, err := canonicalProfileVersionUint32(profileVersion)
+	if err != nil {
+		return CommittedModelSupportScope{}, err
+	}
+	if height == 0 {
+		return CommittedModelSupportScope{}, fmt.Errorf("model support scope query height is required")
+	}
+	return c.modelSupportScopeMemo(ctx, operatorAddress, modelID, version, height)
+}
+
+func (c *KeeperABCIClient) modelSupportScopeMemo(ctx context.Context, operatorAddress, modelID string, version uint32, height uint64) (CommittedModelSupportScope, error) {
 	operatorAddress, modelID = strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID)
 	// Every query below is pinned to height, so the whole scope is a pure
 	// function of its arguments and the height: an order admitted in the same

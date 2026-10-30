@@ -217,3 +217,73 @@ func TestHandraiseRootOrderAdmissionAndAlerts(t *testing.T) {
 		t.Fatalf("want an equivocation alert, got %+v", last)
 	}
 }
+
+func alertKinds(x *hrHarness) (out []string) {
+	for _, a := range x.alerts {
+		out = append(out, a.Kind)
+	}
+	return out
+}
+
+// The equivocation flag is persisted with the root, so a redelivery, also
+// after a restart, alerts again; duplicates are acceptable, a lost alert is
+// not.
+func TestHandraiseRootEquivocationAlertsAgainOnRedelivery(t *testing.T) {
+	ctx := context.Background()
+	x := newHRHarness(t, nil)
+	x.warm()
+	mine := x.a.handraises()[0]
+	first := hrRootNotice(t, hrBuilderA, hrBuilderKey, 300, 0, admittedLeaf(mine))
+	second := hrRootNotice(t, hrBuilderA, hrBuilderKey, 300, 0, admittedLeaf(mine), admittedLeaf(someoneElse(mine)))
+	for _, n := range []*nexusv1.HandraiseRootNoticeV1{first, second, second} {
+		if err := x.h.HandleRootNotice(ctx, hrBuilderA, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := alertKinds(x); !slices.Equal(got, []string{AlertHandraiseRootEquivocation, AlertHandraiseRootEquivocation}) {
+		t.Fatalf("alerts %v", got)
+	}
+	x.open()
+	if err := x.h.HandleRootNotice(ctx, hrBuilderA, second); err != nil {
+		t.Fatal(err)
+	}
+	if got := alertKinds(x); len(got) != 3 || got[2] != AlertHandraiseRootEquivocation {
+		t.Fatalf("after a restart the redelivered equivocal root alerts again: %v", got)
+	}
+}
+
+// A crash after the root is stored but before its alert must not lose the
+// not-admitted alert: admission is seeded from the newest stored root and a
+// not-admitted one is re-raised at start.
+func TestHandraiseRootNotAdmittedAlertSurvivesACrash(t *testing.T) {
+	ctx := context.Background()
+	x := newHRHarness(t, nil)
+	x.warm()
+	mine := x.a.handraises()[0]
+	n := hrRootNotice(t, hrBuilderA, hrBuilderKey, 300, 0,
+		&taskv1.HandraiseRootLeafV1{Handraise: mine, AdmitRejectReason: taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE})
+	inc, err := dispatchwire.VerifyInclusion(n.GetRoot(), n.GetProof(), dispatchwire.InclusionContext{
+		ChainID: hrChainID, BuilderOperator: hrBuilderA, BuilderPubKey: hrPub(t, hrBuilderKey),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stored, then the process died before alerting.
+	if _, _, err := x.h.db.putRoot(ctx, HeldRoot{Builder: hrBuilderA, RootDigest: inc.RootDigest, StandingDigest: inc.StandingDigest,
+		RootHeight: 300, Reason: inc.Reason, ReceivedHeight: 101}, 1_000); err != nil {
+		t.Fatal(err)
+	}
+	x.open()
+	if a, ok := x.h.Admission(hrBuilderA); !ok || a.RootHeight != 300 || a.Admitted {
+		t.Fatalf("admission is seeded from the store: %+v %v", a, ok)
+	}
+	if got := alertKinds(x); !slices.Equal(got, []string{AlertHandraiseNotAdmitted}) {
+		t.Fatalf("alerts after restart %v, want the not-admitted alert", got)
+	}
+	if err := x.h.HandleRootNotice(ctx, hrBuilderA, n); err != nil {
+		t.Fatal(err)
+	}
+	if len(x.alerts) != 1 {
+		t.Fatalf("the redelivery is idempotent for admission: %v", alertKinds(x))
+	}
+}

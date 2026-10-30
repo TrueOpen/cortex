@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/TrueOpen/wire/dispatch"
 
+	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/store"
 )
@@ -201,6 +203,10 @@ func TestStandingHandraiseEnqueueFailureResendsWithoutReusingTheNonce(t *testing
 	}
 	x.a.setFail(nil)
 	x.step(100*time.Millisecond, 101)
+	if len(x.a.handraises()) != 0 {
+		t.Fatal("a retry must wait for the 1s backoff")
+	}
+	x.step(900*time.Millisecond, 101)
 	if got := issueOf(x.a); !slices.Equal(got, [][2]uint64{{101, 1}}) {
 		t.Fatalf("the retry is a fresh handraise with the next nonce, got %v", got)
 	}
@@ -212,10 +218,12 @@ func TestStandingHandraiseEnqueueFailureResendsWithoutReusingTheNonce(t *testing
 func TestStandingHandraiseWithdrawsOnFactsAndStaysSilentOnReadFailures(t *testing.T) {
 	x := newHRHarness(t, nil)
 	x.warm()
+	// Chain facts are read once per committed height, so each change below
+	// lands with a new height, as it does on chain.
 	x.chain.with(func(f *fakeHandraiseChain) { f.cortexKey.HasPendingRotation = true })
-	x.step(100*time.Millisecond, 101)
+	x.step(100*time.Millisecond, 102)
 	w := x.a.handraises()[1]
-	if w.GetFreeSlotCount() != 0 || len(w.GetProfiles()) != 0 || w.GetHandraiseNonce() != 1 || w.GetServiceAuthorizationNonce() != 7 {
+	if w.GetFreeSlotCount() != 0 || len(w.GetProfiles()) != 0 || w.GetIssuedHeight() != 102 || w.GetHandraiseNonce() != 0 || w.GetServiceAuthorizationNonce() != 7 {
 		t.Fatalf("withdrawal: %v", w)
 	}
 	x.step(10*time.Second, 106)
@@ -223,8 +231,8 @@ func TestStandingHandraiseWithdrawsOnFactsAndStaysSilentOnReadFailures(t *testin
 		t.Fatal("after the withdrawal nothing is sent while the rotation is pending")
 	}
 	x.chain.with(func(f *fakeHandraiseChain) { f.cortexKey.HasPendingRotation = false })
-	x.step(100*time.Millisecond, 106)
-	if r := x.a.handraises()[2]; len(r.GetProfiles()) != 3 || r.GetIssuedHeight() != 106 || r.GetHandraiseNonce() != 0 {
+	x.step(100*time.Millisecond, 107)
+	if r := x.a.handraises()[2]; len(r.GetProfiles()) != 3 || r.GetIssuedHeight() != 107 || r.GetHandraiseNonce() != 0 {
 		t.Fatalf("reopen: %v", r)
 	}
 	x.chain.with(func(f *fakeHandraiseChain) { f.nodeErr = errors.New("rpc down") })
@@ -258,18 +266,129 @@ func TestStandingHandraiseRetriesAWithdrawalWhoseEnqueueFailed(t *testing.T) {
 	x.warm()
 	x.chain.with(func(f *fakeHandraiseChain) { f.cortexKey.HasPendingRotation = true })
 	x.a.setFail(errors.New("outbox unwritable"))
-	if err := x.try(100*time.Millisecond, 101); err == nil {
+	if err := x.try(100*time.Millisecond, 102); err == nil {
 		t.Fatal("a failed enqueue must surface")
 	}
 	x.a.setFail(nil)
-	x.step(100*time.Millisecond, 101)
+	x.step(time.Second, 102) // past the 1s backoff
 	hs := x.a.handraises()
-	if len(hs) != 2 || len(hs[1].GetProfiles()) != 0 || hs[1].GetHandraiseNonce() != 2 {
+	if len(hs) != 2 || len(hs[1].GetProfiles()) != 0 || hs[1].GetIssuedHeight() != 102 || hs[1].GetHandraiseNonce() != 1 {
 		t.Fatalf("the withdrawal must be retried with a fresh nonce: %v", issueOf(x.a))
 	}
 	x.h.Rebound(hrBuilderA)
-	x.step(100*time.Millisecond, 101)
+	x.step(100*time.Millisecond, 102)
 	if len(x.a.handraises()) != 2 || len(x.b.handraises()) != 2 {
 		t.Fatal("once a withdrawal is enqueued, a rebound sends nothing more (the outbox replays it)")
+	}
+}
+
+func TestStandingHandraiseReboundDuringEnqueueIsNotLost(t *testing.T) {
+	x := newHRHarness(t, nil)
+	x.warm()
+	x.a.mu.Lock()
+	x.a.during = func() { x.h.Rebound(hrBuilderA); x.a.during = nil }
+	x.a.mu.Unlock()
+	x.h.Rebound(hrBuilderA)
+	x.step(100*time.Millisecond, 101) // resend; a new binding lands mid-enqueue
+	x.step(100*time.Millisecond, 101)
+	if got := issueOf(x.a); !slices.Equal(got, [][2]uint64{{101, 0}, {101, 1}, {101, 2}}) {
+		t.Fatalf("a Rebound during Enqueue must cause one more send, got %v", got)
+	}
+	x.step(100*time.Millisecond, 101)
+	if len(x.a.handraises()) != 3 {
+		t.Fatal("and only one")
+	}
+}
+
+func sentLogSize(t *testing.T, x *hrHarness, builder string) int {
+	t.Helper()
+	n := 0
+	if err := x.st.ScanPrefix(context.Background(), []byte(hrSentPrefix+builder+"/"), func(_, _ []byte) error { n++; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestStandingHandraiseEnqueueFailureBacksOff(t *testing.T) {
+	x := newHRHarness(t, nil) // heartbeat 10s caps the backoff
+	x.a.setFail(errors.New("outbox unwritable"))
+	x.step(0, 100)
+	if err := x.try(2*time.Second, 101); err == nil { // first attempt
+		t.Fatal("a failed enqueue must surface")
+	}
+	for range 300 {
+		_ = x.try(100*time.Millisecond, 101)
+	}
+	// Attempts at 0, +1s, +3s, +7s, +15s and +25s: 1, 2, 4, 8 and then the
+	// 10s cap between them.
+	if n := sentLogSize(t, x, hrBuilderA); n != 6 {
+		t.Fatalf("handraise-sent grew to %d entries in 30s of failures, want 6", n)
+	}
+	x.a.mu.Lock()
+	tries := x.a.tries
+	x.a.mu.Unlock()
+	if tries != 6 {
+		t.Fatalf("%d enqueue attempts, want 6", tries)
+	}
+	if n := sentLogSize(t, x, hrBuilderB); n != 4 || len(x.b.handraises()) != 4 {
+		t.Fatalf("B is unaffected and heartbeats every 10s: %d sent", n)
+	}
+	x.a.setFail(nil)
+	x.step(10*time.Second, 101)
+	if len(x.a.handraises()) != 1 {
+		t.Fatal("after recovery the handraise goes out")
+	}
+}
+
+func TestStandingHandraiseChainFactsAreReadOncePerHeight(t *testing.T) {
+	x := newHRHarness(t, nil)
+	x.warm()
+	first := x.chain.calls()
+	x.step(100*time.Millisecond, 101)
+	x.local.with(func(l *fakeHandraiseLocal) { l.free = 1 })
+	x.step(100*time.Millisecond, 101) // local inputs are still re-read
+	if got := x.chain.calls(); got != first {
+		t.Fatalf("passes at the same height made %d more chain calls", got-first)
+	}
+	if hs := x.a.handraises(); hs[len(hs)-1].GetFreeSlotCount() != 1 {
+		t.Fatal("free slots are local and re-read every pass")
+	}
+	x.step(100*time.Millisecond, 102)
+	// node, bond, key, member, three scopes, two VRF keys.
+	if got := x.chain.calls() - first; got != 9 {
+		t.Fatalf("a new height made %d chain calls, want one round of 9", got)
+	}
+	x.chain.with(func(f *fakeHandraiseChain) {
+		for h := range f.readHeights {
+			if h < 100 || h > 102 {
+				t.Errorf("pinned read at height %d", h)
+			}
+		}
+	})
+}
+
+func TestStandingHandraisePartialProfileReadFailureNeverSends(t *testing.T) {
+	x := newHRHarness(t, nil)
+	x.warm()
+	x.chain.with(func(f *fakeHandraiseChain) {
+		f.scopeErrFor[config.MinPriceBidKey(hrModelCD, 1)] = errors.New("rpc down")
+	})
+	x.step(3*time.Second, 102) // past the minimum change interval
+	if len(x.a.handraises()) != 1 {
+		t.Fatal("a profile read failure must never cause a send")
+	}
+	x.step(10*time.Second, 103) // heartbeat
+	hs := x.a.handraises()
+	if len(hs) != 2 || len(hs[1].GetProfiles()) != 3 {
+		t.Fatalf("the heartbeat keeps the unreadable but previously offered profile: %v", hs[len(hs)-1].GetProfiles())
+	}
+}
+
+func TestNewStandingHandraiserRejectsANilEnqueuer(t *testing.T) {
+	x := newHRHarness(t, nil)
+	cfg := x.h.cfg
+	cfg.Builders = map[string]HandraiseEnqueuer{hrBuilderA: x.a, hrBuilderB: nil}
+	if _, err := NewStandingHandraiser(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), hrBuilderB) {
+		t.Fatalf("err = %v, want the nil enqueuer named", err)
 	}
 }

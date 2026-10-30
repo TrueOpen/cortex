@@ -86,3 +86,20 @@ func TestDecideHandraise(t *testing.T) {
 		})
 	}
 }
+
+func TestBlockClockDropsSamplesAcrossAHalt(t *testing.T) {
+	c := blockClock{maxAge: 2 * time.Minute}
+	t0 := time.UnixMilli(1_000_000)
+	for i := range uint64(10) {
+		c.observe(100+i, t0.Add(time.Duration(i)*2*time.Second))
+	}
+	resume := t0.Add(18*time.Second + 10*time.Minute) // the chain halted for 10 minutes
+	c.observe(110, resume)
+	if iv, ok := c.interval(); !ok || iv != 2*time.Second {
+		t.Fatalf("interval after a halt = %v %v, want the 2s estimate, not the halt", iv, ok)
+	}
+	c.observe(111, resume.Add(3*time.Second))
+	if iv, _ := c.interval(); iv != 3*time.Second {
+		t.Fatalf("interval = %v, want 3s from the post-halt samples", iv)
+	}
+}

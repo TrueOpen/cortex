@@ -28,6 +28,15 @@ func (c *KeeperABCIClient) BuilderVrfKey(ctx context.Context, operatorAddress st
 	if err != nil {
 		return VrfKeySnapshot{}, err
 	}
+	return c.BuilderVrfKeyAt(ctx, operatorAddress, height)
+}
+
+// BuilderVrfKeyAt is BuilderVrfKey pinned to height, which must have come
+// from CommittedHeight, so it can be read beside other facts at that height.
+func (c *KeeperABCIClient) BuilderVrfKeyAt(ctx context.Context, operatorAddress string, height uint64) (VrfKeySnapshot, error) {
+	if height == 0 {
+		return VrfKeySnapshot{}, fmt.Errorf("Builder VRF key query height is required")
+	}
 	request := &hubv1.QueryVrfKeyRequest{
 		OperatorAddress: strings.TrimSpace(operatorAddress),
 		ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER,

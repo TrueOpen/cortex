@@ -79,17 +79,20 @@ func (h *StandingHandraiser) HandleRootNotice(ctx context.Context, builder strin
 		Admitted: inc.Admitted, Reason: inc.Reason, RTTMillis: inc.RTTMillis,
 		ReceivedHeight: height, ReceivedAtUnixMs: h.cfg.Now().UnixMilli(), Notice: raw,
 	}
-	stored, equivocal, err := h.db.putRoot(ctx, r, h.cfg.RetentionBlocks)
+	held, _, err := h.db.putRoot(ctx, r, h.cfg.RetentionBlocks)
+	if errors.Is(err, errCorruptHeldRoot) {
+		return fmt.Errorf("persist handraise root: %w", err) // retrying cannot help
+	}
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("persist handraise root: %w", err))
 	}
-	if !stored {
-		return nil // redelivery of a root already held
+	// Also on a redelivery: a crash may have come between storing the root
+	// and alerting on it. Both steps are idempotent; a duplicate alert is
+	// acceptable, a lost one is not.
+	if held.Equivocal {
+		h.alert(HandraiseAlert{Kind: AlertHandraiseRootEquivocation, Builder: builder, Root: held})
 	}
-	if equivocal {
-		h.alert(HandraiseAlert{Kind: AlertHandraiseRootEquivocation, Builder: builder, Root: r})
-	}
-	h.observeAdmission(r)
+	h.observeAdmission(held)
 	return nil
 }
 
@@ -119,21 +122,25 @@ func (h *StandingHandraiser) alert(a HandraiseAlert) {
 }
 
 // HoldsRoot reports whether this node retains builder's root with this
-// handraise_root_digest. S4 builds dispatchwire.TicketContext.HeldRootDigests
-// from it for the ticket at hand: {ticket.handraise_root_digest: held}.
+// handraise_root_digest: any retained root, admitted=false ones included,
+// not only the newest RootHistory. S4 must build
+// dispatchwire.TicketContext.HeldRootDigests from it for the ticket at hand,
+// {ticket.handraise_root_digest: held}, not from HeldRootDigests.
 func (h *StandingHandraiser) HoldsRoot(ctx context.Context, builder string, digest [32]byte) (bool, error) {
 	return h.db.holdsRoot(ctx, builder, digest)
 }
 
-// HeldRootDigests returns builder's newest RootHistory root digests.
+// HeldRootDigests returns builder's newest RootHistory root digests, read
+// from the order index alone. It is a bounded view for diagnostics; ticket
+// checks use HoldsRoot.
 func (h *StandingHandraiser) HeldRootDigests(ctx context.Context, builder string) (map[[32]byte]bool, error) {
-	roots, err := h.db.latestRoots(ctx, builder, h.cfg.RootHistory)
+	digests, err := h.db.latestRootDigests(ctx, builder, h.cfg.RootHistory)
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[[32]byte]bool, len(roots))
-	for _, r := range roots {
-		out[r.RootDigest] = true
+	out := make(map[[32]byte]bool, len(digests))
+	for _, d := range digests {
+		out[d] = true
 	}
 	return out, nil
 }
