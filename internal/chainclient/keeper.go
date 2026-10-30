@@ -292,7 +292,7 @@ func serviceKeySnapshotFromWire(binding *hubv1.CurrentServiceKeyViewV1) (Service
 			return ServiceKeySnapshot{}, fmt.Errorf("Keeper current Builder service key status %d is unsupported", binding.GetBuilderServiceKeyStatus())
 		}
 	}
-	return ServiceKeySnapshot{
+	snapshot := ServiceKeySnapshot{
 		ParticipantType:          participant,
 		OperatorAddress:          binding.OperatorAddress,
 		ServiceAddress:           binding.ServiceAddress,
@@ -300,7 +300,17 @@ func serviceKeySnapshotFromWire(binding *hubv1.CurrentServiceKeyViewV1) (Service
 		AuthorizationNonce:       Uint64String(binding.ServiceAuthorizationNonce),
 		CurrentDescriptorVersion: Uint64String(binding.CurrentDescriptorVersion),
 		Status:                   status,
-	}, nil
+	}
+	if p := binding.GetPendingRotation(); p != nil {
+		snapshot.HasPendingRotation = true
+		snapshot.PendingRotation = PendingServiceKeyRotationSnapshot{
+			RegisteredHeight:       p.GetRegisteredHeight(),
+			EffectiveHeight:        p.GetEffectiveHeight(),
+			OldMaterialCloseHeight: p.GetOldMaterialCloseHeight(),
+			NextAuthorizationNonce: p.GetNextServiceAuthorizationNonce(),
+		}
+	}
+	return snapshot, nil
 }
 
 func (c *KeeperABCIClient) Task(ctx context.Context, sessionID, taskID string) (TaskSnapshot, error) {

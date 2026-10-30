@@ -59,6 +59,103 @@ type Config struct {
 	ChallengeVerifier ChallengeVerifierConfig `yaml:"challenge_verifier"`
 	Health            HealthConfig            `yaml:"health"`
 	ModelManifest     ModelManifestConfig     `yaml:"model_manifest"`
+	Dispatch          DispatchConfig          `yaml:"dispatch"`
+}
+
+// DefaultHandraiseRootHistory bounds HeldRootDigests per Builder. It is a
+// local value, not a protocol parameter.
+const DefaultHandraiseRootHistory = 64
+
+// DispatchConfig is the Phase 1 direct-dispatch configuration (CD §15.1).
+// S3 adds the standing handraise and dispatch evidence settings; the Builder
+// list and stream settings arrive with S9. heartbeat_ms, ttl_ms,
+// min_change_interval_ms and evidence_retention_blocks are 参数表 values
+// "待参数标定" that every Builder shares, so none has a built-in default
+// (CD §15.3).
+type DispatchConfig struct {
+	// EvidenceRetentionBlocks is dispatch_evidence_retention_blocks: how long
+	// handraise roots, inclusion proofs and the handraises they prove are kept.
+	EvidenceRetentionBlocks uint64          `yaml:"evidence_retention_blocks"`
+	Handraise               HandraiseConfig `yaml:"handraise"`
+	// MinPriceBid is the local min_price_bid per profile, keyed
+	// "<model_id hex>@<profile_version>" (CD §15.2, §5.1 H4). A supported
+	// profile without one is left out of every standing handraise.
+	MinPriceBid map[string]uint64 `yaml:"min_price_bid"`
+}
+
+// HandraiseConfig times the standing handraise (CD §4.2.0).
+type HandraiseConfig struct {
+	HeartbeatMS         uint64 `yaml:"heartbeat_ms"`
+	TTLMS               uint64 `yaml:"ttl_ms"`
+	MinChangeIntervalMS uint64 `yaml:"min_change_interval_ms"`
+	// RootHistory is how many of each Builder's newest roots HeldRootDigests
+	// answers from. Retention on disk is EvidenceRetentionBlocks.
+	RootHistory int `yaml:"root_history"`
+}
+
+// MinPriceBidKey is the dispatch.min_price_bid key of one profile.
+func MinPriceBidKey(modelID string, profileVersion uint32) string {
+	return modelID + "@" + strconv.FormatUint(uint64(profileVersion), 10)
+}
+
+func parseMinPriceBidKey(key string) error {
+	modelID, version, ok := strings.Cut(key, "@")
+	parsed, err := strconv.ParseUint(version, 10, 32)
+	if !ok || !identity.ValidModelIDHex(modelID) || err != nil || parsed == 0 || strconv.FormatUint(parsed, 10) != version {
+		return fmt.Errorf("must be <64 lowercase hex model_id>@<profile_version>")
+	}
+	return nil
+}
+
+// problems validates the block and fills the local default. The four shared
+// timings are all-or-nothing; S9 makes them required in real mode.
+func (d *DispatchConfig) problems() []string {
+	var problems []string
+	if d.Handraise.RootHistory == 0 {
+		d.Handraise.RootHistory = DefaultHandraiseRootHistory
+	}
+	if d.Handraise.RootHistory < 1 || d.Handraise.RootHistory > 4096 {
+		problems = append(problems, "dispatch.handraise.root_history must be between 1 and 4096")
+	}
+	keys := make([]string, 0, len(d.MinPriceBid))
+	for key := range d.MinPriceBid {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := parseMinPriceBidKey(key); err != nil {
+			problems = append(problems, fmt.Sprintf("dispatch.min_price_bid key %q %v", key, err))
+		}
+		if d.MinPriceBid[key] == 0 {
+			problems = append(problems, fmt.Sprintf("dispatch.min_price_bid[%q] must be greater than zero", key))
+		}
+	}
+	h := d.Handraise
+	timings := []struct {
+		field string
+		value uint64
+	}{
+		{"dispatch.evidence_retention_blocks", d.EvidenceRetentionBlocks},
+		{"dispatch.handraise.heartbeat_ms", h.HeartbeatMS},
+		{"dispatch.handraise.ttl_ms", h.TTLMS},
+		{"dispatch.handraise.min_change_interval_ms", h.MinChangeIntervalMS},
+	}
+	configured := false
+	for _, f := range timings {
+		configured = configured || f.value != 0
+	}
+	if !configured {
+		return problems
+	}
+	for _, f := range timings {
+		if f.value == 0 {
+			problems = append(problems, f.field+" is required once any dispatch handraise timing is set (参数表; no built-in default)")
+		}
+	}
+	if h.HeartbeatMS != 0 && h.TTLMS != 0 && h.HeartbeatMS >= h.TTLMS {
+		problems = append(problems, "dispatch.handraise.heartbeat_ms must be less than dispatch.handraise.ttl_ms (cortex 详细设计 §15.1)")
+	}
+	return problems
 }
 
 // ModelManifestConfig says where a node obtains the full manifest of a model
@@ -997,6 +1094,8 @@ func (c *Config) Validate() error {
 	if passwordSources > 1 {
 		problems = append(problems, "signer.password_env, signer.password_file and signer.password_stdin are mutually exclusive")
 	}
+
+	problems = append(problems, c.Dispatch.problems()...)
 
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

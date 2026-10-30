@@ -1,0 +1,52 @@
+package chainclient
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	hubv1 "github.com/TrueOpen/cortex/proto/hub/v1"
+	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+)
+
+// VrfKeySnapshot is hub.v1.QueryVrfKeyResponse for one operator.
+type VrfKeySnapshot struct {
+	ActivePubkey       []byte
+	ActiveFromEpoch    uint64
+	PendingPubkey      []byte // nil unless a next-epoch key is registered
+	PendingFromEpoch   uint64
+	AuthorizationNonce uint64
+}
+
+// BuilderVrfKey reads a Builder's registered dispatch VRF key from the latest
+// committed state (hub.v1.Query/VrfKey, participant_type BUILDER: zero would
+// select the Validator registry). Standing handraise gate H1 needs it to be
+// readable, and dispatchwire.TicketContext.BuilderVRFPubKey is its active key.
+// There is deliberately no by-epoch read: wire's PHASE1_CONTRACT has none.
+func (c *KeeperABCIClient) BuilderVrfKey(ctx context.Context, operatorAddress string) (VrfKeySnapshot, error) {
+	height, err := c.CommittedHeight(ctx)
+	if err != nil {
+		return VrfKeySnapshot{}, err
+	}
+	request := &hubv1.QueryVrfKeyRequest{
+		OperatorAddress: strings.TrimSpace(operatorAddress),
+		ParticipantType: sharedv1.ParticipantType_PARTICIPANT_TYPE_BUILDER,
+	}
+	var response hubv1.QueryVrfKeyResponse
+	if err := c.query(ctx, hubQuery+"VrfKey", height, request, &response); err != nil {
+		return VrfKeySnapshot{}, err
+	}
+	if len(response.ActiveVrfPubkey) != 32 {
+		return VrfKeySnapshot{}, fmt.Errorf("Builder %s VRF key is %d bytes, want 32", operatorAddress, len(response.ActiveVrfPubkey))
+	}
+	snapshot := VrfKeySnapshot{
+		ActivePubkey:       append([]byte(nil), response.ActiveVrfPubkey...),
+		ActiveFromEpoch:    response.ActiveFromEpoch,
+		AuthorizationNonce: response.VrfAuthorizationNonce,
+	}
+	if response.PendingVrfPubkey != nil {
+		snapshot.PendingPubkey = append([]byte(nil), response.PendingVrfPubkey...)
+		snapshot.PendingFromEpoch = response.GetPendingFromEpoch()
+	}
+	return snapshot, nil
+}

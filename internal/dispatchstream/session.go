@@ -70,7 +70,12 @@ type Config struct {
 	Height         func() uint64
 	DedupRetention time.Duration // default DefaultDedupRetention
 	Rand           io.Reader     // stream nonces; default crypto/rand
-	Logger         *slog.Logger
+	// OnBound, when set, is called with the Builder operator after each new
+	// binding frame is sent and before any replay. It must not block. The
+	// standing handraise uses it to sign a fresh handraise for every binding
+	// (CD §4.2.0 "流断开 … 并重发常驻举手").
+	OnBound func(builder string)
+	Logger  *slog.Logger
 }
 
 // Outgoing is a signed Cortex business message to deliver to the Builder.
@@ -278,6 +283,9 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	}()
 	if err := c.stream.Send(&rawFrame{b: wrapEnvelope(bindingFrame)}); err != nil {
 		return false, fmt.Errorf("send binding: %w", err)
+	}
+	if s.cfg.OnBound != nil {
+		s.cfg.OnBound(s.cfg.BuilderOperator)
 	}
 	wg.Add(1)
 	go func() {
