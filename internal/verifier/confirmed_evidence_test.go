@@ -24,6 +24,7 @@ func confirmedTaskWithValues(t *testing.T, h harness) (TaskState, []byte) {
 	t.Helper()
 	ctx := context.Background()
 	h.verifier.cfg.FakeOutput = false
+	h.verifier.cfg.ResultSubmitter = testResultSubmitter(h.tx)
 	profile := fixtureLockedProfile()
 	requiredTopK := profile.Profile.RequiredTopK
 	state := h.validTask()

@@ -123,6 +123,16 @@ type TaskRunnerConfig struct {
 	Trace          *tasktrace.Trace
 	InferExecutor  InferExecutor
 	VerifyExecutor VerifyExecutor
+	// VerifyCommitReader confirms this node's own commit row before the
+	// reveal reads B-level evidence (CD §6.2 V13–V14a). S9 wires it.
+	VerifyCommitReader chainclient.VerifyCommitReader
+	// VerifyNotices queues VerifyResultSubmittedNoticeV1 on every Builder
+	// stream (V12, V15). S9 wires the StreamFanout; nil sends none.
+	VerifyNotices verifier.NoticeSender
+	// TaskBuilders is the frozen Task Builder order evidence is fetched from
+	// and MsgReportDataUnavailable's bitmap follows. Nil falls back to the
+	// task's receiving Builder alone.
+	TaskBuilders chainclient.SelectedTaskBuildersReader
 	// CrashHook, if non-nil, is forwarded to worker.Config and invoked at
 	// named durable-handoff points. Tests use it to simulate crashes between
 	// commits.

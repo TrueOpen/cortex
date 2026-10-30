@@ -187,6 +187,32 @@ func (m *SettlementManager) SubmitVerifyCommitDirect(ctx context.Context, in Dir
 	return SettlementObservation{Submitted: true, Tx: tx}, nil
 }
 
+// SubmitVerifyResultDirect self-submits the signed result (CD §6.2 V15). The
+// result relay through the Task Builder is deferred (S7 Q7), so this is the
+// result's only exit; it shares the commit exit's operator checks and fee cap.
+func (m *SettlementManager) SubmitVerifyResultDirect(ctx context.Context, in DirectResultInput) (SettlementObservation, error) {
+	if strings.TrimSpace(in.TaskID) == "" || in.DeadlineHeight == 0 {
+		return SettlementObservation{}, fmt.Errorf("verify result self-submission requires a task id and the reveal deadline height")
+	}
+	if err := m.validateCortexOperator(txclient.MsgSubmitVerifyResult, in.Message); err != nil {
+		return SettlementObservation{}, err
+	}
+	payload, err := txclient.MarshalMessage(txclient.MsgSubmitVerifyResult, in.Message)
+	if err != nil {
+		return SettlementObservation{}, err
+	}
+	tx, err := m.submit(ctx, txclient.Request{
+		TaskID: in.TaskID, SessionID: in.SessionID, Kind: txclient.MsgSubmitVerifyResult, Payload: payload,
+		DeadlineHeight: in.DeadlineHeight,
+		MaterialDigest: codec.HashWithDomain("TRUEOPEN_VERIFIER_RESULT_SELF_SUBMIT_MATERIAL_V1", []byte(in.TaskID), payload),
+		FeeCap:         m.cfg.CommitFeeCap,
+	})
+	if err != nil {
+		return SettlementObservation{}, err
+	}
+	return SettlementObservation{Submitted: true, Tx: tx}, nil
+}
+
 // validateCortexOperator enforces the two address facts every verifier-signed
 // item carries: the body names this node's verifier operator, and the outer
 // Cosmos Tx submitter is this node's current Cortex service address. It is

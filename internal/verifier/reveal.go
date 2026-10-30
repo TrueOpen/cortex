@@ -77,6 +77,8 @@ type RevealResult struct {
 	ResultReveal     []byte
 	EvidenceManifest []byte
 	MetricMaterial   metric.Material
+	// Delivery is what happened to the MsgSubmitVerifyResult self-submission.
+	Delivery ResultDelivery
 }
 
 // HandleRevealPhaseStarted assembles, signs and publishes the frozen
@@ -113,6 +115,11 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 			"%w: task %s round %d has no reveal_deadline_height, and keeper §10.7 writes that height only in "+
 				"StartRevealPhase, so the reveal cannot be submitted and its expiry_height cannot be sourced",
 			ErrRevealPhaseNotStarted, state.TaskID, state.VerifyRound)
+	}
+	// Before any B-level read: a real-mode reveal with no way to put its result
+	// on chain must not download the value bundle or sign anything.
+	if v.cfg.ResultSubmitter == nil && !v.cfg.FakeOutput {
+		return RevealResult{}, fmt.Errorf("%w: no direct result submitter is wired, so a signed result would stay local", ErrResultExitUnavailable)
 	}
 	// generation_params_digest is frozen preimage field 7 and a consensus read,
 	// so it is fetched rather than derived. v.taskFacts validates the answer it
@@ -197,11 +204,18 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 		// responsibility exists to carry: it must be the Keeper's reveal
 		// deadline, never the commit deadline.
 		tasktrace.Uint("expiry_height", resultWire.ExpiryHeight))
-	return RevealResult{
+	out := RevealResult{
 		Signed: true, ExpiryHeight: resultWire.ExpiryHeight, ResultSigningDigest: resultSigningDigest,
 		ResultDigest: codec.HashBytes(reveal.ResultReveal), ResultReveal: reveal.ResultReveal,
 		EvidenceManifest: reveal.EvidenceManifest, MetricMaterial: reveal.MetricMaterial,
-	}, nil
+	}
+	if out.Delivery, err = v.deliverResult(ctx, state, resultWire); err != nil {
+		return out, err
+	}
+	if err := v.notifySubmitted(ctx, state, noticeAfterResult); err != nil {
+		return out, err
+	}
+	return out, nil
 }
 
 // metricSummaryHashOrZero derives the value the Keeper will store for this

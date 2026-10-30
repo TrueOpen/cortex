@@ -179,58 +179,6 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	return task, false, nil
 }
 
-// confirmWorkerEvidence downloads and binds the Worker's two bundles for one
-// verify round.
-//
-// A nil confirmer is not an error: it is the fake model transport's deployment,
-// where the Worker and the Verifier share a model service and the confirmed
-// package carries usable material refs. Returning empty evidence there leaves
-// verifier.HandleOpenVerifyAccepted on its ref path, which is the only path that
-// can serve those refs. On a real chain the confirmer is always built alongside
-// OutputConfirmer, and RunVerify has already refused above if that one is nil.
-func (e *productionVerifyExecutor) confirmWorkerEvidence(
-	ctx context.Context,
-	task store.VerifyTask,
-	pkg builderclient.OutputPackage,
-) (WorkerEvidence, error) {
-	if e.cfg.EvidenceConfirmer == nil {
-		return WorkerEvidence{}, nil
-	}
-	if pkg.SignedInferReceipt == nil {
-		return WorkerEvidence{}, fmt.Errorf(
-			"confirmed output for task %s carries no signed infer receipt, so the required evidence commitments are unknown; "+
-				"the receipt is the only chain-bound source of required_evidence_commitments", task.TaskID)
-	}
-	// evidence_schema_hash and required_top_k are commitment inputs the receipt
-	// does not carry. They are read from the locked Profile the assignment names,
-	// exactly as the Worker read them when it built the commitments; a reader
-	// that resolves a different profile version cannot reproduce the digests,
-	// which is a refusal rather than a value to substitute.
-	if e.cfg.ProfileReader == nil {
-		return WorkerEvidence{}, builderclient.Retryable(fmt.Errorf(
-			"Keeper profile reader is required to confirm Worker evidence for task %s", task.TaskID))
-	}
-	profile, err := e.cfg.ProfileReader.CurrentModelProfile(ctx, task.ModelID, fmt.Sprintf("%d", task.ProfileVersion))
-	if err != nil {
-		return WorkerEvidence{}, builderclient.Retryable(fmt.Errorf("query locked model profile: %w", err))
-	}
-	limits, err := workerEvidenceLimits(profile)
-	if err != nil {
-		return WorkerEvidence{}, err
-	}
-	return e.cfg.EvidenceConfirmer.ConfirmWorkerEvidence(ctx, EvidenceCommitments{
-		SessionID:              task.SessionID,
-		TaskID:                 task.TaskID,
-		BuilderOperatorAddress: task.BuilderOperatorAddress,
-		Receipt:                *pkg.SignedInferReceipt,
-		Output:                 pkg.Output,
-		EvidenceSchemaHash:     profile.Profile.VerificationProfile.EvidenceSchemaHash.Hex(),
-		OutputChunkLengths:     pkg.OutputChunkLengths,
-		MaxEncodedSizeBytes:    limits,
-		RequiredTopK:           profile.Profile.RequiredTopK,
-	})
-}
-
 // workerEvidenceLimits reads the locked Profile's two Worker evidence
 // requirements, refusing any other shape.
 func workerEvidenceLimits(profile chainclient.CurrentModelProfileSnapshot) (map[nodewire.EvidenceKind]uint64, error) {
@@ -286,36 +234,48 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 		tasktrace.Uint("reveal_deadline_height", task.RevealDeadlineHeight),
 		tasktrace.Uint("verify_deadline_height", task.DeadlineHeight))
 	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence}
+	builders, err := e.fixedTaskBuilders(ctx, task)
+	if err != nil {
+		return task, false, err
+	}
+	var servedBy string
+	// The A level only (ADR-0023, CD §6.2 V7a): the output and the Worker's
+	// token bundle, from the fixed Task Builders in order. The value bundle is
+	// not requested before this node's commit is on chain and the round is
+	// REVEALING (runReveal).
+	//
+	// The token bundle is a second download and not a detail of the first: the
+	// OUTPUT object is the inference result, the WORKER_TOKEN_OPENING artifacts
+	// are what local re-verification runs over, and they are separate objects
+	// under separate signed selectors on the task-data plane.
 	fetch := func() (builderclient.OutputPackage, WorkerEvidence, error) {
-		pkg, err := e.cfg.OutputConfirmer.ConfirmOutput(ctx, commitments)
-		if err != nil {
-			e.cfg.Trace.ErrorEvent("output_confirm_failed",
-				tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
-				tasktrace.Hash("committed_output_hash", commitments.OutputHash),
-				tasktrace.Hash("committed_package_hash", commitments.PackageHash),
-				tasktrace.Str("builder", commitments.BuilderOperatorAddress), tasktrace.Err("error", err))
-			return builderclient.OutputPackage{}, WorkerEvidence{}, fmt.Errorf("confirm output before verify: %w", err)
-		}
-		e.cfg.Trace.Event("output_confirmed", traceConfirmedPackage("verify", pkg)...)
-		// The evidence the locked Profile requires. It is a second download and not a
-		// detail of the first: the OUTPUT object is the inference result, the
-		// WORKER_VALUE_OPENING artifacts are the opening material local
-		// re-verification runs against, and they are separate objects under separate
-		// signed selectors on the task-data plane.
-		//
-		// This is where the verify path used to die on a real chain. The artifact refs
-		// a confirmed package carries are Worker-local model-service addresses that no
-		// wire transports, so on every real-transport node they are empty and
-		// FetchArtifact refused with "empty ref" -- for 100k blocks, until the commit
-		// deadline passed.
-		workerEvidence, err := e.confirmWorkerEvidence(ctx, task, pkg)
-		if err != nil {
-			e.cfg.Trace.ErrorEvent("evidence_confirm_failed",
-				tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
-				tasktrace.Str("builder", commitments.BuilderOperatorAddress), tasktrace.Err("error", err))
-			return builderclient.OutputPackage{}, WorkerEvidence{}, fmt.Errorf("confirm Worker evidence before verify: %w", err)
-		}
-		return pkg, workerEvidence, nil
+		var pkg builderclient.OutputPackage
+		var tokens WorkerEvidence
+		served, err := tryBuilders(ctx, levelA, builders, func(ctx context.Context, builder string) error {
+			c := commitments
+			c.BuilderOperatorAddress = builder
+			p, err := e.cfg.OutputConfirmer.ConfirmOutput(ctx, c)
+			if err != nil {
+				e.cfg.Trace.ErrorEvent("output_confirm_failed",
+					tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
+					tasktrace.Hash("committed_output_hash", c.OutputHash),
+					tasktrace.Hash("committed_package_hash", c.PackageHash),
+					tasktrace.Str("builder", builder), tasktrace.Err("error", err))
+				return fmt.Errorf("confirm output before verify: %w", err)
+			}
+			e.cfg.Trace.Event("output_confirmed", traceConfirmedPackage("verify", p)...)
+			ev, err := e.confirmWorkerTokenEvidence(ctx, taskHash, task, builder, p)
+			if err != nil {
+				e.cfg.Trace.ErrorEvent("evidence_confirm_failed",
+					tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
+					tasktrace.Str("builder", builder), tasktrace.Err("error", err))
+				return fmt.Errorf("confirm Worker token evidence before verify: %w", err)
+			}
+			pkg, tokens = p, ev
+			return nil
+		})
+		servedBy = served
+		return pkg, tokens, err
 	}
 	// A commit this node already signed and persisted is re-delivered before
 	// any Builder is asked for the output or the Worker evidence, so it can
@@ -355,7 +315,7 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay})
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, CommitSubmitter: commitSubmitter, CommitRelay: commitRelay, Notices: e.cfg.VerifyNotices})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: inferReceiptHash, Member: member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: expiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
 	if resume {
 		if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil {
@@ -386,6 +346,7 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
+	_ = servedBy // S7-10 reports against the Builder that served the A level.
 	return e.verifyCommitted(taskHash, task, result), false, nil
 }
 
@@ -453,13 +414,11 @@ func (e *productionVerifyExecutor) verifyRoundIdentity(ctx context.Context, task
 // ResultReceiptV1 for a task whose commit is on chain and whose reveal phase the
 // chain has opened.
 //
-// It confirms no output and runs no model. Every input the frozen result body
-// needs is either chain state the reveal deadline effect already recorded or a
-// Keeper read, and the verification itself happened in the commit half — its
-// evidence is on disk. Re-confirming the output here would re-download it from
-// the Builder once per retry for nothing.
-//
-// It also builds no commit submitter: the reveal half never submits a commit.
+// It confirms no output and runs no model: the verification happened in the
+// commit half and its leaves are on disk. What it does download is the B
+// level (ADR-0023), and only after revealGate has seen this node's own commit
+// row on chain. The signed result leaves through the MsgSubmitVerifyResult
+// self-submission (resultSubmitter); the reveal half never submits a commit.
 func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec.Hash, task store.VerifyTask) (store.VerifyTask, bool, error) {
 	if task.RevealDeadlineHeight == 0 {
 		// The runner does not schedule this case (awaitingRevealPhase skips it),
@@ -479,8 +438,33 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		return task, false, err
 	}
 	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}})
+	// The reveal gate (S7 Q6): nothing of the B level is read unless this
+	// node's own commit row is on chain with the commit_hash it persisted.
+	if stop, err := e.revealGate(ctx, task, persistence); err != nil {
+		return task, false, err
+	} else if stop != "" {
+		e.cfg.Trace.ErrorEvent("verify_reveal_stopped", tasktrace.Str("task", task.TaskID), tasktrace.Str("reason", stop))
+		task.Stage, task.LastError, task.RetryAtUnixMilli = "failed", stop, 0
+		return task, false, nil
+	}
+	builders, err := e.fixedTaskBuilders(ctx, task)
+	if err != nil {
+		return task, false, err
+	}
+	resultExit, err := e.resultSubmitter(identity.signerAddress)
+	if err != nil {
+		return task, false, err
+	}
+	workerValues, workerReceipt, _, err := e.confirmWorkerValueEvidence(ctx, taskHash, task, persistence, builders)
+	if err != nil {
+		return task, false, err
+	}
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}, Notices: e.cfg.VerifyNotices, ResultSubmitter: resultExit})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: identity.inferReceiptHash, Member: identity.member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: identity.handraiseExpiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
+	state.ConfirmedWorkerValues = workerValues
+	if workerReceipt != nil {
+		state.ConfirmedInferReceipt = workerReceipt
+	}
 	reveal, err := v.HandleRevealPhaseStarted(ctx, state)
 	if err != nil {
 		return task, false, err
@@ -490,7 +474,11 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		tasktrace.Uint("verify_round", task.VerifyRound),
 		tasktrace.Hash("result_signing_digest", reveal.ResultSigningDigest),
 		tasktrace.Uint("expiry_height", reveal.ExpiryHeight),
-		tasktrace.Bool("signed", reveal.Signed))
+		tasktrace.Bool("signed", reveal.Signed),
+		tasktrace.Bool("result_submitted", reveal.Delivery.Submitted),
+		tasktrace.Str("result_tx", reveal.Delivery.TxHash))
+	// Q15: the result digest exists only now, after the reveal succeeded.
+	task.ReceiptDigest = reveal.ResultDigest
 	task.Stage = "succeeded"
 	task.LastError = ""
 	task.RetryAtUnixMilli = 0

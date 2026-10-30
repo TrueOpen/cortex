@@ -478,6 +478,12 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 			Tx: tx, VerifierAddress: verifierAddr, SubmitterAddress: verifierServiceAddress,
 			GasPayer: gasPayer, CommitFeeCap: txclient.Coin{Amount: 10, Denom: "utrueopen"},
 		}),
+		// The result exit: the signed result is self-submitted the same way the
+		// commit is (the Task Builder result relay is deferred).
+		ResultSubmitter: verifier.NewSettlementManager(verifier.SettlementConfig{
+			Tx: tx, VerifierAddress: verifierAddr, SubmitterAddress: verifierServiceAddress,
+			GasPayer: gasPayer, CommitFeeCap: txclient.Coin{Amount: 10, Denom: "utrueopen"},
+		}),
 		// The locked model profile the metric pipeline binds every leaf to, and
 		// whose MetricSpec decides the two optional MetricSummaryV1 members.
 		// Without it the reveal stops at the result-credential gap.

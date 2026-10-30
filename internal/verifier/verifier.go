@@ -75,6 +75,12 @@ type Config struct {
 	// must supply it.
 	CommitSubmitter   CommitSubmitter
 	EvidencePublisher EvidencePublisher
+	// Notices queues VerifyResultSubmittedNoticeV1 after the commit and after
+	// the result are handed off. Nil sends none.
+	Notices NoticeSender
+	// ResultSubmitter self-submits MsgSubmitVerifyResult. Required in real
+	// mode; nil with FakeOutput signs and finalizes without submitting.
+	ResultSubmitter ResultSubmitter
 }
 
 // EvidencePublisher finalizes the committed verifier bundle before its receipt
@@ -452,6 +458,9 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	// A commit already signed and persisted for this round is only
 	// re-delivered: no evidence fetch, no second prefill, no new salt.
 	if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil || ok {
+		if err == nil {
+			err = v.notifySubmitted(ctx, state, noticeAfterCommit)
+		}
 		return result, err
 	}
 	if err := validateCanonicalTaskState(state); err != nil {
@@ -736,6 +745,9 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	// name, which is also the only point the Worker's B-level values may be
 	// read (ADR-0023). See reveal.go and reveal_material.go.
 	v.results[resultKey] = result
+	if err := v.notifySubmitted(ctx, state, noticeAfterCommit); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 

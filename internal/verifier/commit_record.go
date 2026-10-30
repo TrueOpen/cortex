@@ -186,3 +186,49 @@ func (v *Verifier) recordDelivery(ctx context.Context, state TaskState, scope st
 	}
 	return v.cfg.Persistence.WriteEvidence(ctx, EvidenceRecord{TaskID: state.TaskID, Kind: verifierCommitDeliveryEvidenceKind, Data: data, Ref: evidenceRef(data)})
 }
+
+// CommitStateEvidenceKind is the commit-state record's evidence kind.
+const CommitStateEvidenceKind = verifierFullResultRevealEvidenceKind
+
+// PersistedCommitHash returns this round's persisted commit_hash; ok is false
+// when no commit for this task and round is persisted.
+func PersistedCommitHash(ctx context.Context, persistence Persistence, taskID string, verifyRound uint64) (codec.Hash, bool, error) {
+	reader, ok := persistence.(verifierEvidenceReader)
+	if !ok {
+		return codec.Hash{}, false, nil
+	}
+	data, err := reader.ReadVerifierEvidence(ctx, verifierFullResultRevealEvidenceKind)
+	if errors.Is(err, evidence.ErrArtifactNotFound) {
+		return codec.Hash{}, false, nil
+	}
+	if err != nil {
+		return codec.Hash{}, false, err
+	}
+	var record struct {
+		TaskID      string `json:"task_id"`
+		VerifyRound uint64 `json:"verify_round"`
+		CommitHash  string `json:"commit_hash"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return codec.Hash{}, false, fmt.Errorf("decode persisted commit state: %w", err)
+	}
+	if record.TaskID != taskID || record.VerifyRound != verifyRound {
+		return codec.Hash{}, false, nil
+	}
+	hash, err := hash32FromHex("commit_hash", record.CommitHash)
+	return hash, err == nil, err
+}
+
+// HasRevealMaterial reports whether the second phase already persisted its
+// material, so a retry need not download the B level again.
+func HasRevealMaterial(ctx context.Context, persistence Persistence) (bool, error) {
+	reader, ok := persistence.(verifierEvidenceReader)
+	if !ok {
+		return false, nil
+	}
+	_, err := reader.ReadVerifierEvidence(ctx, verifierRevealMaterialEvidenceKind)
+	if errors.Is(err, evidence.ErrArtifactNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
