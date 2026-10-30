@@ -12,7 +12,8 @@ import (
 // BuilderSet, this node's own node, bond, service key and support scopes,
 // and each Builder's service and VRF keys (I3). The session is per order and
 // is never memoised. Only successful reads are kept; a read at an older
-// height goes to the chain uncached. It is safe for concurrent use.
+// height goes to the chain uncached. It is safe for concurrent use. Cached
+// snapshots (and their slices) are shared: callers must not mutate them.
 type dispatchFacts struct {
 	DispatchChainView
 

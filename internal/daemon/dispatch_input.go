@@ -61,7 +61,13 @@ func (d *Dispatcher) HandleInputResponse(ctx context.Context, builder string, r 
 	}
 	rec, _, err = layout.StageDispatchInputChunk(ctx, d.cfg.Store, ticket, index, count, chunk)
 	if errors.Is(err, layout.ErrConflict) || errors.Is(err, layout.ErrInputBound) {
-		return fmt.Errorf("dispatch input chunk %d of ticket %s refused: %w", index, ticket, err)
+		// The staged chunks cannot become this input any more. Forget them
+		// so the sweep asks again at once and a fresh, consistent re-send
+		// completes, instead of the ticket stalling until D_ticket (N1).
+		if _, rerr := layout.ResetDispatchInput(ctx, d.cfg.Store, ticket); rerr != nil {
+			return builderclient.Retryable(fmt.Errorf("reset input after a refused chunk: %w", rerr))
+		}
+		return fmt.Errorf("dispatch input chunk %d of ticket %s refused; staging reset: %w", index, ticket, err)
 	}
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("stage input chunk: %w", err))

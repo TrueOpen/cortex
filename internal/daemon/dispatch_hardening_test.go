@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/dispatchstream"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
@@ -261,9 +263,6 @@ func TestDispatchInputIsBoundedAndCounted(t *testing.T) {
 	if err == nil || builderclient.IsRetryable(err) {
 		t.Fatalf("40+10 bytes of a %d-byte input: err = %v, want permanent", len(in), err)
 	}
-	if rec := x.record(t); rec.InputStagedBytes != 40 || rec.InputChunksReceived != 1 {
-		t.Fatalf("record = %+v", rec)
-	}
 	if len(x.infer.starts()) != 0 {
 		t.Fatal("nothing starts")
 	}
@@ -413,5 +412,149 @@ func TestDispatchRestartBetweenStartAndCommitKeepsTheStage(t *testing.T) {
 	}
 	if rec, err := layout.GetInferRecord(ctx, x.st, task); err != nil || rec.Stage != layout.StageSucceeded {
 		t.Fatalf("infer record = %+v, %v: the stage reached is kept", rec, err)
+	}
+}
+
+// N1: wire fixes no chunking rule, so an uneven split completes.
+func TestDispatchInputAcceptsAnUnevenSplit(t *testing.T) {
+	ctx := context.Background()
+	x := newDispatchHarness(t, 2, nil)
+	// 100 KiB, so half of it is far above any "even share plus slack" cap.
+	in := bytes.Repeat([]byte("ledger line\n"), 100<<10/12)
+	sum := sha256.Sum256(in)
+	x.fx.input, x.fx.order.Order.InputHash, x.fx.order.Order.InputSizeBytes = in, sum[:], uint64(len(in))
+	x.fx.seal()
+	if err := x.handle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	half := len(in) / 2
+	parts := [][]byte{in[:half]} // chunk 0 of 10 carries half the input
+	rest := in[half:]
+	for i := 0; i < 8; i++ {
+		parts = append(parts, rest[i:i+1])
+	}
+	parts = append(parts, rest[8:])
+	for i, p := range parts {
+		if err := x.d.HandleInputResponse(ctx, hrBuilderA, x.fx.inputResponse(uint32(i), 10, p)); err != nil {
+			t.Fatalf("chunk %d (%d bytes): %v", i, len(p), err)
+		}
+	}
+	if len(x.infer.starts()) != 1 || !x.record(t).InputCommitted {
+		t.Fatal("the uneven split completes")
+	}
+}
+
+// N1: a refused chunk resets the staging, so a fresh re-send completes
+// instead of the ticket stalling until D_ticket.
+func TestDispatchRefusedChunkResetsTheStaging(t *testing.T) {
+	ctx := context.Background()
+	for name, bad := range map[string]func(x *dispatchHarness) *nexusv1.DispatchInputResponseV1{
+		"over the room left": func(x *dispatchHarness) *nexusv1.DispatchInputResponseV1 {
+			return x.fx.inputResponse(1, 2, bytes.Repeat([]byte{'x'}, 10))
+		},
+		"chunk_count changed": func(x *dispatchHarness) *nexusv1.DispatchInputResponseV1 {
+			return x.fx.inputResponse(1, 3, []byte{'x'})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			x := newDispatchHarness(t, 2, nil)
+			if err := x.handle(ctx); err != nil {
+				t.Fatal(err)
+			}
+			in := x.fx.input
+			if err := x.d.HandleInputResponse(ctx, hrBuilderA, x.fx.inputResponse(0, 2, in[:40])); err != nil {
+				t.Fatal(err)
+			}
+			if err := x.d.HandleInputResponse(ctx, hrBuilderA, bad(x)); err == nil || builderclient.IsRetryable(err) {
+				t.Fatalf("err = %v, want permanent", err)
+			}
+			rec := x.record(t)
+			if rec.InputChunkCount != 0 || rec.InputChunksReceived != 0 || rec.InputStagedBytes != 0 || rec.InputRequestedAtUnixMs != 0 {
+				t.Fatalf("record = %+v: the staging is reset and input asked for again", rec)
+			}
+			if chunks, _ := layout.DispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
+				t.Fatal("staged chunks are dropped")
+			}
+			for i, p := range [][]byte{in[:40], in[40:]} {
+				if err := x.d.HandleInputResponse(ctx, hrBuilderA, x.fx.inputResponse(uint32(i), 2, p)); err != nil {
+					t.Fatalf("fresh chunk %d: %v", i, err)
+				}
+			}
+			if len(x.infer.starts()) != 1 {
+				t.Fatal("the fresh re-send completes")
+			}
+		})
+	}
+}
+
+// M-a: the C4 deadline carries no monotonic reading, so it compares against
+// the session's wall clock.
+func TestDispatchDeadlineIsWallClock(t *testing.T) {
+	x := newDispatchHarness(t, 2, func(c *DispatcherConfig) { c.Now = time.Now })
+	if err := x.handle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	x.d.mu.Lock()
+	at, ok := x.d.deadline[layout.StoredHash(x.fx.ticketHash())]
+	x.d.mu.Unlock()
+	if !ok || at != at.Round(0) {
+		t.Fatalf("deadline %v carries a monotonic reading", at)
+	}
+}
+
+// M-b: the session owner is compared as canonical account bytes.
+func TestDispatchSessionOwnerIsComparedAsBytes(t *testing.T) {
+	x := newDispatchHarness(t, 2, nil)
+	raw, err := nodewire.CanonicalOperatorAddressBytes("user", x.fx.order.Order.UserAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := nodewire.CanonicalOperatorAddressString("other", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.chain.with(func(f *fakeDispatchChain) { f.session.OwnerUserAddress = owner })
+	if err := x.handle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := x.a.messages()[0].(*taskv1.DispatchAcceptV1); !ok {
+		t.Fatalf("the same account under another prefix is the owner: %T", x.a.messages()[0])
+	}
+}
+
+// M-c: local facts read before the lock are checked again under it, before
+// the lease is taken.
+func TestDispatchLocalFactsAreRecheckedUnderTheLock(t *testing.T) {
+	ctx := context.Background()
+	x := newDispatchHarness(t, 2, nil)
+	x.d.work <- struct{}{} // hold the lock while the offer is evaluated
+	done := make(chan error, 1)
+	go func() { done <- x.handle(ctx) }()
+	hrEventually(t, "the evaluation's last chain read", func() bool { return x.chain.callCount("WorkerLiabilityParamsAt") == 1 })
+	x.local.with(func(l *fakeHandraiseLocal) { l.drain = true })
+	<-x.d.work
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := x.a.messages()[0].(*taskv1.DispatchRejectV1); !ok {
+		t.Fatal("a drain that began while waiting for the lock refuses the ticket")
+	}
+	if rec := x.record(t); rec.RejectClass != classNodeIneligible || x.leaseHeld(t) {
+		t.Fatalf("record = %+v", rec)
+	}
+}
+
+// M-d: the sweep reads the chain height before it waits for the lock.
+func TestDispatchSweepReadsTheHeightBeforeTheLock(t *testing.T) {
+	x := newDispatchHarness(t, 2, nil)
+	x.d.work <- struct{}{}
+	defer func() { <-x.d.work }()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := x.d.Sweep(ctx); !builderclient.IsRetryable(err) {
+		t.Fatalf("err = %v", err)
+	}
+	if calls, _ := x.chain.reads(); calls != 1 {
+		t.Fatalf("CommittedHeight calls = %d, want the read done before waiting", calls)
 	}
 }

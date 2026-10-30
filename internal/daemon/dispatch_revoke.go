@@ -40,6 +40,9 @@ func (d *Dispatcher) HandleRevoke(ctx context.Context, builder string, rv *nexus
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("persist revoke: %w", err))
 	}
+	// TODO(S6): a stop that fails here is retried only by a redelivered
+	// revoke; S6's sweep must retry StopDispatchedInfer for revoked tickets
+	// whose inference may still run (M-e).
 	if err := d.cfg.Infer.StopDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash); err != nil {
 		return builderclient.Retryable(fmt.Errorf("stop inference: %w", err))
 	}

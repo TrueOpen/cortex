@@ -304,19 +304,28 @@ func TestStageDispatchInputChunkIsBoundedAndCounted(t *testing.T) {
 	}
 }
 
-func TestDispatchInputChunkLimit(t *testing.T) {
+// N1: a chunk may be as large as it likes as long as every chunk still
+// missing keeps at least one byte; no per-chunk share is imposed.
+func TestStageDispatchInputChunkLeavesRoomForTheRest(t *testing.T) {
 	ctx := context.Background()
 	s := openTestLayout(t)
-	rec := acceptedForInput(t, s, 100_000)
-	limit := DispatchInputChunkLimit(100_000, 10)
-	if limit != 2*10_000+inputChunkSlack {
-		t.Fatalf("limit = %d", limit)
+	rec := acceptedForInput(t, s, 100)
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 10, bytes.Repeat([]byte{1}, 92)); !errors.Is(err, ErrInputBound) {
+		t.Fatalf("92 bytes leave 8 for 9 missing chunks: err = %v", err)
 	}
-	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 10, bytes.Repeat([]byte{1}, int(limit)+1)); !errors.Is(err, ErrInputBound) {
-		t.Fatalf("a chunk far above an even share: err = %v", err)
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 10, bytes.Repeat([]byte{1}, 91)); err != nil {
+		t.Fatalf("91 bytes leave one for each missing chunk: %v", err)
 	}
-	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 0, 10, bytes.Repeat([]byte{1}, 16_384)); err != nil {
-		t.Fatalf("fixed-size chunking (16 KiB chunks of a 100 KB input) fits: %v", err)
+	if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, 1, 10, []byte{1, 2}); !errors.Is(err, ErrInputBound) {
+		t.Fatalf("2 bytes would leave 7 for 8 missing chunks: err = %v", err)
+	}
+	for i := uint32(1); i < 10; i++ {
+		if _, _, err := StageDispatchInputChunk(ctx, s, rec.TicketHash, i, 10, []byte{byte(i)}); err != nil {
+			t.Fatalf("chunk %d: %v", i, err)
+		}
+	}
+	if got, _ := GetDispatchRecord(ctx, s, rec.TicketHash); got.InputChunksReceived != 10 || got.InputStagedBytes != 100 {
+		t.Fatalf("complete = %+v", got)
 	}
 }
 

@@ -127,7 +127,8 @@ func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1,
 	if session.Status != "ACTIVE" && session.Status != "IDLE" {
 		return refuse(reasonInvalid, classOrderInvalid, "the session is %s", session.Status), nil
 	}
-	if o.GetUserAddress() != session.OwnerUserAddress {
+	// Compared as canonical account bytes, like the signer (M-b).
+	if owner, err := nodewire.CanonicalOperatorAddressBytes("session owner", session.OwnerUserAddress); err != nil || !bytes.Equal(owner, user) {
 		return refuse(reasonInvalid, classOrderInvalid, "order user %s is not the session owner %s", o.GetUserAddress(), session.OwnerUserAddress), nil
 	}
 	if !bytes.Equal(view.Signer, user) {

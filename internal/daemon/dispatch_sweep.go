@@ -63,6 +63,10 @@ func (d *Dispatcher) Rebound(builder string) {
 // it re-asks the chain for the record of tickets whose Builder said
 // RECORDED (sweepRecords).
 func (d *Dispatcher) Sweep(ctx context.Context) error {
+	// The claim-height stop needs the chain height; it is read before the
+	// lock, so a slow chain never holds the state machine (M-d). Without it
+	// no input is re-requested this pass.
+	height, herr := d.chain.CommittedHeight(ctx)
 	if err := d.lock(ctx); err != nil {
 		return err
 	}
@@ -77,9 +81,6 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 	d.mu.Unlock()
 	now := d.cfg.Now()
 	var errs []error
-	// The claim-height stop needs the chain height; without it no input is
-	// re-requested this pass.
-	height, herr := d.chain.CommittedHeight(ctx)
 	if herr != nil {
 		errs = append(errs, fmt.Errorf("committed height: %w", herr))
 	}

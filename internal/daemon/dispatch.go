@@ -266,7 +266,9 @@ func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, windowMs uint64, rec 
 		if windowMs < uint64(maxAcceptWindow/time.Millisecond) {
 			window = time.Duration(windowMs) * time.Millisecond
 		}
-		at = d.cfg.Now().Add(window)
+		// Round(0) strips the monotonic reading: the session decides expiry
+		// on wall-clock milliseconds, and so must every comparison here.
+		at = d.cfg.Now().Round(0).Add(window)
 	}
 	d.deadline[ticket] = at
 	return at

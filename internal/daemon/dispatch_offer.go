@@ -71,6 +71,10 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 	if dropErr != nil {
 		return d.drop(ctx, builder, ticket, dropErr)
 	}
+	// M-c: the standing handraise may have expired while this offer waited.
+	if err := d.checkHandraise(builder, ev.height); err != nil {
+		return d.drop(ctx, builder, ticket, err)
+	}
 	switch rec, err = layout.GetDispatchRecord(ctx, d.cfg.Store, ticket); {
 	case err == nil && rec.State != layout.DispatchOffered:
 		return d.resume(ctx, enq, rec) // answered or revoked while we read
@@ -88,6 +92,11 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 	}
 	if rec.State != layout.DispatchOffered {
 		return d.resume(ctx, enq, rec) // its revoke arrived first
+	}
+	if ev.verdict == nil {
+		// M-c: local readiness and drain read before the lock are read again
+		// under it, before any lease is taken.
+		ev.verdict = d.localStop(ctx, rec)
 	}
 	if ev.verdict != nil {
 		return d.reject(ctx, enq, rec, t, ev.nonce, ev.verdict)
@@ -123,6 +132,7 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 // offerEval is what one offer evaluation read and decided before the lock.
 type offerEval struct {
 	traw, oraw []byte // ticket and order exactly as received, encoded once
+	height     uint64 // the committed height every read was pinned to
 	params     chainclient.DispatchParamsSnapshot
 	nonce      uint64   // this node's current service_authorization_nonce
 	verdict    *verdict // nil: accept if capacity allows
@@ -136,6 +146,7 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	if err != nil {
 		return ev, nil, builderclient.Retryable(fmt.Errorf("committed height: %w", err))
 	}
+	ev.height = height
 	// Check 1: legitimacy.
 	if err := d.checkHandraise(builder, height); err != nil {
 		return ev, err, nil
@@ -178,6 +189,22 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	// Checks 2, 2a, 3, 4, 6, 7.
 	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, height)
 	return ev, nil, err
+}
+
+// localStop is the local part of checks 3 and 4 (workload readiness, node
+// and profile drain) on current values.
+func (d *Dispatcher) localStop(ctx context.Context, rec layout.DispatchRecord) *verdict {
+	if !d.cfg.Local.WorkloadReady(ctx) {
+		return refuse(reasonNoCapacity, classNodeIneligible, "workload not ready")
+	}
+	node, profiles := d.cfg.Local.Draining()
+	if node {
+		return refuse(reasonNoCapacity, classNodeIneligible, "draining")
+	}
+	if p, err := profileOf(rec.ModelID, rec.ProfileVersion); err == nil && profiles[p] {
+		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is draining", rec.ModelID, rec.ProfileVersion)
+	}
+	return nil
 }
 
 // checkHandraise is check 1's "the Builder is in this node's valid standing

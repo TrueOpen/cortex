@@ -709,36 +709,17 @@ func WorkerTicketLeases(ctx context.Context, s *store.Store) ([]StoredHash, erro
 	return scanHashes(ctx, s, []byte(workerTicketLeasePrefix))
 }
 
-// ErrInputBound refuses a chunk that would stage more than input_size_bytes,
-// or one far larger than an even share of it.
+// ErrInputBound refuses a chunk that would leave too few bytes of
+// input_size_bytes for the chunks still missing.
 var ErrInputBound = errors.New("dispatch input chunk out of bounds")
-
-// inputChunkSlack is the constant part of DispatchInputChunkLimit, for small
-// inputs split unevenly.
-const inputChunkSlack = 4096
-
-// DispatchInputChunkLimit bounds one chunk of a size-byte input sent as count
-// chunks. Wire fixes no chunking rule, so it has to admit both an even split
-// (every chunk at most ceil(size/count)) and fixed-size chunking with a short
-// last chunk, where a chunk can reach almost twice the even share (size C+1
-// as two chunks: C and 1). Twice the even share plus a small constant admits
-// both; the cumulative bound (input_size_bytes) is the hard one.
-func DispatchInputChunkLimit(size uint64, count uint32) uint64 {
-	if count == 0 {
-		return 0
-	}
-	share := size / uint64(count)
-	if size%uint64(count) != 0 {
-		share++
-	}
-	return 2*share + inputChunkSlack
-}
 
 // StageDispatchInputChunk stores chunk index of an accepted ticket's input and
 // counts it, in one batch. A redelivered identical chunk is a no-op
 // (stored=false); different bytes or a different chunk_count are ErrConflict;
-// a chunk that would take the staged total past input_size_bytes, or exceeds
-// DispatchInputChunkLimit, is ErrInputBound and changes nothing. A ticket
+// a chunk that would leave less than one byte for each chunk still missing
+// (so also one that would take the staged total past input_size_bytes) is
+// ErrInputBound and changes nothing. Wire fixes no chunking rule, so no
+// per-chunk share is imposed: any split whose chunks are non-empty fits. A ticket
 // that holds no duty, or whose input is committed, is returned unchanged.
 func StageDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredHash, index, count uint32, data []byte) (DispatchRecord, bool, error) {
 	var out DispatchRecord
@@ -769,12 +750,17 @@ func StageDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredH
 		case !errors.Is(err, store.ErrNotFound):
 			return err
 		}
+		// Room = input_size_bytes - staged - one byte per other missing chunk.
 		size := uint64(len(data))
-		if size > rec.InputSizeBytes-rec.InputStagedBytes {
-			return fmt.Errorf("%w: %d staged + %d exceeds input_size_bytes %d", ErrInputBound, rec.InputStagedBytes, size, rec.InputSizeBytes)
+		room := rec.InputSizeBytes - rec.InputStagedBytes
+		if missing := uint64(count) - uint64(rec.InputChunksReceived) - 1; missing < room {
+			room -= missing
+		} else {
+			room = 0
 		}
-		if limit := DispatchInputChunkLimit(rec.InputSizeBytes, count); size > limit {
-			return fmt.Errorf("%w: chunk of %d bytes exceeds %d for %d chunks of %d bytes", ErrInputBound, size, limit, count, rec.InputSizeBytes)
+		if size > room {
+			return fmt.Errorf("%w: %d bytes with %d staged of %d leaves the other %d missing chunks no room",
+				ErrInputBound, size, rec.InputStagedBytes, rec.InputSizeBytes, uint64(count)-uint64(rec.InputChunksReceived)-1)
 		}
 		if err := b.Set(key, data); err != nil {
 			return err
