@@ -338,11 +338,13 @@ func proofReceiptFacts(t *testing.T) builderclient.InferReceiptFacts {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return builderclient.InferReceiptFacts{ChainID: proofChainID, TaskID: proofTaskID, TaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, ServiceAuthorizationNonce: proofServiceAuthorizationNonce, GenerationParamsDigest: generation.String(), OutputHash: outputHash, OutputLeafCount: 1, OutputSizeBytes: uint64(len(proofOutput)), GeneratedTokenCount: proofTokenCount, RequiredEvidenceCommitments: commitments, ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(), ExpiryHeight: proofInferDeadline}
+	return builderclient.InferReceiptFacts{ChainID: proofChainID, TaskID: proofTaskID, TaskHash: taskHash.String(), WorkerOperatorAddress: proofWorkerOperator, ServiceAuthorizationNonce: proofServiceAuthorizationNonce, GenerationParamsDigest: generation.String(), OutputHash: outputHash, OutputLeafCount: 1, OutputSizeBytes: uint64(len(proofOutput)), GeneratedTokenCount: proofTokenCount, RequiredEvidenceCommitments: commitments, ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(), ExpiryHeight: proofInferDeadline, DispatchTicketHash: proofTicket.String()}
 }
 
 // proofGenerationParams stands in for the proof task's canonical generation
 // parameters; the task-data plane only ever hashes these bytes.
+var proofTicket = codec.HashWithDomain("PROOF_DISPATCH_TICKET", []byte("1"))
+
 var proofGenerationParams = []byte(`{"proof":"generation params"}`)
 
 // proofRequiredTopK frames the proof Worker's worker_values.
@@ -827,7 +829,8 @@ func newTaskDataHarness(t *testing.T, options harnessOptions) *taskDataHarness {
 	executor := &proofInferExecutor{
 		assignment: assignment, resolver: resolver, checkpoints: checkpoints, height: runnerHeight,
 		workerConfig: worker.Config{
-			WorkerAddress: proofWorkerOperator, ModelServiceID: proofModelServiceID, Model: model,
+			DispatchTicketHash: proofTicket,
+			WorkerAddress:      proofWorkerOperator, ModelServiceID: proofModelServiceID, Model: model,
 			Builder: publisher, TaskData: taskData, TaskDataAuth: auth, Persistence: checkpoints,
 			StreamLimits: &chainclient.OutputStreamLimitsSnapshot{MinOutputStreamFrameBytes: 16, MaxOutputMMRLeaves: 65536},
 			ChainID:      proofChainID, SignerAddress: serviceAddress, SignerKeyRef: proofServiceKeyRef,
@@ -965,20 +968,20 @@ func (h *taskDataHarness) stageObject(ctx context.Context, key builderclient.Tas
 		if root.String() != key.ContentHash {
 			return builderclient.TaskDataMetadata{}, fmt.Errorf("output MMR does not match object")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(proofChainID, proofHex(key.TaskHash), builderclient.PendingDispatchTicketHash(), 0, root[:])
+		digest, err := nodewire.OutputChunkSigningDigest(proofChainID, proofHex(key.TaskHash), proofTicket[:], 0, root[:])
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
-		headerDigest, err := builderclient.OutputStreamHeaderDigest(proofChainID, key.TaskHash)
+		headerDigest, err := builderclient.OutputStreamHeaderDigest(proofChainID, key.TaskHash, proofTicket)
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
-		stream, err := h.taskData.OpenTaskOutputStream(ctx, h.nexus.URL(), builderclient.OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: auth, HeaderSignature: compactSignature(h.servicePrivate, headerDigest), ReplayChunks: []builderclient.OutputChunk{{Text: data, MMRRoot: root, WorkerSignature: compactSignature(h.servicePrivate, digest)}}})
+		stream, err := h.taskData.OpenTaskOutputStream(ctx, h.nexus.URL(), builderclient.OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: auth, HeaderSignature: compactSignature(h.servicePrivate, headerDigest), ReplayChunks: []builderclient.OutputChunk{{Text: data, MMRRoot: root, WorkerSignature: compactSignature(h.servicePrivate, digest)}}, DispatchTicketHash: proofTicket})
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}
 		defer stream.Close()
-		finDigest, err := nodewire.OutputFinSigningDigest(proofChainID, proofHex(key.TaskHash), builderclient.PendingDispatchTicketHash(), 0, root[:], nodewire.FinishReasonV1EosToken)
+		finDigest, err := nodewire.OutputFinSigningDigest(proofChainID, proofHex(key.TaskHash), proofTicket[:], 0, root[:], nodewire.FinishReasonV1EosToken)
 		if err != nil {
 			return builderclient.TaskDataMetadata{}, err
 		}

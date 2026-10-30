@@ -1,6 +1,8 @@
 package nodewire
 
 import (
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
 )
@@ -23,6 +25,11 @@ func OutputChunkSigningPreimage(chainID string, taskHash, dispatchTicketHash []b
 	return hfields.Preimage(DomainOutputChunkV1, hfields.String(chainID), hfields.Bytes(taskHash), hfields.Bytes(dispatchTicketHash), hfields.Uint64(seq), hfields.Bytes(mmrRoot))
 }
 
+// OutputChunkSigningDigest validates the frame fields and returns wire's
+// dispatch.OutputChunkDigest, the single implementation of the chunk scope.
 func OutputChunkSigningDigest(chainID string, taskHash, dispatchTicketHash []byte, seq uint64, mmrRoot []byte) (codec.Hash, error) {
-	return digestOf(OutputChunkSigningPreimage(chainID, taskHash, dispatchTicketHash, seq, mmrRoot))
+	if _, err := OutputChunkSigningPreimage(chainID, taskHash, dispatchTicketHash, seq, mmrRoot); err != nil {
+		return codec.Hash{}, err
+	}
+	return codec.Hash(dispatch.OutputChunkDigest(chainID, [32]byte(taskHash), [32]byte(dispatchTicketHash), seq, [32]byte(mmrRoot))), nil
 }

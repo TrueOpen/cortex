@@ -62,7 +62,7 @@ func TestOutputFinIsSignedOncePersistedAndReused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			digest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), 7, root[:], reason)
+			digest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, taskHash[:], h.worker.cfg.DispatchTicketHash[:], 7, root[:], reason)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -213,7 +213,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 			return errors.New("sent frame differs from durable bytes")
 		}
 		facts := workerTestServedTaskFacts(event.TaskID)
-		digest, err := nodewire.OutputChunkSigningDigest("chain-A", facts.AcceptedTaskHash, builderclient.PendingDispatchTicketHash(), chunk.Seq, chunk.MMRRoot[:])
+		digest, err := nodewire.OutputChunkSigningDigest("chain-A", facts.AcceptedTaskHash, h.worker.cfg.DispatchTicketHash[:], chunk.Seq, chunk.MMRRoot[:])
 		if err != nil {
 			return err
 		}
@@ -245,7 +245,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 		t.Fatalf("signed Fin=%+v", data.fins)
 	}
 	finFacts := workerTestServedTaskFacts(event.TaskID)
-	finDigest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, finFacts.AcceptedTaskHash, builderclient.PendingDispatchTicketHash(), frames[1].Seq, frames[1].MMRRoot[:], data.fins[0].FinishReason)
+	finDigest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, finFacts.AcceptedTaskHash, h.worker.cfg.DispatchTicketHash[:], frames[1].Seq, frames[1].MMRRoot[:], data.fins[0].FinishReason)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestOutputRecorderRecoversCompletedUnsignedTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lengths, err := restored.finish(context.Background(), []byte("first-frame-texttail"))
+	lengths, err := restored.finish(context.Background(), []byte("first-frame-texttail"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +571,7 @@ func newFailingSecondFrameSigner(t *testing.T, h harness, event chainclient.Assi
 	if err != nil {
 		t.Fatal(err)
 	}
-	header, err := builderclient.OutputStreamHeaderDigest(h.worker.cfg.ChainID, codec.Hash(facts.AcceptedTaskHash).String())
+	header, err := builderclient.OutputStreamHeaderDigest(h.worker.cfg.ChainID, codec.Hash(facts.AcceptedTaskHash).String(), h.worker.cfg.DispatchTicketHash)
 	if err != nil {
 		t.Fatal(err)
 	}

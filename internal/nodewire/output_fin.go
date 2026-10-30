@@ -1,6 +1,8 @@
 package nodewire
 
 import (
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
 )
@@ -38,6 +40,15 @@ func OutputFinSigningPreimage(chainID string, taskHash, dispatchTicketHash []byt
 	)
 }
 
+// OutputFinSigningDigest validates the Fin fields and returns wire's
+// dispatch.OutputFinDigest.
 func OutputFinSigningDigest(chainID string, taskHash, dispatchTicketHash []byte, finalSeq uint64, outputMMRRoot []byte, finishReason FinishReasonV1) (codec.Hash, error) {
-	return digestOf(OutputFinSigningPreimage(chainID, taskHash, dispatchTicketHash, finalSeq, outputMMRRoot, finishReason))
+	if _, err := OutputFinSigningPreimage(chainID, taskHash, dispatchTicketHash, finalSeq, outputMMRRoot, finishReason); err != nil {
+		return codec.Hash{}, err
+	}
+	d, err := dispatch.OutputFinDigest(chainID, [32]byte(taskHash), [32]byte(dispatchTicketHash), finalSeq, [32]byte(outputMMRRoot), uint32(finishReason))
+	if err != nil {
+		return codec.Hash{}, err
+	}
+	return codec.Hash(d), nil
 }

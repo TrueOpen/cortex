@@ -385,6 +385,8 @@ type InferReceiptMessage struct {
 	WorkerTokenKeyCommitment ProtoBytes32 `json:"worker_token_key_commitment"`
 	WorkerValueKeyCommitment ProtoBytes32 `json:"worker_value_key_commitment"`
 	CiphertextOutputRoot     ProtoBytes32 `json:"ciphertext_output_root"`
+	// DispatchTicketHash is field 19: the ticket the Worker accepted.
+	DispatchTicketHash ProtoBytes32 `json:"dispatch_ticket_hash"`
 }
 
 // SubmitInferReceiptMessage mirrors task.v1.MsgSubmitInferReceipt.
@@ -756,10 +758,14 @@ func validateSubmitInferReceipt(m SubmitInferReceiptMessage) error {
 		{"task_hash", r.TaskHash.Hex()},
 		{"generation_params_digest", r.GenerationParamsDigest.Hex()},
 		{"output_hash", r.OutputHash.Hex()},
+		{"dispatch_ticket_hash", r.DispatchTicketHash.Hex()},
 	} {
 		if err := validateHashHex(field.hex); err != nil {
 			return fmt.Errorf("infer receipt %s: %w", field.name, err)
 		}
+	}
+	if r.DispatchTicketHash.Hex() == zeroHash32Hex {
+		return fmt.Errorf("infer receipt dispatch_ticket_hash must be the accepted ticket, not ZERO32")
 	}
 	if r.ServiceAuthorizationNonce == 0 || r.ExpiryHeight == 0 || r.OutputLeafCount == 0 {
 		return fmt.Errorf("infer receipt service_authorization_nonce, expiry_height and output_leaf_count are required")

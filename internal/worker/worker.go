@@ -50,9 +50,10 @@ type Config struct {
 	// key at one pinned chain height for output relay and confirmation
 	// verification.
 	ReceivingBuilder ReceivingBuilderProvider
-	// PreresolvedBuilders, when set, is a Task Builder resolution already in
-	// flight for this task; the first output stream open uses it.
-	PreresolvedBuilders *PreresolvedBuilders
+	// DispatchTicketHash is the ticket this responsibility executes (Phase 1,
+	// S4 InferRecord.DispatchTicketHash). The stream header, every chunk, the
+	// Fin and InferReceiptV3.dispatch_ticket_hash bind it.
+	DispatchTicketHash codec.Hash
 	// TaskFacts reads TaskCoreState.accepted_task_hash and
 	// TaskAssignmentViewV1.generation_params_digest for the assignment being
 	// worked. Both are signed fields of the frozen InferReceiptV3 that no local
@@ -394,6 +395,8 @@ func (w *Worker) prepareOutput(ctx context.Context, event chainclient.Assignment
 
 func (w *Worker) requireInferDependencies() error {
 	switch {
+	case w.cfg.DispatchTicketHash == (codec.Hash{}):
+		return fmt.Errorf("the accepted dispatch_ticket_hash is required: every output frame, the Fin and the receipt bind it")
 	case w.cfg.Model == nil:
 		return fmt.Errorf("model client is required")
 	case w.cfg.Builder == nil:
@@ -573,7 +576,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			tasktrace.Int("output_size_bytes", len(output)), tasktrace.Int("finish_reason", int(resp.FinishReason)))
 	}
 
-	lengths, err := recorder.finish(ctx, output)
+	lengths, err := recorder.finish(ctx, output, resp.GeneratedTokenCount)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
@@ -1440,7 +1443,7 @@ func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.A
 				if rootErr != nil {
 					return builderclient.SignedInferReceipt{}, InferResult{}, rootErr
 				}
-				if receipt.ChainID != w.cfg.ChainID || receipt.TaskID != event.TaskID || receipt.TaskHash != facts.AcceptedTaskHash.Hex() || receipt.WorkerOperatorAddress != w.cfg.WorkerAddress || receipt.GenerationParamsDigest != facts.GenerationParamsDigest.Hex() || receipt.OutputHash != root.String() || receipt.OutputSizeBytes != uint64(len(output)) || receipt.GeneratedTokenCount != descriptor.GeneratedTokenCount || receipt.OutputLeafCount != uint64(len(descriptor.OutputChunkLengths)) {
+				if receipt.ChainID != w.cfg.ChainID || receipt.TaskID != event.TaskID || receipt.TaskHash != facts.AcceptedTaskHash.Hex() || receipt.WorkerOperatorAddress != w.cfg.WorkerAddress || receipt.GenerationParamsDigest != facts.GenerationParamsDigest.Hex() || receipt.OutputHash != root.String() || receipt.OutputSizeBytes != uint64(len(output)) || receipt.GeneratedTokenCount != descriptor.GeneratedTokenCount || receipt.OutputLeafCount != uint64(len(descriptor.OutputChunkLengths)) || receipt.DispatchTicketHash != w.cfg.DispatchTicketHash.String() {
 					return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("retained receipt differs from task or output artifacts")
 				}
 				result, rerr := w.resultFromReceipt(ctx, event.TaskID, receipt)

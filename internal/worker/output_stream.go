@@ -69,6 +69,7 @@ type outputStreamRecorder struct {
 	frames       []builderclient.OutputChunk
 	pending      []byte
 	total        uint64
+	tokens       uint64 // generated tokens observed so far; stamped on every frame (CD W11, C2)
 	err          error
 	deferredErr  error
 	transportErr error
@@ -174,7 +175,7 @@ func (w *Worker) resumeOutputRecorder(ctx context.Context, event chainclient.Ass
 		if mmr.Root() != frame.MMRRoot {
 			return nil, fmt.Errorf("completed model frame root mismatch")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, saved.TaskHash[:], builderclient.PendingDispatchTicketHash(), frame.Seq, frame.MMRRoot[:]) // S5: the accepted ticket
+		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, saved.TaskHash[:], w.cfg.DispatchTicketHash[:], frame.Seq, frame.MMRRoot[:])
 		if err != nil {
 			return nil, err
 		}
@@ -197,9 +198,16 @@ func (w *Worker) resumeOutputRecorder(ctx context.Context, event chainclient.Ass
 	// A resumed task already streamed its first frame in an earlier run; there is
 	// no first-frame latency left to measure, only frames to re-send.
 	r := &outputStreamRecorder{w: w, ctx: ctx, event: event, taskHash: saved.TaskHash, mmr: mmr, frames: frames, pending: pending, total: total,
-		firstFrameTraced: len(frames) > 0}
+		tokens: lastFrameTokens(frames), firstFrameTraced: len(frames) > 0}
 	r.stream, r.transportErr = w.openOutputStream(ctx, event, saved.TaskHash, frames)
 	return r, nil
+}
+
+func lastFrameTokens(frames []builderclient.OutputChunk) uint64 {
+	if len(frames) == 0 {
+		return 0
+	}
+	return frames[len(frames)-1].CumulativeGeneratedTokens
 }
 
 func (w *Worker) newOutputRecorder(ctx context.Context, event chainclient.AssignmentFinalized) (*outputStreamRecorder, error) {
@@ -334,17 +342,12 @@ func (r *outputStreamRecorder) sendLocked(chunk builderclient.OutputChunk) {
 	}
 }
 
-// openOutputStream opens one stream per Task Builder and returns them as a
-// single fan-out stream: the selected Worker must push every frame to every Builder.
+// openOutputStream opens the output stream to the dispatching Builder only
+// (CD §5.2 W11, C1). It forwards to the user and syncs the Task Builder
+// group's copies; the Worker never pushes frames to the others.
 //
-// The request authorization is per Builder, not shared: SignRequest binds the
-// recipient's operator address, so each Builder gets a token naming itself. The
-// body digest and the replay frames are the same for all of them.
-//
-// A Builder that cannot be opened fails the whole open. The protocol allows sending to
-// continue while at least one Builder receives, but acting on that needs the
-// per-Builder liveness tracking this change does not add yet; failing here keeps
-// the behaviour honest rather than silently streaming to a subset.
+// The request authorization binds the recipient's operator address, so the
+// token names the dispatching Builder.
 func (w *Worker) openOutputStream(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk) (builderclient.TaskOutputStream, error) {
 	var timing streamOpenTiming
 	stream, err := w.openOutputStreamTimed(ctx, event, taskHash, frames, &timing)
@@ -368,7 +371,7 @@ type streamOpenTiming struct {
 
 func (w *Worker) openOutputStreamTimed(ctx context.Context, event chainclient.AssignmentFinalized, taskHash codec.Hash, frames []builderclient.OutputChunk, timing *streamOpenTiming) (builderclient.TaskOutputStream, error) {
 	resolveStartedAt := time.Now()
-	endpoints, err := w.openReceivingBuilders(ctx, receivingBuilderRef(event))
+	endpoints, err := w.dispatchingBuilder(ctx, receivingBuilderRef(event))
 	timing.resolveBuilders += time.Since(resolveStartedAt)
 	if err != nil {
 		return nil, err
@@ -386,7 +389,7 @@ func (w *Worker) openOutputStreamTimed(ctx context.Context, event chainclient.As
 	// The Worker signs the plaintext OutputStreamHeaderV2 once per stream with
 	// the same service key that signs the frames and the fin; the published
 	// header vector names that key.
-	headerDigest, err := builderclient.OutputStreamHeaderDigest(w.cfg.ChainID, taskHash.String())
+	headerDigest, err := builderclient.OutputStreamHeaderDigest(w.cfg.ChainID, taskHash.String(), w.cfg.DispatchTicketHash)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +430,7 @@ func (w *Worker) openOutputStreamTimed(ctx context.Context, event chainclient.As
 			}
 			stream, err := w.cfg.TaskData.OpenTaskOutputStream(
 				builderclient.WithTLSPubkeyHash(ctx, endpoint.TLSPubkeyHash), endpoint.Endpoint,
-				builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, HeaderSignature: headerSignature, ReplayChunks: frames})
+				builderclient.OutputStreamRequest{TaskHash: taskHash.String(), SessionID: event.SessionID, TaskID: event.TaskID, Auth: auth, HeaderSignature: headerSignature, ReplayChunks: frames, DispatchTicketHash: w.cfg.DispatchTicketHash})
 			if err != nil {
 				errs[i] = fmt.Errorf("open output stream to Task Builder %s: %w", endpoint.OperatorAddress, err)
 				return
@@ -466,6 +469,7 @@ func (r *outputStreamRecorder) ObserveInferFrame(ctx context.Context, frame mode
 	if frame.Done {
 		return nil
 	}
+	r.tokens += uint64(len(frame.TokenIDs))
 	if !utf8.ValidString(frame.TextDelta) {
 		r.err = fmt.Errorf("model stream text is not UTF-8")
 		return r.err
@@ -513,7 +517,7 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 		return err
 	}
 	root := candidate.Root()
-	digest, err := nodewire.OutputChunkSigningDigest(r.w.cfg.ChainID, r.taskHash[:], builderclient.PendingDispatchTicketHash(), seq, root[:]) // S5: the accepted ticket
+	digest, err := nodewire.OutputChunkSigningDigest(r.w.cfg.ChainID, r.taskHash[:], r.w.cfg.DispatchTicketHash[:], seq, root[:])
 	if err != nil {
 		return err
 	}
@@ -524,7 +528,7 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 		}
 		return err
 	}
-	chunk := builderclient.OutputChunk{Seq: seq, Text: append([]byte(nil), text...), MMRRoot: root, WorkerSignature: signature}
+	chunk := builderclient.OutputChunk{Seq: seq, Text: append([]byte(nil), text...), MMRRoot: root, WorkerSignature: signature, CumulativeGeneratedTokens: r.tokens}
 	encoded, err := json.Marshal(chunk)
 	if err != nil {
 		return err
@@ -584,13 +588,16 @@ func (r *outputStreamRecorder) emit(ctx context.Context, text []byte) error {
 	return nil
 }
 
-func (r *outputStreamRecorder) finish(ctx context.Context, output []byte) ([]uint64, error) {
+func (r *outputStreamRecorder) finish(ctx context.Context, output []byte, generatedTokens uint64) ([]uint64, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
 	if r.deferredErr != nil {
 		return nil, r.deferredErr
 	}
+	// The tail frame reports the whole generation; a unary transport observed
+	// no stream frames at all.
+	r.tokens = max(r.tokens, generatedTokens)
 	// The tail frame and the hand-over below need the stream settled: up with
 	// every earlier frame sent on it, or failed.
 	r.awaitOpen()
@@ -674,7 +681,7 @@ func (w *Worker) ensureOutputStreamStored(ctx context.Context, event chainclient
 		if mmr.Root() != frame.MMRRoot {
 			return fmt.Errorf("retained output frame MMR root mismatch")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), frame.Seq, frame.MMRRoot[:]) // S5: the accepted ticket
+		digest, err := nodewire.OutputChunkSigningDigest(w.cfg.ChainID, taskHash[:], w.cfg.DispatchTicketHash[:], frame.Seq, frame.MMRRoot[:])
 		if err != nil {
 			return err
 		}
@@ -727,7 +734,7 @@ func (w *Worker) loadOrCreateOutputFin(ctx context.Context, taskID string, taskH
 		if fin.TaskHash != taskHash || fin.FinalSeq != finalSeq || fin.OutputMMRRoot != root || fin.FinishReason != reason {
 			return builderclient.OutputFin{}, fmt.Errorf("persisted output Fin differs from committed output")
 		}
-		digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), finalSeq, root[:], reason) // S5: the accepted ticket
+		digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], w.cfg.DispatchTicketHash[:], finalSeq, root[:], reason)
 		if err != nil {
 			return builderclient.OutputFin{}, err
 		}
@@ -748,7 +755,7 @@ func (w *Worker) loadOrCreateOutputFin(ctx context.Context, taskID string, taskH
 	if !errors.Is(err, ErrCheckpointNotFound) {
 		return builderclient.OutputFin{}, err
 	}
-	digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], builderclient.PendingDispatchTicketHash(), finalSeq, root[:], reason) // S5: the accepted ticket
+	digest, err := nodewire.OutputFinSigningDigest(w.cfg.ChainID, taskHash[:], w.cfg.DispatchTicketHash[:], finalSeq, root[:], reason)
 	if err != nil {
 		return builderclient.OutputFin{}, err
 	}

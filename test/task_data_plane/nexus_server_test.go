@@ -600,7 +600,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 	n.uploadCalls++
 	n.uploadDigests = append(n.uploadDigests, body)
 	n.relayObservedBeforeRelease = n.relayObservedBeforeRelease || n.relayAccepted
-	request := builderclient.OutputStreamRequest{TaskHash: proofBare(header.TaskHash), SessionID: proofBare(header.SessionId), TaskID: proofBare(header.TaskId), Auth: proofAuthFromProto(header.RequestAuth), HeaderSignature: header.GetWorkerSignature(), ReplayChunks: append([]builderclient.OutputChunk(nil), n.outputFrames...)}
+	request := builderclient.OutputStreamRequest{TaskHash: proofBare(header.TaskHash), SessionID: proofBare(header.SessionId), TaskID: proofBare(header.TaskId), Auth: proofAuthFromProto(header.RequestAuth), HeaderSignature: header.GetWorkerSignature(), ReplayChunks: append([]builderclient.OutputChunk(nil), n.outputFrames...), DispatchTicketHash: codec.Hash(header.GetDispatchTicketHash())}
 	inner, err := n.objects.OpenTaskOutputStream(ctx, "", request)
 	progress := &nexusv1.OutputStreamProgressV1{}
 	if len(n.outputFrames) > 0 {
@@ -623,7 +623,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			return err
 		}
 		if chunk := frame.GetChunk(); chunk != nil {
-			digest, err := nodewire.OutputChunkSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), builderclient.PendingDispatchTicketHash(), chunk.Seq, chunk.MmrRoot)
+			digest, err := nodewire.OutputChunkSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), header.GetDispatchTicketHash(), chunk.Seq, chunk.MmrRoot)
 			if err != nil {
 				return connect.NewError(connect.CodeInvalidArgument, err)
 			}
@@ -632,7 +632,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			}
 			var root codec.Hash
 			copy(root[:], chunk.MmrRoot)
-			converted := builderclient.OutputChunk{Seq: chunk.Seq, Text: chunk.Text, MMRRoot: root, WorkerSignature: chunk.WorkerSignature, Attachment: chunk.Attachment, AttachmentSignature: chunk.AttachmentSignature}
+			converted := builderclient.OutputChunk{Seq: chunk.Seq, Text: chunk.Text, MMRRoot: root, WorkerSignature: chunk.WorkerSignature, Attachment: chunk.Attachment, AttachmentSignature: chunk.AttachmentSignature, CumulativeGeneratedTokens: chunk.CumulativeGeneratedTokens}
 			n.mu.Lock()
 			err = inner.SendChunk(converted)
 			if err == nil {
@@ -662,7 +662,7 @@ func (n *nexusProofServer) UploadTaskOutputStream(ctx context.Context, stream *c
 			return connect.NewError(connect.CodeUnavailable, errors.New("injected upload failure"))
 		}
 		finishReason := nodewire.FinishReasonV1(fin.FinishReason)
-		finDigest, err := nodewire.OutputFinSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), builderclient.PendingDispatchTicketHash(), fin.FinalSeq, fin.OutputMmrRoot, finishReason)
+		finDigest, err := nodewire.OutputFinSigningDigest(n.chainID, proofHex(proofBare(header.TaskHash)), header.GetDispatchTicketHash(), fin.FinalSeq, fin.OutputMmrRoot, finishReason)
 		if err == nil {
 			err = n.verifyServiceSignature(n.workerOperator, n.servicePubkey, finDigest, fin.WorkerSignature)
 		}
@@ -848,6 +848,7 @@ func receiptFromProto(receipt *taskv1.InferReceiptV3) (builderclient.SignedInfer
 		RequiredEvidenceCommitments: commitments,
 		ExpiryHeight:                receipt.GetExpiryHeight(),
 		ServiceSignature:            hex.EncodeToString(receipt.GetServiceSignature()),
+		DispatchTicketHash:          hex.EncodeToString(receipt.GetDispatchTicketHash()),
 	}, nil
 }
 
@@ -880,6 +881,7 @@ func receiptToProto(receipt builderclient.SignedInferReceipt) *taskv1.InferRecei
 		RequiredEvidenceCommitments: commitments,
 		ExpiryHeight:                receipt.ExpiryHeight,
 		ServiceSignature:            proofHex(receipt.ServiceSignature),
+		DispatchTicketHash:          proofHex(receipt.DispatchTicketHash),
 		OutputKeyCommitment:         make([]byte, 32),
 		WorkerTokenKeyCommitment:    make([]byte, 32),
 		WorkerValueKeyCommitment:    make([]byte, 32),

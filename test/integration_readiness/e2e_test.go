@@ -262,6 +262,7 @@ func TestFakeBackedIntegrationReadinessWorkerPath(t *testing.T) {
 	snapshotReader := &readinessSnapshotReader{}
 	generation := generationfixture.New(t, taskID, "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", "READINESS_ACCEPTED_TASK_HASH_V1")
 	workerNode := worker.New(worker.Config{
+		DispatchTicketHash:          codec.HashWithDomain("TEST_DISPATCH_TICKET", []byte("readiness")),
 		WorkerAddress:               "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 		ModelServiceID:              "fake-model-service",
 		Model:                       model,

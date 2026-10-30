@@ -122,7 +122,8 @@ func newEvidenceFixture(t *testing.T) evidenceFixture {
 		Receipt: builderclient.SignedInferReceipt{SchemaVersion: nodewire.InferReceiptSchemaVersionV3, ChainID: outputTestChainID, TaskID: outputTestTaskID,
 			TaskHash: codec.HashBytes([]byte("accepted-task")).String(), WorkerOperatorAddress: inputTestOperator,
 			ServiceAuthorizationNonce: 1, GenerationParamsDigest: digest.String(),
-			OutputSizeBytes: uint64(len(artifacts[0])), OutputLeafCount: 1, GeneratedTokenCount: result.GeneratedTokenCount, ExpiryHeight: 1200},
+			OutputSizeBytes: uint64(len(artifacts[0])), OutputLeafCount: 1, GeneratedTokenCount: result.GeneratedTokenCount, ExpiryHeight: 1200,
+			DispatchTicketHash: strings.Repeat("42", 32)},
 	}}
 	root, err := codec.OutputMMRRootFromLengths(f.Commitments.Output, f.Commitments.OutputChunkLengths)
 	if err != nil {

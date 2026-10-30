@@ -102,6 +102,7 @@ func (w *Worker) inferReceiptFacts(
 ) builderclient.InferReceiptFacts {
 	return builderclient.InferReceiptFacts{
 		ChainID:                   w.cfg.ChainID,
+		DispatchTicketHash:        w.cfg.DispatchTicketHash.String(),
 		TaskID:                    in.event.TaskID,
 		TaskHash:                  in.facts.AcceptedTaskHash.Hex(),
 		WorkerOperatorAddress:     w.cfg.WorkerAddress,

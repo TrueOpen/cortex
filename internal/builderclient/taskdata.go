@@ -119,7 +119,10 @@ type SignedInferReceipt struct {
 	GeneratedTokenCount         uint64
 	RequiredEvidenceCommitments []EvidenceCommitment
 	ExpiryHeight                uint64
-	ServiceSignature            string
+	// DispatchTicketHash is InferReceiptV3 field 19: the ticket this Worker
+	// accepted, canonical lowercase 64-hex. It enters the signing projection.
+	DispatchTicketHash string
+	ServiceSignature   string
 }
 
 // EvidenceCommitment is one frozen required_evidence_commitments[] element.

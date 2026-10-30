@@ -289,6 +289,7 @@ func TestAdapterBackedCortexFlowRegisterSupportInferVerifySettlementCleanupAndRe
 	var traceRecords []observability.LogRecord
 	generation := generationfixture.New(t, taskID, modelID, "INTEGRATION_ACCEPTED_TASK_HASH_V1")
 	workerNode := worker.New(worker.Config{
+		DispatchTicketHash:        codec.HashWithDomain("TEST_DISPATCH_TICKET", []byte("integration")),
 		WorkerAddress:             workerAddress,
 		ModelServiceID:            modelSvcID,
 		Model:                     model,

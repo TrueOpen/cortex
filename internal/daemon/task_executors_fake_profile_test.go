@@ -80,6 +80,7 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 		BuilderOperatorAddress: inputTestBuilder, ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, InputDigest: codec.HashBytes(input),
 		WinnerConfirmHeight: 100, DeadlineHeight: 230, Stage: string(layout.StageQueued),
+		DispatchTicketHash: codec.HashBytes([]byte("ticket")),
 	}
 	snapshot := chainclient.TaskSnapshot{Status: "ASSIGNED", CurrentContract: true, Assignment: chainclient.AssignmentSnapshot{
 		SessionID: task.SessionID, TaskID: task.TaskID, SelectedWorker: task.WorkerAddress,

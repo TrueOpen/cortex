@@ -295,13 +295,6 @@ func InferReceiptSigningDigest(receipt SignedInferReceipt) (codec.Hash, error) {
 	return nodewire.InferReceiptSigningDigest(wire)
 }
 
-// PendingDispatchTicketHash stands in for the dispatch_ticket_hash that the
-// receipt, the output stream header and every chunk and Fin signature bind.
-// S5: replace with the ticket hash of the dispatch the Worker accepted.
-func PendingDispatchTicketHash() []byte {
-	return make([]byte, 32)
-}
-
 func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV3, error) {
 	if err := validateInferReceiptFacts(receipt); err != nil {
 		return nodewire.InferReceiptV3{}, err
@@ -310,6 +303,7 @@ func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV3, erro
 	taskHash, _ := decodeCanonicalTaskDataHash(receipt.TaskHash)
 	generationParamsDigest, _ := decodeCanonicalTaskDataHash(receipt.GenerationParamsDigest)
 	outputHash, _ := decodeCanonicalTaskDataHash(receipt.OutputHash)
+	ticket, _ := decodeCanonicalTaskDataHash(receipt.DispatchTicketHash)
 	commitments := make([]nodewire.EvidenceCommitmentV1, len(receipt.RequiredEvidenceCommitments))
 	for index, commitment := range receipt.RequiredEvidenceCommitments {
 		hashOrRoot := commitment.EvidenceHashOrRoot
@@ -338,7 +332,7 @@ func inferReceiptWire(receipt SignedInferReceipt) (nodewire.InferReceiptV3, erro
 		WorkerTokenKeyCommitment:    zero,
 		WorkerValueKeyCommitment:    zero,
 		CiphertextOutputRoot:        zero,
-		DispatchTicketHash:          PendingDispatchTicketHash(), // S5: the accepted ticket
+		DispatchTicketHash:          ticket,
 	}, nil
 }
 
@@ -371,6 +365,7 @@ func validateInferReceiptFacts(receipt SignedInferReceipt) error {
 		{"task_hash", receipt.TaskHash},
 		{"generation_params_digest", receipt.GenerationParamsDigest},
 		{"output_hash", receipt.OutputHash},
+		{"dispatch_ticket_hash", receipt.DispatchTicketHash},
 	} {
 		if !canonicalTaskDataHash(field.value) {
 			return fmt.Errorf("infer receipt %s must be lowercase 32-byte hex", field.name)
@@ -393,6 +388,9 @@ func validateInferReceiptFacts(receipt SignedInferReceipt) error {
 					"so zeros are a claim about consensus state rather than a missing value",
 				field.name)
 		}
+	}
+	if isZeroTaskDataHash(receipt.DispatchTicketHash) {
+		return fmt.Errorf("infer receipt dispatch_ticket_hash must be the accepted ticket, not ZERO32")
 	}
 	if receipt.OutputLeafCount == 0 || receipt.ServiceAuthorizationNonce == 0 || receipt.ExpiryHeight == 0 {
 		return fmt.Errorf("infer receipt output_leaf_count, service_authorization_nonce, and expiry_height are required")

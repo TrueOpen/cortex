@@ -147,10 +147,6 @@ func TestInferReceiptDigestReadsEveryPreimageField(t *testing.T) {
 // cross-package check that it did not quietly keep a second derivation.
 func TestBuilderClientReceiptDigestIsTheFrozenDigest(t *testing.T) {
 	frozen := inferReceiptBase(t)
-	// S5: SignedInferReceipt carries no dispatch ticket yet, so the builderclient
-	// path binds the pending ticket; compare against the same frozen receipt
-	// under that ticket.
-	frozen.DispatchTicketHash = builderclient.PendingDispatchTicketHash()
 
 	frozenDigest, err := nodewire.InferReceiptSigningDigest(frozen)
 	if err != nil {
@@ -179,6 +175,7 @@ func TestBuilderClientReceiptDigestIsTheFrozenDigest(t *testing.T) {
 		ExpiryHeight:                frozen.ExpiryHeight,
 		GeneratedTokenCount:         frozen.GeneratedTokenCount,
 		OutputLeafCount:             frozen.OutputLeafCount,
+		DispatchTicketHash:          hex.EncodeToString(frozen.DispatchTicketHash),
 	}
 	wireDigest, err := builderclient.InferReceiptSigningDigest(wire)
 	if err != nil {

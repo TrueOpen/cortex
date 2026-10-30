@@ -79,6 +79,7 @@ func validSubmitInferReceiptMessage() SubmitInferReceiptMessage {
 			},
 			ExpiryHeight: 900, ServiceSignature: ProtoBytes(strings.Repeat("cd", 64)),
 			OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
+			DispatchTicketHash: ProtoBytes32(strings.Repeat("42", 32)),
 		},
 		SubmitterAddress: "trueopen1service",
 	}

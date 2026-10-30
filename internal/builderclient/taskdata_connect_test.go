@@ -205,6 +205,7 @@ func taskDataTestReceipt(t *testing.T, keyPair taskDataTestKeyPair, chainID stri
 		TaskHash:                  strings.Repeat("22", 32),
 		WorkerOperatorAddress:     keyPair.address(t),
 		ServiceAuthorizationNonce: 9,
+		DispatchTicketHash:        strings.Repeat("42", 32),
 		GenerationParamsDigest:    nodewire.GenerationParamsDigest(taskDataTestGenerationParams).String(),
 		OutputHash:                hex.EncodeToString(outputHash[:]),
 		OutputSizeBytes:           uint64(len(data)),

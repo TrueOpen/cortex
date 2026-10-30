@@ -3,44 +3,14 @@ package worker
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 )
-
-// barrierTaskData holds every open until all of them have arrived. A serial
-// loop can never get past the first one, so the barrier is the proof that the
-// opens overlap rather than a timing comparison that a slow machine could flip.
-type barrierTaskData struct {
-	*recordingTaskData
-	want    int
-	mu      sync.Mutex
-	arrived int
-	release chan struct{}
-	once    sync.Once
-}
-
-func (b *barrierTaskData) OpenTaskOutputStream(ctx context.Context, endpoint string, request builderclient.OutputStreamRequest) (builderclient.TaskOutputStream, error) {
-	b.mu.Lock()
-	b.arrived++
-	arrived := b.arrived
-	b.mu.Unlock()
-	if arrived >= b.want {
-		b.once.Do(func() { close(b.release) })
-	}
-	select {
-	case <-b.release:
-	case <-time.After(5 * time.Second):
-		return nil, fmt.Errorf("opens ran one after another: %d of %d had started", arrived, b.want)
-	}
-	return b.recordingTaskData.OpenTaskOutputStream(ctx, endpoint, request)
-}
 
 // failingTaskData refuses one Builder and records what was opened and closed, so
 // a test can check that a partial open leaves nothing behind.
@@ -97,64 +67,10 @@ func openStreamHarness(t *testing.T) (harness, taskBuilderSet, openStreamTask) {
 	return h, set, openStreamTask{event: finalizedTask(), hash: codec.HashBytes([]byte("open-stream-task"))}
 }
 
-// TestBuilderStreamsOpenTogether is the point of the change. Each open is a TLS
-// handshake plus a round trip for the header acknowledgement, and on a node
-// deployed away from the Builders that measured about 2.3s each -- so three of
-// them in turn held 81% of everything between an admitted task and its first
-// generated token. They have nothing to do with each other: separate endpoints,
-// separate authorisation, the same header signature and the same replay frames.
-func TestBuilderStreamsOpenTogether(t *testing.T) {
-	h, set, task := openStreamHarness(t)
-	barrier := &barrierTaskData{recordingTaskData: h.taskData, want: len(set.endpoints), release: make(chan struct{})}
-	if barrier.want < 2 {
-		t.Fatalf("the harness has %d Builders, which cannot show concurrency", barrier.want)
-	}
-	h.worker.cfg.TaskData = barrier
-
-	stream, err := h.worker.openOutputStream(context.Background(), task.event, task.hash, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stream.Close()
-}
-
-// TestOneRefusedBuilderFailsTheWholeOpen keeps the contract the serial loop
-// had. Streaming to a subset needs per-Builder liveness tracking that does not
-// exist, so a Builder that cannot be opened fails the open -- and the streams
-// that did open must be closed rather than left to the garbage collector with
-// their connections still up.
-func TestOneRefusedBuilderFailsTheWholeOpen(t *testing.T) {
-	h, set, task := openStreamHarness(t)
-	for _, refused := range []int{0, len(set.endpoints) - 1} {
-		t.Run(fmt.Sprintf("builder %d refuses", refused), func(t *testing.T) {
-			h := h
-			failing := &failingTaskData{recordingTaskData: h.taskData, refuse: set.endpoints[refused].Endpoint}
-			h.worker.cfg.TaskData = failing
-
-			stream, err := h.worker.openOutputStream(context.Background(), task.event, task.hash, nil)
-			if err == nil {
-				_ = stream.Close()
-				t.Fatal("the open succeeded while a Builder was refusing")
-			}
-			if !strings.Contains(err.Error(), set.endpoints[refused].OperatorAddress) {
-				t.Fatalf("error = %v, want it to name the Builder that refused", err)
-			}
-			failing.mu.Lock()
-			defer failing.mu.Unlock()
-			for i, opened := range failing.opened {
-				if !opened.wasClosed() {
-					t.Fatalf("stream %d was left open after the failed open", i)
-				}
-			}
-		})
-	}
-}
-
-// TestStreamsStayInBuilderOrder keeps the fan-out able to name the right
-// Builder. The two slices are paired by index, and SendChunk reports a failure
-// by looking the address up at the stream's index, so opens that finish out of
-// order must still land where they started.
-func TestStreamsStayInBuilderOrder(t *testing.T) {
+// TestOutputStreamOpensOnlyToTheDispatchingBuilder: the frames go to the
+// Builder that dispatched the ticket (CD §5.2 W11, C1), never to the rest of
+// the Task Builder group, which before the record cannot authenticate them.
+func TestOutputStreamOpensOnlyToTheDispatchingBuilder(t *testing.T) {
 	h, set, task := openStreamHarness(t)
 	stream, err := h.worker.openOutputStream(context.Background(), task.event, task.hash, nil)
 	if err != nil {
@@ -166,12 +82,41 @@ func TestStreamsStayInBuilderOrder(t *testing.T) {
 	if !ok {
 		t.Fatalf("stream is %T, want the fan-out", stream)
 	}
-	if len(fanOut.builders) != len(set.endpoints) {
-		t.Fatalf("fan-out holds %d Builders, want %d", len(fanOut.builders), len(set.endpoints))
+	if len(fanOut.builders) != 1 || fanOut.builders[0] != set.endpoints[0].OperatorAddress {
+		t.Fatalf("stream goes to %v, want only the dispatching Builder %s", fanOut.builders, set.endpoints[0].OperatorAddress)
 	}
-	for i, endpoint := range set.endpoints {
-		if fanOut.builders[i] != endpoint.OperatorAddress {
-			t.Fatalf("slot %d holds %q, want %q", i, fanOut.builders[i], endpoint.OperatorAddress)
-		}
+	if n := len(h.taskData.UploadedOutputStreams); n != 1 {
+		t.Fatalf("opened %d streams, want one", n)
 	}
+}
+
+// TestRefusedDispatchingBuilderFailsTheOpen: the dispatching Builder refusing
+// the stream fails the open and leaves nothing behind; another group member
+// refusing does not matter, since it is never asked.
+func TestRefusedDispatchingBuilderFailsTheOpen(t *testing.T) {
+	h, set, task := openStreamHarness(t)
+	failing := &failingTaskData{recordingTaskData: h.taskData, refuse: set.endpoints[0].Endpoint}
+	h.worker.cfg.TaskData = failing
+	stream, err := h.worker.openOutputStream(context.Background(), task.event, task.hash, nil)
+	if err == nil {
+		_ = stream.Close()
+		t.Fatal("the open succeeded while the dispatching Builder was refusing")
+	}
+	if !strings.Contains(err.Error(), set.endpoints[0].OperatorAddress) {
+		t.Fatalf("error = %v, want it to name the Builder that refused", err)
+	}
+	failing.mu.Lock()
+	opened := len(failing.opened)
+	failing.mu.Unlock()
+	if opened != 0 {
+		t.Fatalf("%d streams were opened", opened)
+	}
+
+	other := &failingTaskData{recordingTaskData: h.taskData, refuse: set.endpoints[len(set.endpoints)-1].Endpoint}
+	h.worker.cfg.TaskData = other
+	stream, err = h.worker.openOutputStream(context.Background(), task.event, task.hash, nil)
+	if err != nil {
+		t.Fatalf("a refusing group member that is not the dispatching Builder failed the open: %v", err)
+	}
+	_ = stream.Close()
 }

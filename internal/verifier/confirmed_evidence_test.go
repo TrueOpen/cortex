@@ -109,6 +109,7 @@ func confirmedTask(t *testing.T, h harness) TaskState {
 		TaskHash: hex.EncodeToString(accepted[:]), WorkerOperatorAddress: state.WorkerAddress, ServiceAuthorizationNonce: 1,
 		GenerationParamsDigest: paramsDigest.String(), OutputHash: outputHash.String(), OutputSizeBytes: uint64(len(output)),
 		OutputLeafCount: 1, GeneratedTokenCount: uint64(len(ids.Generated)), RequiredEvidenceCommitments: commitments, ExpiryHeight: 1000,
+		DispatchTicketHash: strings.Repeat("42", 32),
 	}
 	receiptHash, err := builderclient.InferReceiptSigningDigest(receipt)
 	if err != nil {

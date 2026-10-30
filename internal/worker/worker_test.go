@@ -632,6 +632,7 @@ func testSubmitInferReceiptMessage(taskID, submitter string) txclient.SubmitInfe
 			},
 			ExpiryHeight: 300, ServiceSignature: txclient.ProtoBytes(strings.Repeat("ab", 64)),
 			OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
+			DispatchTicketHash: txclient.ProtoBytes32(workerTestTicket.String()),
 		},
 		SubmitterAddress: submitter,
 	}
@@ -800,6 +801,9 @@ func newHarnessWithConfig(t *testing.T, mutate func(*Config)) harness {
 		ReceivingBuilder: ReceivingBuilderFunc(func(context.Context, ReceivingBuilderRef) (BuilderEndpoint, error) {
 			return endpoint, nil
 		}),
+		// The ticket this responsibility accepted (Phase 1); every output
+		// signature and the receipt bind it.
+		DispatchTicketHash: workerTestTicket,
 		// The Keeper read the receipt's task_hash and generation_params_digest
 		// come from. Both are keyed by task id, so a reader pointed at the wrong
 		// task serves visibly different bytes.

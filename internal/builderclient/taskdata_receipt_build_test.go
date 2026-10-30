@@ -40,6 +40,7 @@ func completeInferReceiptFacts(t *testing.T) InferReceiptFacts {
 		// per-field cases below about the field each one blanks.
 		ProfileEvidenceRequirements: WorkerEvidenceRequirementsV3(),
 		ExpiryHeight:                1200,
+		DispatchTicketHash:          strings.Repeat("42", 32),
 	}
 }
 

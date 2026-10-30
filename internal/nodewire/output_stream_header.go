@@ -3,6 +3,8 @@ package nodewire
 import (
 	"fmt"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
 )
@@ -68,4 +70,24 @@ func OutputStreamHeaderSigningPreimage(header OutputStreamHeaderV2) ([]byte, err
 // OutputStreamHeaderSigningDigest is the digest the Worker's service key signs.
 func OutputStreamHeaderSigningDigest(header OutputStreamHeaderV2) (codec.Hash, error) {
 	return digestOf(OutputStreamHeaderSigningPreimage(header))
+}
+
+// PlaintextOutputStreamHeaderDigest is the digest a Worker signs to open its
+// plaintext output stream for the accepted ticket, built exactly as wire
+// dispatch/output_test.go:39-49 does: HashFields(TRUEOPEN_OUTPUT_STREAM_HEADER_V1,
+// chain_id, task_hash raw32, dispatch_ticket_hash raw32, Uint32(1), empty,
+// ZERO32, ZERO32). The proto header carries task_hash as text; the signature
+// never does.
+func PlaintextOutputStreamHeaderDigest(chainID string, taskHash, ticket [32]byte) (codec.Hash, error) {
+	if ticket == ([32]byte{}) {
+		return codec.Hash{}, fmt.Errorf("output stream header needs the accepted dispatch_ticket_hash, not ZERO32")
+	}
+	zero := make([]byte, 32)
+	if _, err := OutputStreamHeaderSigningPreimage(OutputStreamHeaderV2{
+		ChainID: chainID, TaskHash: taskHash[:], DispatchTicketHash: ticket[:], StreamInstance: 1,
+		OutputKeyCommitment: zero, KeyPackageHash: zero,
+	}); err != nil {
+		return codec.Hash{}, err
+	}
+	return codec.Hash(dispatch.HashFields(DomainOutputStreamHeaderV1, []byte(chainID), taskHash[:], ticket[:], dispatch.Uint32(1), nil, zero, zero)), nil
 }

@@ -14,6 +14,8 @@ import (
 // four reserved encryption key slots are ZERO32 while only PLAINTEXT is accepted.
 type InferReceiptFacts struct {
 	ChainID string
+	// DispatchTicketHash is the accepted ticket, lowercase 64-hex.
+	DispatchTicketHash string
 	// TaskID is the canonical lowercase 64-hex Keeper task id.
 	TaskID string
 	// TaskHash is TaskCoreState.accepted_task_hash, canonical lowercase 64-hex.
@@ -101,6 +103,7 @@ func BuildInferReceipt(facts InferReceiptFacts) (SignedInferReceipt, codec.Hash,
 		GeneratedTokenCount:         facts.GeneratedTokenCount,
 		RequiredEvidenceCommitments: append([]EvidenceCommitment(nil), facts.RequiredEvidenceCommitments...),
 		ExpiryHeight:                facts.ExpiryHeight,
+		DispatchTicketHash:          facts.DispatchTicketHash,
 	}
 	digest, err := InferReceiptSigningDigest(receipt)
 	if err != nil {

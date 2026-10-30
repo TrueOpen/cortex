@@ -168,6 +168,7 @@ func TestInferStartedTraceIsErrorOnlyWhenInputResolutionFails(t *testing.T) {
 	task := store.InferTask{
 		TaskID: "task-1", SessionID: "session-1", ModelID: testModelID, ProfileVersion: 1,
 		InputDigest: codec.HashBytes([]byte("input")), Stage: string(layout.StageQueued),
+		DispatchTicketHash: codec.HashBytes([]byte("ticket")),
 	}
 
 	if _, _, err := executor.RunInfer(context.Background(), taskHash, task); !errors.Is(err, wantErr) {
@@ -204,6 +205,7 @@ func TestInferStartedTraceIsInfoWhenInputResolutionSucceeds(t *testing.T) {
 		OrderDigest: codec.HashBytes([]byte("order")), WorkerAddress: "worker-1",
 		ModelID: testModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1,
 		InputDigest: codec.HashBytes(input), DeadlineHeight: 10, Stage: string(layout.StageQueued),
+		DispatchTicketHash: codec.HashBytes([]byte("ticket")),
 	}
 
 	if _, _, err := executor.RunInfer(ctx, taskHash, task); err == nil || err.Error() != "model client is required" {

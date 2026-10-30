@@ -44,7 +44,7 @@ func outputConfirmationMaterial(
 	traceRoot := codec.HashWithDomain("TRACE", []byte(pkg.TaskID))
 	receipt, _, err := builderclient.BuildInferReceipt(builderclient.InferReceiptFacts{
 		ChainID: chainID, TaskID: pkg.TaskID, TaskHash: hex.EncodeToString(pkg.ReceiptHash[:]),
-		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 13,
+		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 13, DispatchTicketHash: strings.Repeat("42", 32),
 		GenerationParamsDigest: hexHash(codec.HashWithDomain("GENERATION", []byte(pkg.TaskID))),
 		OutputHash:             pkg.OutputHash, OutputSizeBytes: outputConfirmationSizeBytes, OutputLeafCount: 1,
 		RequiredEvidenceCommitments: []builderclient.EvidenceCommitment{{

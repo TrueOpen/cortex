@@ -177,6 +177,7 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 	generation := generationfixture.New(t, taskID, assignment.ModelID, "E2E_ACCEPTED_TASK_HASH_V1")
 	evidenceSchemaHash := codec.Hash(fakeLockedProfile().Profile.VerificationProfile.EvidenceSchemaHash)
 	workerNode := worker.New(worker.Config{
+		DispatchTicketHash:          codec.HashWithDomain("TEST_DISPATCH_TICKET", []byte("fakes")),
 		WorkerAddress:               "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 		ModelServiceID:              "fake-model-service",
 		Model:                       model,
@@ -475,6 +476,7 @@ func TestFakeBackedFlowRejectsNonCanonicalAssignmentTaskID(t *testing.T) {
 	model := modelservice.NewFakeService()
 	builder := builderclient.NewFakeClient()
 	workerNode := worker.New(worker.Config{
+		DispatchTicketHash:        codec.HashWithDomain("TEST_DISPATCH_TICKET", []byte("fakes")),
 		WorkerAddress:             "worker-1",
 		ModelServiceID:            "fake-model-service",
 		Model:                     model,

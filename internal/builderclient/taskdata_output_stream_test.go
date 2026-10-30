@@ -27,7 +27,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: taskDataTestRequestAuth(t, pair, "UploadTaskOutputStream", key, body)}
+	request := OutputStreamRequest{TaskHash: key.TaskHash, SessionID: key.SessionID, TaskID: key.TaskID, Auth: taskDataTestRequestAuth(t, pair, "UploadTaskOutputStream", key, body), DispatchTicketHash: testDispatchTicket}
 	request.HeaderSignature = signOutputStreamHeader(t, pair, request)
 	mmr, _ := codec.NewMMR("TRUEOPEN_OUTPUT_MMR_V1")
 	for i, text := range chunks {
@@ -35,7 +35,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 			t.Fatal(err)
 		}
 		root := mmr.Root()
-		digest, err := nodewire.OutputChunkSigningDigest(request.Auth.ChainID, mustDecodeHex(t, key.TaskHash), PendingDispatchTicketHash(), uint64(i), root[:])
+		digest, err := nodewire.OutputChunkSigningDigest(request.Auth.ChainID, mustDecodeHex(t, key.TaskHash), request.DispatchTicketHash[:], uint64(i), root[:])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func outputStreamFixture(t *testing.T, chunks ...string) OutputStreamRequest {
 func outputFinFixture(t *testing.T, request OutputStreamRequest, reason nodewire.FinishReasonV1) OutputFin {
 	t.Helper()
 	last := request.ReplayChunks[len(request.ReplayChunks)-1]
-	digest, err := nodewire.OutputFinSigningDigest(request.Auth.ChainID, mustDecodeHex(t, request.TaskHash), PendingDispatchTicketHash(), last.Seq, last.MMRRoot[:], reason)
+	digest, err := nodewire.OutputFinSigningDigest(request.Auth.ChainID, mustDecodeHex(t, request.TaskHash), request.DispatchTicketHash[:], last.Seq, last.MMRRoot[:], reason)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 						if err != nil {
 							return err
 						}
-						if !proto.Equal(frame, outputChunkFrame(request.ReplayChunks[i])) {
+						if !proto.Equal(frame, outputChunkFrame(request.ReplayChunks[i], request.DispatchTicketHash)) {
 							t.Error("wrong resumed chunk")
 						}
 					}
@@ -144,7 +144,7 @@ func TestOutputStreamUploadsResumesAndChecksFinalAcknowledgement(t *testing.T) {
 						// deleted, stream superseded), so this is not proof of delivery.
 						return connect.NewError(connect.CodeAlreadyExists, errors.New("NEXUS_DATA_CONFLICT: output stream is sealed"))
 					}
-					expectedFin, _ := outputFinFrame(request.Auth.ChainID, request.TaskHash, request.ReplayChunks[1].MMRRoot, 2, finish)
+					expectedFin, _ := outputFinFrame(request.Auth.ChainID, request.TaskHash, request.DispatchTicketHash, request.ReplayChunks[1].MMRRoot, 2, finish)
 					if !proto.Equal(fin, expectedFin) {
 						t.Error("invalid Fin")
 					}
@@ -291,7 +291,7 @@ func TestOutputStreamLiveSendingUsesPinnedTLSHTTP2(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if !proto.Equal(frame, outputChunkFrame(chunk)) {
+			if !proto.Equal(frame, outputChunkFrame(chunk, testDispatchTicket)) {
 				t.Error("live chunk changed")
 			}
 		}
@@ -524,7 +524,7 @@ func TestOutputStreamSealedBuilderEndsStreamBeforeFin(t *testing.T) {
 // OutputStreamHeaderV2 of the request's task.
 func signOutputStreamHeader(t *testing.T, pair taskDataTestKeyPair, request OutputStreamRequest) []byte {
 	t.Helper()
-	digest, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash)
+	digest, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash, request.DispatchTicketHash)
 	if err != nil {
 		t.Fatal(err)
 	}
