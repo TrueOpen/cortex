@@ -342,7 +342,11 @@ func TestWorkerRecoveryRejectsTamperedSignedFrames(t *testing.T) {
 				}
 				record.Data, _ = json.Marshal(chunk)
 			}
-			if err := h.worker.ensureOutputStreamStored(context.Background(), event, receipt); err == nil {
+			commit, err := receiptCommit(receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := h.worker.ensureOutputStreamStored(context.Background(), event, commit); err == nil {
 				t.Fatal("accepted tampered signed frame journal")
 			}
 		})

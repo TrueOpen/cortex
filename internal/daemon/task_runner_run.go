@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -306,6 +307,13 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 		if outcome.terminal {
 			delete(r.infer, outcome.hash)
 			return layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(outcome.hash))
+		}
+		// A dispatched infer that succeeded (receipt relayed, evidence at its
+		// redundancy target) gives its (task_id, WORKER) lease back (S5 Q7).
+		if updated.Stage == "succeeded" && current.Stage != "succeeded" && updated.DispatchTicketHash != (codec.Hash{}) {
+			if err := r.releaseDispatchLease(ctx, updated.TaskID); err != nil {
+				return err
+			}
 		}
 		r.infer[outcome.hash] = updated
 		return r.persistInferTaskToLayout(ctx, outcome.hash, updated)
@@ -720,6 +728,14 @@ func (r *TaskRunner) applyRunFailure(role, taskID string, taskHash codec.Hash, e
 }
 
 func (r *TaskRunner) recordInferRetry(task *store.InferTask, err error, finishedAt time.Time, taskHash codec.Hash) {
+	if isChainStateWait(err) {
+		// Waiting for the dispatch record, or paused by a REJECTED notice: the
+		// protocol's clock, bounded by the task deadline (D_ticket before the
+		// record, infer_deadline after). It spends no retry.
+		task.LastError = err.Error()
+		task.RetryAtUnixMilli = finishedAt.Add(r.cfg.DispatchWaitInterval).UnixMilli()
+		return
+	}
 	r.applyRunFailure("infer", task.TaskID, taskHash, err, finishedAt,
 		&task.Stage, &task.RetryCount, &task.RetryAtUnixMilli, &task.LastError,
 		&task.AutoHalted, &task.HaltCode, &task.HaltReason)
@@ -915,6 +931,9 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
 				return nil, err
 			}
+			if err := r.releaseDispatchLease(ctx, effect.TaskID); err != nil {
+				return nil, err
+			}
 		case ReconcilerEffectTaskTerminal:
 			ev := layout.Evidence{TaskID: effect.TaskID, TerminalOrSettled: true, RetentionStartHeight: retentionStartHeight(effect)}
 			if taskRecord, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err == nil {
@@ -924,6 +943,9 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 				if !r.quarantineEffect(effect, err) {
 					return nil, err
 				}
+			}
+			if err := r.releaseDispatchLease(ctx, effect.TaskID); err != nil {
+				return nil, err
 			}
 		case ReconcilerEffectVerifyTerminal:
 			// Every node on the chain sees every reveal, and on a task with
@@ -1030,4 +1052,21 @@ func retentionStartHeight(effect ReconcilerEffect) uint64 {
 		return effect.FinalityHeight
 	}
 	return effect.Event.Height
+}
+
+// releaseDispatchLease returns a recorded task's (task_id, WORKER) lease. The
+// hook never takes the runner lock (S9 wires Dispatcher.ReleaseTaskLease);
+// releasing a lease that is not held is a no-op.
+func (r *TaskRunner) releaseDispatchLease(ctx context.Context, taskID string) error {
+	if r.cfg.ReleaseDispatchLease == nil {
+		return nil
+	}
+	raw, err := hex.DecodeString(taskID)
+	if err != nil || len(raw) != 32 {
+		return nil // not a Phase 1 task id
+	}
+	if err := r.cfg.ReleaseDispatchLease(ctx, layout.StoredHash(raw)); err != nil {
+		return fmt.Errorf("release the dispatch lease of task %s: %w", taskID, err)
+	}
+	return nil
 }

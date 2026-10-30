@@ -168,6 +168,7 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 	if !bytes.Equal(snap.TaskID, rec.TaskID[:]) {
 		return fmt.Errorf("ChainObservationConflict: the record of order %d names task %x, ticket %s is for %s", rec.OrderSequence, snap.TaskID, rec.TicketHash, rec.TaskID)
 	}
+	alreadyRecorded := rec.State == layout.DispatchRecorded
 	winner, _ := hash32(snap.TicketHash)
 	if winner != rec.TicketHash || snap.Winner != d.cfg.Operator {
 		// Another ticket won the order (S5 Q6): pause, keep the lease and the
@@ -227,10 +228,15 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 	// Idempotent tail: a redelivery after a crash past the state write
 	// resumes here.
 	if _, err := d.cfg.Leases.Rebind(ctx, rec.TicketHash, rec.TaskID); err != nil {
-		if errors.Is(err, layout.ErrConflict) {
+		switch {
+		case errors.Is(err, layout.ErrConflict) && alreadyRecorded:
+			// The lease moved earlier and has been given back since (the
+			// infer succeeded or ended): nothing left to move.
+		case errors.Is(err, layout.ErrConflict):
 			return fmt.Errorf("rebind lease of ticket %s: %w", rec.TicketHash, err)
+		default:
+			return builderclient.Retryable(fmt.Errorf("rebind lease: %w", err))
 		}
-		return builderclient.Retryable(fmt.Errorf("rebind lease: %w", err))
 	}
 	if err := d.cfg.Infer.RecordDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash, rec.RecordedHeight, rec.InferDeadlineHeight); err != nil {
 		return builderclient.Retryable(fmt.Errorf("record the infer deadline: %w", err))

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -52,6 +53,10 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	var requirements []builderclient.InferEvidenceRequirement
 	var requiredTopK uint32
 	var err error
+	dispatched, err := loadDispatchedInfer(ctx, e.cfg.Store, task)
+	if err != nil {
+		return task, false, err
+	}
 	if e.cfg.ProfileReader == nil {
 		if !e.cfg.FakeOutput {
 			return task, false, builderclient.Retryable(fmt.Errorf("Keeper profile reader is required"))
@@ -78,43 +83,32 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 			}
 		}
 	}
-	persistence := &evidenceWorkerPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, store: e.cfg.Store, persist: e.persist}
+	persistence := &evidenceWorkerPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence, store: e.cfg.Store, persist: e.persist,
+		evidenceKey: codec.Hash(layout.DispatchEvidenceScope(layout.StoredHash(taskHash), layout.StoredHash(task.DispatchTicketHash)))}
 	signerAddress, signerPubkey := resolveSigningIdentity(e.cfg, e.cfg.LocalWorkerAddress)
-	wcfg := worker.Config{WorkerAddress: e.cfg.LocalWorkerAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, TaskData: e.cfg.TaskData, TaskDataAuth: e.cfg.TaskDataAuth, Tx: e.cfg.Tx, Persistence: persistence, InferDeadlineDeltaHeights: e.cfg.InferDeadlineDeltaHeights, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, SignerPubkey: signerPubkey, Signer: e.cfg.Signer, FakeOutput: e.cfg.FakeOutput, PackageStore: e.cfg.OutputPackages, ReceivingBuilder: e.cfg.ReceivingBuilder, TaskFacts: e.cfg.TaskFacts, EvidenceSchemaHash: evidenceSchemaHash, ProfileEvidenceRequirements: requirements, RequiredTopK: requiredTopK, CrashHook: e.cfg.CrashHook, SnapshotReader: newTaskSnapshotReader(e.cfg.TaskReader, task.SessionID), Trace: e.cfg.Trace, DispatchTicketHash: task.DispatchTicketHash}
+	wcfg := worker.Config{WorkerAddress: e.cfg.LocalWorkerAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Builder: e.cfg.Builder, TaskData: e.cfg.TaskData, TaskDataAuth: e.cfg.TaskDataAuth, Tx: e.cfg.Tx, Persistence: persistence, InferDeadlineDeltaHeights: e.cfg.InferDeadlineDeltaHeights, ChainID: e.cfg.ChainID, SignerAddress: signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, SignerPubkey: signerPubkey, Signer: e.cfg.Signer, FakeOutput: e.cfg.FakeOutput, PackageStore: e.cfg.OutputPackages, ReceivingBuilder: e.cfg.ReceivingBuilder, TaskFacts: e.cfg.TaskFacts, EvidenceSchemaHash: evidenceSchemaHash, ProfileEvidenceRequirements: requirements, RequiredTopK: requiredTopK, CrashHook: e.cfg.CrashHook, Trace: e.cfg.Trace, DispatchTicketHash: task.DispatchTicketHash}
+	// Phase 1: every pre-record fact comes from the accepted ticket and its
+	// signed order (S4 Q12); the record is checked against the chain once, by
+	// the Dispatcher. Delivery waits on the ticket's record (S5).
+	wcfg.TaskFacts, wcfg.SnapshotReader, wcfg.Dispatch = dispatched, dispatched, dispatchGate{st: e.cfg.Store}
 	wcfg.GenerationReader = e.cfg.GenerationReader
 	wcfg.MaxOutputBytes = e.cfg.MaxOutputBytes
-	event := chainclient.AssignmentFinalized{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, Winner: firstNonEmpty(task.WorkerAddress, e.cfg.LocalWorkerAddress), WinnerConfirmHeight: task.WinnerConfirmHeight, InferDeadlineHeight: task.DeadlineHeight, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, BuilderOperatorAddress: task.BuilderOperatorAddress}
-	if e.cfg.InputResolver == nil {
-		return task, false, builderclient.Retryable(fmt.Errorf("task input resolver is not available"))
-	}
-	// Prefer a locally persisted input so retries (and process restart) do not
-	// re-download the same bytes from the Builder. The evidence store is
-	// content-addressed, so re-writing the same input is idempotent.
+	from, until := dispatched.localHeights(task)
+	// OrderDigest is sha256 of the SignedOrderV2 bytes (S5 Q14): it only
+	// feeds the local legacy envelope, as do the two heights.
+	event := chainclient.AssignmentFinalized{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence,
+		OrderDigest: codec.Hash(sha256.Sum256(dispatched.rec.SignedOrder)), Winner: firstNonEmpty(task.WorkerAddress, e.cfg.LocalWorkerAddress),
+		WinnerConfirmHeight: from, InferDeadlineHeight: until, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion,
+		Capability: task.Capability, BuilderOperatorAddress: dispatched.rec.Builder}
+	// The Dispatcher's same-stream fetch is the only input source (TD §5.1):
+	// it verified the input and committed it under the task hash before it
+	// admitted this responsibility. The Worker never fetches it itself.
 	inputSource := "local"
-	input, readErr := persistence.ReadArtifact(ctx, task.TaskID, "task-input")
-	if readErr == nil && len(input) > 0 && codec.HashBytes(input) == task.InputDigest {
-		event.Input = input
+	input, readErr := persistence.ReadArtifact(ctx, task.TaskID, string(layout.ArtifactTaskInput))
+	if readErr != nil || codec.HashBytes(input) != task.InputDigest {
+		err = fmt.Errorf("dispatched input for ticket %s is not committed under the task hash (S4 commitInput): %v", task.DispatchTicketHash, readErr)
 	} else {
-		inputStartedAt := time.Now()
-		ref := TaskInputRef{SessionID: task.SessionID, TaskID: task.TaskID, TaskHash: taskHash, PayloadCID: task.InputCID, PayloadHash: chainclient.HexHash(task.InputDigest), BuilderOperatorAddress: task.BuilderOperatorAddress, InputSizeBytes: task.InputSizeBytes}
-		inputSource = "fetch"
-		event.Input, err = e.cfg.InputResolver.ResolveTaskInput(ctx, ref)
-		inputResolveTime = time.Since(inputStartedAt)
-		if err == nil && codec.HashBytes(event.Input) != task.InputDigest {
-			err = fmt.Errorf("resolved task input hash does not match Keeper accepted payload hash")
-		}
-		if err == nil {
-			persistStartedAt := time.Now()
-			if cpErr := persistence.WriteEvidence(ctx, worker.EvidenceRecord{TaskID: task.TaskID, Kind: "task-input", Data: event.Input}); cpErr != nil {
-				return task, false, fmt.Errorf("persist resolved task input: %w", cpErr)
-			}
-			inputPersistTime = time.Since(persistStartedAt)
-			if e.cfg.CrashHook != nil {
-				if crashErr := e.cfg.CrashHook(worker.CrashPointInputCommit); crashErr != nil {
-					return task, false, crashErr
-				}
-			}
-		}
+		event.Input = input
 	}
 	traceInferStarted := e.cfg.Trace.Event
 	if err != nil {
@@ -148,6 +142,10 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 			inferStartedAt = time.Now()
 			result, err = worker.New(wcfg).HandleAssignmentFinalized(ctx, event)
 		}
+	}
+	if errors.Is(err, worker.ErrAwaitingDispatchRecord) || errors.Is(err, worker.ErrDeliveryPaused) {
+		// The protocol's clock, not a failure: no retry is spent (S5).
+		return task, false, builderclient.Retryable(fmt.Errorf("%w: %w", errChainStateWaiting, err))
 	}
 	if err != nil {
 		return task, false, err
@@ -589,12 +587,43 @@ type inferReceiptRef struct {
 // commits their references through the provided persist callback. It keeps no
 // phase field; presence of an artifact in the store is the state.
 type evidenceWorkerPersistence struct {
-	taskHash    codec.Hash
+	taskHash codec.Hash
+	// evidenceKey is the ticket's evidence namespace (layout.
+	// DispatchEvidenceScope, S4 Q13 / S5 Q8); zero: the task hash.
+	evidenceKey codec.Hash
 	task        *store.InferTask
 	evidence    *evidence.Store
 	store       *store.Store
 	persist     func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error
 	evidenceRef map[string]layout.EvidenceArtifact
+}
+
+// key is the evidence-store namespace a kind lives in: the ticket's scope for
+// everything the Worker signs or derives for one dispatch, the task hash for
+// the verified input every round of the task shares.
+func (p *evidenceWorkerPersistence) key(kind string) codec.Hash {
+	if kind == string(layout.ArtifactTaskInput) || p.evidenceKey == (codec.Hash{}) {
+		return p.taskHash
+	}
+	return p.evidenceKey
+}
+
+// ownEvidence is what the infer checkpoint merges under the task hash: only
+// the artifacts that live there. A scoped namespace is indexed by the
+// evidence store under its own key; its retention and cleanup are S6/S9's
+// (S5 Q8).
+func (p *evidenceWorkerPersistence) ownEvidence(ev layout.Evidence) layout.Evidence {
+	if p.evidenceKey == (codec.Hash{}) || p.evidenceKey == p.taskHash {
+		return ev
+	}
+	var own []layout.EvidenceArtifact
+	for _, a := range ev.Artifacts {
+		if a.Kind == layout.ArtifactTaskInput {
+			own = append(own, a)
+		}
+	}
+	ev.Artifacts = own
+	return ev
 }
 
 func (p *evidenceWorkerPersistence) commitManifest(ctx context.Context) error {
@@ -611,7 +640,7 @@ func (p *evidenceWorkerPersistence) commitManifest(ctx context.Context) error {
 	// would have been referenced from was deleted by a terminal Keeper effect.
 	// Reporting it would abort the step the caller is in the middle of, which is
 	// how a relayed-and-uploaded round used to lose its remaining steps.
-	if err := p.persist(ctx, p.taskHash, *p.task, ev); err != nil && !errors.Is(err, errInferCheckpointOrphaned) {
+	if err := p.persist(ctx, p.taskHash, *p.task, p.ownEvidence(ev)); err != nil && !errors.Is(err, errInferCheckpointOrphaned) {
 		return err
 	}
 	return nil
@@ -648,7 +677,7 @@ func (p *evidenceWorkerPersistence) trackArtifact(kind string, data []byte) {
 }
 
 func (p *evidenceWorkerPersistence) WriteEvidence(ctx context.Context, r worker.EvidenceRecord) error {
-	if err := writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, p.task.TaskID, r.Kind, r.Data); err != nil {
+	if err := writeTaskEvidence(ctx, p.evidence, p.key(r.Kind), p.task.SessionID, p.task.TaskID, r.Kind, r.Data); err != nil {
 		return err
 	}
 	p.trackArtifact(r.Kind, r.Data)
@@ -682,7 +711,7 @@ func (p *evidenceWorkerPersistence) CheckpointInferOutput(ctx context.Context, t
 		if p.evidence == nil {
 			return fmt.Errorf("task runner evidence store is required")
 		}
-		if _, err := p.evidence.Write(ctx, evidence.WriteRequest{TaskHash: p.taskHash, SessionID: p.task.SessionID, TaskID: taskID,
+		if _, err := p.evidence.Write(ctx, evidence.WriteRequest{TaskHash: p.key(a.kind), SessionID: p.task.SessionID, TaskID: taskID,
 			Kind: a.kind, Data: a.data, AllowEmpty: a.allowEmpty}); err != nil {
 			return err
 		}
@@ -725,7 +754,7 @@ func (p *evidenceWorkerPersistence) CheckpointInferOutput(ctx context.Context, t
 		SessionID: p.task.SessionID,
 		Artifacts: evidenceArtifacts,
 	}
-	return layout.MergeInferWithEvidence(ctx, p.store, layout.StoredHash(p.taskHash), rec, ev)
+	return layout.MergeInferWithEvidence(ctx, p.store, layout.StoredHash(p.taskHash), rec, p.ownEvidence(ev))
 }
 
 // workerBundleID maps a Worker evidence kind to its bundle in the store.
@@ -735,9 +764,9 @@ func (p *evidenceWorkerPersistence) workerBundleID(taskID string, kind nodewire.
 	}
 	switch kind {
 	case nodewire.EvidenceKindWorkerTokenOpening:
-		return evidence.WorkerTokenBundle(p.taskHash), nil
+		return evidence.WorkerTokenBundle(p.key("")), nil
 	case nodewire.EvidenceKindWorkerValueOpening:
-		return evidence.WorkerValueBundle(p.taskHash), nil
+		return evidence.WorkerValueBundle(p.key("")), nil
 	default:
 		return evidence.BundleID{}, fmt.Errorf("evidence kind %d is not a Worker bundle", kind)
 	}
@@ -786,7 +815,7 @@ func (p *evidenceWorkerPersistence) ReadArtifact(ctx context.Context, taskID, ki
 	if p.evidence == nil {
 		return nil, fmt.Errorf("evidence store is unavailable")
 	}
-	data, err := p.evidence.ReadTaskKind(ctx, p.taskHash, kind)
+	data, err := p.evidence.ReadTaskKind(ctx, p.key(kind), kind)
 	if errors.Is(err, evidence.ErrArtifactNotFound) {
 		return nil, fmt.Errorf("%w: %w", worker.ErrCheckpointNotFound, err)
 	}
@@ -797,7 +826,7 @@ func (p *evidenceWorkerPersistence) OutputStreamFrames(ctx context.Context, task
 	if p.evidence == nil || p.task.TaskID != taskID {
 		return nil, fmt.Errorf("output stream journal identity mismatch or evidence unavailable")
 	}
-	artifacts, err := p.evidence.TaskArtifacts(ctx, p.taskHash)
+	artifacts, err := p.evidence.TaskArtifacts(ctx, p.key(""))
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
@@ -810,7 +839,7 @@ func (p *evidenceWorkerPersistence) OutputStreamFrames(ctx context.Context, task
 		if !strings.HasPrefix(kind, worker.OutputStreamFramePrefix) {
 			continue
 		}
-		data, err := p.evidence.ReadTaskKind(ctx, p.taskHash, kind)
+		data, err := p.evidence.ReadTaskKind(ctx, p.key(kind), kind)
 		if err != nil {
 			return nil, err
 		}
@@ -843,7 +872,7 @@ func (p *evidenceWorkerPersistence) CheckpointInferReceipt(ctx context.Context, 
 	if p.evidence == nil {
 		return fmt.Errorf("evidence store is required to persist infer receipt payload")
 	}
-	if err := writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, r.TaskID, "worker-infer-receipt:"+r.MaterialDigest, r.Payload); err != nil {
+	if err := writeTaskEvidence(ctx, p.evidence, p.key("worker-infer-receipt:"+r.MaterialDigest), p.task.SessionID, r.TaskID, "worker-infer-receipt:"+r.MaterialDigest, r.Payload); err != nil {
 		return err
 	}
 	p.trackArtifact("worker-infer-receipt:"+r.MaterialDigest, r.Payload)
@@ -851,7 +880,7 @@ func (p *evidenceWorkerPersistence) CheckpointInferReceipt(ctx context.Context, 
 }
 
 func (p *evidenceWorkerPersistence) InferReceipts(ctx context.Context, _ string) ([]worker.InferReceiptCheckpoint, error) {
-	artifacts, err := p.evidence.TaskArtifacts(ctx, p.taskHash)
+	artifacts, err := p.evidence.TaskArtifacts(ctx, p.key(""))
 	if err != nil {
 		return nil, err
 	}
@@ -862,7 +891,7 @@ func (p *evidenceWorkerPersistence) InferReceipts(ctx context.Context, _ string)
 			continue
 		}
 		digest := strings.TrimPrefix(kind, "worker-infer-receipt:")
-		payload, err := p.evidence.ReadTaskKind(ctx, p.taskHash, kind)
+		payload, err := p.evidence.ReadTaskKind(ctx, p.key(kind), kind)
 		if err != nil {
 			return nil, fmt.Errorf("infer receipt payload missing for %s: %w", digest, err)
 		}
@@ -886,7 +915,7 @@ func (p *evidenceWorkerPersistence) CheckpointStorageConfirmation(ctx context.Co
 		Signature:    append([]byte(nil), r.Signature...),
 	}
 	kind := "worker-confirmation-meta:" + key
-	artifacts, err := p.evidence.TaskArtifacts(ctx, p.taskHash)
+	artifacts, err := p.evidence.TaskArtifacts(ctx, p.key(kind))
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -894,7 +923,7 @@ func (p *evidenceWorkerPersistence) CheckpointStorageConfirmation(ctx context.Co
 		if string(artifact.Kind) != kind {
 			continue
 		}
-		previous, err := p.evidence.ReadTaskKind(ctx, p.taskHash, kind)
+		previous, err := p.evidence.ReadTaskKind(ctx, p.key(kind), kind)
 		if err != nil {
 			return err
 		}
@@ -917,7 +946,7 @@ func (p *evidenceWorkerPersistence) CheckpointStorageConfirmation(ctx context.Co
 	if err != nil {
 		return fmt.Errorf("encode storage confirmation metadata: %w", err)
 	}
-	if err := writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, r.TaskID, kind, metaBytes); err != nil {
+	if err := writeTaskEvidence(ctx, p.evidence, p.key(kind), p.task.SessionID, r.TaskID, kind, metaBytes); err != nil {
 		return err
 	}
 	return p.commitManifest(ctx)
@@ -928,7 +957,7 @@ func storageConfirmationKey(r worker.StorageConfirmationCheckpoint) string {
 }
 
 func (p *evidenceWorkerPersistence) StorageConfirmations(ctx context.Context, _ string) ([]worker.StorageConfirmationCheckpoint, error) {
-	artifacts, err := p.evidence.TaskArtifacts(ctx, p.taskHash)
+	artifacts, err := p.evidence.TaskArtifacts(ctx, p.key(""))
 	if err != nil {
 		return nil, err
 	}
@@ -939,7 +968,7 @@ func (p *evidenceWorkerPersistence) StorageConfirmations(ctx context.Context, _ 
 			continue
 		}
 		key := strings.TrimPrefix(kind, "worker-confirmation-meta:")
-		metaBytes, err := p.evidence.ReadTaskKind(ctx, p.taskHash, kind)
+		metaBytes, err := p.evidence.ReadTaskKind(ctx, p.key(kind), kind)
 		if err != nil {
 			return nil, fmt.Errorf("storage confirmation metadata missing for %s: %w", key, err)
 		}
@@ -952,7 +981,7 @@ func (p *evidenceWorkerPersistence) StorageConfirmations(ctx context.Context, _ 
 			sig = meta.Confirmation.Signature
 		}
 		if len(sig) == 0 {
-			sig, err = p.evidence.ReadTaskKind(ctx, p.taskHash, "worker-confirmation:"+key)
+			sig, err = p.evidence.ReadTaskKind(ctx, p.key("worker-confirmation:"+key), "worker-confirmation:"+key)
 			if err != nil {
 				return nil, fmt.Errorf("storage confirmation signature missing for %s: %w", key, err)
 			}
@@ -974,7 +1003,7 @@ func (p *evidenceWorkerPersistence) CheckpointInferInput(ctx context.Context, r 
 	if p.evidence == nil {
 		return fmt.Errorf("evidence store is required to persist infer input")
 	}
-	if err := writeTaskEvidence(ctx, p.evidence, p.taskHash, p.task.SessionID, p.task.TaskID, "worker-input", r.Payload); err != nil {
+	if err := writeTaskEvidence(ctx, p.evidence, p.key("worker-input"), p.task.SessionID, p.task.TaskID, "worker-input", r.Payload); err != nil {
 		return err
 	}
 	p.trackArtifact("worker-input", r.Payload)
@@ -985,7 +1014,7 @@ func (p *evidenceWorkerPersistence) InferInput(ctx context.Context, _ string) (w
 	if p.evidence == nil {
 		return worker.InferInputCheckpoint{}, worker.ErrCheckpointNotFound
 	}
-	data, err := p.evidence.ReadTaskKind(ctx, p.taskHash, "worker-input")
+	data, err := p.evidence.ReadTaskKind(ctx, p.key("worker-input"), "worker-input")
 	if err != nil {
 		return worker.InferInputCheckpoint{}, worker.ErrCheckpointNotFound
 	}

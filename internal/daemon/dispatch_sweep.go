@@ -130,6 +130,9 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 		if err := d.sweepRecords(ctx, height); err != nil {
 			errs = append(errs, err)
 		}
+		if err := d.rescueReceipts(ctx, height); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

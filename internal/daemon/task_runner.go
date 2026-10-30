@@ -111,6 +111,13 @@ type TaskRunnerConfig struct {
 	// DispatchRecords receives dispatch_recorded effects after the runner lock
 	// is released (S9 wires the Dispatcher). Nil: the effects are traced only.
 	DispatchRecords DispatchRecordObserver
+	// ReleaseDispatchLease returns a recorded task's (task_id, WORKER) lease
+	// (S9 wires Dispatcher.ReleaseTaskLease). It is called under the runner
+	// lock, so it must not take it.
+	ReleaseDispatchLease func(ctx context.Context, taskID layout.StoredHash) error
+	// DispatchWaitInterval spaces re-runs of an infer waiting for its record
+	// or paused by a REJECTED notice. Default 1s.
+	DispatchWaitInterval time.Duration
 	// Trace reports every protocol milestone a task passes through, digests
 	// included. Nil is silent; cortexd supplies the sink that logs.
 	Trace          *tasktrace.Trace
@@ -231,6 +238,9 @@ type TaskRunner struct {
 func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = time.Second
+	}
+	if cfg.DispatchWaitInterval <= 0 {
+		cfg.DispatchWaitInterval = time.Second
 	}
 	if cfg.VerifyDeadlineDeltaHeight == 0 {
 		cfg.VerifyDeadlineDeltaHeight = 40

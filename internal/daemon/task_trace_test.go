@@ -11,8 +11,6 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
-	"github.com/TrueOpen/cortex/internal/identity"
-	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/observability"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
@@ -154,66 +152,41 @@ func TestOutputConfirmerTracesWhatTheBuilderAnsweredAgainstTheCommitments(t *tes
 		"derived_receipt_hash=")
 }
 
-func TestInferStartedTraceIsErrorOnlyWhenInputResolutionFails(t *testing.T) {
-	trace := &collectTrace{}
-	wantErr := errors.New("builder input unavailable")
-	executor := newProductionInferExecutor(TaskRunnerConfig{
-		FakeOutput: true,
-		Trace:      trace.trace(),
-		InputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
-			return nil, wantErr
-		}),
-	}, nil)
-	taskHash := codec.HashBytes([]byte("task-hash"))
-	task := store.InferTask{
-		TaskID: "task-1", SessionID: "session-1", ModelID: testModelID, ProfileVersion: 1,
-		InputDigest: codec.HashBytes([]byte("input")), Stage: string(layout.StageQueued),
-		DispatchTicketHash: codec.HashBytes([]byte("ticket")),
+func TestInferStartedTraceIsErrorOnlyWhenTheDispatchedInputIsMissing(t *testing.T) {
+	ctx := context.Background()
+	x, task, taskHash := seedDispatchedInfer(t)
+	// An evidence store that never received the Dispatcher's committed input.
+	empty, err := evidence.NewStore(filepath.Join(t.TempDir(), "evidence"), x.st)
+	if err != nil {
+		t.Fatal(err)
 	}
+	trace := &collectTrace{}
+	executor := newProductionInferExecutor(TaskRunnerConfig{
+		Store: x.st, Evidence: empty, FakeOutput: true, LocalWorkerAddress: hrCortex, Trace: trace.trace(),
+	}, func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error { return nil })
 
-	if _, _, err := executor.RunInfer(context.Background(), taskHash, task); !errors.Is(err, wantErr) {
-		t.Fatalf("RunInfer() error = %v, want %v", err, wantErr)
+	if _, _, err := executor.RunInfer(ctx, taskHash, task); err == nil || !strings.Contains(err.Error(), "is not committed under the task hash") {
+		t.Fatalf("RunInfer() error = %v, want the missing dispatched input", err)
 	}
 	requireTraceLevel(t, trace, "infer_started", slog.LevelError)
 }
 
-func TestInferStartedTraceIsInfoWhenInputResolutionSucceeds(t *testing.T) {
+func TestInferStartedTraceIsInfoWhenTheDispatchedInputIsCommitted(t *testing.T) {
 	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	evidenceStore, err := evidence.NewStore(filepath.Join(t.TempDir(), "evidence"), db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := []byte("resolved input")
+	x, task, taskHash := seedDispatchedInfer(t)
 	trace := &collectTrace{}
 	executor := newProductionInferExecutor(TaskRunnerConfig{
-		Store: db, Evidence: evidenceStore, FakeOutput: true,
-		LocalWorkerAddress: "worker-1", Trace: trace.trace(),
+		Store: x.st, Evidence: x.ev, FakeOutput: true,
+		LocalWorkerAddress: hrCortex, Trace: trace.trace(),
 		TaskReader: streamLimitedTaskReader{},
-		InputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
-			return input, nil
-		}),
 	}, func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error { return nil })
-	sessionID := strings.Repeat("ab", 32)
-	taskHash := codec.HashBytes([]byte("task-hash"))
-	task := store.InferTask{
-		TaskID: identity.TaskIDString(sessionID, 1), SessionID: sessionID, OrderSequence: 1,
-		OrderDigest: codec.HashBytes([]byte("order")), WorkerAddress: "worker-1",
-		ModelID: testModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1,
-		InputDigest: codec.HashBytes(input), DeadlineHeight: 10, Stage: string(layout.StageQueued),
-		DispatchTicketHash: codec.HashBytes([]byte("ticket")),
-	}
 
 	if _, _, err := executor.RunInfer(ctx, taskHash, task); err == nil || err.Error() != "model client is required" {
-		t.Fatalf("RunInfer() error = %v, want the downstream model dependency after successful input resolution", err)
+		t.Fatalf("RunInfer() error = %v, want the downstream model dependency after the committed input was read", err)
 	}
 	requireTraceLevel(t, trace, "infer_started", slog.LevelInfo)
-	if line := trace.event(t, "infer_started"); !strings.Contains(line, `input_error=""`) {
-		t.Fatalf("infer_started = %q, want successful input resolution", line)
+	if line := trace.event(t, "infer_started"); !strings.Contains(line, `input_error=""`) || !strings.Contains(line, `input_source="local"`) {
+		t.Fatalf("infer_started = %q, want the input read locally from the Dispatcher's commit", line)
 	}
 }
 

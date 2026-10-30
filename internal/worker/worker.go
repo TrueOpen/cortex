@@ -54,6 +54,11 @@ type Config struct {
 	// S4 InferRecord.DispatchTicketHash). The stream header, every chunk, the
 	// Fin and InferReceiptV3.dispatch_ticket_hash bind it.
 	DispatchTicketHash codec.Hash
+	// Dispatch gates delivery on the ticket's record (S5): frames and the Fin
+	// go out before it, the receipt and the evidence only after it, and
+	// nothing while it is paused. Nil only in tools and tests that pass a
+	// recorded event.
+	Dispatch DispatchGate
 	// TaskFacts reads TaskCoreState.accepted_task_hash and
 	// TaskAssignmentViewV1.generation_params_digest for the assignment being
 	// worked. Both are signed fields of the frozen InferReceiptV3 that no local
@@ -351,10 +356,32 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	if err != nil {
 		return InferResult{}, err
 	}
-	// Ensure descriptor and receipt from committed artifacts.
+	state, err := w.deliveryState(ctx, event)
+	if err != nil {
+		return InferResult{}, fmt.Errorf("read dispatch delivery state: %w", err)
+	}
+	if state.Paused {
+		return InferResult{}, fmt.Errorf("%w: %s", ErrDeliveryPaused, state.Reason)
+	}
+	// Frames and the Fin are pre-chain delivery to the dispatching Builder
+	// (W7-W11); only the receipt and the evidence wait for the record.
+	if err := w.ensureFinDelivered(ctx, event); err != nil {
+		return InferResult{}, err
+	}
+	if state.InferDeadlineHeight == 0 {
+		return InferResult{}, ErrAwaitingDispatchRecord
+	}
+	event.WinnerConfirmHeight, event.InferDeadlineHeight = state.RecordedHeight, state.InferDeadlineHeight
+	// Ensure descriptor and receipt from committed artifacts. The receipt's
+	// expiry_height is the chain's infer_deadline_height (S5 Q1).
 	_, result, err := w.ensureReceiptAndResult(ctx, event, output, tokenIDs, positionValues)
 	if err != nil {
 		return InferResult{}, err
+	}
+	if w.cfg.Dispatch != nil {
+		if err := w.cfg.Dispatch.ReceiptSigned(ctx, w.cfg.DispatchTicketHash, result.TaskDataReceipt); err != nil {
+			return InferResult{}, fmt.Errorf("hand the signed receipt to the dispatch record: %w", err)
+		}
 	}
 
 	// Ensure the receipt is relayed and the output is stored on the Builder.
@@ -366,19 +393,34 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	return result, nil
 }
 
-func (w *Worker) prepareOutput(ctx context.Context, event chainclient.AssignmentFinalized) (*producedOutput, error) {
+// produceOutput runs the inference and persists its artifacts and the model
+// job, and signs nothing but the output frames and their journal: the receipt
+// waits for the dispatch record (S5 Q1), and ensureReceiptAndResult builds it
+// from these durable artifacts.
+func (w *Worker) produceOutput(ctx context.Context, event chainclient.AssignmentFinalized) (output, tokenIDs, positionValues []byte, descriptor outputDescriptor, err error) {
 	if err := w.requireInferDependencies(); err != nil {
-		return nil, err
+		return nil, nil, nil, outputDescriptor{}, err
 	}
-	output, tokenIDs, positionValues, descriptor, err := w.runInferenceAndPersistArtifacts(ctx, event)
+	output, tokenIDs, positionValues, descriptor, err = w.runInferenceAndPersistArtifacts(ctx, event)
+	if err != nil {
+		return nil, nil, nil, outputDescriptor{}, err
+	}
+	if err := w.persistModelServiceJob(ctx, descriptor.JobID, event.TaskID, "succeeded", "infer"); err != nil {
+		return nil, nil, nil, outputDescriptor{}, err
+	}
+	return output, tokenIDs, positionValues, descriptor, nil
+}
+
+// prepareOutput is produceOutput followed by the receipt, for a caller that
+// already holds the record's heights in event (tools and the package's
+// recovery seeds).
+func (w *Worker) prepareOutput(ctx context.Context, event chainclient.AssignmentFinalized) (*producedOutput, error) {
+	output, tokenIDs, positionValues, descriptor, err := w.produceOutput(ctx, event)
 	if err != nil {
 		return nil, err
 	}
 	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, tokenIDs, positionValues)
 	if err != nil {
-		return nil, err
-	}
-	if err := w.persistModelServiceJob(ctx, descriptor.JobID, event.TaskID, "succeeded", "infer"); err != nil {
 		return nil, err
 	}
 	return &producedOutput{
@@ -977,7 +1019,11 @@ func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.As
 	// Only the submission moves. The receipt is still built and persisted first,
 	// because building it is local and observable to nobody; it is the relay that
 	// the ordering is about.
-	if err := w.ensureOutputStreamStored(ctx, event, receipt); err != nil {
+	commit, err := receiptCommit(receipt)
+	if err != nil {
+		return err
+	}
+	if err := w.ensureOutputStreamStored(ctx, event, commit); err != nil {
 		return err
 	}
 	// The relay target is the seam's single-Builder answer, not a member picked
@@ -1021,8 +1067,12 @@ func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.As
 		}
 		finalized = append(finalized, builder.OperatorAddress)
 	}
-	if len(finalized) == 0 {
-		return errors.Join(failures...)
+	// The evidence has to reach ceil(2/3) of the Task Builder group (CD W11);
+	// below that the relay is retried, and the Builders already confirmed are
+	// skipped next time.
+	if target := evidenceRedundancyTarget(len(builders)); len(finalized) < target {
+		return builderclient.Retryable(fmt.Errorf("evidence finalized on %d of %d Task Builders, below the ceil(2/3) target %d: %w",
+			len(finalized), len(builders), target, errors.Join(failures...)))
 	}
 	for _, failure := range failures {
 		// Reported, not returned: the task can proceed on the Builders that did
@@ -1323,9 +1373,8 @@ func validateAssignmentIdentity(event chainclient.AssignmentFinalized) error {
 	if event.OrderDigest == (codec.Hash{}) {
 		return fmt.Errorf("assignment order_digest is required")
 	}
-	if event.InferDeadlineHeight == 0 {
-		return fmt.Errorf("assignment infer_deadline_height is required")
-	}
+	// infer_deadline_height is not required here: before the record it does
+	// not exist (S5 Q1); the receipt waits for it (deliveryState).
 	if event.ModelID == "" || event.ProfileVersion == 0 || strings.TrimSpace(event.Capability) == "" {
 		return fmt.Errorf("assignment model id, profile version, and capability are required")
 	}
@@ -1414,11 +1463,11 @@ func (w *Worker) ensureOutput(ctx context.Context, event chainclient.AssignmentF
 		return output, tokenIDs, positionValues, nil
 	}
 	event.Input = input
-	produced, err := w.prepareOutput(ctx, event)
+	output, tokenIDs, positionValues, _, err = w.produceOutput(ctx, event)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return produced.output, produced.tokenIDs, produced.positionValues, nil
+	return output, tokenIDs, positionValues, nil
 }
 
 func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.AssignmentFinalized, output, tokenIDs, positionValues []byte) (builderclient.SignedInferReceipt, InferResult, error) {

@@ -1548,10 +1548,11 @@ func TestWorkerRefusesToSignAReceiptItCannotFullyPopulate(t *testing.T) {
 	if len(h.persistence.jobs) == 0 {
 		t.Fatal("the refused pass never opened a model service job")
 	}
-	for _, job := range h.persistence.jobs {
-		if job.Status != "running" {
-			t.Fatalf("model service job status = %q, want the refused job left running", job.Status)
-		}
+	// The receipt is not part of the model job any more: it waits for the
+	// dispatch record (S5 Q1), so the job that produced the output is done
+	// and only the receipt is refused.
+	if last := h.persistence.jobs[len(h.persistence.jobs)-1]; last.Status != "succeeded" {
+		t.Fatalf("model service job status = %q, want the finished generation recorded as succeeded", last.Status)
 	}
 }
 

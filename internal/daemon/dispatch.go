@@ -19,6 +19,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
+	"github.com/TrueOpen/cortex/internal/txclient"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
@@ -118,6 +119,16 @@ type DispatcherConfig struct {
 	Builders  map[string]DispatchEnqueuer // one Session per configured Builder
 	Now       func() time.Time
 	Logger    *slog.Logger
+
+	// Tx submits the receipt self-rescue (CD §5.2 W13, §8.2) under this
+	// node's current service key; ServiceAddress is that key's address (the
+	// Msg's submitter). Nil Tx: no self-rescue.
+	Tx             txclient.Client
+	ServiceAddress string
+	// ReceiptRescueMarginBlocks is how many blocks before
+	// infer_deadline_height an unaccepted receipt is self-submitted (CD §8.5).
+	// Required with Tx; there is no built-in default (CD §15.3).
+	ReceiptRescueMarginBlocks uint64
 }
 
 // Dispatcher answers DispatchOfferV1, DispatchRevokeV1 and
@@ -166,6 +177,9 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	if len(missing) > 0 {
 		slices.Sort(missing)
 		return nil, fmt.Errorf("dispatcher: config missing %s", strings.Join(missing, ", "))
+	}
+	if cfg.Tx != nil && (cfg.ServiceAddress == "" || cfg.ReceiptRescueMarginBlocks == 0) {
+		return nil, errors.New("dispatcher: receipt self-rescue needs ServiceAddress and ReceiptRescueMarginBlocks")
 	}
 	if cfg.MaxInputBytes == 0 || cfg.MaxInputBytes > defaultTaskDataMaxBytes {
 		cfg.MaxInputBytes = defaultTaskDataMaxBytes
@@ -363,6 +377,20 @@ func (d *Dispatcher) supersede(ctx context.Context, builder string, t *taskv1.Di
 		if err := d.release(ctx, r, layout.DispatchSuperseded, fmt.Sprintf("dispatch round %d of the task arrived", t.GetDispatchRound())); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ReleaseTaskLease returns a recorded task's (task_id, WORKER) lease and
+// re-evaluates the standing handraise. It takes no Dispatcher lock, so the
+// runner may call it under its own (TaskRunnerConfig.ReleaseDispatchLease).
+func (d *Dispatcher) ReleaseTaskLease(ctx context.Context, taskID layout.StoredHash) error {
+	released, err := d.cfg.Leases.ReleaseTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if released {
+		d.cfg.Handraise.Notify()
 	}
 	return nil
 }
