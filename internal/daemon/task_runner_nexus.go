@@ -125,6 +125,11 @@ func (r *TaskRunner) applyVerifierAssignment(ctx context.Context, message *nexus
 // Every delivery converges on raiseVerifierHand and shares its at-most-once
 // claim, so a task that receives the call more than once still raises its hand
 // exactly once.
+//
+// Legacy and test-only: production OPEN_VERIFY arrives on the direct stream
+// through VerifierStream, which records it in the inbox (verifier_inbox.go)
+// for the poll loop. Nothing in the daemon calls this; tests use it to drive
+// raiseVerifierHand with one synchronous attempt.
 func (r *TaskRunner) admitOpenVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
 	return r.builderFrameVerdict("nexus_open_verify", message.GetTaskId(), r.openVerify(ctx, builderOperator, message))
 }
@@ -186,6 +191,7 @@ func openVerifyTrigger(builderOperator string, message *nexusv1.OpenVerifyV1) (v
 	}, nil
 }
 
+// openVerify is admitOpenVerify's body; legacy and test-only like it.
 func (r *TaskRunner) openVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
 	trigger, err := openVerifyTrigger(builderOperator, message)
 	if err != nil {

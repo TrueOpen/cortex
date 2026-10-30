@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -84,9 +85,24 @@ func (b verifierInbox) admit(ctx context.Context, builder string, trigger verifi
 			return nil
 		}
 		e.Builders = append(e.Builders, builder)
+		if e.State == inboxRefused && !sameOpenVerifyCall(e.Trigger, trigger) {
+			// A refusal belongs to the content that earned it: the Keeper
+			// contradicted that Builder's call, not this one. A different
+			// Builder with different content is owed its own attempt.
+			e.Trigger, e.State, e.LastError = trigger, inboxPending, ""
+			fresh = true
+		}
 		return putInboxEntry(batch, key, e)
 	})
 	return fresh, err
+}
+
+// sameOpenVerifyCall compares two OPEN_VERIFY triggers by content, ignoring
+// which Builder delivered them.
+func sameOpenVerifyCall(a, b verifierHandraiseTrigger) bool {
+	a.SenderOperatorAddress, a.DataReadyBuilderOperator = "", ""
+	b.SenderOperatorAddress, b.DataReadyBuilderOperator = "", ""
+	return reflect.DeepEqual(a, b)
 }
 
 func (b verifierInbox) load(ctx context.Context, taskID string, round uint32) (verifierInboxEntry, bool, error) {
@@ -199,22 +215,37 @@ func (b verifierInbox) settle(ctx context.Context, trigger verifierHandraiseTrig
 }
 
 // prune drops settled entries one span after their bound (they keep
-// absorbing late duplicates until then) and entries that no longer decode.
+// absorbing late duplicates until then) and entries that no longer decode. A
+// settled entry that never saw a readable tip has no bound yet; the first
+// readable prune stamps one, so it is kept at least one span too.
 func (b verifierInbox) prune(ctx context.Context, tip chainTip) error {
 	if !tip.readable {
 		return nil
 	}
-	var stale [][]byte
+	var stale, unbounded [][]byte
 	err := b.st.ScanPrefix(ctx, []byte(verifierInboxPrefix), func(key, value []byte) error {
 		var e verifierInboxEntry
-		if json.Unmarshal(value, &e) != nil ||
-			(e.State != inboxPending && (e.GiveUpHeight == 0 || tip.height > e.GiveUpHeight+b.span)) {
+		switch {
+		case json.Unmarshal(value, &e) != nil:
+			stale = append(stale, append([]byte(nil), key...))
+		case e.State == inboxPending:
+		case e.GiveUpHeight == 0:
+			unbounded = append(unbounded, append([]byte(nil), key...))
+		case tip.height > e.GiveUpHeight+b.span:
 			stale = append(stale, append([]byte(nil), key...))
 		}
 		return nil
 	})
-	if err != nil || len(stale) == 0 {
+	if err != nil {
 		return err
+	}
+	for _, key := range unbounded {
+		if err := b.update(ctx, key, func(e *verifierInboxEntry) { e.GiveUpHeight = tip.height }); err != nil {
+			return err
+		}
+	}
+	if len(stale) == 0 {
+		return nil
 	}
 	return b.st.ApplyBatch(ctx, func(batch *store.Batch) error {
 		for _, key := range stale {

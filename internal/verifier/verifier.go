@@ -458,9 +458,6 @@ func (v *Verifier) HandleOpenVerifyAccepted(ctx context.Context, state TaskState
 	// A commit already signed and persisted for this round is only
 	// re-delivered: no evidence fetch, no second prefill, no new salt.
 	if result, ok, err := v.ResumePersistedCommit(ctx, state); err != nil || ok {
-		if err == nil {
-			err = v.notifySubmitted(ctx, state, noticeAfterCommit)
-		}
 		return result, err
 	}
 	if err := validateCanonicalTaskState(state); err != nil {

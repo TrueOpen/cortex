@@ -3,10 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
-
-	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
 // ADR-0023 decision 4 at the confirmer: the A-level call downloads the token
@@ -43,23 +40,21 @@ func TestNexusEvidenceConfirmerValuePhaseFetchesOnlyTheValueBundle(t *testing.T)
 	if len(client.fetches) != 2 || client.fetches[0].Key != keys[0] || client.fetches[1].Key != keys[1] {
 		t.Fatalf("fetches = %d, want only the value manifest and worker_values", len(client.fetches))
 	}
-	leaves, err := nodewire.DecodeWorkerValues(f.valueBinding(t), f.WorkerValues)
+}
+
+// confirmBothBundles drives the two phase methods over one Builder the way
+// the retired whole-set call did, value bundle first, so the tamper tests
+// below exercise every check either phase makes. Production never calls both
+// in one step (ADR-0023).
+func confirmBothBundles(c *NexusEvidenceConfirmer, commitments EvidenceCommitments) (WorkerEvidence, error) {
+	values, err := c.ConfirmWorkerValueEvidence(context.Background(), commitments)
 	if err != nil {
-		t.Fatal(err)
+		return WorkerEvidence{}, err
 	}
-	ids := make([]uint32, len(leaves))
-	for i := range leaves {
-		ids[i] = leaves[i].TokenID
-	}
-	ids[0]++
-	wrong, err := nodewire.EncodeTokenIDs(ids)
+	tokens, err := c.ConfirmWorkerTokenEvidence(context.Background(), commitments)
 	if err != nil {
-		t.Fatal(err)
+		return WorkerEvidence{}, err
 	}
-	commitments := f.Commitments
-	commitments.GeneratedTokenIDs = wrong
-	if _, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: f.objects()}).ConfirmWorkerValueEvidence(context.Background(), commitments); err == nil ||
-		!strings.Contains(err.Error(), "not the generated token") {
-		t.Fatalf("err = %v, want the leaf/token cross-check when A-level ids are supplied", err)
-	}
+	tokens.WorkerValues = values
+	return tokens, nil
 }

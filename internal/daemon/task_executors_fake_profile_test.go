@@ -138,7 +138,7 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 			OutputChunkLengths: []uint64{receipt.OutputSizeBytes}, RequiredTopK: fakeRequiredTopK,
 			MaxEncodedSizeBytes: map[nodewire.EvidenceKind]uint64{nodewire.EvidenceKindWorkerValueOpening: 1 << 30, nodewire.EvidenceKindWorkerTokenOpening: 1 << 30}},
 	}
-	confirmed, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: fixture.objects()}).ConfirmWorkerEvidence(ctx, fixture.Commitments)
+	confirmed, err := confirmBothBundles(newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: fixture.objects()}), fixture.Commitments)
 	if err != nil {
 		t.Fatalf("Verifier rejected fake Worker evidence: %v", err)
 	}

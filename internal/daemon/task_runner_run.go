@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -129,9 +130,24 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	r.mu.Unlock()
 
 	now := time.Now().UTC()
-	launch := func(key responsibilityKey, taskID string, run func(context.Context) taskOutcome) {
+	launch := func(key responsibilityKey, taskID string, unchanged func() bool, run func(context.Context) taskOutcome) {
 		execCtx, cancel := context.WithCancel(ctx)
 		if !r.claimInflight(key, cancel) {
+			cancel()
+			return
+		}
+		if r.dispatchClaimHook != nil {
+			r.dispatchClaimHook(key)
+		}
+		// The snapshot this pass decided on can be stale by now: an execution
+		// that finished after the snapshot released its claim, so the claim
+		// above succeeded against a "queued" copy of a record the outcome has
+		// already advanced. Only the live view under r.mu can tell.
+		r.mu.Lock()
+		fresh := unchanged()
+		r.mu.Unlock()
+		if !fresh {
+			r.releaseInflight(key)
 			cancel()
 			return
 		}
@@ -180,7 +196,11 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		}()
 	}
 	launchInfer := func(hash codec.Hash, task store.InferTask) {
-		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, func(execCtx context.Context) taskOutcome {
+		unchanged := func() bool {
+			live, ok := r.infer[hash]
+			return ok && live.Stage == task.Stage && live.RetryCount == task.RetryCount && live.RetryAtUnixMilli == task.RetryAtUnixMilli
+		}
+		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, unchanged, func(execCtx context.Context) taskOutcome {
 			// The cancel is registered before this check, so a stop that
 			// lands after it still reaches the execution.
 			if !r.ownsInfer(hash, task.DispatchTicketHash) {
@@ -191,7 +211,11 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		})
 	}
 	launchVerify := func(hash codec.Hash, task store.VerifyTask) {
-		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, func(execCtx context.Context) taskOutcome {
+		unchanged := func() bool {
+			live, ok := r.verify[hash]
+			return ok && live.Stage == task.Stage && live.RetryCount == task.RetryCount && live.RetryAtUnixMilli == task.RetryAtUnixMilli
+		}
+		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, unchanged, func(execCtx context.Context) taskOutcome {
 			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(execCtx, hash, task)
 			return taskOutcome{role: "verify", hash: hash, verify: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
@@ -269,7 +293,11 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			r.reportAutoHalted("verify", task.TaskID, hash, task.HaltCode, task.HaltReason)
 			continue
 		}
-		if r.cfg.VerifyExecutor == nil || !r.taskDue(now, tip, task.Stage, task.RetryAtUnixMilli, deadline) {
+		retryAt := task.RetryAtUnixMilli
+		if verifyRetryHeightDue(task, tip) {
+			retryAt = 0 // the report window is open: the backoff must not step over it
+		}
+		if r.cfg.VerifyExecutor == nil || !r.taskDue(now, tip, task.Stage, retryAt, deadline) {
 			continue
 		}
 		reason, undecided := r.localObjectsRecoveryReason(ctx, hash, "verify", task.TaskID)
@@ -768,6 +796,35 @@ func (r *TaskRunner) recordVerifyRetry(task *store.VerifyTask, err error, finish
 	r.applyRunFailure("verify", task.TaskID, taskHash, err, finishedAt,
 		&task.Stage, &task.RetryCount, &task.RetryAtUnixMilli, &task.LastError,
 		&task.AutoHalted, &task.HaltCode, &task.HaltReason)
+	// A round waiting for its data-unavailable report window is also due by
+	// height (verify_reports.go reportWindowWait). Any other failure retires a
+	// previous height schedule: MergeVerify never writes a zero over a set
+	// field, so "none" is a sentinel rather than 0.
+	var wait *reportWindowWait
+	switch {
+	case errors.As(err, &wait):
+		task.RetryAtHeight = wait.Height
+	case task.RetryAtHeight != 0:
+		task.RetryAtHeight = noRetryAtHeight
+	}
+}
+
+// noRetryAtHeight retires a verify record's height schedule.
+const noRetryAtHeight = math.MaxUint64
+
+// verifyRetryHeightDue reports whether a verify round's height schedule has
+// come due. It only counts inside the window it was scheduled for: an A-level
+// height is at most the commit deadline and is read only before the commit,
+// a B-level one is above it and read only after (reportWindowHeight).
+func verifyRetryHeightDue(task store.VerifyTask, tip chainTip) bool {
+	h := task.RetryAtHeight
+	if h == 0 || h == noRetryAtHeight || !tip.readable || tip.height < h {
+		return false
+	}
+	if task.Stage == string(layout.StageCommitted) {
+		return h > task.CommitDeadlineHeight
+	}
+	return h <= task.CommitDeadlineHeight
 }
 
 // reportAutoHalted makes a halted responsibility visible on every tick it is

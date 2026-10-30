@@ -67,8 +67,24 @@ func (u *builderUnavailable) Unwrap() []error {
 	return errs
 }
 
+// errVerifierLocal marks a failure of this node rather than of the Builder
+// it was talking to: a profile it could not read, an evidence store it could
+// not write, a persisted record it could not decode. tryBuilders stops at it
+// instead of asking the next Builder, and reportOrWait never reads it as data
+// unavailability, so a local fault can never become a report (MsgReportDataUnavailable
+// attributes the failure to the Builders named in its bitmap).
+var errVerifierLocal = errors.New("local verifier failure")
+
+func localFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", errVerifierLocal, err)
+}
+
 // tryBuilders asks each fixed Task Builder in order until one delivers. A
-// cancelled context ends the pass early and is not a Builder's fault.
+// cancelled context or a local failure ends the pass early and is not a
+// Builder's fault.
 func tryBuilders(ctx context.Context, level evidenceLevel, builders []string, fetch func(context.Context, string) error) (string, error) {
 	if len(builders) == 0 {
 		return "", fmt.Errorf("no fixed Task Builder to fetch the %s-level set from", level)
@@ -79,7 +95,7 @@ func tryBuilders(ctx context.Context, level evidenceLevel, builders []string, fe
 		if err == nil {
 			return builder, nil
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, errVerifierLocal) {
 			return "", err
 		}
 		failed[builder] = err
@@ -106,26 +122,25 @@ func (e *productionVerifyExecutor) fixedTaskBuilders(ctx context.Context, task s
 	return builders, nil
 }
 
-// evidenceCommitments is one Builder's request for the Worker's evidence,
-// bound to the receipt and the locked Profile.
-func (e *productionVerifyExecutor) evidenceCommitments(ctx context.Context, task store.VerifyTask, builder string, receipt builderclient.SignedInferReceipt, output []byte, chunks []uint64) (EvidenceCommitments, error) {
-	// evidence_schema_hash and required_top_k are commitment inputs the receipt
-	// does not carry. They are read from the locked Profile the assignment
-	// names, exactly as the Worker read them when it built the commitments.
+// evidenceBase is the part of every Builder's evidence request that comes
+// from this node: the locked Profile's evidence_schema_hash, required_top_k
+// and size bounds (commitment inputs the receipt does not carry). It is read
+// once per attempt, before any Builder is asked, and its failures are local.
+func (e *productionVerifyExecutor) evidenceBase(ctx context.Context, task store.VerifyTask) (EvidenceCommitments, error) {
 	if e.cfg.ProfileReader == nil {
-		return EvidenceCommitments{}, builderclient.Retryable(fmt.Errorf("Keeper profile reader is required to confirm Worker evidence for task %s", task.TaskID))
+		return EvidenceCommitments{}, localFailure(builderclient.Retryable(fmt.Errorf("Keeper profile reader is required to confirm Worker evidence for task %s", task.TaskID)))
 	}
 	profile, err := e.cfg.ProfileReader.CurrentModelProfile(ctx, task.ModelID, fmt.Sprintf("%d", task.ProfileVersion))
 	if err != nil {
-		return EvidenceCommitments{}, builderclient.Retryable(fmt.Errorf("query locked model profile: %w", err))
+		return EvidenceCommitments{}, localFailure(builderclient.Retryable(fmt.Errorf("query locked model profile: %w", err)))
 	}
 	limits, err := workerEvidenceLimits(profile)
 	if err != nil {
-		return EvidenceCommitments{}, err
+		return EvidenceCommitments{}, localFailure(err)
 	}
 	return EvidenceCommitments{
-		SessionID: task.SessionID, TaskID: task.TaskID, BuilderOperatorAddress: builder, Receipt: receipt,
-		Output: output, OutputChunkLengths: chunks, EvidenceSchemaHash: profile.Profile.VerificationProfile.EvidenceSchemaHash.Hex(),
+		SessionID: task.SessionID, TaskID: task.TaskID,
+		EvidenceSchemaHash:  profile.Profile.VerificationProfile.EvidenceSchemaHash.Hex(),
 		MaxEncodedSizeBytes: limits, RequiredTopK: profile.Profile.RequiredTopK,
 	}, nil
 }
@@ -133,7 +148,7 @@ func (e *productionVerifyExecutor) evidenceCommitments(ctx context.Context, task
 // confirmWorkerTokenEvidence is the commit phase's only Worker evidence
 // download (A level). A nil confirmer is the fake transport: the Verifier's
 // ref path serves it.
-func (e *productionVerifyExecutor) confirmWorkerTokenEvidence(ctx context.Context, taskHash codec.Hash, task store.VerifyTask, builder string, pkg builderclient.OutputPackage) (WorkerEvidence, error) {
+func (e *productionVerifyExecutor) confirmWorkerTokenEvidence(ctx context.Context, taskHash codec.Hash, task store.VerifyTask, base EvidenceCommitments, builder string, pkg builderclient.OutputPackage) (WorkerEvidence, error) {
 	if e.cfg.EvidenceConfirmer == nil {
 		return WorkerEvidence{}, nil
 	}
@@ -142,10 +157,9 @@ func (e *productionVerifyExecutor) confirmWorkerTokenEvidence(ctx context.Contex
 			"confirmed output for task %s carries no signed infer receipt, so the required evidence commitments are unknown; "+
 				"the receipt is the only chain-bound source of required_evidence_commitments", task.TaskID)
 	}
-	commitments, err := e.evidenceCommitments(ctx, task, builder, *pkg.SignedInferReceipt, pkg.Output, pkg.OutputChunkLengths)
-	if err != nil {
-		return WorkerEvidence{}, err
-	}
+	commitments := base
+	commitments.BuilderOperatorAddress, commitments.Receipt = builder, *pkg.SignedInferReceipt
+	commitments.Output, commitments.OutputChunkLengths = pkg.Output, pkg.OutputChunkLengths
 	tokens, err := e.cfg.EvidenceConfirmer.ConfirmWorkerTokenEvidence(ctx, commitments)
 	if err != nil {
 		return WorkerEvidence{}, err
@@ -155,10 +169,10 @@ func (e *productionVerifyExecutor) confirmWorkerTokenEvidence(ctx context.Contex
 	}
 	raw, err := json.Marshal(pkg.SignedInferReceipt)
 	if err != nil {
-		return WorkerEvidence{}, err
+		return WorkerEvidence{}, localFailure(err)
 	}
 	if err := writeTaskEvidence(ctx, e.cfg.Evidence, taskHash, task.SessionID, task.TaskID, verifierWorkerReceiptEvidenceKind, raw); err != nil {
-		return WorkerEvidence{}, fmt.Errorf("persist the Worker receipt the A-level set was bound to: %w", err)
+		return WorkerEvidence{}, localFailure(fmt.Errorf("persist the Worker receipt the A-level set was bound to: %w", err))
 	}
 	return tokens, nil
 }
@@ -176,7 +190,10 @@ func (e *productionVerifyExecutor) revealGate(ctx context.Context, task store.Ve
 		return fmt.Sprintf("no signed commit is persisted for task %s round %d; there is nothing to reveal", task.TaskID, task.VerifyRound), nil
 	}
 	if e.cfg.VerifyCommitReader == nil {
-		if e.cfg.FakeOutput {
+		// Only the fully fake transport (fake output AND no evidence
+		// confirmer, so no B-level download from a Builder) may reveal
+		// without reading its own commit row back from the chain.
+		if e.cfg.FakeOutput && e.cfg.EvidenceConfirmer == nil {
 			return "", nil
 		}
 		return "", builderclient.Retryable(fmt.Errorf("the Keeper VerifyCommit reader is required before the reveal reads B-level evidence (CD §6.2 V13)"))
@@ -200,26 +217,29 @@ func (e *productionVerifyExecutor) confirmWorkerValueEvidence(ctx context.Contex
 	if e.cfg.EvidenceConfirmer == nil {
 		return nil, nil, "", nil
 	}
-	if done, err := verifier.HasRevealMaterial(ctx, persistence); err != nil || done {
-		return nil, nil, "", err
+	if done, err := verifier.HasRevealMaterial(ctx, persistence, task.TaskID, task.VerifyRound); err != nil || done {
+		return nil, nil, "", localFailure(err)
 	}
 	if e.cfg.Evidence == nil {
-		return nil, nil, "", fmt.Errorf("task runner evidence store is required for the B-level download")
+		return nil, nil, "", localFailure(fmt.Errorf("task runner evidence store is required for the B-level download"))
 	}
 	raw, err := e.cfg.Evidence.ReadTaskKind(ctx, taskHash, verifierWorkerReceiptEvidenceKind)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("read the Worker receipt the commit was bound to: %w", err)
+		return nil, nil, "", localFailure(fmt.Errorf("read the Worker receipt the commit was bound to: %w", err))
 	}
 	var receipt builderclient.SignedInferReceipt
 	if err := json.Unmarshal(raw, &receipt); err != nil {
-		return nil, nil, "", fmt.Errorf("decode the persisted Worker receipt: %w", err)
+		return nil, nil, "", localFailure(fmt.Errorf("decode the persisted Worker receipt: %w", err))
 	}
+	base, err := e.evidenceBase(ctx, task)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	base.Receipt = receipt
 	var values []byte
 	served, err := tryBuilders(ctx, levelB, builders, func(ctx context.Context, builder string) error {
-		commitments, err := e.evidenceCommitments(ctx, task, builder, receipt, nil, nil)
-		if err != nil {
-			return err
-		}
+		commitments := base
+		commitments.BuilderOperatorAddress = builder
 		v, err := e.cfg.EvidenceConfirmer.ConfirmWorkerValueEvidence(ctx, commitments)
 		if err != nil {
 			e.cfg.Trace.ErrorEvent("evidence_confirm_failed", tasktrace.Str("kind", "reveal"), tasktrace.Str("task", task.TaskID),

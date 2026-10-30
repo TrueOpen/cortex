@@ -177,3 +177,28 @@ func TestRevealMarksAWorkerLeafNamingAnotherTokenInvalid(t *testing.T) {
 		t.Fatalf("the committed leaves themselves = %v, want accepted", err)
 	}
 }
+
+// M5: persisted reveal material counts only for its own task and round.
+func TestHasRevealMaterialChecksTheRound(t *testing.T) {
+	h := newHarness(t)
+	state := h.validTask()
+	state.OpenVerifyAccepted = true
+	verifyLocally(t, h, state)
+	if ok, err := HasRevealMaterial(context.Background(), h.persistence, state.TaskID, state.VerifyRound); err != nil || ok {
+		t.Fatalf("before the reveal: %v, %v", ok, err)
+	}
+	revealLocally(t, h, state)
+	for name, tc := range map[string]struct {
+		task  string
+		round uint64
+		want  bool
+	}{
+		"this round":    {state.TaskID, state.VerifyRound, true},
+		"another round": {state.TaskID, state.VerifyRound + 1, false},
+		"another task":  {strings.Repeat("ef", 32), state.VerifyRound, false},
+	} {
+		if ok, err := HasRevealMaterial(context.Background(), h.persistence, tc.task, tc.round); err != nil || ok != tc.want {
+			t.Fatalf("%s: %v, %v; want %v", name, ok, err, tc.want)
+		}
+	}
+}

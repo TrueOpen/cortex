@@ -70,7 +70,13 @@ func (v *Verifier) ResumePersistedCommit(ctx context.Context, state TaskState) (
 	}
 	delivery, err := v.deliverCommit(ctx, state, result)
 	result.CommitDelivery = delivery
-	return result, true, err
+	if err != nil {
+		return result, true, err
+	}
+	// The commit notice is owed by every path that hands the commit off, a
+	// resumed one included (the daemon resumes through here directly). It is
+	// marker-guarded, so a commit whose notice already went out sends none.
+	return result, true, v.notifySubmitted(ctx, state, noticeAfterCommit)
 }
 
 // currentCommitWire returns persisted when it is what this node would sign
@@ -220,15 +226,26 @@ func PersistedCommitHash(ctx context.Context, persistence Persistence, taskID st
 }
 
 // HasRevealMaterial reports whether the second phase already persisted its
-// material, so a retry need not download the B level again.
-func HasRevealMaterial(ctx context.Context, persistence Persistence) (bool, error) {
+// material for this task and round, so a retry need not download the B level
+// again. A record naming another task or round is not this round's material.
+func HasRevealMaterial(ctx context.Context, persistence Persistence, taskID string, verifyRound uint64) (bool, error) {
 	reader, ok := persistence.(verifierEvidenceReader)
 	if !ok {
 		return false, nil
 	}
-	_, err := reader.ReadVerifierEvidence(ctx, verifierRevealMaterialEvidenceKind)
+	data, err := reader.ReadVerifierEvidence(ctx, verifierRevealMaterialEvidenceKind)
 	if errors.Is(err, evidence.ErrArtifactNotFound) {
 		return false, nil
 	}
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	var record struct {
+		TaskID      string `json:"task_id"`
+		VerifyRound uint64 `json:"verify_round"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return false, fmt.Errorf("decode persisted reveal material: %w", err)
+	}
+	return record.TaskID == taskID && record.VerifyRound == verifyRound, nil
 }

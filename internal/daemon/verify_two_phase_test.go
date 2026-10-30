@@ -265,3 +265,26 @@ func TestTryBuildersStopsAtTheFirstBuilderThatDelivers(t *testing.T) {
 		t.Fatal("an empty Task Builder set was served")
 	}
 }
+
+// M6: fake output alone does not waive the reveal gate; only the fully fake
+// transport (no evidence confirmer either) does.
+func TestRevealGateIsWaivedOnlyForTheFullyFakeTransport(t *testing.T) {
+	p := newTwoPhase(t)
+	ctx := context.Background()
+	task := p.task
+	task.Stage = string(layout.StageCommitted)
+	persistence := &evidenceVerifierPersistence{taskHash: p.taskHash, task: &task, evidence: p.ev}
+	committed := codec.HashBytes([]byte("commit"))
+	record, _ := json.Marshal(map[string]any{"task_id": task.TaskID, "verify_round": task.VerifyRound, "commit_hash": committed.String()})
+	if err := writeTaskEvidence(ctx, p.ev, p.taskHash, task.SessionID, task.TaskID, verifier.CommitStateEvidenceKind, record); err != nil {
+		t.Fatal(err)
+	}
+	p.exec.cfg.FakeOutput = true
+	if _, err := p.exec.revealGate(ctx, task, persistence); !builderclient.IsRetryable(err) {
+		t.Fatalf("fake output with a real confirmer: %v, want the commit row required", err)
+	}
+	p.exec.cfg.EvidenceConfirmer = nil
+	if stop, err := p.exec.revealGate(ctx, task, persistence); err != nil || stop != "" {
+		t.Fatalf("fully fake transport: stop %q, %v; want the gate waived", stop, err)
+	}
+}

@@ -237,14 +237,20 @@ type TaskRunner struct {
 	// task-round must not overlap: the at-most-once claim only suppresses a
 	// duplicate once the first attempt has *completed* it, so overlapping
 	// attempts would both find the claim incomplete and both publish a
-	// candidacy. Two sources reach here independently - inbound Builder frames
-	// and the poll loop's inbox drain - so ordering them is not optional.
+	// candidacy. On the direct stream only the poll loop's inbox drain reaches
+	// here (the VerifierStream handler records the call and returns); the lock
+	// still orders it against the legacy admitOpenVerify path tests drive and
+	// against overlapping passes.
 	//
 	// handraiseMu also guards handraiseBlockWaits, the per-task-round record of
 	// the block at which this round last refused with a chain-state wait. See
 	// repeatedHandraiseBlockWait.
 	handraiseMu         sync.Mutex
 	handraiseBlockWaits map[string]handraiseBlockWait
+	// dispatchClaimHook, when set (tests only), runs in dispatch right after
+	// a responsibility's inflight claim succeeds and before the live record is
+	// re-checked against the pass's snapshot.
+	dispatchClaimHook func(responsibilityKey)
 }
 
 func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {

@@ -25,9 +25,6 @@ type EvidenceCommitments struct {
 	MaxEncodedSizeBytes map[nodewire.EvidenceKind]uint64
 	// RequiredTopK is the locked Profile's; worker_values are framed under it.
 	RequiredTopK uint32
-	// GeneratedTokenIDs is the confirmed A-level generated_token_ids. When set,
-	// the value phase also checks every leaf names the generated token.
-	GeneratedTokenIDs []byte
 }
 
 // WorkerEvidence is the confirmed content of the Worker's two bundles.
@@ -93,22 +90,6 @@ func (c *NexusEvidenceConfirmer) checkCommitments(commitments EvidenceCommitment
 	return nil
 }
 
-// ConfirmWorkerEvidence downloads the Worker's token and value bundles and
-// proves that they reproduce both typed commitments of the signed receipt.
-// The verify path uses the two phase methods below instead (ADR-0023).
-func (c *NexusEvidenceConfirmer) ConfirmWorkerEvidence(ctx context.Context, commitments EvidenceCommitments) (WorkerEvidence, error) {
-	if err := c.checkCommitments(commitments); err != nil {
-		return WorkerEvidence{}, err
-	}
-	var result WorkerEvidence
-	err := dialBuilder(ctx, c.cfg.Endpoints, commitments.BuilderOperatorAddress, func(ctx context.Context, endpoint BuilderEndpoint) error {
-		var err error
-		result, err = c.confirmFrom(ctx, commitments, endpoint)
-		return err
-	})
-	return result, err
-}
-
 // ConfirmWorkerTokenEvidence is CD §6.2 V7a: the A-level bundle only.
 func (c *NexusEvidenceConfirmer) ConfirmWorkerTokenEvidence(ctx context.Context, commitments EvidenceCommitments) (WorkerEvidence, error) {
 	if err := c.checkCommitments(commitments); err != nil {
@@ -138,13 +119,6 @@ func (c *NexusEvidenceConfirmer) ConfirmWorkerValueEvidence(ctx context.Context,
 	if err := c.checkCommitments(commitments); err != nil {
 		return nil, err
 	}
-	var generated []uint32
-	if len(commitments.GeneratedTokenIDs) > 0 {
-		var err error
-		if generated, err = nodewire.DecodeTokenIDs(commitments.GeneratedTokenIDs); err != nil {
-			return nil, err
-		}
-	}
 	var values []byte
 	err := dialBuilder(ctx, c.cfg.Endpoints, commitments.BuilderOperatorAddress, func(ctx context.Context, endpoint BuilderEndpoint) error {
 		bundle, err := c.fetchBundle(ctx, commitments, endpoint.Endpoint, commitments.Receipt.RequiredEvidenceCommitments[0])
@@ -152,7 +126,7 @@ func (c *NexusEvidenceConfirmer) ConfirmWorkerValueEvidence(ctx context.Context,
 			return err
 		}
 		values = bundle[builderclient.EvidenceArtifactWorkerValues]
-		root, err := c.checkValues(commitments, values, generated)
+		root, err := c.checkValues(commitments, values)
 		if err == nil {
 			c.cfg.Trace.Event("evidence_confirmed", tasktrace.Str("task", commitments.TaskID), tasktrace.Str("level", "B"),
 				tasktrace.Hash("worker_value_root", root))
@@ -163,32 +137,6 @@ func (c *NexusEvidenceConfirmer) ConfirmWorkerValueEvidence(ctx context.Context,
 		return nil, err
 	}
 	return values, nil
-}
-
-func (c *NexusEvidenceConfirmer) confirmFrom(ctx context.Context, facts EvidenceCommitments, endpoint BuilderEndpoint) (WorkerEvidence, error) {
-	receipt := facts.Receipt
-	valueBundle, err := c.fetchBundle(ctx, facts, endpoint.Endpoint, receipt.RequiredEvidenceCommitments[0])
-	if err != nil {
-		return WorkerEvidence{}, err
-	}
-	tokenBundle, err := c.fetchBundle(ctx, facts, endpoint.Endpoint, receipt.RequiredEvidenceCommitments[1])
-	if err != nil {
-		return WorkerEvidence{}, err
-	}
-	result, generated, err := c.checkTokens(facts, tokenBundle)
-	if err != nil {
-		return WorkerEvidence{}, err
-	}
-	result.WorkerValues = valueBundle[builderclient.EvidenceArtifactWorkerValues]
-	valueRoot, err := c.checkValues(facts, result.WorkerValues, generated)
-	if err != nil {
-		return WorkerEvidence{}, err
-	}
-	c.cfg.Trace.Event("evidence_confirmed", tasktrace.Str("task", facts.TaskID),
-		tasktrace.Hash("worker_value_commitment", receipt.RequiredEvidenceCommitments[0].EvidenceHashOrRoot),
-		tasktrace.Hash("worker_token_commitment", receipt.RequiredEvidenceCommitments[1].EvidenceHashOrRoot),
-		tasktrace.Hash("worker_value_root", valueRoot), tasktrace.Uint("generated_token_count", receipt.GeneratedTokenCount))
-	return result, nil
 }
 
 // checkTokens binds the A-level bundle to the receipt's token commitment and
@@ -249,8 +197,10 @@ func (c *NexusEvidenceConfirmer) checkTokens(facts EvidenceCommitments, bundle m
 }
 
 // checkValues binds the B-level worker_values to the receipt's value
-// commitment. generated, when known, also pins each leaf to its token.
-func (c *NexusEvidenceConfirmer) checkValues(facts EvidenceCommitments, workerValues []byte, generated []uint32) (codec.Hash, error) {
+// commitment. Whether each leaf names the committed generated token is the
+// Verifier's check (reveal_material.go): a mismatch there is
+// WORKER_EVIDENCE_INVALID, not a Builder that failed to deliver.
+func (c *NexusEvidenceConfirmer) checkValues(facts EvidenceCommitments, workerValues []byte) (codec.Hash, error) {
 	receipt := facts.Receipt
 	taskID, err := decodeCanonicalHash(receipt.TaskID, "task_id")
 	if err != nil {
@@ -270,13 +220,6 @@ func (c *NexusEvidenceConfirmer) checkValues(facts EvidenceCommitments, workerVa
 	}
 	if uint64(len(leaves)) != receipt.GeneratedTokenCount {
 		return codec.Hash{}, fmt.Errorf("Worker values cover %d positions, not the signed generated_token_count", len(leaves))
-	}
-	if generated != nil {
-		for i, leaf := range leaves {
-			if leaf.TokenID != generated[i] {
-				return codec.Hash{}, fmt.Errorf("Worker value at position %d names token %d, not the generated token %d", i, leaf.TokenID, generated[i])
-			}
-		}
 	}
 	valueRoot, err := nodewire.WorkerValueRoot(binding, leaves)
 	if err != nil {

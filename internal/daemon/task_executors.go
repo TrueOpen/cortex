@@ -234,6 +234,11 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 		tasktrace.Uint("reveal_deadline_height", task.RevealDeadlineHeight),
 		tasktrace.Uint("verify_deadline_height", task.DeadlineHeight))
 	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence}
+	// A node that reported the A level unavailable does not commit, whatever
+	// re-admits the round (a replayed VerifyReady, a restart).
+	if stopped, done, err := e.stopAfterReport(ctx, task, persistence, levelA); err != nil || done {
+		return stopped, false, err
+	}
 	builders, err := e.fixedTaskBuilders(ctx, task)
 	if err != nil {
 		return task, false, err
@@ -251,6 +256,16 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 	fetch := func() (builderclient.OutputPackage, WorkerEvidence, error) {
 		var pkg builderclient.OutputPackage
 		var tokens WorkerEvidence
+		// The local half of every evidence request, read once before any
+		// Builder is asked: a profile this node cannot read is not a Builder
+		// being unavailable.
+		var base EvidenceCommitments
+		if e.cfg.EvidenceConfirmer != nil {
+			var err error
+			if base, err = e.evidenceBase(ctx, task); err != nil {
+				return pkg, tokens, err
+			}
+		}
 		served, err := tryBuilders(ctx, levelA, builders, func(ctx context.Context, builder string) error {
 			c := commitments
 			c.BuilderOperatorAddress = builder
@@ -264,7 +279,7 @@ func (e *productionVerifyExecutor) RunVerify(ctx context.Context, taskHash codec
 				return fmt.Errorf("confirm output before verify: %w", err)
 			}
 			e.cfg.Trace.Event("output_confirmed", traceConfirmedPackage("verify", p)...)
-			ev, err := e.confirmWorkerTokenEvidence(ctx, taskHash, task, builder, p)
+			ev, err := e.confirmWorkerTokenEvidence(ctx, taskHash, task, base, builder, p)
 			if err != nil {
 				e.cfg.Trace.ErrorEvent("evidence_confirm_failed",
 					tasktrace.Str("kind", "verify"), tasktrace.Str("task", task.TaskID),
@@ -446,6 +461,10 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		return task, false, err
 	}
 	persistence := &evidenceVerifierPersistence{taskHash: taskHash, task: &task, evidence: e.cfg.Evidence}
+	// A node that reported the B level unavailable does not reveal.
+	if stopped, done, err := e.stopAfterReport(ctx, task, persistence, levelB); err != nil || done {
+		return stopped, false, err
+	}
 	// The reveal gate (S7 Q6): nothing of the B level is read unless this
 	// node's own commit row is on chain with the commit_hash it persisted.
 	if stop, err := e.revealGate(ctx, task, persistence); err != nil {

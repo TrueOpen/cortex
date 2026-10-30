@@ -292,7 +292,7 @@ func newEvidenceConfirmer(t *testing.T, client builderclient.TaskDataClient) *Ne
 func TestNexusEvidenceConfirmerFetchesManifestBeforeFullArtifactReferences(t *testing.T) {
 	f := newEvidenceFixture(t)
 	client := &evidenceTaskDataClient{objects: f.objects()}
-	result, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments)
+	result, err := confirmBothBundles(newEvidenceConfirmer(t, client), f.Commitments)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestNexusEvidenceConfirmerRejectsUnboundManifestAndArtifacts(t *testing.T) 
 			case "manifest size":
 				f.Commitments.Receipt.RequiredEvidenceCommitments[0].EncodedSizeBytes = evidencebundle.MaxManifestBytes + 1
 			}
-			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil {
+			if _, err := confirmBothBundles(newEvidenceConfirmer(t, client), f.Commitments); err == nil {
 				t.Fatalf("accepted mismatched %s", name)
 			}
 		})
@@ -431,7 +431,7 @@ func TestNexusEvidenceConfirmerRejectsMetadataAndStreamMismatch(t *testing.T) {
 					return []builderclient.TaskDataChunk{{Data: data, EOF: true}}
 				}
 			}
-			if _, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil {
+			if _, err := confirmBothBundles(newEvidenceConfirmer(t, client), f.Commitments); err == nil {
 				t.Fatalf("accepted %s", name)
 			}
 		})
@@ -465,7 +465,7 @@ func TestNexusEvidenceConfirmerRefusesOversizedGenerationParamsBeforeDownload(t 
 					}
 				}
 			}
-			_, err := newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments)
+			_, err := confirmBothBundles(newEvidenceConfirmer(t, client), f.Commitments)
 			if err == nil {
 				t.Fatal("oversized generation_params declaration was accepted")
 			}
@@ -479,19 +479,12 @@ func TestNexusEvidenceConfirmerRefusesOversizedGenerationParamsBeforeDownload(t 
 }
 
 // Self-consistent Worker bundles, re-committed and re-signed, that still
-// disagree with the receipt's generated tokens are refused, and so is a
-// confirmation request without the locked required_top_k.
+// disagree with the receipt's generated_token_count are refused, and so is a
+// confirmation request without the locked required_top_k. A leaf naming
+// another token is the Verifier's WORKER_EVIDENCE_INVALID check instead
+// (verifier TestRevealMarksAWorkerLeafNamingAnotherTokenInvalid).
 func TestNexusEvidenceConfirmerRefusesSelfConsistentValueMismatches(t *testing.T) {
 	for name, mutate := range map[string]func([]nodewire.PositionValueV1) []nodewire.PositionValueV1{
-		"leaf token differs from generated token": func(leaves []nodewire.PositionValueV1) []nodewire.PositionValueV1 {
-			leaves[0].TokenID++
-			for i := range leaves[0].TopK {
-				if leaves[0].TopK[i].TokenID == leaves[0].TokenID {
-					leaves[0].TopK[i].TokenID += 100000
-				}
-			}
-			return leaves
-		},
 		"leaf count differs from generated_token_count": func(leaves []nodewire.PositionValueV1) []nodewire.PositionValueV1 {
 			return leaves[:len(leaves)-1]
 		},
@@ -508,9 +501,8 @@ func TestNexusEvidenceConfirmerRefusesSelfConsistentValueMismatches(t *testing.T
 			f.rebuildManifests(t, nil)
 			f.sign(t)
 			client := &evidenceTaskDataClient{objects: f.objects()}
-			_, err = newEvidenceConfirmer(t, client).ConfirmWorkerEvidence(context.Background(), f.Commitments)
+			_, err = confirmBothBundles(newEvidenceConfirmer(t, client), f.Commitments)
 			want := map[string]string{
-				"leaf token differs from generated token":       "not the generated token",
 				"leaf count differs from generated_token_count": "not the signed generated_token_count",
 			}[name]
 			if err == nil || !strings.Contains(err.Error(), want) {
@@ -520,7 +512,7 @@ func TestNexusEvidenceConfirmerRefusesSelfConsistentValueMismatches(t *testing.T
 	}
 	f := newEvidenceFixture(t)
 	f.Commitments.RequiredTopK = 0
-	if _, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: f.objects()}).ConfirmWorkerEvidence(context.Background(), f.Commitments); err == nil ||
+	if _, err := confirmBothBundles(newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: f.objects()}), f.Commitments); err == nil ||
 		!strings.Contains(err.Error(), "required_top_k") {
 		t.Fatalf("RequiredTopK=0 = %v, want a refusal naming required_top_k", err)
 	}

@@ -139,9 +139,11 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 			state.InferReceipt.OutputHash.String() == msg.Receipt.OutputHash.Hex(), err
 
 	case MsgSubmitVerifyCommit, MsgSubmitVerifyResult, MsgReportDataUnavailable:
-		// The frozen Keeper registers no public Query RPC for CommitState or
-		// ResultReceiptState. A code-0 DeliverTx inclusion is therefore the
-		// strongest externally observable proof.
+		// A code-0 DeliverTx inclusion is taken as confirmation for these three.
+		// CommitState is readable (task.v1.Query/VerifyCommit, which the reveal
+		// gate uses to require its own row), but this confirmer is not wired to
+		// it; ResultReceiptState and the data unavailable report have no
+		// per-verifier public read.
 		return true, nil
 
 	case MsgSettleTask:

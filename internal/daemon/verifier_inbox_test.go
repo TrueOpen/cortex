@@ -366,3 +366,73 @@ func TestInboxPrunesSettledEntries(t *testing.T) {
 		t.Fatal("a settled entry outlived its retention span")
 	}
 }
+
+// M1: a refusal belongs to the content that earned it. A different Builder
+// delivering different (correct) content re-opens the round; the same content
+// from another Builder does not.
+func TestInboxRefusalReopensForDifferentContentFromAnotherBuilder(t *testing.T) {
+	fixture, chain, window, _ := newInboxFixture(t)
+	ctx := context.Background()
+	stream, err := NewVerifierStream(VerifierStreamConfig{
+		ChainID: "chain", Chain: newStubBuilderKeys("builder-1", "builder-2", "builder-3"), Store: fixture.runner.cfg.Store,
+		Assignment: fixture.runner.recordVerifierAssignment, Wake: fixture.runner.Wake,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deliver := func(builder string, mutate func(*nexusv1.OpenVerifyV1)) {
+		t.Helper()
+		m := fixture.openVerifyCall()
+		m.Binding = &nexusv1.BuilderMessageBindingV1{ChainId: "chain", BuilderAddress: builder, ServiceAuthorizationNonce: 1}
+		if mutate != nil {
+			mutate(m)
+		}
+		if err := stream.HandleFrame(ctx, builder, openVerifyFrame(m)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	window.becomeReady()
+	forged := func(m *nexusv1.OpenVerifyV1) { m.WorkerOperatorAddress = "worker-2" }
+	deliver("builder-1", forged)
+	if err := fixture.runner.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	deliver("builder-3", forged)
+	if entry := inboxEntry(t, fixture); entry.State != inboxRefused {
+		t.Fatalf("the same refused content from another Builder re-opened the round: %+v", entry)
+	}
+	deliver("builder-2", nil)
+	if entry := inboxEntry(t, fixture); entry.State != inboxPending || entry.Trigger.Worker != "worker-1" {
+		t.Fatalf("entry = %+v, want the round pending on builder-2's content", entry)
+	}
+	chain.advance(1)
+	if err := fixture.runner.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fixture.assertHandraised(t)
+}
+
+// M2: a round settled while the tip was unreadable has no bound yet; it is
+// kept one span from the first readable tip rather than pruned at once.
+func TestInboxKeepsAnUnboundedSettledEntryForOneSpan(t *testing.T) {
+	ctx := context.Background()
+	inbox := verifierInbox{st: vsStore(t), span: 40}
+	trigger := verifierHandraiseTrigger{Kind: "OpenVerify", TaskID: vsTaskID, VerifyRound: 1}
+	if _, err := inbox.admit(ctx, "builder-1", trigger); err != nil {
+		t.Fatal(err)
+	}
+	if err := inbox.settle(ctx, trigger, chainTip{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		height uint64
+		kept   bool
+	}{{100, true}, {140, true}, {141, false}} {
+		if err := inbox.prune(ctx, chainTip{height: step.height, readable: true}); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, _ := inbox.load(ctx, vsTaskID, 1); ok != step.kept {
+			t.Fatalf("at height %d kept = %v, want %v", step.height, ok, step.kept)
+		}
+	}
+}

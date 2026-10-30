@@ -25,12 +25,14 @@ type SettlementConfig struct {
 	Tx               txclient.Client
 	GasPayer         string
 	FeeCap           txclient.Coin
-	// CommitFeeCap bounds the commit exit specifically. The exit runs on every
-	// verify round of a real-mode node, so it is the one path whose per-tx cost
-	// an operator may want held below the general tx ceiling; deployment wiring
-	// narrows it with self_rescue.max_fee_amount. Zero falls back to FeeCap,
-	// which the broadcaster then checks against tx.max_fee_amount, so there is
-	// no configuration in which the exit submits with no cap at all.
+	// CommitFeeCap bounds the verify round's self-submissions: the commit, the
+	// result (SubmitVerifyResultDirect) and the data unavailable report. They
+	// run on every verify round of a real-mode node, so they are the paths
+	// whose per-tx cost an operator may want held below the general tx
+	// ceiling; deployment wiring narrows it with self_rescue.max_fee_amount.
+	// Zero falls back to FeeCap, which the broadcaster then checks against
+	// tx.max_fee_amount, so there is no configuration in which they submit
+	// with no cap at all.
 	CommitFeeCap  txclient.Coin
 	FeeGrant      string
 	Memo          string
