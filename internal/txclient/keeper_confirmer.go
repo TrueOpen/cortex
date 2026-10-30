@@ -44,6 +44,11 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 	if err := ValidateMessagePayload(req.Kind, req.Payload); err != nil {
 		return false, err
 	}
+	if isDispatchKind(req.Kind) {
+		// The Dispatcher reads the authoritative claim state itself;
+		// code-0 inclusion is the transport's proof.
+		return true, nil
+	}
 
 	switch req.Kind {
 	case MsgRegisterModelProfile:

@@ -14,13 +14,10 @@ import (
 )
 
 // Phase 1 dispatch keys (CD §10 DispatchRecord, TaskProfileLease). Before the
-// record entry everything is keyed by dispatch_ticket_hash.
-//
-// TODO(S6): nothing here deletes dispatch records, their task index or the
-// await/receipt indexes. S5 moves the Worker lease to its task_id key at
-// record time (RebindWorkerLease); S6 owns deleting records, task-index
-// entries, revoke tombstones and the DispatchEvidenceScope namespaces after
-// the claim window and dispatch_evidence_retention_blocks.
+// record entry everything is keyed by dispatch_ticket_hash. S5 moves the
+// Worker lease to its task_id key at record time (RebindWorkerLease).
+// Settled records, their indexes and staged input are deleted by
+// DeleteDispatchRecord, which the S6 GC calls once retention has passed.
 const (
 	dispatchTicketPrefix    = "dispatch-ticket/"
 	dispatchTaskPrefix      = "dispatch-task/"
@@ -31,6 +28,8 @@ const (
 	workerTaskLeasePrefix   = "lease/worker/task/"
 	dispatchAwaitPrefix     = "dispatch-await/"
 	dispatchReceiptPrefix   = "dispatch-receipt/"
+	dispatchClaimPrefix     = "dispatch-claim/"
+	dispatchCollectPrefix   = "dispatch-gc/"
 )
 
 // DispatchRecordSchemaVersion is the current DispatchRecord schema.
@@ -98,16 +97,38 @@ const (
 	// DispatchConflict: recorded with this ticket, but the chain disagrees
 	// with the local facts (ChainObservationConflict). Fails closed.
 	DispatchConflict DispatchState = "conflict"
+
+	// Compensation claim (S6, CD §8.6).
+	DispatchClaimable      DispatchState = "claimable"       // D_ticket passed, this ticket not the winner: inference stopped, lease released, claim due
+	DispatchClaimPending   DispatchState = "claim-pending"   // chain: PENDING_REBUTTAL
+	DispatchClaimPaid      DispatchState = "claim-paid"      // chain: PAID
+	DispatchClaimDismissed DispatchState = "claim-dismissed" // chain: DISMISSED (rebutted)
+	DispatchNotClaimable   DispatchState = "not-claimable"   // winner-ineligible marker, window missed, or the chain refused the claim
 )
 
-// dispatchTransitions lists the states each state may move to. S6 adds
-// CLAIMABLE, PAID and DISMISSED.
+// dispatchTransitions lists the states each state may move to.
 var dispatchTransitions = map[DispatchState][]DispatchState{
-	DispatchOffered:      {DispatchRejected, DispatchAccepted, DispatchRevoked, DispatchSuperseded},
-	DispatchAccepted:     {DispatchAcceptUnsent, DispatchRevoked, DispatchSuperseded, DispatchPendingClaim, DispatchRecorded, DispatchConflict},
+	DispatchOffered: {DispatchRejected, DispatchAccepted, DispatchRevoked, DispatchSuperseded},
+	DispatchAccepted: {DispatchAcceptUnsent, DispatchRevoked, DispatchSuperseded, DispatchPendingClaim, DispatchRecorded, DispatchConflict,
+		DispatchClaimable, DispatchNotClaimable},
 	DispatchAcceptUnsent: {DispatchRevoked},
 	DispatchSuperseded:   {DispatchRevoked},
-	DispatchPendingClaim: {DispatchRecorded, DispatchSuperseded, DispatchConflict},
+	DispatchPendingClaim: {DispatchRecorded, DispatchSuperseded, DispatchConflict, DispatchClaimable, DispatchNotClaimable},
+	DispatchClaimable:    {DispatchClaimPending, DispatchClaimPaid, DispatchClaimDismissed, DispatchNotClaimable},
+	DispatchClaimPending: {DispatchClaimPaid, DispatchClaimDismissed},
+}
+
+// Claiming reports a ticket whose compensation claim is not settled.
+func (s DispatchState) Claiming() bool { return s == DispatchClaimable || s == DispatchClaimPending }
+
+// Collectable reports a state the S6 GC may delete once retention ends.
+func (s DispatchState) Collectable() bool {
+	switch s {
+	case DispatchOffered, DispatchRejected, DispatchAcceptUnsent, DispatchRevoked, DispatchSuperseded, DispatchConflict,
+		DispatchRecorded, DispatchNotClaimable, DispatchClaimPaid, DispatchClaimDismissed:
+		return true
+	}
+	return false
 }
 
 // HoldsDuty reports an accepted ticket not yet released: it holds a lease and
@@ -192,6 +213,26 @@ type DispatchRecord struct {
 	Receipt         []byte `json:"receipt,omitempty"`
 	ReceiptAccepted bool   `json:"receipt_accepted,omitempty"`
 	RescueTxHash    string `json:"rescue_tx_hash,omitempty"`
+
+	// Compensation claim (S6, CD §8.6). ClaimWindowCloseHeight = D_ticket +
+	// claim_window, write-once. The chain fields mirror
+	// DispatchCompensationClaimState.
+	ClaimWindowCloseHeight uint64 `json:"claim_window_close_height,omitempty"`
+	ClaimAttemptHeight     uint64 `json:"claim_attempt_height,omitempty"`
+	ClaimTxHash            string `json:"claim_tx_hash,omitempty"`
+	ClaimedHeight          uint64 `json:"claimed_height,omitempty"`
+	RebuttalDeadlineHeight uint64 `json:"rebuttal_deadline_height,omitempty"`
+	ClaimCheckedHeight     uint64 `json:"claim_checked_height,omitempty"`
+	ClaimAmount            string `json:"claim_amount,omitempty"`
+	PaidAmount             string `json:"paid_amount,omitempty"`
+	UnfilledAmount         string `json:"unfilled_amount,omitempty"`
+	RebuttedBy             string `json:"rebutted_by,omitempty"`
+	ClaimResolvedHeight    uint64 `json:"claim_resolved_height,omitempty"`
+	// FalseNotice: a REJECTED notice for a ticket the chain recorded (CD §8.6a).
+	FalseNotice bool `json:"false_notice,omitempty"`
+	// GCFromHeight anchors retention of a record without ClaimFromHeight (a
+	// revoke tombstone): the height the GC first saw it at. Write-once.
+	GCFromHeight uint64 `json:"gc_from_height,omitempty"`
 }
 
 // WorkerLease is a TaskProfileLease (CD §5.2 W3). Before the record entry it
@@ -246,6 +287,8 @@ func putDispatch(b *store.Batch, rec DispatchRecord) error {
 	}{
 		{DispatchAwaitKey(rec.TicketHash), rec.State == DispatchAccepted || rec.State == DispatchPendingClaim},
 		{DispatchReceiptKey(rec.TicketHash), rec.State == DispatchRecorded && len(rec.Receipt) > 0 && !rec.ReceiptAccepted},
+		{DispatchClaimKey(rec.TicketHash), rec.State.Claiming()},
+		{DispatchCollectKey(rec.TicketHash), rec.State.Collectable()},
 	} {
 		if ix.on {
 			err = b.Set(ix.key, []byte{})
@@ -294,6 +337,24 @@ func checkDispatchUpdate(cur, next DispatchRecord) error {
 	}{{"recorded height", cur.RecordedHeight, next.RecordedHeight}, {"infer deadline", cur.InferDeadlineHeight, next.InferDeadlineHeight}} {
 		if f.cur != 0 && f.next != f.cur {
 			return fmt.Errorf("%w: dispatch %s is write-once", ErrConflict, f.name)
+		}
+	}
+	for _, f := range []struct {
+		name      string
+		cur, next uint64
+	}{{"claim window", cur.ClaimWindowCloseHeight, next.ClaimWindowCloseHeight}, {"GC anchor", cur.GCFromHeight, next.GCFromHeight}} {
+		if f.cur != 0 && f.next != f.cur {
+			return fmt.Errorf("%w: dispatch %s is write-once", ErrConflict, f.name)
+		}
+	}
+	switch next.State {
+	case DispatchClaimable:
+		if next.ClaimWindowCloseHeight <= next.ClaimFromHeight || len(next.Receipt) > 0 {
+			return fmt.Errorf("%w: a claimable ticket needs its claim window and carries no receipt", ErrConflict)
+		}
+	case DispatchClaimPending, DispatchClaimPaid, DispatchClaimDismissed:
+		if next.ClaimedHeight == 0 {
+			return fmt.Errorf("%w: dispatch state %s needs the chain's claimed height", ErrConflict, next.State)
 		}
 	}
 	if next.State == DispatchRecorded && (next.RecordedHeight == 0 || next.InferDeadlineHeight <= next.RecordedHeight || next.WinnerTicketHash != next.TicketHash) {
@@ -408,10 +469,8 @@ func updateDispatch(ctx context.Context, s *store.Store, ticket StoredHash, drop
 // PutDispatchRevoke records a DispatchRevokeV1 (RBF). An unknown ticket gets a
 // tombstone so the offer, if it still arrives, is dropped. A rejected ticket
 // stays rejected; any other moves to revoked. Staged input is dropped in the
-// same batch.
-//
-// TODO(S6): tombstones and revoked records are never deleted here; S6 owns
-// their GC once dispatch_evidence_retention_blocks has passed.
+// same batch. Tombstones and revoked records are deleted by the S6 GC
+// (DeleteDispatchRecord) once their retention has passed.
 func PutDispatchRevoke(ctx context.Context, s *store.Store, ticket, taskID StoredHash, builder string, raw []byte) (DispatchRecord, error) {
 	if ticket.IsZero() || taskID.IsZero() || builder == "" || len(raw) == 0 {
 		return DispatchRecord{}, fmt.Errorf("dispatch revoke is incomplete")

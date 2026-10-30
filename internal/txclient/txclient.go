@@ -95,7 +95,7 @@ func (k Kind) Valid() bool {
 		MsgSweepDeadline:
 		return true
 	default:
-		return false
+		return isDispatchKind(k)
 	}
 }
 

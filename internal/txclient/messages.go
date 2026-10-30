@@ -507,6 +507,9 @@ func MarshalMessage(kind Kind, value any) ([]byte, error) {
 }
 
 func ValidateMessagePayload(kind Kind, payload []byte) error {
+	if isDispatchKind(kind) {
+		return validateDispatchPayload(kind, payload)
+	}
 	var target any
 	switch kind {
 	case MsgRegisterModelProfile:
