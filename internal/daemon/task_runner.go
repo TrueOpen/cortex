@@ -216,17 +216,12 @@ type TaskRunner struct {
 	// process has been told to wait for a chain state. See traceChainWait.
 	waitMu     sync.Mutex
 	chainWaits map[string]uint64
-	// redriveMu guards handraiseRedrives, the task-rounds whose Verifier
-	// handraise is still owed an attempt because the transport that delivered
-	// the call will not deliver it again. See task_runner_handraise_redrive.go.
-	redriveMu         sync.Mutex
-	handraiseRedrives map[string]*verifierHandraiseRedrive
 	// handraiseMu serializes Verifier handraise attempts. Two attempts at one
 	// task-round must not overlap: the at-most-once claim only suppresses a
 	// duplicate once the first attempt has *completed* it, so overlapping
 	// attempts would both find the claim incomplete and both publish a
 	// candidacy. Two sources reach here independently - inbound Builder frames
-	// and the poll loop's re-drive - so ordering them is not optional.
+	// and the poll loop's inbox drain - so ordering them is not optional.
 	//
 	// handraiseMu also guards handraiseBlockWaits, the per-task-round record of
 	// the block at which this round last refused with a chain-state wait. See
@@ -276,8 +271,6 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 		inflight:        make(map[responsibilityKey]struct{}),
 		recoveryChecked: make(map[codec.Hash]struct{}),
 		chainWaits:      make(map[string]uint64),
-
-		handraiseRedrives: make(map[string]*verifierHandraiseRedrive),
 	}
 	if runner.cfg.InferExecutor == nil && cfg.Model != nil && cfg.LocalWorkerAddress != "" {
 		runner.cfg.InferExecutor = &productionInferExecutor{cfg: cfg, persist: runner.persistInferCheckpoint}

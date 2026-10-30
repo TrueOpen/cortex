@@ -90,39 +90,6 @@ func TestVerifierHandraiseRetriesOnTheNextBlock(t *testing.T) {
 	}
 }
 
-// Suppressing the work must not suppress the arming. The re-drive is armed by
-// the first redrivable frame that reaches raiseVerifierHand for a task-round,
-// and that frame need not be the first one of its block. The first delivery's
-// entry is dropped here so that the only thing that can arm the re-drive is the
-// second delivery -- the one the block gate answers from cache. A gate that
-// skipped the bookkeeping on that attempt would trade a redundant Keeper query
-// for a lost handraise.
-func TestVerifierHandraiseArmsTheRedriveEvenWhenTheBlockIsAlreadyAnswered(t *testing.T) {
-	fixture := newOpenVerifyFixture(t)
-	window := &pendingVerifierWindow{}
-	fixture.runner.cfg.VerifierMemberReader = window
-
-	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err == nil {
-		t.Fatal("the first call was admitted, want a wait")
-	}
-	key := chainWaitKey(fixture.taskID, 1)
-	if _, ok := fixture.runner.handraiseRedrives[key]; !ok {
-		t.Fatalf("re-drives = %#v, want the first OPEN_VERIFY armed", fixture.runner.handraiseRedrives)
-	}
-	delete(fixture.runner.handraiseRedrives, key)
-
-	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err == nil {
-		t.Fatal("the second call was admitted, want a wait")
-	}
-	if window.calls != 1 {
-		t.Fatalf("verifier candidate window queries = %d, want the second call answered from the block gate", window.calls)
-	}
-	pending, ok := fixture.runner.handraiseRedrives[key]
-	if !ok || pending.trigger.Kind != "OpenVerify" {
-		t.Fatalf("re-drives = %#v, want the suppressed OPEN_VERIFY still armed", fixture.runner.handraiseRedrives)
-	}
-}
-
 func countTraceEvents(fixture *openVerifyFixture, event string) int {
 	count := 0
 	for _, line := range fixture.trace.allLines() {

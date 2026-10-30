@@ -217,8 +217,8 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	//
 	// Left unmarked they were permanent verdicts, and a permanent verdict is the
 	// harshest disposition in the pipeline: the frame is refused for good and
-	// the Verifier re-drive drops the round (updateVerifierHandraiseRedrive re-arms on a
-	// retryable refusal and on nothing else). A node that was briefly full
+	// the OPEN_VERIFY inbox marks the round refused (verifierInbox.settle keeps a
+	// round owed on a retryable refusal and on nothing else). A node that was briefly full
 	// therefore refused the round for good and went quiet.
 	//
 	// The capability MISMATCH below stays unmarked, deliberately: a model service

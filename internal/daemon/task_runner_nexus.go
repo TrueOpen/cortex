@@ -152,38 +152,44 @@ func (r *TaskRunner) builderFrameVerdict(source string, taskID []byte, err error
 	return err
 }
 
-func (r *TaskRunner) openVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
+// openVerifyTrigger is OPEN_VERIFY's static shape check (§5.6) reduced to the
+// handraise trigger. It reads nothing; every field is still cross-checked
+// against Keeper by raiseVerifierHand.
+func openVerifyTrigger(builderOperator string, message *nexusv1.OpenVerifyV1) (verifierHandraiseTrigger, error) {
 	taskID, err := taskIDHex(message.GetTaskId())
 	if err != nil {
-		return fmt.Errorf("OpenVerify: %w", err)
+		return verifierHandraiseTrigger{}, fmt.Errorf("OpenVerify: %w", err)
 	}
 	if message.GetWorkerOperatorAddress() == "" || message.GetProfileVersion() == 0 || len(message.GetOutputHash()) != 32 {
-		return fmt.Errorf("OpenVerify missing required fields")
+		return verifierHandraiseTrigger{}, fmt.Errorf("OpenVerify missing required fields")
 	}
 	if len(message.GetTaskHash()) != 32 {
-		return fmt.Errorf("OpenVerify task_hash must be 32 bytes")
+		return verifierHandraiseTrigger{}, fmt.Errorf("OpenVerify task_hash must be 32 bytes")
 	}
 	modelID, err := identity.ModelIDHex(message.GetModelId())
 	if err != nil {
-		return fmt.Errorf("OpenVerify model_id: %w", err)
+		return verifierHandraiseTrigger{}, fmt.Errorf("OpenVerify model_id: %w", err)
 	}
 	if len(message.GetInferReceiptHash()) != 32 {
-		return fmt.Errorf("OpenVerify infer_receipt_hash must be 32 bytes")
+		return verifierHandraiseTrigger{}, fmt.Errorf("OpenVerify infer_receipt_hash must be 32 bytes")
 	}
 	if message.GetVerifyRound() != supportedVerifyRound {
-		return fmt.Errorf("OpenVerify verify_round = %d, want %d", message.GetVerifyRound(), supportedVerifyRound)
+		return verifierHandraiseTrigger{}, fmt.Errorf("OpenVerify verify_round = %d, want %d", message.GetVerifyRound(), supportedVerifyRound)
 	}
-	trigger := verifierHandraiseTrigger{
+	return verifierHandraiseTrigger{
 		Kind: "OpenVerify", TaskID: taskID,
 		Worker: message.GetWorkerOperatorAddress(), OutputHash: message.GetOutputHash(), TaskHash: codec.Hash(message.GetTaskHash()),
 		ModelID: modelID, ProfileVersion: message.GetProfileVersion(), VerifyRound: message.GetVerifyRound(),
 		InferReceiptHash:         codec.Hash(message.GetInferReceiptHash()),
 		SenderOperatorAddress:    builderOperator,
 		DataReadyBuilderOperator: builderOperator,
-		// The call is the one handraise trigger with no transport behind it, so
-		// it is the one that arms the local re-drive. See
-		// task_runner_handraise_redrive.go.
-		Redrivable: true,
+	}, nil
+}
+
+func (r *TaskRunner) openVerify(ctx context.Context, builderOperator string, message *nexusv1.OpenVerifyV1) error {
+	trigger, err := openVerifyTrigger(builderOperator, message)
+	if err != nil {
+		return err
 	}
 	return r.raiseVerifierHand(ctx, trigger)
 }
@@ -218,11 +224,6 @@ type verifierHandraiseTrigger struct {
 	// DataReadyBuilderOperator is the Builder whose OPEN_VERIFY carried the
 	// protocol's local data-ready declaration.
 	DataReadyBuilderOperator string
-	// Redrivable marks a trigger whose transport will not bring it back. Nothing
-	// else about the attempt changes; what changes is that a retryable refusal
-	// is remembered and tried again from the poll loop instead of being the last
-	// thing that ever happens to this task-round.
-	Redrivable bool
 }
 
 // verifyTaskBinding resolves the local storage key and the session Keeper's query
@@ -279,12 +280,13 @@ func (r *TaskRunner) verifyTaskBinding(ctx context.Context, message verifierHand
 //
 // The split exists because nothing redelivers OPEN_VERIFY on this node's
 // behalf: a handler that returns builderclient.Retryable is asserting a
-// redelivery nobody performs, so before this the wait lived on one handler's
-// stack and died with it. Measured on
-// trueopen-localnet-1: the Builder's four frames all landed in h0..h0+4, the
-// candidate window turned READY at h0+5, and the eight blocks it was open for
-// went by with no handraise on a node that was in the window -- six tasks in a
-// row, zero MsgSubmitVerifierHandraises.
+// redelivery nobody performs, and a wait that lives on one handler's stack
+// dies with it. Measured on trueopen-localnet-1: the Builder's four frames all
+// landed in h0..h0+4, the candidate window turned READY at h0+5, and the eight
+// blocks it was open for went by with no handraise on a node that was in the
+// window -- six tasks in a row, zero MsgSubmitVerifierHandraises. The
+// OPEN_VERIFY inbox (verifier_inbox.go) holds the call durably and the poll
+// loop asks again each block.
 func (r *TaskRunner) raiseVerifierHand(ctx context.Context, message verifierHandraiseTrigger) error {
 	if message.VerifyRound == 0 {
 		message.VerifyRound = supportedVerifyRound
@@ -292,20 +294,13 @@ func (r *TaskRunner) raiseVerifierHand(ctx context.Context, message verifierHand
 	r.handraiseMu.Lock()
 	defer r.handraiseMu.Unlock()
 	// One chain view per attempt, sampled before the Keeper reads so that the
-	// wait milestone, the precheck and the re-drive bookkeeping all speak about
+	// wait milestone, the precheck and the inbox bookkeeping all speak about
 	// the same height.
 	tip := r.currentChainTip(ctx)
 	err, cached := r.repeatedHandraiseBlockWait(message.TaskID, message.VerifyRound, tip)
 	if !cached {
 		err = r.raiseVerifierHandOnce(ctx, tip, message)
 		r.recordHandraiseBlockWait(message.TaskID, message.VerifyRound, tip, err)
-	}
-	// Bookkeeping runs on a suppressed attempt too. The re-drive is armed by the
-	// first redrivable frame that reaches this function for a task-round, and
-	// that frame can be the second one this block. Skipping the arming would
-	// trade a redundant Keeper query for a lost handraise.
-	if message.Redrivable {
-		r.updateVerifierHandraiseRedrive(message, tip, err)
 	}
 	return err
 }
@@ -329,8 +324,8 @@ type handraiseBlockWait struct {
 // would refuse a different, correct frame that arrived in the same block.
 //
 // More than one scheduler drives a task-round -- the Builder re-sends
-// OPEN_VERIFY and the re-drive fires on the poll interval -- and only the
-// re-drive has a gate of its own. Without this, a five-block wait turned into
+// OPEN_VERIFY and the inbox drain fires on the poll interval -- and only the
+// inbox drain has a gate of its own. Without this, a five-block wait turned into
 // dozens of identical `verifier_window_pending` lines and Keeper queries.
 func (r *TaskRunner) repeatedHandraiseBlockWait(taskID string, verifyRound uint32, tip chainTip) (error, bool) {
 	if !tip.readable {

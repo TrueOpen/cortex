@@ -99,6 +99,19 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	if r == nil || r.cfg.Store == nil {
 		return batch, fmt.Errorf("task runner store is required")
 	}
+	tip := r.currentChainTip(ctx)
+	// The OPEN_VERIFY inbox (verifier_inbox.go), before the due
+	// responsibilities, because this is the step that decides whether there
+	// will BE one: a Verifier candidate that never got its handraise out is
+	// never selected, so no verify document ever exists for the loop below to
+	// find. It runs outside r.mu on purpose - it publishes and waits on the
+	// chain - and it swallows its own errors, because a scheduling pass
+	// returning one stops the daemon. It also runs before the snapshot below,
+	// not between it and the launches: its store scans and chain reads would
+	// otherwise leave the pass holding a "queued" copy of a responsibility
+	// whose execution finished and released its claim in the meantime.
+	r.drainVerifierInbox(ctx, tip)
+
 	r.mu.Lock()
 	infer, verify, err := r.loadActiveTasks(ctx)
 	if err != nil {
@@ -113,14 +126,6 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	infer, verify = copyInfer(infer), copyVerify(verify)
 	r.mu.Unlock()
 
-	tip := r.currentChainTip(ctx)
-	// Before the due responsibilities, because this is the step that decides
-	// whether there will BE one: a Verifier candidate that never got its
-	// handraise out is never selected, so no verify document ever exists for the
-	// loop below to find. It runs outside r.mu on purpose - it publishes and
-	// waits on the chain - and it swallows its own errors, because a scheduling
-	// pass returning one stops the daemon.
-	r.redriveVerifierHandraises(ctx, tip)
 	now := time.Now().UTC()
 	launch := func(key responsibilityKey, taskID string, run func() taskOutcome) {
 		if !r.claimInflight(key) {
