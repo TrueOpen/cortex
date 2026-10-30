@@ -25,6 +25,8 @@ const (
 	AlertDispatchClaimRefused   = "dispatch_compensation_claim_refused"
 	AlertDispatchClaimMissed    = "dispatch_compensation_window_missed"
 	AlertDispatchClaimDismissed = "dispatch_compensation_dismissed"
+
+	alertChainObservationConflict = "dispatch_chain_observation_conflict"
 )
 
 // errClaimMoved stops a claim write whose record moved under it.
@@ -80,8 +82,18 @@ func (d *Dispatcher) settleDeadline(ctx context.Context, rec layout.DispatchReco
 	var why string
 	switch {
 	case err == nil:
-		if winner, _ := hash32(snap.TicketHash); winner == rec.TicketHash && snap.Winner == d.cfg.Operator {
-			return d.applyRecord(ctx, rec, snap, 0) // this ticket won: delivery resumes
+		if winner, _ := hash32(snap.TicketHash); winner == rec.TicketHash {
+			if snap.Winner != d.cfg.Operator {
+				// Our ticket under another operator: never claimable, never
+				// ours to deliver (M4).
+				return d.conflictGrace(ctx, rec, snap, height, fmt.Errorf("ChainObservationConflict: the record names ticket %s with winner %s, not %s",
+					rec.TicketHash, snap.Winner, d.cfg.Operator))
+			}
+			err := d.applyRecord(ctx, rec, snap, 0) // this ticket won: delivery resumes
+			if err == nil || builderclient.IsRetryable(err) {
+				return err
+			}
+			return d.conflictGrace(ctx, rec, snap, height, err)
 		}
 		why = fmt.Sprintf("order recorded with ticket %x for %s by D_ticket %d", snap.TicketHash, snap.Winner, rec.ClaimFromHeight)
 	case errors.Is(err, chainclient.ErrNotFound):
@@ -98,6 +110,36 @@ func (d *Dispatcher) settleDeadline(ctx context.Context, rec layout.DispatchReco
 		*params = &p
 	}
 	return d.makeClaimable(ctx, rec, **params, why)
+}
+
+// conflictGrace handles a ticket the record names as winner but that cannot
+// be applied for good (a ChainObservationConflict: the task view keeps
+// disagreeing, or the record names another operator). It is asked again once
+// per height and alerted once; once the height reaches
+// max(D_ticket, recorded_height) + ConflictGraceBlocks it fails closed:
+// inference stopped, ticket and task leases released, state Conflict. The
+// record and its evidence are kept (the GC never drops a conflict's scope).
+func (d *Dispatcher) conflictGrace(ctx context.Context, rec layout.DispatchRecord, snap chainclient.DispatchRecordSnapshot, height uint64, cause error) error {
+	cur, err := layout.GetDispatchRecord(ctx, d.cfg.Store, rec.TicketHash)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
+	}
+	if cur.State != layout.DispatchAccepted && cur.State != layout.DispatchPendingClaim {
+		return cause // already failed closed (applyRecord's own conflict) or settled
+	}
+	until := hrAddSat(max(rec.ClaimFromHeight, snap.RecordedHeight), d.cfg.ConflictGraceBlocks)
+	if height >= until {
+		return d.conflict(ctx, cur, fmt.Sprintf("fail-closed at %d after the conflict outlived its grace (until %d): %v", height, until, cause))
+	}
+	d.mu.Lock()
+	first := !d.conflictAlerted[rec.TicketHash]
+	d.conflictAlerted[rec.TicketHash] = true
+	d.mu.Unlock()
+	if first {
+		d.cfg.Logger.Error("dispatch chain observation conflict", "alert", alertChainObservationConflict,
+			"ticket", rec.TicketHash.String(), "fail_closed_at", until, "why", cause.Error())
+	}
+	return cause
 }
 
 // makeClaimable is CD §8.6 CLAIMABLE: stop inference (cancelling the
@@ -135,7 +177,8 @@ func (d *Dispatcher) updateLocked(ctx context.Context, ticket layout.StoredHash,
 	}
 	defer d.unlock()
 	rec, err = layout.UpdateDispatch(ctx, d.cfg.Store, ticket, fn)
-	if errors.Is(err, errClaimMoved) {
+	if errors.Is(err, errClaimMoved) || errors.Is(err, store.ErrNotFound) {
+		// Moved, or collected since it was read: nothing to write.
 		return layout.DispatchRecord{}, true, nil
 	}
 	if err != nil {
@@ -170,9 +213,10 @@ func (d *Dispatcher) SweepClaims(ctx context.Context) error {
 		return builderclient.Retryable(fmt.Errorf("dispatcher: claims: %w", err))
 	}
 	var errs []error
-	if err := d.recoverClaims(ctx, recs); builderclient.IsRetryable(err) {
-		return err
-	} else if err != nil {
+	if err := d.recoverClaims(ctx, recs); err != nil {
+		// Logged and carried on: a Builder whose pending list cannot be read
+		// must not stop any claim from being submitted or settled.
+		d.cfg.Logger.Warn("dispatch claim recovery incomplete", "err", err)
 		errs = append(errs, err)
 	}
 	if recs, err = layout.ClaimDispatches(ctx, d.cfg.Store); err != nil {
@@ -239,6 +283,8 @@ func (d *Dispatcher) advanceClaim(ctx context.Context, rec layout.DispatchRecord
 			return nil
 		}
 		d.cfg.Logger.Error("chain refused the compensation claim", "alert", AlertDispatchClaimRefused, "ticket", rec.TicketHash.String(), "reason", obs.RejectReason)
+		d.cfg.Logger.Error("dispatch chain observation conflict", "alert", alertChainObservationConflict,
+			"ticket", rec.TicketHash.String(), "why", "the chain refused a claim this node settled as claimable: "+obs.RejectReason)
 		_, _, err := d.updateLocked(ctx, rec.TicketHash, onlyClaimable(func(r *layout.DispatchRecord) {
 			r.State, r.StateReason = layout.DispatchNotClaimable, "ChainObservationConflict: the chain refused the claim: "+obs.RejectReason
 		}))
@@ -344,55 +390,6 @@ func (d *Dispatcher) applyClaim(ctx context.Context, rec layout.DispatchRecord, 
 // DispatchCompensationClaimsByBuilder at one height per Builder with local
 // claims, then a single read of each local pending claim the list no longer
 // shows (PHASE1_CONTRACT "Event routing and gap recovery", S6 Q7).
-func (d *Dispatcher) recoverClaims(ctx context.Context, recs []layout.DispatchRecord) error {
-	d.mu.Lock()
-	done := d.claimsRecovered
-	d.mu.Unlock()
-	if done {
-		return nil
-	}
-	byBuilder := map[string][]layout.DispatchRecord{}
-	for _, rec := range recs {
-		if rec.State == layout.DispatchClaimPending || rec.ClaimAttemptHeight != 0 {
-			byBuilder[rec.Builder] = append(byBuilder[rec.Builder], rec)
-		}
-	}
-	var errs []error
-	for builder, local := range byBuilder {
-		_, pending, err := d.cfg.Chain.DispatchCompensationClaimsByBuilder(ctx, builder)
-		if err != nil {
-			return builderclient.Retryable(fmt.Errorf("recover claims of %s: %w", builder, err))
-		}
-		open := map[layout.StoredHash]chainclient.DispatchClaimSnapshot{}
-		for _, c := range pending {
-			if t, ok := hash32(c.TicketHash); ok && c.Worker == d.cfg.Operator {
-				open[t] = c
-			}
-		}
-		for _, rec := range local {
-			var err error
-			if c, ok := open[rec.TicketHash]; ok {
-				if rec.State != layout.DispatchClaimPending {
-					err = d.applyClaim(ctx, rec, c) // landed while away
-				}
-			} else if rec.State == layout.DispatchClaimPending {
-				_, err = d.syncClaim(ctx, rec) // resolved while away
-			}
-			if builderclient.IsRetryable(err) {
-				return err
-			}
-			if err != nil {
-				// A permanent refusal is reported, not retried: it must not
-				// hold every other claim back.
-				errs = append(errs, fmt.Errorf("recover ticket %s: %w", rec.TicketHash, err))
-			}
-		}
-	}
-	d.mu.Lock()
-	d.claimsRecovered = true
-	d.mu.Unlock()
-	return errors.Join(errs...)
-}
 
 var _ DispatchEventObserver = (*Dispatcher)(nil)
 
@@ -428,4 +425,81 @@ func (d *Dispatcher) ObserveDispatchEvent(ctx context.Context, f DispatchEventFa
 		return builderclient.Retryable(fmt.Errorf("%s for ticket %s at %d: the claim query lags", f.Type, f.TicketHash, f.Height))
 	}
 	return nil
+}
+
+// recoverClaims covers the gap of a restart, once per process: the Builders
+// with local claims at the first sweep are planned, and for each every page
+// of DispatchCompensationClaimsByBuilder is read at one height, then each
+// local pending claim the list no longer shows is read singly
+// (PHASE1_CONTRACT "Event routing and gap recovery", S6 Q7). Claims this
+// process makes later need no recovery. A Builder whose recovery failed
+// transiently stays planned for the next sweep; a malformed Keeper answer or
+// a permanent refusal is reported and not retried. Errors never hold the
+// advance of other claims back.
+func (d *Dispatcher) recoverClaims(ctx context.Context, recs []layout.DispatchRecord) error {
+	d.mu.Lock()
+	if d.recoveryDue == nil {
+		d.recoveryDue = map[string]bool{}
+		for _, rec := range recs {
+			if rec.State == layout.DispatchClaimPending || rec.ClaimAttemptHeight != 0 {
+				d.recoveryDue[rec.Builder] = true
+			}
+		}
+	}
+	byBuilder := map[string][]layout.DispatchRecord{}
+	for _, rec := range recs {
+		if (rec.State == layout.DispatchClaimPending || rec.ClaimAttemptHeight != 0) && d.recoveryDue[rec.Builder] {
+			byBuilder[rec.Builder] = append(byBuilder[rec.Builder], rec)
+		}
+	}
+	for builder := range d.recoveryDue {
+		if len(byBuilder[builder]) == 0 {
+			delete(d.recoveryDue, builder) // its claims settled meanwhile
+		}
+	}
+	d.mu.Unlock()
+	var errs []error
+	for builder, local := range byBuilder {
+		err := d.recoverBuilderClaims(ctx, builder, local)
+		if !builderclient.IsRetryable(err) {
+			d.mu.Lock()
+			delete(d.recoveryDue, builder)
+			d.mu.Unlock()
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("recover claims of %s: %w", builder, err))
+		}
+	}
+	return joinDispatchErrs(errs)
+}
+
+func (d *Dispatcher) recoverBuilderClaims(ctx context.Context, builder string, local []layout.DispatchRecord) error {
+	_, pending, err := d.cfg.Chain.DispatchCompensationClaimsByBuilder(ctx, builder)
+	switch {
+	case errors.Is(err, chainclient.ErrInvalidClaimAnswer):
+		return err // the same answer comes back: permanent
+	case err != nil:
+		return builderclient.Retryable(err)
+	}
+	open := map[layout.StoredHash]chainclient.DispatchClaimSnapshot{}
+	for _, c := range pending {
+		if t, ok := hash32(c.TicketHash); ok && c.Worker == d.cfg.Operator {
+			open[t] = c
+		}
+	}
+	var errs []error
+	for _, rec := range local {
+		var err error
+		if c, ok := open[rec.TicketHash]; ok {
+			if rec.State != layout.DispatchClaimPending {
+				err = d.applyClaim(ctx, rec, c) // landed while away
+			}
+		} else if rec.State == layout.DispatchClaimPending {
+			_, err = d.syncClaim(ctx, rec) // resolved while away
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ticket %s: %w", rec.TicketHash, err))
+		}
+	}
+	return joinDispatchErrs(errs)
 }

@@ -281,6 +281,7 @@ type fakeDispatchChain struct {
 	claims         map[[32]byte]chainclient.DispatchClaimSnapshot
 	ineligible     map[[32]byte]chainclient.DispatchWinnerIneligibleSnapshot
 	byBuilderCalls int
+	byBuilderErr   error
 }
 
 func (f *fakeDispatchChain) DispatchCompensationClaim(_ context.Context, ticket []byte) (chainclient.DispatchClaimSnapshot, error) {
@@ -298,6 +299,9 @@ func (f *fakeDispatchChain) DispatchCompensationClaimsByBuilder(_ context.Contex
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.byBuilderCalls++
+	if f.byBuilderErr != nil {
+		return 0, nil, f.byBuilderErr
+	}
 	var out []chainclient.DispatchClaimSnapshot
 	for _, c := range f.claims {
 		if c.Builder == builder && c.Status == taskv1.DispatchCompensationClaimStatusV1_DISPATCH_COMPENSATION_CLAIM_STATUS_V1_PENDING_REBUTTAL {

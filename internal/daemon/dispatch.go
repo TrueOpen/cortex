@@ -151,6 +151,10 @@ type DispatcherConfig struct {
 	// deadline (default 10), GCEveryBlocks GC passes (default 10). Local
 	// pacing only.
 	ClaimRetryBlocks, ClaimRecheckBlocks, GCEveryBlocks uint64
+	// ConflictGraceBlocks is how long past max(D_ticket, recorded_height) a
+	// ticket the record names as winner may keep conflicting with the chain's
+	// task view before it fails closed (default ClaimRecheckBlocks).
+	ConflictGraceBlocks uint64
 }
 
 // Dispatcher answers DispatchOfferV1, DispatchRevokeV1 and
@@ -177,11 +181,13 @@ type Dispatcher struct {
 	// height moved.
 	recordCheckedAt uint64
 	// S6: settledAt is the committed height of the last D_ticket settlement
-	// pass; claimsRecovered marks the once-per-process gap recovery;
-	// claimTxWarned the one warning for claims without a Tx client; gcAt and
-	// gcCursor pace and resume the GC.
+	// pass; recoveryDue holds the Builders whose once-per-process gap
+	// recovery is still owed (nil: not planned yet); conflictAlerted the tickets whose winner conflict was
+	// alerted; claimTxWarned the one warning for claims without a Tx client;
+	// gcAt and gcCursor pace and resume the GC.
 	settledAt       uint64
-	claimsRecovered bool
+	recoveryDue     map[string]bool
+	conflictAlerted map[layout.StoredHash]bool
 	claimTxWarned   bool
 	gcAt            uint64
 	gcCursor        layout.StoredHash
@@ -233,6 +239,9 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	if cfg.GCEveryBlocks == 0 {
 		cfg.GCEveryBlocks = 10
 	}
+	if cfg.ConflictGraceBlocks == 0 {
+		cfg.ConflictGraceBlocks = cfg.ClaimRecheckBlocks
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -252,6 +261,7 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 		cfg: cfg, chain: newDispatchFacts(cfg.Chain), work: make(chan struct{}, 1),
 		profiles: profiles, deadline: map[layout.StoredHash]time.Time{},
 		rebound: map[string]bool{}, wake: make(chan struct{}, 1),
+		conflictAlerted: map[layout.StoredHash]bool{},
 	}
 	if err := d.recoverLeases(ctx); err != nil {
 		return nil, err

@@ -80,16 +80,22 @@ func (d *Dispatcher) collectTicket(ctx context.Context, ticket layout.StoredHash
 	}
 	if rec.State == layout.DispatchRevoked {
 		// HandleRevoke stores the revoke before it stops the inference and
-		// releases the lease; a failure there is finished here (both are
-		// idempotent).
+		// releases the leases; a failure there is finished here (all three
+		// are idempotent).
 		if err := d.cfg.Infer.StopDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash); err != nil {
 			return builderclient.Retryable(fmt.Errorf("stop inference: %w", err))
 		}
 		if err := d.releaseLease(ctx, rec.TicketHash); err != nil {
 			return err
 		}
+		if err := d.releaseTaskLeaseOf(ctx, rec); err != nil {
+			return err
+		}
 	}
-	base := rec.ClaimFromHeight
+	// Retention runs from D_ticket; a recorded ticket's material is asked
+	// for until its infer deadline at least (M8); a tombstone has neither
+	// and is anchored at the first GC pass that saw it.
+	base := max(rec.ClaimFromHeight, rec.InferDeadlineHeight)
 	if base == 0 {
 		if rec.GCFromHeight == 0 {
 			_, err := layout.UpdateDispatch(ctx, d.cfg.Store, ticket, func(r *layout.DispatchRecord) error { r.GCFromHeight = height; return nil })
@@ -100,15 +106,23 @@ func (d *Dispatcher) collectTicket(ctx context.Context, ticket layout.StoredHash
 	if height < hrAddSat(base, span) {
 		return nil
 	}
+	// Deletable first: nothing outside the store is retired for a ticket
+	// that still holds a lease or owns its inference.
+	if err := layout.CanDeleteDispatchRecord(ctx, d.cfg.Store, ticket); errors.Is(err, layout.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+		return nil // a later pass takes it
+	} else if err != nil {
+		return err
+	}
 	// A recorded ticket's scope follows the task's operator-confirmed
-	// cleanup (S6 Q9); every other one was never referenced by the chain.
-	if rec.State != layout.DispatchRecorded && d.cfg.Evidence != nil && !rec.TaskHash.IsZero() {
+	// cleanup (S6 Q9), and a conflict's is kept as the evidence of the
+	// disagreement; every other one was never referenced by the chain.
+	if rec.State != layout.DispatchRecorded && rec.State != layout.DispatchConflict && d.cfg.Evidence != nil && !rec.TaskHash.IsZero() {
 		if err := d.cfg.Evidence.DropNamespace(ctx, codec.Hash(layout.DispatchEvidenceScope(rec.TaskHash, rec.TicketHash))); err != nil {
 			return err
 		}
 	}
 	if err := layout.DeleteDispatchRecord(ctx, d.cfg.Store, ticket); errors.Is(err, layout.ErrConflict) {
-		return nil // still leased or still owning its inference: a later pass takes it
+		return nil // took a lease or an inference since the check: a later pass takes it
 	} else if err != nil {
 		return err
 	}

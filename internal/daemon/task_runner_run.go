@@ -42,6 +42,9 @@ type taskOutcome struct {
 	err      error
 	// stale: the execution was stopped before it ran; nothing to apply.
 	stale bool
+	// ticket is the dispatch ticket the execution was launched for, captured
+	// at launch: the executor's own returned task cannot be trusted to say.
+	ticket codec.Hash
 	// stopReason fails the responsibility without having run it. It is
 	// applied after the execution merge, which by contract carries only the
 	// stage and the output/receipt fields across and would otherwise drop
@@ -203,11 +206,12 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, unchanged, func(execCtx context.Context) taskOutcome {
 			// The cancel is registered before this check, so a stop that
 			// lands after it still reaches the execution.
-			if !r.ownsInfer(hash, task.DispatchTicketHash) {
-				return taskOutcome{role: "infer", hash: hash, stale: true}
+			ticket := task.DispatchTicketHash
+			if !r.ownsInfer(hash, ticket) {
+				return taskOutcome{role: "infer", hash: hash, ticket: ticket, stale: true}
 			}
 			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(execCtx, hash, task)
-			return taskOutcome{role: "infer", hash: hash, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
+			return taskOutcome{role: "infer", hash: hash, ticket: ticket, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
 	}
 	launchVerify := func(hash codec.Hash, task store.VerifyTask) {
@@ -232,7 +236,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		deadline := inferDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
 			r.reportStoppedResponsibility("infer", task.TaskID, hash, tip, deadline, task.RetryCount, reason)
-			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: task, stopReason: reason}); err != nil {
+			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, ticket: task.DispatchTicketHash, infer: task, stopReason: reason}); err != nil {
 				return batch, err
 			}
 			continue
@@ -249,7 +253,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			continue
 		}
 		if reason != "" {
-			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: task, stopReason: reason}); err != nil {
+			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, ticket: task.DispatchTicketHash, infer: task, stopReason: reason}); err != nil {
 				return batch, err
 			}
 			continue
@@ -340,7 +344,7 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 		if !ok {
 			return nil
 		}
-		if outcome.stale || (outcome.infer.DispatchTicketHash != (codec.Hash{}) && outcome.infer.DispatchTicketHash != current.DispatchTicketHash) {
+		if outcome.stale || outcome.ticket != current.DispatchTicketHash {
 			return nil // a stopped ticket's outcome never lands on the next round's record
 		}
 		updated := mergeInferExecution(current, outcome.infer)

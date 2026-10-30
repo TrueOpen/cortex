@@ -3,6 +3,7 @@ package layout
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -54,10 +55,66 @@ func CollectableDispatchTickets(ctx context.Context, s *store.Store, after Store
 	return out, err
 }
 
+// checkDispatchDeletable is the refusal rule of DeleteDispatchRecord over a
+// key reader: a state that is not Collectable, a ticket- or task-keyed lease
+// still held by the ticket, or the task's InferRecord still owned by it.
+func checkDispatchDeletable(get func([]byte) ([]byte, error), rec DispatchRecord) error {
+	ticket := rec.TicketHash
+	if !rec.State.Collectable() {
+		return fmt.Errorf("%w: ticket %s is %s, not settled", ErrConflict, ticket, rec.State)
+	}
+	if _, err := get(WorkerTicketLeaseKey(ticket)); err == nil {
+		return fmt.Errorf("%w: ticket %s still holds its lease", ErrConflict, ticket)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	raw, err := get(WorkerTaskLeaseKey(rec.TaskID))
+	switch {
+	case err == nil:
+		var lease WorkerLease
+		if err := json.Unmarshal(raw, &lease); err != nil {
+			return err
+		}
+		if lease.TicketHash == ticket {
+			return fmt.Errorf("%w: ticket %s still holds the task lease", ErrConflict, ticket)
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		return err
+	}
+	if rec.TaskHash.IsZero() {
+		return nil
+	}
+	raw, err = get(InferKey(rec.TaskHash))
+	switch {
+	case err == nil:
+		var infer InferRecord
+		if err := json.Unmarshal(raw, &infer); err != nil {
+			return err
+		}
+		if infer.DispatchTicketHash == ticket {
+			return fmt.Errorf("%w: ticket %s still owns its InferRecord", ErrConflict, ticket)
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		return err
+	}
+	return nil
+}
+
+// CanDeleteDispatchRecord reports, read-only, whether DeleteDispatchRecord
+// would delete ticket now: nil, ErrConflict with the reason, or
+// store.ErrNotFound for an absent record. The GC asks it before it retires
+// anything outside the store (the evidence scope).
+func CanDeleteDispatchRecord(ctx context.Context, s *store.Store, ticket StoredHash) error {
+	rec, err := GetDispatchRecord(ctx, s, ticket)
+	if err != nil {
+		return err
+	}
+	return checkDispatchDeletable(func(key []byte) ([]byte, error) { return s.GetRaw(ctx, key) }, rec)
+}
+
 // DeleteDispatchRecord removes a settled ticket and everything keyed by it.
-// It refuses (ErrConflict) a state that is not Collectable, a ticket still
-// holding a ticket- or task-keyed lease, or one still owning its task's
-// InferRecord. An absent record is a no-op.
+// It refuses (ErrConflict) what checkDispatchDeletable refuses. An absent
+// record is a no-op.
 func DeleteDispatchRecord(ctx context.Context, s *store.Store, ticket StoredHash) error {
 	return s.ApplyBatch(ctx, func(b *store.Batch) error {
 		var rec DispatchRecord
@@ -68,29 +125,8 @@ func DeleteDispatchRecord(ctx context.Context, s *store.Store, ticket StoredHash
 		if err != nil {
 			return err
 		}
-		if !rec.State.Collectable() {
-			return fmt.Errorf("%w: ticket %s is %s, not settled", ErrConflict, ticket, rec.State)
-		}
-		if _, err := b.Get(WorkerTicketLeaseKey(ticket)); err == nil {
-			return fmt.Errorf("%w: ticket %s still holds its lease", ErrConflict, ticket)
-		} else if !errors.Is(err, store.ErrNotFound) {
+		if err := checkDispatchDeletable(b.Get, rec); err != nil {
 			return err
-		}
-		var lease WorkerLease
-		switch err := getBatchJSON(b, WorkerTaskLeaseKey(rec.TaskID), &lease); {
-		case err == nil && lease.TicketHash == ticket:
-			return fmt.Errorf("%w: ticket %s still holds the task lease", ErrConflict, ticket)
-		case err != nil && !errors.Is(err, store.ErrNotFound):
-			return err
-		}
-		if !rec.TaskHash.IsZero() {
-			var infer InferRecord
-			switch err := getBatchJSON(b, InferKey(rec.TaskHash), &infer); {
-			case err == nil && infer.DispatchTicketHash == ticket:
-				return fmt.Errorf("%w: ticket %s still owns its InferRecord", ErrConflict, ticket)
-			case err != nil && !errors.Is(err, store.ErrNotFound):
-				return err
-			}
 		}
 		if err := deletePrefixedKeysInBatch(b, dispatchInputTicketPrefix(ticket)); err != nil {
 			return err

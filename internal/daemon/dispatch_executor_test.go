@@ -162,7 +162,7 @@ func TestTaskRunnerReleasesTheTaskLease(t *testing.T) {
 	hash := codec.Hash{2}
 	r.infer = map[codec.Hash]store.InferTask{hash: {TaskID: taskID, DispatchTicketHash: codec.Hash{9}, Stage: "running"}}
 	for i := 0; i < 2; i++ {
-		if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: store.InferTask{TaskID: taskID, Stage: "succeeded"}}); err != nil {
+		if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, ticket: codec.Hash{9}, infer: store.InferTask{TaskID: taskID, Stage: "succeeded"}}); err != nil {
 			t.Fatal(err)
 		}
 	}

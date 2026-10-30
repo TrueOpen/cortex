@@ -21,7 +21,7 @@ func TestCompensationEventsSyncTheClaim(t *testing.T) {
 	if err := x.d.ObserveDispatchEvent(ctx, fact); err != nil || x.record(t).State != layout.DispatchClaimPending {
 		t.Fatalf("the event is a hint; the query still says pending: %v", err)
 	}
-	paid := x.chainClaim(pending, claimPaid, rec.ClaimFromHeight)
+	paid := x.chainClaim(pending, claimPaid, rec.ClaimFromHeight+1)
 	paid.PaidAmount = "40"
 	x.setClaim(paid)
 	if err := x.d.ObserveDispatchEvent(ctx, fact); err != nil || x.record(t).State != layout.DispatchClaimPaid {
@@ -49,7 +49,7 @@ func TestClaimsRecoverAfterAGap(t *testing.T) {
 	x.landClaims(tx)
 	rec := x.committed(t)
 	x.atHeight(t, rec.ClaimFromHeight)
-	paid := x.chainClaim(x.record(t), claimPaid, rec.ClaimFromHeight)
+	paid := x.chainClaim(x.record(t), claimPaid, rec.ClaimFromHeight+1)
 	paid.PaidAmount = "40"
 	x.setClaim(paid) // resolved while the process was down; the event is lost
 	x.open()

@@ -193,3 +193,14 @@ func TestEvidenceFloorRefusesAnEmptyGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Below the floor with only permanent failures, no retry can reach it.
+func TestEvidenceFloorKeepsPermanentFailuresPermanent(t *testing.T) {
+	permanent := errors.New("Builder confirmation does not match")
+	if err := evidenceFloorReached(0, 1, []error{permanent}); err == nil || builderclient.IsRetryable(err) || !errors.Is(err, permanent) {
+		t.Fatalf("err = %v: a permanent failure below the floor stays permanent", err)
+	}
+	if err := evidenceFloorReached(0, 2, []error{permanent, builderclient.Retryable(errors.New("offline"))}); !builderclient.IsRetryable(err) {
+		t.Fatalf("err = %v: one retryable failure keeps the floor retryable", err)
+	}
+}

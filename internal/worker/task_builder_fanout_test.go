@@ -179,8 +179,8 @@ func TestWorkerRetriesWhenTwoOfThreeTaskBuildersAreDown(t *testing.T) {
 	event := finalizedTask()
 	set := withTaskBuilderSet(t, h)
 	h.taskData.finalizeEndpointErrors = map[string]error{
-		set.endpoints[1].Endpoint: fmt.Errorf("Task Builder is offline"),
-		set.endpoints[2].Endpoint: fmt.Errorf("Task Builder is offline"),
+		set.endpoints[1].Endpoint: builderclient.Retryable(fmt.Errorf("Task Builder is offline")),
+		set.endpoints[2].Endpoint: builderclient.Retryable(fmt.Errorf("Task Builder is offline")),
 	}
 	h.seedPreparedOutput(t, event)
 	_, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event)

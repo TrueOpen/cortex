@@ -3,11 +3,16 @@ package chainclient
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	sharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
+
+// ErrInvalidClaimAnswer marks a Keeper compensation answer that fails
+// validation: asking again returns the same answer, so it is permanent.
+var ErrInvalidClaimAnswer = errors.New("invalid Keeper compensation answer")
 
 // DispatchClaimSnapshot is task.v1 DispatchCompensationClaimState at one
 // committed height: the authority for a claim (KC §10.2, CD §8.6).
@@ -26,7 +31,7 @@ type DispatchClaimSnapshot struct {
 func claimSnapshot(height uint64, s *taskv1.DispatchCompensationClaimState) (DispatchClaimSnapshot, error) {
 	for name, v := range map[string][]byte{"dispatch_ticket_hash": s.GetDispatchTicketHash(), "task_id": s.GetTaskId(), "session_id": s.GetSessionId()} {
 		if len(v) != 32 {
-			return DispatchClaimSnapshot{}, fmt.Errorf("Keeper compensation claim %s is %d bytes, want 32", name, len(v))
+			return DispatchClaimSnapshot{}, fmt.Errorf("%w: Keeper compensation claim %s is %d bytes, want 32", ErrInvalidClaimAnswer, name, len(v))
 		}
 	}
 	switch s.GetStatus() {
@@ -34,10 +39,10 @@ func claimSnapshot(height uint64, s *taskv1.DispatchCompensationClaimState) (Dis
 		taskv1.DispatchCompensationClaimStatusV1_DISPATCH_COMPENSATION_CLAIM_STATUS_V1_PAID,
 		taskv1.DispatchCompensationClaimStatusV1_DISPATCH_COMPENSATION_CLAIM_STATUS_V1_DISMISSED:
 	default:
-		return DispatchClaimSnapshot{}, fmt.Errorf("Keeper compensation claim status %v is outside the closed set", s.GetStatus())
+		return DispatchClaimSnapshot{}, fmt.Errorf("%w: Keeper compensation claim status %v is outside the closed set", ErrInvalidClaimAnswer, s.GetStatus())
 	}
 	if s.GetBuilderAddress() == "" || s.GetWorkerOperatorAddress() == "" || s.GetClaimedHeight() == 0 || s.GetClaimedHeight() > height {
-		return DispatchClaimSnapshot{}, fmt.Errorf("Keeper compensation claim %x is incomplete", s.GetDispatchTicketHash())
+		return DispatchClaimSnapshot{}, fmt.Errorf("%w: Keeper compensation claim %x is incomplete", ErrInvalidClaimAnswer, s.GetDispatchTicketHash())
 	}
 	return DispatchClaimSnapshot{
 		Height: height, TicketHash: bytes.Clone(s.GetDispatchTicketHash()), TaskID: bytes.Clone(s.GetTaskId()), SessionID: bytes.Clone(s.GetSessionId()),
@@ -67,7 +72,7 @@ func (c *KeeperABCIClient) DispatchCompensationClaim(ctx context.Context, ticket
 		return DispatchClaimSnapshot{}, err
 	}
 	if !bytes.Equal(snap.TicketHash, ticket) {
-		return DispatchClaimSnapshot{}, fmt.Errorf("Keeper answered the claim of ticket %x for %x", snap.TicketHash, ticket)
+		return DispatchClaimSnapshot{}, fmt.Errorf("%w: Keeper answered the claim of ticket %x for %x", ErrInvalidClaimAnswer, snap.TicketHash, ticket)
 	}
 	return snap, nil
 }
@@ -98,7 +103,7 @@ func (c *KeeperABCIClient) DispatchCompensationClaimsByBuilder(ctx context.Conte
 				return 0, nil, err
 			}
 			if snap.Builder != builder || snap.Status != taskv1.DispatchCompensationClaimStatusV1_DISPATCH_COMPENSATION_CLAIM_STATUS_V1_PENDING_REBUTTAL {
-				return 0, nil, fmt.Errorf("Keeper listed claim %x outside builder %s's pending set", snap.TicketHash, builder)
+				return 0, nil, fmt.Errorf("%w: Keeper listed claim %x outside builder %s's pending set", ErrInvalidClaimAnswer, snap.TicketHash, builder)
 			}
 			out = append(out, snap)
 		}
@@ -107,7 +112,7 @@ func (c *KeeperABCIClient) DispatchCompensationClaimsByBuilder(ctx context.Conte
 			return height, out, nil
 		}
 		if seen[string(next)] {
-			return 0, nil, fmt.Errorf("Keeper repeated a claim page token")
+			return 0, nil, fmt.Errorf("%w: Keeper repeated a claim page token", ErrInvalidClaimAnswer)
 		}
 		seen[string(next)] = true
 		token = bytes.Clone(next)
@@ -140,7 +145,7 @@ func (c *KeeperABCIClient) DispatchWinnerIneligible(ctx context.Context, ticket 
 	}
 	r := response.GetRow()
 	if !bytes.Equal(r.GetDispatchTicketHash(), ticket) || r.GetWorkerOperatorAddress() == "" {
-		return DispatchWinnerIneligibleSnapshot{}, fmt.Errorf("Keeper winner-ineligible row does not match ticket %x", ticket)
+		return DispatchWinnerIneligibleSnapshot{}, fmt.Errorf("%w: Keeper winner-ineligible row does not match ticket %x", ErrInvalidClaimAnswer, ticket)
 	}
 	return DispatchWinnerIneligibleSnapshot{Height: height, TicketHash: bytes.Clone(ticket), TaskID: bytes.Clone(r.GetTaskId()),
 		Worker: r.GetWorkerOperatorAddress(), Reason: r.GetReason(), RejectedHeight: r.GetRejectedHeight(), ClaimWindowCloseHeight: r.GetClaimWindowCloseHeight()}, nil

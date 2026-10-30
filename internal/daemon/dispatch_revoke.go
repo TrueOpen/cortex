@@ -48,6 +48,9 @@ func (d *Dispatcher) HandleRevoke(ctx context.Context, builder string, rv *nexus
 	if err := d.releaseLease(ctx, ticket); err != nil {
 		return err
 	}
+	if err := d.releaseTaskLeaseOf(ctx, rec); err != nil {
+		return err
+	}
 	d.forgetDeadline(ticket)
 	d.cfg.Logger.Info("dispatch ticket revoked (RBF)", "builder", builder, "ticket", ticket.String(), "state", rec.State)
 	return nil

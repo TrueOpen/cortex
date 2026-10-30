@@ -39,6 +39,11 @@ func (r *TaskRunner) persistInferCheckpoint(ctx context.Context, taskHash codec.
 	if rec.TaskID == "" || rec.TaskID != checkpoint.TaskID {
 		return fmt.Errorf("owning infer task %x is no longer active: %w", taskHash, errInferCheckpointOrphaned)
 	}
+	// A stopped ticket's execution may still checkpoint after the next round
+	// of the task took the record: that round is not its owner (S6).
+	if rec.DispatchTicketHash != layout.StoredHash(checkpoint.DispatchTicketHash) {
+		return fmt.Errorf("infer task %x is owned by ticket %s, not %x: %w", taskHash, rec.DispatchTicketHash, checkpoint.DispatchTicketHash, errInferCheckpointOrphaned)
+	}
 	tr, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(taskHash))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {

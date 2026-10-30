@@ -106,12 +106,13 @@ func (x *dispatchHarness) setClaim(c chainclient.DispatchClaimSnapshot) {
 	})
 }
 
-// landClaims makes every accepted claim Tx put a PENDING_REBUTTAL claim on chain.
+// landClaims makes every accepted claim Tx put a PENDING_REBUTTAL claim on
+// chain, included at the next block (a Tx broadcast at h lands at h+1).
 func (x *dispatchHarness) landClaims(tx *claimTx) {
 	tx.setLand(func(txclient.Request) {
 		var h uint64
 		x.chain.with(func(f *fakeDispatchChain) { h = f.height })
-		x.setClaim(x.chainClaim(x.record(x.t), claimPending, h))
+		x.setClaim(x.chainClaim(x.record(x.t), claimPending, h+1))
 	})
 }
 
@@ -256,7 +257,7 @@ func TestPendingClaimSettlesFromTheChain(t *testing.T) {
 		rec := x.committed(t)
 		x.atHeight(t, rec.ClaimFromHeight)
 		pending := x.record(t)
-		final := x.chainClaim(pending, status, rec.ClaimFromHeight)
+		final := x.chainClaim(pending, status, rec.ClaimFromHeight+1)
 		final.PaidAmount, final.UnfilledAmount, final.ResolvedHeight = "30", "10", pending.RebuttalDeadlineHeight
 		if status == claimDismissed {
 			final.PaidAmount, final.UnfilledAmount, final.RebuttedBy = "0", "0", hrBuilderA

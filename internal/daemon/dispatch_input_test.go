@@ -33,6 +33,14 @@ func TestDispatchInputIsStagedVerifiedAndStartsInference(t *testing.T) {
 	if err == nil || builderclient.IsRetryable(err) {
 		t.Fatalf("a chunk that changed bytes: err = %v, want permanent", err)
 	}
+	// The refused chunk reset the staging (N1): nothing staged survives it,
+	// so the consistent re-send starts over.
+	if chunks, _ := layout.DispatchInputChunks(ctx, x.st, layout.StoredHash(x.fx.ticketHash())); len(chunks) != 0 {
+		t.Fatalf("%d chunks survived a refused chunk", len(chunks))
+	}
+	if err := x.d.HandleInputResponse(ctx, hrBuilderA, tail); err != nil {
+		t.Fatal(err)
+	}
 	// The last chunk comes through the stream Handler entry point.
 	head := &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_InputResponse{InputResponse: x.fx.inputResponse(0, 2, in[:half])}}
 	if err := x.d.HandleFrame(ctx, hrBuilderA, head); err != nil {

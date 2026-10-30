@@ -64,15 +64,27 @@ func evidenceRedundancyTarget(n int) int { return (2*n + 2) / 3 }
 
 // evidenceFloorReached reports whether finalized of total Task Builders meet
 // the ceil(2/3) floor. Below it the relay is retried (the Builders already
-// confirmed are skipped next time). An empty group is never success: a
-// target of zero would otherwise pass with nothing delivered.
+// confirmed are skipped next time), unless every failure is permanent: then
+// no retry can reach the floor and the error stays permanent. An empty group
+// is never success: a target of zero would otherwise pass with nothing
+// delivered.
 func evidenceFloorReached(finalized, total int, failures []error) error {
 	if total == 0 {
 		return errors.New("the task has no Task Builder group to finalize the evidence on")
 	}
-	if target := evidenceRedundancyTarget(total); finalized < target {
-		return builderclient.Retryable(fmt.Errorf("evidence finalized on %d of %d Task Builders, below the ceil(2/3) target %d: %w",
-			finalized, total, target, errors.Join(failures...)))
+	target := evidenceRedundancyTarget(total)
+	if finalized >= target {
+		return nil
 	}
-	return nil
+	err := fmt.Errorf("evidence finalized on %d of %d Task Builders, below the ceil(2/3) target %d: %w",
+		finalized, total, target, errors.Join(failures...))
+	for _, f := range failures {
+		if builderclient.IsRetryable(f) {
+			return builderclient.Retryable(err)
+		}
+	}
+	if len(failures) == 0 {
+		return builderclient.Retryable(err)
+	}
+	return err
 }
