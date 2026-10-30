@@ -77,8 +77,9 @@ const (
 	// handed to the Dispatcher (S5, CD §5.2 W6).
 	ReconcilerEffectDispatchRecorded ReconcilerEffectType = "dispatch_recorded"
 	// ReconcilerEffectDispatchEvent is any other Phase 1 dispatch event a
-	// consumer acts on (S6: compensation claimed, paid, rebutted), handed
-	// over as a hint outside the runner lock.
+	// consumer acts on (S6: compensation claimed, paid, rebutted; S8:
+	// challenge opened, resolved), handed over as a hint outside the runner
+	// lock.
 	ReconcilerEffectDispatchEvent ReconcilerEffectType = "dispatch_event"
 )
 
@@ -169,7 +170,8 @@ func (r *Reconciler) Apply(ctx context.Context, events []chainclient.KeeperEvent
 			out = append(out, ReconcilerEffect{TaskID: event.TaskID, Type: ReconcilerEffectDispatchRecorded, Event: canonicalEffectEvent(event), Dispatch: fact})
 			continue
 		}
-		// The compensation events likewise: the Dispatcher re-reads the claim.
+		// The compensation and challenge events likewise: their consumers
+		// re-read the authoritative Query.
 		if dispatchEventTypes[event.Type] {
 			fact, err := dispatchEventFact(event)
 			if err != nil {
@@ -536,13 +538,11 @@ func keeperEventDispositionFor(eventType chainclient.KeeperEventType) (keeperEve
 	case chainclient.KeeperEventDispatchRecorded,
 		chainclient.KeeperEventDispatchCompensationClaimed,
 		chainclient.KeeperEventDispatchCompensationPaid,
-		chainclient.KeeperEventDispatchCompensationRebutted:
+		chainclient.KeeperEventDispatchCompensationRebutted,
+		chainclient.KeeperEventDispatchChallengeOpened,
+		chainclient.KeeperEventDispatchChallengeResolved:
 		return keeperEventFSMTransition, true
 	case chainclient.KeeperEventProtocolProjection,
-		// The Phase 1 omission-challenge events. Nothing consumes them yet;
-		// S8 attaches its effects to them.
-		chainclient.KeeperEventDispatchChallengeOpened,
-		chainclient.KeeperEventDispatchChallengeResolved,
 		// The two "the chain took your submission" events, and neither one ends
 		// the responsibility that produced it: a Worker still has to upload and
 		// finalize the output after the receipt is accepted,

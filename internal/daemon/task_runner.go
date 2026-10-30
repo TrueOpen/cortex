@@ -112,8 +112,9 @@ type TaskRunnerConfig struct {
 	// is released (S9 wires the Dispatcher). Nil: the effects are traced only.
 	DispatchRecords DispatchRecordObserver
 	// DispatchEvents receives the other dispatch event effects (S6:
-	// compensation) after the runner lock (S9 wires the Dispatcher). Nil:
-	// traced only.
+	// compensation; S8: challenge opened/resolved) after the runner lock (S9
+	// wires DispatchEventObservers{Dispatcher, OmissionWatcher}). Nil: traced
+	// only.
 	DispatchEvents DispatchEventObserver
 	// ReleaseDispatchLease returns a recorded task's (task_id, WORKER) lease
 	// (S9 wires Dispatcher.ReleaseTaskLease). It is called under the runner

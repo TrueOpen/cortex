@@ -483,15 +483,66 @@ func (w *OmissionWatcher) challenge(ctx context.Context, c layout.OmissionCase, 
 	return w.syncChallenge(ctx, c, c.ChallengeID, height, p)
 }
 
-// rosterMissing is filled in by S8-8; until then it only notes the miss.
+// rosterMissing waits RosterGraceBlocks after the first miss, then reports
+// the roster unavailable once (permissionless, KC §10.17). The roster is
+// still sought afterwards; an omission found later is still challenged.
 func (w *OmissionWatcher) rosterMissing(ctx context.Context, c layout.OmissionCase, round uint32, height, closeAt uint64, p chainclient.DispatchParamsSnapshot) error {
-	_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) {
-		if x.RosterMissSince == 0 {
-			x.RosterMissSince = height
+	if c.RosterMissSince == 0 || c.State == layout.OmissionReported || height < hrAddSat(c.RosterMissSince, w.cfg.RosterGraceBlocks) {
+		_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) {
+			if x.RosterMissSince == 0 {
+				x.RosterMissSince = height
+			}
+			x.NextCheckHeight = height + 1
+		})
+		return err
+	}
+	id, err := dispatchwire.RosterUnavailableChallengeID(w.cfg.ChainID, c.TaskID, round, w.cfg.ServiceAddress)
+	if err != nil {
+		return err
+	}
+	obs, err := w.submit(ctx, c, txclient.MsgReportDispatchRosterUnavailable, &taskv1.MsgReportDispatchRosterUnavailable{
+		TaskId: bytes.Clone(c.TaskID[:]), DispatchRound: round, ReporterAddress: w.cfg.ServiceAddress}, closeAt, id)
+	if err != nil {
+		return builderclient.Retryable(err)
+	}
+	if obs.Rejected {
+		if own, err := w.ownChallenge(ctx, c, id); err != nil {
+			return err
+		} else if !own {
+			w.cfg.Logger.Warn("roster-unavailable report not accepted", "task", c.TaskID.String(), "reason", obs.RejectReason)
+			_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) { x.NextCheckHeight = height + w.cfg.RecheckBlocks })
+			return err
 		}
-		x.NextCheckHeight = height + 1
+	}
+	_, err = layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) {
+		x.State, x.ReportID, x.ReportRound, x.ReportTx, x.NextCheckHeight = layout.OmissionReported, layout.StoredHash(id), round, obs.TxHash, height+1
 	})
 	return err
+}
+
+var _ DispatchEventObserver = (*OmissionWatcher)(nil)
+
+// ObserveDispatchEvent re-reads a challenge this node opened when the chain
+// says it opened or resolved. Idempotent: a closed case ignores it.
+func (w *OmissionWatcher) ObserveDispatchEvent(ctx context.Context, f DispatchEventFact) error {
+	if f.Type != chainclient.KeeperEventDispatchChallengeOpened && f.Type != chainclient.KeeperEventDispatchChallengeResolved {
+		return nil
+	}
+	c, err := layout.GetOmissionCase(ctx, w.cfg.Store, f.TaskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return builderclient.Retryable(err)
+	}
+	if !c.State.Open() || f.ChallengeID.IsZero() || (f.ChallengeID != c.ChallengeID && f.ChallengeID != c.ReportID) {
+		return nil
+	}
+	p, err := w.cfg.Chain.DispatchParams(ctx)
+	if err != nil {
+		return builderclient.Retryable(err)
+	}
+	return w.syncChallenge(ctx, c, f.ChallengeID, f.Height, p)
 }
 
 // syncChallenge reads QueryDispatchChallenge(id), the authority, and closes
@@ -539,5 +590,26 @@ func (w *OmissionWatcher) close(ctx context.Context, c layout.OmissionCase, stat
 	return nil
 }
 
-// collect is filled in by S8-8.
-func (w *OmissionWatcher) collect(context.Context, uint64) error { return nil }
+// collect deletes closed cases past RetainUntil, at most every
+// GCEveryBlocks.
+func (w *OmissionWatcher) collect(ctx context.Context, height uint64) error {
+	w.mu.Lock()
+	due := w.gcAt == 0 || height >= hrAddSat(w.gcAt, w.cfg.GCEveryBlocks)
+	if due {
+		w.gcAt = height
+	}
+	w.mu.Unlock()
+	if !due {
+		return nil
+	}
+	tasks, err := layout.DueOmissionGC(ctx, w.cfg.Store, height, 256)
+	if err != nil {
+		return err
+	}
+	for _, t := range tasks {
+		if err := layout.DeleteOmissionCase(ctx, w.cfg.Store, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
