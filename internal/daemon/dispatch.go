@@ -13,6 +13,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/dispatchstream"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
@@ -59,6 +60,10 @@ type DispatchChainView interface {
 	// committed state.
 	DispatchRecord(ctx context.Context, sessionID []byte, orderSequence uint64) (chainclient.DispatchRecordSnapshot, error)
 	DispatchAssignment(ctx context.Context, taskID []byte) (chainclient.DispatchAssignmentSnapshot, error)
+	// The S6 compensation reads, never memoised either.
+	DispatchCompensationClaim(ctx context.Context, ticket []byte) (chainclient.DispatchClaimSnapshot, error)
+	DispatchCompensationClaimsByBuilder(ctx context.Context, builder string) (uint64, []chainclient.DispatchClaimSnapshot, error)
+	DispatchWinnerIneligible(ctx context.Context, ticket []byte) (chainclient.DispatchWinnerIneligibleSnapshot, error)
 }
 
 var _ DispatchChainView = (*chainclient.KeeperABCIClient)(nil)
@@ -88,6 +93,14 @@ type DispatchInputSink interface {
 }
 
 var _ DispatchInputSink = (*evidence.Store)(nil)
+
+// DispatchEvidenceDropper retires a never-recorded ticket's evidence scope.
+// *evidence.Store satisfies it.
+type DispatchEvidenceDropper interface {
+	DropNamespace(context.Context, codec.Hash) error
+}
+
+var _ DispatchEvidenceDropper = (*evidence.Store)(nil)
 
 // DispatcherConfig configures the Worker side of Phase 1 dispatch.
 type DispatcherConfig struct {
@@ -129,6 +142,15 @@ type DispatcherConfig struct {
 	// infer_deadline_height an unaccepted receipt is self-submitted (CD §8.5).
 	// Required with Tx; there is no built-in default (CD §15.3).
 	ReceiptRescueMarginBlocks uint64
+
+	// Evidence retires the evidence scope of a never-recorded ticket at GC
+	// (S6). Nil: store rows only.
+	Evidence DispatchEvidenceDropper
+	// ClaimRetryBlocks spaces compensation claim re-submissions (default 5),
+	// ClaimRecheckBlocks re-reads of a pending claim past its rebuttal
+	// deadline (default 10), GCEveryBlocks GC passes (default 10). Local
+	// pacing only.
+	ClaimRetryBlocks, ClaimRecheckBlocks, GCEveryBlocks uint64
 }
 
 // Dispatcher answers DispatchOfferV1, DispatchRevokeV1 and
@@ -154,6 +176,15 @@ type Dispatcher struct {
 	// record re-check (sweepRecords): the chain is asked again only once the
 	// height moved.
 	recordCheckedAt uint64
+	// S6: settledAt is the committed height of the last D_ticket settlement
+	// pass; claimsRecovered marks the once-per-process gap recovery;
+	// claimTxWarned the one warning for claims without a Tx client; gcAt and
+	// gcCursor pace and resume the GC.
+	settledAt       uint64
+	claimsRecovered bool
+	claimTxWarned   bool
+	gcAt            uint64
+	gcCursor        layout.StoredHash
 }
 
 // NewDispatcher validates cfg and fills local defaults.
@@ -192,6 +223,15 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	}
 	if cfg.SweepEvery <= 0 {
 		cfg.SweepEvery = 250 * time.Millisecond
+	}
+	if cfg.ClaimRetryBlocks == 0 {
+		cfg.ClaimRetryBlocks = 5
+	}
+	if cfg.ClaimRecheckBlocks == 0 {
+		cfg.ClaimRecheckBlocks = 10
+	}
+	if cfg.GCEveryBlocks == 0 {
+		cfg.GCEveryBlocks = 10
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -329,6 +369,12 @@ func (d *Dispatcher) releaseIfNotAccepted(ctx context.Context, ticket layout.Sto
 // batch). Stop and release are idempotent, so a failure anywhere leaves the
 // ticket in its old state for the sweep or the redelivery to finish (I2).
 func (d *Dispatcher) release(ctx context.Context, rec layout.DispatchRecord, state layout.DispatchState, why string) error {
+	return d.releaseWith(ctx, rec, state, why, nil)
+}
+
+// releaseWith is release that also applies set to the record in the state
+// write.
+func (d *Dispatcher) releaseWith(ctx context.Context, rec layout.DispatchRecord, state layout.DispatchState, why string, set func(*layout.DispatchRecord)) error {
 	if err := d.cfg.Infer.StopDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash); err != nil {
 		return builderclient.Retryable(fmt.Errorf("stop inference: %w", err))
 	}
@@ -337,6 +383,9 @@ func (d *Dispatcher) release(ctx context.Context, rec layout.DispatchRecord, sta
 	}
 	if _, err := layout.UpdateDispatchDroppingInput(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 		r.State, r.StateReason = state, why
+		if set != nil {
+			set(r)
+		}
 		return nil
 	}); err != nil {
 		return builderclient.Retryable(fmt.Errorf("record %s: %w", state, err))
@@ -359,7 +408,7 @@ func (d *Dispatcher) releaseLease(ctx context.Context, ticket layout.StoredHash)
 
 // supersede releases older rounds of the same task from the same Builder
 // before capacity is judged (CD §5.2 W3). A pending-claim round is released
-// too (S5 Q16): whether it can still be claimed is S6's to decide.
+// too (S5 Q16); a superseded ticket is never claimed (S6 Q4).
 func (d *Dispatcher) supersede(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, self layout.StoredHash) error {
 	taskID, ok := hash32(t.GetTaskId())
 	if !ok {

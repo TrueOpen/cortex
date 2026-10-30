@@ -277,6 +277,46 @@ type fakeDispatchChain struct {
 	recordQueries int
 	assignment    chainclient.DispatchAssignmentSnapshot
 	assignmentErr error
+	// S6 compensation reads: an unset claim or marker answers ErrNotFound.
+	claims         map[[32]byte]chainclient.DispatchClaimSnapshot
+	ineligible     map[[32]byte]chainclient.DispatchWinnerIneligibleSnapshot
+	byBuilderCalls int
+}
+
+func (f *fakeDispatchChain) DispatchCompensationClaim(_ context.Context, ticket []byte) (chainclient.DispatchClaimSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.claims[[32]byte(ticket)]
+	if !ok {
+		return chainclient.DispatchClaimSnapshot{}, chainclient.ErrNotFound
+	}
+	c.Height = f.height
+	return c, nil
+}
+
+func (f *fakeDispatchChain) DispatchCompensationClaimsByBuilder(_ context.Context, builder string) (uint64, []chainclient.DispatchClaimSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byBuilderCalls++
+	var out []chainclient.DispatchClaimSnapshot
+	for _, c := range f.claims {
+		if c.Builder == builder && c.Status == taskv1.DispatchCompensationClaimStatusV1_DISPATCH_COMPENSATION_CLAIM_STATUS_V1_PENDING_REBUTTAL {
+			c.Height = f.height
+			out = append(out, c)
+		}
+	}
+	return f.height, out, nil
+}
+
+func (f *fakeDispatchChain) DispatchWinnerIneligible(_ context.Context, ticket []byte) (chainclient.DispatchWinnerIneligibleSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.ineligible[[32]byte(ticket)]
+	if !ok {
+		return chainclient.DispatchWinnerIneligibleSnapshot{}, chainclient.ErrNotFound
+	}
+	row.Height = f.height
+	return row, nil
 }
 
 func newFakeDispatchChain(t testing.TB, f *offerFixture) *fakeDispatchChain {

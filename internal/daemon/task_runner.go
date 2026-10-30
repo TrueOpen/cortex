@@ -202,6 +202,9 @@ type TaskRunner struct {
 	// executor goroutine for right now. See claimInflight.
 	inflightMu sync.Mutex
 	inflight   map[responsibilityKey]struct{}
+	// cancels holds the cancel of each in-flight execution, so a stop reaches
+	// work already in the model (S6). Guarded by inflightMu.
+	cancels map[responsibilityKey]context.CancelFunc
 	// executions counts every executor goroutine this runner has started, across
 	// all passes. Run waits on it before returning so that a cancelled context
 	// still drains in-flight work rather than leaving a task mid-commit while the
@@ -279,6 +282,7 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 		wakeup:          make(chan struct{}, 1),
 		slots:           make(chan struct{}, int(cfg.MaxConcurrency)),
 		inflight:        make(map[responsibilityKey]struct{}),
+		cancels:         make(map[responsibilityKey]context.CancelFunc),
 		recoveryChecked: make(map[codec.Hash]struct{}),
 		chainWaits:      make(map[string]uint64),
 	}

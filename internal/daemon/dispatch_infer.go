@@ -88,25 +88,38 @@ func (r *TaskRunner) StartDispatchedInfer(ctx context.Context, e DispatchInferEn
 	return nil
 }
 
-// StopDispatchedInfer removes the responsibility if ticketHash still owns it,
-// so the runner never re-enters it. Cancelling an execution already in
-// flight is S6's (CLAIMABLE stops inference).
+// StopDispatchedInfer ends ticketHash's responsibility for taskHash: the
+// record and the live view are removed under the runner lock, then the
+// running execution, if any, is cancelled; its outcome is dropped
+// (applyOutcome finds nothing, or another ticket's record). Idempotent.
+// Callers must not hold the runner lock (the Dispatcher never does). It does
+// not wait for the executor to return (S6 Q8).
 func (r *TaskRunner) StopDispatchedInfer(ctx context.Context, taskHash, ticketHash layout.StoredHash) error {
 	if taskHash.IsZero() {
 		return nil
 	}
+	key := codec.Hash(taskHash)
+	r.mu.Lock()
 	rec, err := layout.GetInferRecord(ctx, r.cfg.Store, taskHash)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
+	ownedRecord := err == nil && rec.DispatchTicketHash == ticketHash
+	switch {
+	case ownedRecord:
+		if err := layout.DeleteInferRecord(ctx, r.cfg.Store, taskHash); err != nil {
+			r.mu.Unlock()
+			return err
+		}
+	case err != nil && !errors.Is(err, store.ErrNotFound):
+		r.mu.Unlock()
 		return err
 	}
-	if rec.DispatchTicketHash != ticketHash {
-		return nil
+	live, ok := r.infer[key]
+	ownedLive := ok && live.DispatchTicketHash == codec.Hash(ticketHash)
+	if ownedLive {
+		delete(r.infer, key)
 	}
-	if err := layout.DeleteInferRecord(ctx, r.cfg.Store, taskHash); err != nil {
-		return err
+	r.mu.Unlock()
+	if ownedRecord || ownedLive {
+		r.cancelInflight(responsibilityKey{role: "infer", hash: key})
 	}
 	r.Wake()
 	return nil

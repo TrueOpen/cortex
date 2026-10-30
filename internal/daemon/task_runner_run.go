@@ -39,6 +39,8 @@ type taskOutcome struct {
 	verify   store.VerifyTask
 	terminal bool
 	err      error
+	// stale: the execution was stopped before it ran; nothing to apply.
+	stale bool
 	// stopReason fails the responsibility without having run it. It is
 	// applied after the execution merge, which by contract carries only the
 	// stage and the output/receipt fields across and would otherwise drop
@@ -127,8 +129,10 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	r.mu.Unlock()
 
 	now := time.Now().UTC()
-	launch := func(key responsibilityKey, taskID string, run func() taskOutcome) {
-		if !r.claimInflight(key) {
+	launch := func(key responsibilityKey, taskID string, run func(context.Context) taskOutcome) {
+		execCtx, cancel := context.WithCancel(ctx)
+		if !r.claimInflight(key, cancel) {
+			cancel()
 			return
 		}
 		batch.Add(1)
@@ -136,6 +140,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		go func() {
 			defer batch.Done()
 			defer r.executions.Done()
+			defer cancel()
 			// Released after the outcome is durable, never before: the record of
 			// a running task still reads "queued" until this goroutine writes it,
 			// so a pass that saw the claim gone would read that stale document
@@ -167,7 +172,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			// query, and a slot held through that is GPU time nobody is using.
 			slot := sync.OnceFunc(func() { <-r.slots })
 			defer slot()
-			outcome := run()
+			outcome := run(execCtx)
 			slot()
 			if err := r.applyOutcome(ctx, outcome); err != nil {
 				r.recordExecutionFailure(err)
@@ -175,14 +180,19 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		}()
 	}
 	launchInfer := func(hash codec.Hash, task store.InferTask) {
-		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, func() taskOutcome {
-			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(ctx, hash, task)
+		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, func(execCtx context.Context) taskOutcome {
+			// The cancel is registered before this check, so a stop that
+			// lands after it still reaches the execution.
+			if !r.ownsInfer(hash, task.DispatchTicketHash) {
+				return taskOutcome{role: "infer", hash: hash, stale: true}
+			}
+			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(execCtx, hash, task)
 			return taskOutcome{role: "infer", hash: hash, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
 	}
 	launchVerify := func(hash codec.Hash, task store.VerifyTask) {
-		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, func() taskOutcome {
-			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(ctx, hash, task)
+		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, func(execCtx context.Context) taskOutcome {
+			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(execCtx, hash, task)
 			return taskOutcome{role: "verify", hash: hash, verify: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
 	}
@@ -302,6 +312,9 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 		if !ok {
 			return nil
 		}
+		if outcome.stale || (outcome.infer.DispatchTicketHash != (codec.Hash{}) && outcome.infer.DispatchTicketHash != current.DispatchTicketHash) {
+			return nil // a stopped ticket's outcome never lands on the next round's record
+		}
 		updated := mergeInferExecution(current, outcome.infer)
 		if outcome.stopReason != "" {
 			updated.Stage, updated.LastError = "failed", outcome.stopReason
@@ -366,16 +379,19 @@ func (r *TaskRunner) rememberRecoveredRevealDeadline(hash codec.Hash, task store
 // executor for work already in the model. For a Worker that is two signed
 // answers to one question; for a Verifier it is a second commit attempt against
 // a round the first one is still committing.
-func (r *TaskRunner) claimInflight(key responsibilityKey) bool {
+func (r *TaskRunner) claimInflight(key responsibilityKey, cancel context.CancelFunc) bool {
 	r.inflightMu.Lock()
 	defer r.inflightMu.Unlock()
 	if r.inflight == nil {
 		r.inflight = make(map[responsibilityKey]struct{})
 	}
+	if r.cancels == nil {
+		r.cancels = make(map[responsibilityKey]context.CancelFunc)
+	}
 	if _, running := r.inflight[key]; running {
 		return false
 	}
-	r.inflight[key] = struct{}{}
+	r.inflight[key], r.cancels[key] = struct{}{}, cancel
 	return true
 }
 
@@ -383,6 +399,25 @@ func (r *TaskRunner) releaseInflight(key responsibilityKey) {
 	r.inflightMu.Lock()
 	defer r.inflightMu.Unlock()
 	delete(r.inflight, key)
+	delete(r.cancels, key)
+}
+
+// cancelInflight ends the execution running for key, if any.
+func (r *TaskRunner) cancelInflight(key responsibilityKey) {
+	r.inflightMu.Lock()
+	cancel := r.cancels[key]
+	r.inflightMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// ownsInfer reports whether ticket still owns hash's live responsibility.
+func (r *TaskRunner) ownsInfer(hash, ticket codec.Hash) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.infer[hash]
+	return ok && t.DispatchTicketHash == ticket
 }
 
 func (r *TaskRunner) executing(key responsibilityKey) bool {

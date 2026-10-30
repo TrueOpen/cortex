@@ -23,6 +23,9 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if err := d.Sweep(ctx); err != nil && ctx.Err() == nil {
 			d.cfg.Logger.Warn("dispatch sweep failed", "err", err)
 		}
+		if err := d.SweepClaims(ctx); err != nil && ctx.Err() == nil {
+			d.cfg.Logger.Warn("dispatch claim sweep failed", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -92,8 +95,9 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 		maybeSent := e.State != layout.DispatchAccepted || (e.AcceptSeq != 0 && enq.WasSent(e.AcceptSeq)) || (e.AcceptSeq == 0 && e.AcceptEnqueuing)
 		live := now.Before(d.deadlineOf(e.TicketHash, e.AcceptDeadlineUnixMs))
 		due := rebound[e.Builder] || now.Sub(time.UnixMilli(e.InputRequestedAtUnixMs)) >= d.cfg.InputRetryEvery
-		// TODO(S6): at D_ticket (ClaimFromHeight) a ticket whose input never
-		// arrived becomes S6's (PENDING_CLAIM); the sweep stops asking (I8).
+		// Input is asked for until the ticket's own bound: D_ticket before
+		// the record (settleDeadlines decides the ticket there, I8),
+		// infer_deadline_height after.
 		stop := e.ClaimFromHeight
 		if e.InferDeadlineHeight != 0 {
 			stop = e.InferDeadlineHeight // recorded: the input is due until the infer deadline
@@ -132,6 +136,9 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 		if err := d.rescueReceipts(ctx, height); err != nil {
+			errs = append(errs, err)
+		}
+		if err := d.settleDeadlines(ctx, height); err != nil {
 			errs = append(errs, err)
 		}
 	}

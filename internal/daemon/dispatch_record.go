@@ -18,7 +18,10 @@ import (
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
-const recordedNotice = int32(taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED)
+const (
+	recordedNotice = int32(taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_RECORDED)
+	rejectedNotice = int32(taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_REJECTED)
+)
 
 // DispatchRecordedFact is one EventDispatchRecorded as the reconciler read it.
 type DispatchRecordedFact struct {
@@ -172,7 +175,7 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 	winner, _ := hash32(snap.TicketHash)
 	if winner != rec.TicketHash || snap.Winner != d.cfg.Operator {
 		// Another ticket won the order (S5 Q6): pause, keep the lease and the
-		// inference; S6 claims at D_ticket.
+		// inference; settleDeadlines decides the claim at D_ticket.
 		if rec.State != layout.DispatchAccepted {
 			return nil
 		}
@@ -219,11 +222,16 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 		if rec, err = layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 			r.State, r.StateReason = layout.DispatchRecorded, "recorded on chain with this ticket as the winner"
 			r.WinnerTicketHash, r.RecordHash, r.RecordedHeight, r.InferDeadlineHeight = r.TicketHash, recordHash, snap.RecordedHeight, a.InferDeadlineHeight
+			r.FalseNotice = r.NoticeStatus == rejectedNotice
 			return nil
 		}); err != nil {
 			return builderclient.Retryable(fmt.Errorf("record ticket %s: %w", rec.TicketHash, err))
 		}
 		d.cfg.Logger.Info("dispatch recorded", "ticket", rec.TicketHash.String(), "recorded_height", rec.RecordedHeight, "infer_deadline_height", rec.InferDeadlineHeight)
+		if rec.FalseNotice {
+			d.cfg.Logger.Warn("REJECTED notice for a ticket the chain recorded", "alert", AlertDispatchFalseNotice,
+				"ticket", rec.TicketHash.String(), "builder", rec.Builder)
+		}
 	}
 	// Idempotent tail: a redelivery after a crash past the state write
 	// resumes here.
