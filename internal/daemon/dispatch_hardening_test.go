@@ -331,7 +331,8 @@ func TestDispatchRevokeAndSupersedeDropStagedInput(t *testing.T) {
 	}
 }
 
-// I8: at the claim height the ticket is S6's; the sweep stops asking.
+// I8: at the claim height the ticket is S6's; the sweep stops asking and
+// settles it instead.
 func TestDispatchSweepStopsAskingForInputAtTheClaimHeight(t *testing.T) {
 	ctx := context.Background()
 	x := newDispatchHarness(t, 2, nil)
@@ -339,14 +340,18 @@ func TestDispatchSweepStopsAskingForInputAtTheClaimHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	claim := x.record(t).ClaimFromHeight
+	x.chain.with(func(f *fakeDispatchChain) { f.height = claim - 1 })
+	x.now = x.now.Add(6 * time.Second)
+	if err := x.d.Sweep(ctx); err != nil || len(x.a.messages()) != 3 {
+		t.Fatalf("one block before the claim height it still asks: %v, %d", err, len(x.a.messages()))
+	}
 	x.chain.with(func(f *fakeDispatchChain) { f.height = claim })
 	x.now = x.now.Add(6 * time.Second)
-	if err := x.d.Sweep(ctx); err != nil || len(x.a.messages()) != 2 {
+	if err := x.d.Sweep(ctx); err != nil || len(x.a.messages()) != 3 {
 		t.Fatalf("no re-request at the claim height: %v, %d", err, len(x.a.messages()))
 	}
-	x.chain.with(func(f *fakeDispatchChain) { f.height = claim - 1 })
-	if err := x.d.Sweep(ctx); err != nil || len(x.a.messages()) != 3 {
-		t.Fatalf("one block earlier it still asks: %v, %d", err, len(x.a.messages()))
+	if got := x.record(t); got.State.HoldsDuty() {
+		t.Fatalf("state %s: the ticket is settled at the claim height", got.State)
 	}
 }
 

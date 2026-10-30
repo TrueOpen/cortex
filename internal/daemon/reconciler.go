@@ -76,6 +76,10 @@ const (
 	// ReconcilerEffectDispatchRecorded is a committed dispatch_recorded event,
 	// handed to the Dispatcher (S5, CD §5.2 W6).
 	ReconcilerEffectDispatchRecorded ReconcilerEffectType = "dispatch_recorded"
+	// ReconcilerEffectDispatchEvent is any other Phase 1 dispatch event a
+	// consumer acts on (S6: compensation claimed, paid, rebutted), handed
+	// over as a hint outside the runner lock.
+	ReconcilerEffectDispatchEvent ReconcilerEffectType = "dispatch_event"
 )
 
 // ReconcilerEffect is an ephemeral, replayable instruction to the infer and
@@ -107,6 +111,8 @@ type ReconcilerEffect struct {
 	// before canonicalisation. Only ReconcilerEffectDispatchRecorded sets it;
 	// TaskHash is zero for it (the Dispatcher keys by ticket and task id).
 	Dispatch DispatchRecordedFact
+	// DispatchEvent is set by ReconcilerEffectDispatchEvent only.
+	DispatchEvent DispatchEventFact
 }
 
 // ReconcileFromKeeperQuery rebuilds reconciler effects for a set of events by
@@ -161,6 +167,16 @@ func (r *Reconciler) Apply(ctx context.Context, events []chainclient.KeeperEvent
 				continue
 			}
 			out = append(out, ReconcilerEffect{TaskID: event.TaskID, Type: ReconcilerEffectDispatchRecorded, Event: canonicalEffectEvent(event), Dispatch: fact})
+			continue
+		}
+		// The compensation events likewise: the Dispatcher re-reads the claim.
+		if dispatchEventTypes[event.Type] {
+			fact, err := dispatchEventFact(event)
+			if err != nil {
+				r.quarantine(&event, err.Error())
+				continue
+			}
+			out = append(out, ReconcilerEffect{TaskID: event.TaskID, Type: ReconcilerEffectDispatchEvent, Event: canonicalEffectEvent(event), DispatchEvent: fact})
 			continue
 		}
 
@@ -517,14 +533,14 @@ func keeperEventDispositionFor(eventType chainclient.KeeperEventType) (keeperEve
 		return keeperEventFSMTransition, true
 	}
 	switch eventType {
-	case chainclient.KeeperEventDispatchRecorded:
-		return keeperEventFSMTransition, true
-	case chainclient.KeeperEventProtocolProjection,
-		// The Phase 1 compensation and omission-challenge events. Nothing
-		// consumes them yet; S6 and S8 attach their effects to them.
+	case chainclient.KeeperEventDispatchRecorded,
 		chainclient.KeeperEventDispatchCompensationClaimed,
 		chainclient.KeeperEventDispatchCompensationPaid,
-		chainclient.KeeperEventDispatchCompensationRebutted,
+		chainclient.KeeperEventDispatchCompensationRebutted:
+		return keeperEventFSMTransition, true
+	case chainclient.KeeperEventProtocolProjection,
+		// The Phase 1 omission-challenge events. Nothing consumes them yet;
+		// S8 attaches its effects to them.
 		chainclient.KeeperEventDispatchChallengeOpened,
 		chainclient.KeeperEventDispatchChallengeResolved,
 		// The two "the chain took your submission" events, and neither one ends

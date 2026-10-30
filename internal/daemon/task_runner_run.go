@@ -803,24 +803,30 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 	return r.forwardDispatchRecorded(ctx, recorded)
 }
 
-// forwardDispatchRecorded hands dispatch_recorded effects to the Dispatcher
-// outside the runner lock: it calls back into RecordDispatchedInfer, which
-// takes it. A retryable refusal retries the page (marked for the poller, which
-// only retries chainclient-retryable errors); a permanent one is reported and
-// the cursor moves on.
+// forwardDispatchRecorded hands dispatch_recorded and dispatch event effects
+// to the Dispatcher outside the runner lock: it calls back into
+// RecordDispatchedInfer and StopDispatchedInfer, which take it. A retryable
+// refusal retries the page (marked for the poller, which only retries
+// chainclient-retryable errors); a permanent one is reported and the cursor
+// moves on.
 func (r *TaskRunner) forwardDispatchRecorded(ctx context.Context, effects []ReconcilerEffect) error {
 	for _, effect := range effects {
-		if r.cfg.DispatchRecords == nil {
-			r.cfg.Trace.Event("dispatch_recorded_unobserved", tasktrace.Str("task", effect.TaskID))
+		var err error
+		switch {
+		case effect.Type == ReconcilerEffectDispatchRecorded && r.cfg.DispatchRecords != nil:
+			err = r.cfg.DispatchRecords.ObserveDispatchRecorded(ctx, effect.Dispatch)
+		case effect.Type == ReconcilerEffectDispatchEvent && r.cfg.DispatchEvents != nil:
+			err = r.cfg.DispatchEvents.ObserveDispatchEvent(ctx, effect.DispatchEvent)
+		default:
+			r.cfg.Trace.Event("dispatch_effect_unobserved", tasktrace.Str("task", effect.TaskID), tasktrace.Str("type", string(effect.Type)))
 			continue
 		}
-		err := r.cfg.DispatchRecords.ObserveDispatchRecorded(ctx, effect.Dispatch)
 		switch {
 		case err == nil:
 		case builderclient.IsRetryable(err) || chainclient.IsRetryable(err):
-			return chainclient.Retryable(builderclient.Retryable(fmt.Errorf("dispatch_recorded for task %s: %w", effect.TaskID, err)))
+			return chainclient.Retryable(builderclient.Retryable(fmt.Errorf("%s for task %s: %w", effect.Type, effect.TaskID, err)))
 		default:
-			r.cfg.Trace.ErrorEvent("dispatch_recorded_refused", tasktrace.Str("task", effect.TaskID), tasktrace.Err("error", err))
+			r.cfg.Trace.ErrorEvent("dispatch_effect_refused", tasktrace.Str("task", effect.TaskID), tasktrace.Str("type", string(effect.Type)), tasktrace.Err("error", err))
 			if r.cfg.OnQuarantinedEffect != nil {
 				r.cfg.OnQuarantinedEffect(effect, err)
 			}
@@ -837,7 +843,7 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 	var recorded []ReconcilerEffect
 	for _, effect := range effects {
 		switch effect.Type {
-		case ReconcilerEffectDispatchRecorded:
+		case ReconcilerEffectDispatchRecorded, ReconcilerEffectDispatchEvent:
 			recorded = append(recorded, effect)
 		case ReconcilerEffectVerifyReady:
 			v := effect.Snapshot.VerifierAssignment

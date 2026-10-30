@@ -13,6 +13,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/txclient"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
@@ -391,4 +392,40 @@ func (d *Dispatcher) recoverClaims(ctx context.Context, recs []layout.DispatchRe
 	d.claimsRecovered = true
 	d.mu.Unlock()
 	return errors.Join(errs...)
+}
+
+var _ DispatchEventObserver = (*Dispatcher)(nil)
+
+// ObserveDispatchEvent applies a compensation event for this node's tickets
+// by re-reading the claim (CD §8.6: the status comes from the Query, events
+// are hints). A claim event the Query does not show yet is retryable, so the
+// poller page is retried.
+func (d *Dispatcher) ObserveDispatchEvent(ctx context.Context, f DispatchEventFact) error {
+	switch f.Type {
+	case chainclient.KeeperEventDispatchCompensationClaimed, chainclient.KeeperEventDispatchCompensationPaid, chainclient.KeeperEventDispatchCompensationRebutted:
+	default:
+		return nil
+	}
+	if f.Worker != d.cfg.Operator {
+		return nil
+	}
+	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, f.TicketHash)
+	if errors.Is(err, store.ErrNotFound) {
+		d.cfg.Logger.Warn("compensation event for a ticket this node does not hold", "ticket", f.TicketHash.String(), "event", f.Type)
+		return nil
+	}
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
+	}
+	if !rec.State.Claiming() {
+		return nil
+	}
+	landed, err := d.syncClaim(ctx, rec)
+	if err != nil {
+		return err
+	}
+	if !landed {
+		return builderclient.Retryable(fmt.Errorf("%s for ticket %s at %d: the claim query lags", f.Type, f.TicketHash, f.Height))
+	}
+	return nil
 }
