@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"sync"
 	"testing"
@@ -40,6 +41,9 @@ type omChain struct {
 	mu         sync.Mutex
 	height     uint64
 	record     chainclient.DispatchRecordSnapshot
+	records    map[[32]byte]chainclient.DispatchRecordSnapshot // by session; record otherwise
+	recordErr  error
+	pool       map[string]chainclient.CandidateMemberRefSnapshot // by snapshot hex
 	profile    chainclient.TaskProfileSnapshot
 	challenges map[[32]byte]chainclient.DispatchChallengeSnapshot
 	params     chainclient.DispatchParamsSnapshot
@@ -50,9 +54,15 @@ func (c *omChain) CommittedHeight(context.Context) (uint64, error) {
 	defer c.mu.Unlock()
 	return c.height, nil
 }
-func (c *omChain) DispatchRecord(context.Context, []byte, uint64) (chainclient.DispatchRecordSnapshot, error) {
+func (c *omChain) DispatchRecord(_ context.Context, session []byte, _ uint64) (chainclient.DispatchRecordSnapshot, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.recordErr != nil {
+		return chainclient.DispatchRecordSnapshot{}, c.recordErr
+	}
+	if r, ok := c.records[[32]byte(session)]; ok {
+		return r, nil
+	}
 	return c.record, nil
 }
 func (c *omChain) TaskProfile(context.Context, []byte) (chainclient.TaskProfileSnapshot, error) {
@@ -60,7 +70,12 @@ func (c *omChain) TaskProfile(context.Context, []byte) (chainclient.TaskProfileS
 	defer c.mu.Unlock()
 	return c.profile, nil
 }
-func (c *omChain) CandidatePoolMember(context.Context, []byte, string) (chainclient.CandidateMemberRefSnapshot, error) {
+func (c *omChain) CandidatePoolMember(_ context.Context, snapshot []byte, operator string) (chainclient.CandidateMemberRefSnapshot, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if m, ok := c.pool[hex.EncodeToString(snapshot)]; ok && m.OperatorAddress == operator {
+		return m, nil
+	}
 	return chainclient.CandidateMemberRefSnapshot{}, chainclient.ErrNotFound
 }
 func (c *omChain) DispatchChallenge(_ context.Context, id []byte) (chainclient.DispatchChallengeSnapshot, error) {
@@ -111,7 +126,8 @@ func (s *omRosters) GetDispatchRoster(_ context.Context, builder string, req *ne
 	d, err := dispatchwire.Digest(m)
 	if err != nil || dispatch.VerifyDigestSignature(hrPub(s.t, hrCortexKey), d[:], m.GetServiceSignature()) != nil ||
 		m.GetBuilderOperator() != builder || m.GetRequester() != hrCortex || m.GetChainId() != dpChainID ||
-		req.GetTaskId() != builderclientIngress(omTask) || req.GetSessionId() != builderclientIngress(omSession) {
+		req.GetTaskId() != builderclientIngress(layout.StoredHash(m.GetTaskId())) || len(req.GetSessionId()) != 66 ||
+		(bytes.Equal(m.GetTaskId(), omTask[:]) && req.GetSessionId() != builderclientIngress(omSession)) {
 		s.t.Errorf("roster request not signed for %s: %v", builder, err)
 	}
 	s.mu.Lock()
@@ -138,6 +154,7 @@ type omTx struct {
 	reqs   []txclient.Request
 	reject string
 	land   func(txclient.Request)
+	lost   bool // the Tx lands but its result is lost (a crash after broadcast)
 }
 
 func (f *omTx) Submit(_ context.Context, r txclient.Request) (txclient.Observation, error) {
@@ -153,6 +170,12 @@ func (f *omTx) Submit(_ context.Context, r txclient.Request) (txclient.Observati
 	}
 	if land != nil {
 		land(r)
+	}
+	f.mu.Lock()
+	lost := f.lost
+	f.mu.Unlock()
+	if lost {
+		return txclient.Observation{}, errors.New("connection lost after broadcast")
 	}
 	return txclient.Observation{TaskID: r.TaskID, Kind: r.Kind, Accepted: true, TxHash: "C1A1", Status: txclient.LifecycleKeeperConfirmed}, nil
 }
@@ -293,6 +316,18 @@ func TestOmissionWatcherNeedsItsMargins(t *testing.T) {
 	cfg.RosterGraceBlocks, cfg.ChallengeMarginBlocks = 4, 0
 	if _, err := NewOmissionWatcher(cfg); err == nil {
 		t.Fatal("ChallengeMarginBlocks has no built-in default")
+	}
+	cfg.ChallengeMarginBlocks = 3
+	for _, bad := range []func(*OmissionConfig){
+		func(c *OmissionConfig) { c.Operator = "not-bech32" },
+		func(c *OmissionConfig) { c.ServiceAddress = "trueopen1nope" },
+		func(c *OmissionConfig) { c.Builders = []string{hrBuilderA, "x"} },
+	} {
+		c := cfg
+		bad(&c)
+		if _, err := NewOmissionWatcher(c); err == nil {
+			t.Fatal("addresses must be bech32")
+		}
 	}
 	if x.w.cfg.RosterRequestTTLBlocks != 20 || x.w.cfg.ChecksPerSweep != 8 {
 		t.Fatalf("defaults = %+v", x.w.cfg)
@@ -447,7 +482,11 @@ func TestRefusedChallengeIsAbandonedButADuplicateIsOurs(t *testing.T) {
 	z.observe()
 	z.sweepAt(201)
 	z.tx.setReject("")
-	z.sweepAt(202)
+	z.sweepAt(210)
+	if len(z.tx.requests()) != 1 {
+		t.Fatal("an unclassified refusal backs off RecheckBlocks")
+	}
+	z.sweepAt(211)
 	if c := z.state(); c.State != layout.OmissionResolved || len(z.tx.requests()) != 2 {
 		t.Fatalf("any other refusal retries: %+v", c)
 	}

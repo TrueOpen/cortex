@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/wire/dispatch"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -52,7 +53,14 @@ type DispatchRosterSource interface {
 	GetDispatchRoster(ctx context.Context, builder string, req *nexusv1.GetDispatchRosterRequest) (*nexusv1.GetDispatchRosterResponse, error)
 }
 
-const AlertDispatchOmissionRefused = "dispatch_omission_challenge_refused"
+const (
+	AlertDispatchOmissionRefused  = "dispatch_omission_challenge_refused"
+	AlertDispatchOmissionConflict = "dispatch_omission_chain_conflict"
+)
+
+// omissionLagBlocks is the per-case backoff when the chain does not show the
+// record or task yet (the query lags the event).
+const omissionLagBlocks = 2
 
 type OmissionConfig struct {
 	ChainID        string
@@ -95,6 +103,11 @@ func NewOmissionWatcher(cfg OmissionConfig) (*OmissionWatcher, error) {
 		cfg.Rosters == nil || cfg.Sign == nil || cfg.Tx == nil || cfg.Store == nil {
 		return nil, errors.New("omission watcher: incomplete config")
 	}
+	for _, a := range append([]string{cfg.Operator, cfg.ServiceAddress}, cfg.Builders...) {
+		if _, err := dispatch.AddressBytes(a); err != nil {
+			return nil, fmt.Errorf("omission watcher: address %q: %w", a, err)
+		}
+	}
 	if cfg.RosterGraceBlocks == 0 || cfg.ChallengeMarginBlocks == 0 {
 		return nil, errors.New("omission watcher: RosterGraceBlocks and ChallengeMarginBlocks are required (no built-in default)")
 	}
@@ -136,13 +149,15 @@ func heldNotice(r HeldRoot) (*nexusv1.HandraiseRootNoticeV1, error) {
 	return n, nil
 }
 
-// leafOpen: admitted, free slots, unexpired at recorded (KC §10.17).
-func leafOpen(l *taskv1.HandraiseRootLeafV1, recorded uint64) bool {
-	return l.GetAdmitted() && l.GetHandraise().GetFreeSlotCount() > 0 && l.GetHandraise().GetExpiryHeight() >= recorded
+// leafOpen: this node's leaf, admitted, free slots, unexpired at recorded
+// (KC §10.17).
+func (w *OmissionWatcher) leafOpen(l *taskv1.HandraiseRootLeafV1, recorded uint64) bool {
+	return l.GetAdmitted() && l.GetHandraise().GetMember().GetOperatorAddress() == w.cfg.Operator &&
+		l.GetHandraise().GetFreeSlotCount() > 0 && l.GetHandraise().GetExpiryHeight() >= recorded
 }
 
-func leafServes(l *taskv1.HandraiseRootLeafV1, p chainclient.TaskProfileSnapshot, recorded uint64) bool {
-	return leafOpen(l, recorded) && slices.ContainsFunc(l.GetHandraise().GetProfiles(), func(x *taskv1.DispatchProfileV1) bool {
+func (w *OmissionWatcher) leafServes(l *taskv1.HandraiseRootLeafV1, p chainclient.TaskProfileSnapshot, recorded uint64) bool {
+	return w.leafOpen(l, recorded) && slices.ContainsFunc(l.GetHandraise().GetProfiles(), func(x *taskv1.DispatchProfileV1) bool {
 		return bytes.Equal(x.GetModelId(), p.ModelID) && x.GetProfileVersion() == p.ProfileVersion
 	})
 }
@@ -165,7 +180,7 @@ func (w *OmissionWatcher) ObserveDispatchRecorded(ctx context.Context, f Dispatc
 	}
 	if !slices.ContainsFunc(roots, func(r HeldRoot) bool {
 		n, err := heldNotice(r)
-		return err == nil && leafOpen(n.GetProof().GetLeaf(), f.Height)
+		return err == nil && w.leafOpen(n.GetProof().GetLeaf(), f.Height)
 	}) {
 		return nil
 	}
@@ -183,8 +198,10 @@ func (w *OmissionWatcher) ObserveDispatchRecorded(ctx context.Context, f Dispatc
 	return nil
 }
 
-// Sweep examines open cases (oldest record first, ChecksPerSweep at most),
-// re-reads open challenges, and collects closed cases.
+// Sweep examines due open cases (ChecksPerSweep at most), re-reads open
+// challenges, and collects closed cases. Cases are taken by NextCheckHeight,
+// then age, and a case that keeps failing backs off, so stuck cases cannot
+// starve a newer one.
 func (w *OmissionWatcher) Sweep(ctx context.Context) error {
 	height, err := w.cfg.Chain.CommittedHeight(ctx)
 	if err != nil {
@@ -200,7 +217,9 @@ func (w *OmissionWatcher) Sweep(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		slices.SortFunc(cases, func(a, b layout.OmissionCase) int { return cmp.Compare(a.RecordedHeight, b.RecordedHeight) })
+		slices.SortFunc(cases, func(a, b layout.OmissionCase) int {
+			return cmp.Or(cmp.Compare(a.NextCheckHeight, b.NextCheckHeight), cmp.Compare(a.RecordedHeight, b.RecordedHeight))
+		})
 		checked := 0
 		for _, c := range cases {
 			if c.NextCheckHeight > height {
@@ -241,22 +260,32 @@ func windowClose(c layout.OmissionCase, p chainclient.DispatchParamsSnapshot) ui
 func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, height uint64, p chainclient.DispatchParamsSnapshot) error {
 	closeAt := windowClose(c, p)
 	closing := hrAddSat(height, w.cfg.ChallengeMarginBlocks) >= closeAt
-	if c.State == layout.OmissionReported && !c.ReportID.IsZero() {
+	if c.State == layout.OmissionReported && !c.ReportID.IsZero() && c.ReportOutcome == 0 {
 		if err := w.syncChallenge(ctx, c, c.ReportID, height, p); err != nil {
 			return err
 		}
 		cur, err := layout.GetOmissionCase(ctx, w.cfg.Store, c.TaskID)
-		if err != nil || !cur.State.Open() || closing {
-			return err // closing: only the report is followed now (syncChallenge)
+		if err != nil || !cur.State.Open() {
+			return err
 		}
 		c = cur
+		if closing && c.ReportOutcome == 0 {
+			return nil // only the pending report is followed now (syncChallenge)
+		}
 	}
 	if closing {
+		if c.State == layout.OmissionReported {
+			return w.close(ctx, c, layout.OmissionResolved, fmt.Sprintf("roster report ended %s; no omission found before the window closed at %d",
+				taskv1.DispatchChallengeStatusV1(c.ReportOutcome), closeAt), c.ReportOutcome, p)
+		}
 		return w.close(ctx, c, layout.OmissionAbandoned, fmt.Sprintf("challenge window closes at %d", closeAt), 0, p)
 	}
 	rec, err := w.cfg.Chain.DispatchRecord(ctx, c.SessionID[:], c.OrderSequence)
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return w.lagging(ctx, c, height, "dispatch record")
+	}
 	if err != nil {
-		return builderclient.Retryable(fmt.Errorf("query dispatch record: %w", err)) // NotFound: the query lags the event
+		return builderclient.Retryable(fmt.Errorf("query dispatch record: %w", err))
 	}
 	if !bytes.Equal(rec.RecordHash, c.RecordHash[:]) || !bytes.Equal(rec.TaskID, c.TaskID[:]) || rec.Builder != c.Builder || rec.RecordedHeight != c.RecordedHeight {
 		return w.close(ctx, c, layout.OmissionAbandoned, "ChainObservationConflict: dispatch_recorded disagrees with QueryDispatchRecord", 0, p)
@@ -265,6 +294,9 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 		return w.close(ctx, c, layout.OmissionClear, "this node won the order", 0, p)
 	}
 	prof, err := w.cfg.Chain.TaskProfile(ctx, c.TaskID[:])
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return w.lagging(ctx, c, height, "task profile")
+	}
 	if err != nil {
 		return builderclient.Retryable(err)
 	}
@@ -275,9 +307,12 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 	if len(cands) == 0 {
 		return w.close(ctx, c, layout.OmissionClear, "no held root with an admitted, free, unexpired leaf for the task's profile", 0, p)
 	}
-	rounds, err := w.fetchRosters(ctx, c, rec, height)
+	rounds, miss, err := w.fetchRosters(ctx, c, rec, height)
 	if err != nil {
-		w.cfg.Logger.Warn("no roster for a candidate omission", "task", c.TaskID.String(), "err", err)
+		return err // local (signer, cancellation): never a roster miss
+	}
+	if miss != nil {
+		w.cfg.Logger.Warn("no roster for a candidate omission", "task", c.TaskID.String(), "err", miss)
 		return w.rosterMissing(ctx, c, cands[0].round, height, closeAt, p)
 	}
 	for _, cand := range cands { // rounds in record order: the earliest omitted round wins (S8 Q2)
@@ -300,6 +335,9 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 		}
 		roster := rounds[cand.round].GetRoster()
 		member := notice.GetProof().GetLeaf().GetHandraise().GetMember()
+		if member.GetOperatorAddress() != w.cfg.Operator {
+			continue // not this node's leaf
+		}
 		slot := member.GetSlot()
 		if !bytes.Equal(member.GetCandidatePoolSnapshotId(), roster.GetCandidatePoolSnapshotId()) { // S8 Q4
 			m, err := w.cfg.Chain.CandidatePoolMember(ctx, roster.GetCandidatePoolSnapshotId(), w.cfg.Operator)
@@ -313,6 +351,11 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 		}
 		proof, err := dispatchwire.NonInclusion(roster, slot)
 		if errors.Is(err, dispatchwire.ErrInRoster) {
+			if i := slices.IndexFunc(roster.GetMembers(), func(m *taskv1.DispatchRosterMemberV1) bool { return m.GetSlot() == slot }); i >= 0 &&
+				roster.GetMembers()[i].GetOperatorAddress() != w.cfg.Operator {
+				w.cfg.Logger.Warn("this node's slot is in the roster under another operator", "task", c.TaskID.String(), "round", cand.round,
+					"slot", slot, "operator", roster.GetMembers()[i].GetOperatorAddress())
+			}
 			continue
 		}
 		if err != nil {
@@ -332,7 +375,7 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 func (w *OmissionWatcher) candidates(ctx context.Context, c layout.OmissionCase, rec chainclient.DispatchRecordSnapshot, prof chainclient.TaskProfileSnapshot) ([]omissionCandidate, error) {
 	serves := func(r HeldRoot) bool {
 		n, err := heldNotice(r)
-		return err == nil && leafServes(n.GetProof().GetLeaf(), prof, rec.RecordedHeight)
+		return err == nil && w.leafServes(n.GetProof().GetLeaf(), prof, rec.RecordedHeight)
 	}
 	pool, err := w.cfg.Roots.RootsUpTo(ctx, c.Builder, rec.EarliestSubmitHeight, w.cfg.RootScan)
 	if err != nil {
@@ -362,25 +405,32 @@ func (w *OmissionWatcher) candidates(ctx context.Context, c layout.OmissionCase,
 
 // fetchRosters asks the dispatching Builder first, then the other configured
 // Builders, and keeps the first answer whose every round hashes to the
-// record's roster_hash and handraise_root_digest.
-func (w *OmissionWatcher) fetchRosters(ctx context.Context, c layout.OmissionCase, rec chainclient.DispatchRecordSnapshot, height uint64) (map[uint32]*nexusv1.DispatchRosterRoundV1, error) {
+// record's roster_hash and handraise_root_digest. miss joins the Builder-side
+// failures (transport, NotFound, a mismatching roster); err is a local
+// failure (signing, cancellation), which is never a roster miss.
+func (w *OmissionWatcher) fetchRosters(ctx context.Context, c layout.OmissionCase, rec chainclient.DispatchRecordSnapshot, height uint64) (rounds map[uint32]*nexusv1.DispatchRosterRoundV1, miss, err error) {
 	order := append([]string{c.Builder}, slices.DeleteFunc(slices.Clone(w.cfg.Builders), func(b string) bool { return b == c.Builder })...)
-	var errs []error
+	var misses []error
 	for _, b := range order {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		req, err := w.rosterRequest(ctx, b, c, height)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		resp, err := w.cfg.Rosters.GetDispatchRoster(ctx, b, req)
+		if ctxErr := ctx.Err(); err != nil && ctxErr != nil {
+			return nil, nil, ctxErr
+		}
 		if err == nil {
-			var rounds map[uint32]*nexusv1.DispatchRosterRoundV1
 			if rounds, err = w.checkRosters(resp, rec); err == nil {
-				return rounds, nil
+				return rounds, nil, nil
 			}
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", b, err))
+		misses = append(misses, fmt.Errorf("%s: %w", b, err))
 	}
-	return nil, errors.Join(errs...)
+	return nil, errors.Join(misses...), nil
 }
 
 func (w *OmissionWatcher) checkRosters(resp *nexusv1.GetDispatchRosterResponse, rec chainclient.DispatchRecordSnapshot) (map[uint32]*nexusv1.DispatchRosterRoundV1, error) {
@@ -408,6 +458,10 @@ func (w *OmissionWatcher) checkRosters(resp *nexusv1.GetDispatchRosterResponse, 
 	return byRound, nil
 }
 
+// rosterRequest signs a roster request for builder (S8 Q5). The nonce is
+// max(last+1, wall clock in ns): it stays strictly increasing within this
+// process, and across restarts only as long as the wall clock does not step
+// back past the last nonce issued (nothing persists it).
 func (w *OmissionWatcher) rosterRequest(ctx context.Context, builder string, c layout.OmissionCase, height uint64) (*nexusv1.GetDispatchRosterRequest, error) {
 	w.mu.Lock()
 	w.nonce = max(w.nonce+1, uint64(w.cfg.Now().UnixNano()))
@@ -470,7 +524,7 @@ func (w *OmissionWatcher) challenge(ctx context.Context, c layout.OmissionCase, 
 				return w.close(ctx, c, layout.OmissionAbandoned, "the chain refused the omission challenge: "+obs.RejectReason, 0, p)
 			}
 			w.cfg.Logger.Warn("omission challenge not accepted; retrying", "task", c.TaskID.String(), "reason", obs.RejectReason)
-			_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) { x.NextCheckHeight = height + 1 })
+			_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) { x.NextCheckHeight = height + w.cfg.RecheckBlocks })
 			return err
 		}
 	}
@@ -486,13 +540,22 @@ func (w *OmissionWatcher) challenge(ctx context.Context, c layout.OmissionCase, 
 // rosterMissing waits RosterGraceBlocks after the first miss, then reports
 // the roster unavailable once (permissionless, KC §10.17). The roster is
 // still sought afterwards; an omission found later is still challenged.
+// Misses back off: up to RecheckBlocks, but never past the end of the grace.
 func (w *OmissionWatcher) rosterMissing(ctx context.Context, c layout.OmissionCase, round uint32, height, closeAt uint64, p chainclient.DispatchParamsSnapshot) error {
 	if c.RosterMissSince == 0 || c.State == layout.OmissionReported || height < hrAddSat(c.RosterMissSince, w.cfg.RosterGraceBlocks) {
+		next := hrAddSat(height, w.cfg.RecheckBlocks)
+		if c.State != layout.OmissionReported {
+			since := c.RosterMissSince
+			if since == 0 {
+				since = height
+			}
+			next = min(next, max(height+1, hrAddSat(since, w.cfg.RosterGraceBlocks)))
+		}
 		_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) {
 			if x.RosterMissSince == 0 {
 				x.RosterMissSince = height
 			}
-			x.NextCheckHeight = height + 1
+			x.NextCheckHeight = next
 		})
 		return err
 	}
@@ -545,34 +608,64 @@ func (w *OmissionWatcher) ObserveDispatchEvent(ctx context.Context, f DispatchEv
 	return w.syncChallenge(ctx, c, f.ChallengeID, f.Height, p)
 }
 
-// syncChallenge reads QueryDispatchChallenge(id), the authority, and closes
-// the case once the challenge it tracks is terminal. A challenge still open
-// (or not visible) once the window and the response period have passed is
-// given up, so no case stays open forever.
+// syncChallenge reads QueryDispatchChallenge(id), the authority. The
+// omission challenge closes the case once terminal. The roster report closes
+// it on UPHELD or EXPIRED; DISMISSED (a Builder produced the roster) is
+// recorded and the case stays open, so the roster is checked for an omission
+// while the window allows. A challenge still open (or not visible) past its
+// proof deadline plus RecheckBlocks, or past window close + response when no
+// deadline is known, is given up, so no case stays open forever.
 func (w *OmissionWatcher) syncChallenge(ctx context.Context, c layout.OmissionCase, id layout.StoredHash, height uint64, p chainclient.DispatchParamsSnapshot) error {
 	s, err := w.cfg.Chain.DispatchChallenge(ctx, id[:])
+	found := err == nil
 	switch {
 	case errors.Is(err, chainclient.ErrNotFound): // the query lags the Tx
 	case err != nil:
 		return builderclient.Retryable(err)
 	default:
 		if s.Challenger != w.cfg.ServiceAddress || !bytes.Equal(s.TaskID, c.TaskID[:]) {
-			return fmt.Errorf("ChainObservationConflict: challenge %s names challenger %s, task %x", id, s.Challenger, s.TaskID)
+			why := fmt.Sprintf("ChainObservationConflict: challenge %s names challenger %s, task %x", id, s.Challenger, s.TaskID)
+			w.cfg.Logger.Error("omission challenge disagrees with the chain", "alert", AlertDispatchOmissionConflict, "task", c.TaskID.String(), "why", why)
+			return w.close(ctx, c, layout.OmissionAbandoned, why, 0, p)
 		}
 		switch s.Status {
 		case taskv1.DispatchChallengeStatusV1_DISPATCH_CHALLENGE_STATUS_V1_UPHELD,
 			taskv1.DispatchChallengeStatusV1_DISPATCH_CHALLENGE_STATUS_V1_DISMISSED,
 			taskv1.DispatchChallengeStatusV1_DISPATCH_CHALLENGE_STATUS_V1_EXPIRED:
-			if id == c.ChallengeID || (id == c.ReportID && c.ChallengeID.IsZero()) {
-				return w.close(ctx, c, layout.OmissionResolved, fmt.Sprintf("challenge %s %s at %d", s.Kind, s.Status, s.ResolvedHeight), int32(s.Status), p)
+			why := fmt.Sprintf("challenge %s %s at %d", s.Kind, s.Status, s.ResolvedHeight)
+			switch {
+			case id == c.ChallengeID:
+				return w.close(ctx, c, layout.OmissionResolved, why, int32(s.Status), p)
+			case id != c.ReportID || c.ReportOutcome != 0:
+				return nil
+			case c.ChallengeID.IsZero() && s.Status != taskv1.DispatchChallengeStatusV1_DISPATCH_CHALLENGE_STATUS_V1_DISMISSED:
+				return w.close(ctx, c, layout.OmissionResolved, why, int32(s.Status), p)
 			}
-			return nil
+			_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) {
+				x.ReportOutcome, x.NextCheckHeight = int32(s.Status), min(x.NextCheckHeight, height)
+			})
+			return err
 		}
 	}
-	if until := hrAddSat(windowClose(c, p), p.ChallengeResponseBlocks); height >= until {
+	until := hrAddSat(windowClose(c, p), p.ChallengeResponseBlocks)
+	if found && s.ProofDeadlineHeight != 0 {
+		until = hrAddSat(s.ProofDeadlineHeight, w.cfg.RecheckBlocks)
+	}
+	if height >= until {
+		if !found && ((id == c.ChallengeID && c.ChallengeTx != "") || (id == c.ReportID && c.ReportTx != "")) {
+			w.cfg.Logger.Warn("giving up on a challenge whose Tx was included but which the chain does not show", "task", c.TaskID.String(), "challenge", id.String())
+		}
 		return w.close(ctx, c, layout.OmissionAbandoned, fmt.Sprintf("challenge %s not resolved by %d", id, until), 0, p)
 	}
 	_, err = layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) { x.NextCheckHeight = height + w.cfg.RecheckBlocks })
+	return err
+}
+
+// lagging backs a case off when the chain does not show its record or task
+// yet: a log line, not a Sweep error.
+func (w *OmissionWatcher) lagging(ctx context.Context, c layout.OmissionCase, height uint64, what string) error {
+	w.cfg.Logger.Info("omission case waits for the chain", "task", c.TaskID.String(), "missing", what)
+	_, err := layout.UpdateOmissionCase(ctx, w.cfg.Store, c.TaskID, func(x *layout.OmissionCase) { x.NextCheckHeight = height + omissionLagBlocks })
 	return err
 }
 

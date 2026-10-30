@@ -53,25 +53,29 @@ var omissionTransitions = map[OmissionState][]OmissionState{
 // OmissionCase is one order a configured Builder recorded while this node
 // may have been left out of its roster.
 type OmissionCase struct {
-	SchemaVersion   uint16        `json:"schema_version"`
-	TaskID          StoredHash    `json:"task_id"`
-	SessionID       StoredHash    `json:"session_id"`
-	OrderSequence   uint64        `json:"order_sequence"`
-	Builder         string        `json:"builder"`
-	RecordHash      StoredHash    `json:"record_hash"`
-	RecordedHeight  uint64        `json:"recorded_height"`
-	State           OmissionState `json:"state"`
-	Reason          string        `json:"reason,omitempty"`
-	Round           uint32        `json:"round,omitempty"`
-	ChallengeID     StoredHash    `json:"challenge_id"`
-	ChallengeTx     string        `json:"challenge_tx,omitempty"`
-	ReportID        StoredHash    `json:"report_id"`
-	ReportRound     uint32        `json:"report_round,omitempty"`
-	ReportTx        string        `json:"report_tx,omitempty"`
-	RosterMissSince uint64        `json:"roster_miss_since,omitempty"`
-	NextCheckHeight uint64        `json:"next_check_height,omitempty"`
-	Outcome         int32         `json:"outcome,omitempty"`
-	RetainUntil     uint64        `json:"retain_until,omitempty"`
+	SchemaVersion  uint16        `json:"schema_version"`
+	TaskID         StoredHash    `json:"task_id"`
+	SessionID      StoredHash    `json:"session_id"`
+	OrderSequence  uint64        `json:"order_sequence"`
+	Builder        string        `json:"builder"`
+	RecordHash     StoredHash    `json:"record_hash"`
+	RecordedHeight uint64        `json:"recorded_height"`
+	State          OmissionState `json:"state"`
+	Reason         string        `json:"reason,omitempty"`
+	Round          uint32        `json:"round,omitempty"`
+	ChallengeID    StoredHash    `json:"challenge_id"`
+	ChallengeTx    string        `json:"challenge_tx,omitempty"`
+	ReportID       StoredHash    `json:"report_id"`
+	ReportRound    uint32        `json:"report_round,omitempty"`
+	ReportTx       string        `json:"report_tx,omitempty"`
+	// ReportOutcome is the terminal status of the roster-unavailable report.
+	// DISMISSED (a Builder produced the roster) keeps the case open: the
+	// roster is still checked for an omission while the window allows.
+	ReportOutcome   int32  `json:"report_outcome,omitempty"`
+	RosterMissSince uint64 `json:"roster_miss_since,omitempty"`
+	NextCheckHeight uint64 `json:"next_check_height,omitempty"`
+	Outcome         int32  `json:"outcome,omitempty"`
+	RetainUntil     uint64 `json:"retain_until,omitempty"`
 }
 
 func putOmission(b *store.Batch, c OmissionCase) error {
