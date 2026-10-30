@@ -71,3 +71,9 @@ func SignVerifierHandraise(ctx context.Context, m *taskv1.VerifierHandraiseV1, s
 func SignVerifyResultSubmitted(ctx context.Context, m *nexusv1.VerifyResultSubmittedNoticeV1, s DigestSigner) error {
 	return sign(ctx, m, s, func(b []byte) { m.ServiceSignature = b })
 }
+
+// SignRosterRequest signs a DispatchRosterRequestV1; chain_id and
+// builder_operator are inside the signature (PHASE1_CONTRACT).
+func SignRosterRequest(ctx context.Context, m *nexusv1.DispatchRosterRequestV1, s DigestSigner) error {
+	return sign(ctx, m, s, func(b []byte) { m.ServiceSignature = b })
+}

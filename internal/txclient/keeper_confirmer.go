@@ -45,8 +45,8 @@ func (c keeperConfirmer) Confirm(ctx context.Context, req Request, included Incl
 		return false, err
 	}
 	if isDispatchKind(req.Kind) {
-		// The Dispatcher reads the authoritative claim state itself;
-		// code-0 inclusion is the transport's proof.
+		// The Dispatcher and the OmissionWatcher read the authoritative claim or
+		// challenge state themselves; code-0 inclusion is the transport's proof.
 		return true, nil
 	}
 

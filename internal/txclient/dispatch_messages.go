@@ -17,10 +17,16 @@ import (
 // are ProtoJSON of the generated task.v1 types, not hand-mirrored structs:
 // they embed signed SignedOrderV2 / DispatchTicketV1 / DispatchAcceptV1 whose
 // every field must reach the chain as signed.
-const MsgClaimDispatchCompensation Kind = "/task.v1.MsgClaimDispatchCompensation"
+const (
+	MsgClaimDispatchCompensation       Kind = "/task.v1.MsgClaimDispatchCompensation"
+	MsgChallengeDispatchOmission       Kind = "/task.v1.MsgChallengeDispatchOmission"
+	MsgReportDispatchRosterUnavailable Kind = "/task.v1.MsgReportDispatchRosterUnavailable"
+)
 
 var dispatchKinds = map[Kind]func() proto.Message{
-	MsgClaimDispatchCompensation: func() proto.Message { return &taskv1.MsgClaimDispatchCompensation{} },
+	MsgClaimDispatchCompensation:       func() proto.Message { return &taskv1.MsgClaimDispatchCompensation{} },
+	MsgChallengeDispatchOmission:       func() proto.Message { return &taskv1.MsgChallengeDispatchOmission{} },
+	MsgReportDispatchRosterUnavailable: func() proto.Message { return &taskv1.MsgReportDispatchRosterUnavailable{} },
 }
 
 func isDispatchKind(k Kind) bool { _, ok := dispatchKinds[k]; return ok }
@@ -61,6 +67,21 @@ func validateDispatchMessage(kind Kind, msg proto.Message) error {
 	switch m := msg.(type) {
 	case *taskv1.MsgClaimDispatchCompensation:
 		return validateClaimDispatchCompensation(m)
+	case *taskv1.MsgChallengeDispatchOmission:
+		switch {
+		case len(m.GetTaskId()) != 32 || m.GetChallengerAddress() == "":
+			return fmt.Errorf("omission challenge needs task_id and challenger_address")
+		case m.GetRoster() == nil || m.GetHandraiseRoot() == nil || m.GetInclusionProof().GetLeaf() == nil || m.GetNonInclusionProof() == nil:
+			return fmt.Errorf("omission challenge needs roster, handraise_root, inclusion_proof and non_inclusion_proof")
+		case m.GetDispatchRound() != 0 && m.GetFirstRoundRoster() == nil:
+			return fmt.Errorf("omission challenge of round %d needs first_round_roster (KC §10.17)", m.GetDispatchRound())
+		}
+		return nil
+	case *taskv1.MsgReportDispatchRosterUnavailable:
+		if len(m.GetTaskId()) != 32 || m.GetReporterAddress() == "" {
+			return fmt.Errorf("roster report needs task_id and reporter_address")
+		}
+		return nil
 	}
 	return fmt.Errorf("unsupported dispatch Msg %s", kind)
 }

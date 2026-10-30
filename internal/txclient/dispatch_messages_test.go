@@ -85,3 +85,55 @@ func TestClaimDispatchCompensationRefusesMismatchedParts(t *testing.T) {
 		t.Fatal("a payload of another type is refused")
 	}
 }
+
+func TestOmissionAndRosterReportPayloads(t *testing.T) {
+	if !MsgChallengeDispatchOmission.Valid() || !MsgReportDispatchRosterUnavailable.Valid() {
+		t.Fatal("not valid kinds")
+	}
+	member := &taskv1.DispatchRosterMemberV1{Slot: 1, SlotVersion: 1, OperatorAddress: "trueopen1a", CandidateWeight: 1}
+	om := &taskv1.MsgChallengeDispatchOmission{TaskId: bytes.Repeat([]byte{3}, 32), DispatchRound: 0, ChallengerAddress: "trueopen1service",
+		Roster:        &taskv1.DispatchRosterV1{TaskId: bytes.Repeat([]byte{3}, 32), Members: []*taskv1.DispatchRosterMemberV1{member}},
+		HandraiseRoot: &taskv1.SignedHandraiseRootV1{RootHeight: 1}, InclusionProof: &taskv1.HandraiseInclusionProofV1{Leaf: &taskv1.HandraiseRootLeafV1{Admitted: true}},
+		NonInclusionProof: &taskv1.DispatchRosterNonInclusionProofV1{Predecessor: member}}
+	payload, err := MarshalDispatchMessage(MsgChallengeDispatchOmission, om)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRequest(Request{TaskID: "t", Kind: MsgChallengeDispatchOmission, Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := MarshalDispatchMessage(MsgChallengeDispatchOmission, om)
+	var back taskv1.MsgChallengeDispatchOmission
+	if !bytes.Equal(payload, again) || bytes.ContainsAny(payload, " \n") || protojson.Unmarshal(payload, &back) != nil || !proto.Equal(&back, om) {
+		t.Fatalf("payload %s: one message, one compact payload that round-trips", payload)
+	}
+	if _, err := MarshalMessage(MsgChallengeDispatchOmission, om); err == nil {
+		t.Fatal("the struct path refuses dispatch kinds")
+	}
+	if _, err := MarshalDispatchMessage(MsgReportDispatchRosterUnavailable, om); err == nil {
+		t.Fatal("a payload of another type is refused")
+	}
+	om.DispatchRound = 1
+	if _, err := MarshalDispatchMessage(MsgChallengeDispatchOmission, om); err == nil {
+		t.Fatal("round != 0 needs first_round_roster")
+	}
+	om.DispatchRound, om.InclusionProof = 0, nil
+	if _, err := MarshalDispatchMessage(MsgChallengeDispatchOmission, om); err == nil {
+		t.Fatal("an omission needs the inclusion proof")
+	}
+	rep := &taskv1.MsgReportDispatchRosterUnavailable{TaskId: bytes.Repeat([]byte{3}, 32), DispatchRound: 2, ReporterAddress: "trueopen1service"}
+	rp, err := MarshalDispatchMessage(MsgReportDispatchRosterUnavailable, rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateMessagePayload(MsgReportDispatchRosterUnavailable, rp); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateMessagePayload(MsgReportDispatchRosterUnavailable, []byte(`{"task_id":"AwMD"}`)); err == nil {
+		t.Fatal("an invalid payload is refused on the raw path too")
+	}
+	rep.ReporterAddress = ""
+	if _, err := MarshalDispatchMessage(MsgReportDispatchRosterUnavailable, rep); err == nil {
+		t.Fatal("a report needs its reporter")
+	}
+}

@@ -20,6 +20,17 @@ type DispatchRecordSnapshot struct {
 	WinnerRound            uint32
 	RecordedHeight         uint64
 	ClaimWindowCloseHeight uint64
+	// EarliestSubmitHeight is frozen from the order at record time (KC §10.17 (b)).
+	EarliestSubmitHeight    uint64
+	ReferenceHeight         uint64
+	CandidatePoolSnapshotID []byte
+	Rounds                  []DispatchRoundSnapshot
+}
+
+// DispatchRoundSnapshot is one DispatchRoundV1 of a record.
+type DispatchRoundSnapshot struct {
+	Round                           uint32
+	HandraiseRootDigest, RosterHash []byte
 }
 
 // DispatchRecord reads the record of order (sessionID, orderSequence) through
@@ -52,10 +63,23 @@ func (c *KeeperABCIClient) DispatchRecord(ctx context.Context, sessionID []byte,
 	if r.GetWinner().GetOperatorAddress() == "" || r.GetBuilderAddress() == "" || r.GetRecordedHeight() == 0 || r.GetRecordedHeight() > height {
 		return DispatchRecordSnapshot{}, fmt.Errorf("Keeper dispatch record for order %d is incomplete", orderSequence)
 	}
+	if len(r.GetRounds()) == 0 || len(r.GetCandidatePoolSnapshotId()) != 32 {
+		return DispatchRecordSnapshot{}, fmt.Errorf("Keeper dispatch record for order %d has no rounds or snapshot", orderSequence)
+	}
+	rounds := make([]DispatchRoundSnapshot, 0, len(r.GetRounds()))
+	for _, rd := range r.GetRounds() {
+		if len(rd.GetHandraiseRootDigest()) != 32 || len(rd.GetRosterHash()) != 32 {
+			return DispatchRecordSnapshot{}, fmt.Errorf("Keeper dispatch record round %d is malformed", rd.GetDispatchRound())
+		}
+		rounds = append(rounds, DispatchRoundSnapshot{Round: rd.GetDispatchRound(),
+			HandraiseRootDigest: bytes.Clone(rd.GetHandraiseRootDigest()), RosterHash: bytes.Clone(rd.GetRosterHash())})
+	}
 	return DispatchRecordSnapshot{
 		Height: height, TaskID: bytes.Clone(r.GetTaskId()), RecordHash: bytes.Clone(r.GetDispatchRecordHash()),
 		TicketHash: bytes.Clone(r.GetDispatchTicketHash()), Builder: r.GetBuilderAddress(), Winner: r.GetWinner().GetOperatorAddress(),
 		WinnerRound: r.GetWinnerRound(), RecordedHeight: r.GetRecordedHeight(), ClaimWindowCloseHeight: r.GetClaimWindowCloseHeight(),
+		EarliestSubmitHeight: r.GetEarliestSubmitHeight(), ReferenceHeight: r.GetReferenceHeight(),
+		CandidatePoolSnapshotID: bytes.Clone(r.GetCandidatePoolSnapshotId()), Rounds: rounds,
 	}, nil
 }
 

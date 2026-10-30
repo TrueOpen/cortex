@@ -18,6 +18,8 @@ func TestDispatchRecordReadsTheWinnerByOrder(t *testing.T) {
 	state := &taskv1.DispatchRecordState{
 		TaskId: tid, DispatchRecordHash: record, DispatchTicketHash: ticket, BuilderAddress: "trueopen1builder",
 		Winner: &taskv1.CandidateMemberRefV1{OperatorAddress: "trueopen1worker"}, WinnerRound: 1, RecordedHeight: 120, ClaimWindowCloseHeight: 400,
+		CandidatePoolSnapshotId: bytes.Repeat([]byte{0x66}, 32),
+		Rounds:                  []*taskv1.DispatchRoundV1{{DispatchRound: 0, HandraiseRootDigest: bytes.Repeat([]byte{0xa0}, 32), RosterHash: bytes.Repeat([]byte{0xb0}, 32)}},
 	}
 	answer := func(s *taskv1.DispatchRecordState) *KeeperABCIClient {
 		server := newABCITestServer(t, func(path, height string, data []byte) (proto.Message, uint32, string) {
