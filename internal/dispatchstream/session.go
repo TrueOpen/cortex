@@ -97,6 +97,15 @@ type Session struct {
 
 	// keepaliveTicks replaces the keepalive ticker when set (tests).
 	keepaliveTicks <-chan time.Time
+
+	// bootSeq is the outbox sequence when this Session was built: anything at
+	// or below it may have been sent by an earlier process.
+	bootSeq uint64
+	sentMu  sync.Mutex
+	sent    map[uint64]time.Time
+	// forgotten is the highest sequence dropped from sent; at or below it the
+	// answer stays the conservative "maybe sent".
+	forgotten uint64
 }
 
 // New builds a Session. There must be exactly one Session per Builder per
@@ -154,13 +163,20 @@ func New(cfg Config) (*Session, error) {
 		connect.WithCodec(rawCodec{}),
 		connect.WithReadMaxBytes(maxEnvelopeBytes),
 	)
+	out := newOutbox(cfg.Store, cfg.BuilderOperator, cfg.Logger)
+	boot, err := out.lastSeq(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("dispatchstream: read outbox sequence: %w", err)
+	}
 	return &Session{
 		cfg: cfg,
 		client: connect.NewClient[rawFrame, rawFrame](cfg.HTTPClient,
 			strings.TrimRight(cfg.BaseURL, "/")+nexusv1connect.IngressAPIDispatchStreamProcedure, opts...),
-		outbox: newOutbox(cfg.Store, cfg.BuilderOperator, cfg.Logger),
-		dedup:  newDedup(cfg.Store, cfg.BuilderOperator, cfg.DedupRetention, cfg.Now, cfg.Logger),
-		kick:   make(chan struct{}, 1),
+		outbox:  out,
+		dedup:   newDedup(cfg.Store, cfg.BuilderOperator, cfg.DedupRetention, cfg.Now, cfg.Logger),
+		kick:    make(chan struct{}, 1),
+		bootSeq: boot,
+		sent:    map[uint64]time.Time{},
 	}, nil
 }
 
@@ -356,6 +372,48 @@ func (s *Session) prune(ctx context.Context) {
 	if err := s.dedup.prune(ctx); err != nil {
 		s.cfg.Logger.Warn("prune dispatch dedup claims", "err", err)
 	}
+	s.forgetSent(s.cfg.Now().Add(-sentMemory))
+}
+
+// sentMemory bounds how long WasSent remembers a transmission exactly.
+// Callers ask within an accept window (seconds).
+const sentMemory = 24 * time.Hour
+
+// WasSent reports whether the business message Enqueue returned seq for may
+// have reached the Builder: it was written to a stream by this Session, or it
+// was enqueued before this Session was built (an earlier process may have
+// sent it). False means it was certainly never transmitted -- the only case
+// in which a Cortex may treat a signed accept as never given (CD §4.2.0, C4).
+func (s *Session) WasSent(seq uint64) bool {
+	if seq <= s.bootSeq {
+		return true
+	}
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	if seq <= s.forgotten {
+		return true
+	}
+	_, ok := s.sent[seq]
+	return ok
+}
+
+func (s *Session) markSent(seq uint64) {
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	if _, ok := s.sent[seq]; !ok {
+		s.sent[seq] = s.cfg.Now()
+	}
+}
+
+func (s *Session) forgetSent(before time.Time) {
+	s.sentMu.Lock()
+	defer s.sentMu.Unlock()
+	for seq, at := range s.sent {
+		if at.Before(before) {
+			delete(s.sent, seq)
+			s.forgotten = max(s.forgotten, seq)
+		}
+	}
 }
 
 // sendPending sends, in order, every retained unexpired message not yet sent
@@ -375,6 +433,7 @@ func (s *Session) sendPending(ctx context.Context, c *conn) error {
 		}
 		c.seqOf[cursor] = p.Seq
 		c.sentSeq = p.Seq
+		s.markSent(p.Seq)
 	}
 	return nil
 }

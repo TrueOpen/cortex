@@ -61,20 +61,59 @@ func taskOrderTypedDigest(order taskOrderV3, taskHash codec.Hash, evmChainID uin
 	return digest
 }
 
-// VerifySignedOrderEnvelope checks the exact signed carrier and recovered user
-// address. It accepts only the current SignedOrderV2 eip712 signature format.
-//
-// Since wire v0.5.1 the Keeper also admits an order signed by the session's
-// registered key. That branch needs StreamState, so it is not checked here: this
-// verifies the wallet branch only, and admission must not rely on it.
+// SignedOrderSigner recovers the 20-byte account that produced the carrier's
+// user_signature. It does not decide whether that account may sign for the
+// session: the wallet branch is signer == user_address, the delegated branch
+// (wire v0.5.1) is signer == StreamState.session_key, and only the caller
+// holds StreamState.
 //
 // The domain chain id is the one the carrier states: the signing wallet chose
 // it and the signature covers it, so it is read from the carrier rather than
 // configured. evmChainID is the fallback for a carrier that states none, which
 // is every carrier signed before the field existed, when the chain's own EVM
 // chain id was the authoritative domain.
-func VerifySignedOrderEnvelope(value string, evmChainID uint64, feeDenom string) error {
+func SignedOrderSigner(value string, evmChainID uint64, feeDenom string) ([]byte, error) {
 	if _, _, err := TaskOrderHashAndFactsSignedOrderHex(value); err != nil {
+		return nil, err
+	}
+	raw, _ := hex.DecodeString(value)
+	carrier, err := decodeSignedOrderV2(raw)
+	if err != nil {
+		return nil, err
+	}
+	digest, err := taskOrderSigningDigest(carrier.order, carrier.domainChainID(evmChainID), feeDenom)
+	if err != nil {
+		return nil, err
+	}
+	compact := append([]byte{carrier.userSignature[64]}, carrier.userSignature[:64]...)
+	pub, _, err := ecdsa.RecoverCompact(compact, digest[:])
+	if err != nil {
+		return nil, fmt.Errorf("recover order signer: %w", err)
+	}
+	return orderKeccak(pub.SerializeUncompressed()[1:])[12:], nil
+}
+
+// EVMAccountAddress is the Bech32 account of an EVM-style secp256k1 key: the
+// last 20 bytes of keccak256 over the 64-byte uncompressed point, which is
+// what SignedOrderSigner recovers.
+func EVMAccountAddress(hrp string, uncompressedPubkey []byte) (string, error) {
+	if len(uncompressedPubkey) != 65 || uncompressedPubkey[0] != 0x04 {
+		return "", fmt.Errorf("EVM account derivation needs a 65-byte uncompressed secp256k1 point")
+	}
+	return bech32ConvertAndEncode(hrp, orderKeccak(uncompressedPubkey[1:])[12:])
+}
+
+// VerifySignedOrderEnvelope checks the exact signed carrier against its
+// user_address. It accepts only the current SignedOrderV2 eip712 signature
+// format.
+//
+// Since wire v0.5.1 the Keeper also admits an order signed by the session's
+// registered key. That branch needs StreamState, so it is not checked here: this
+// verifies the wallet branch only, and admission must not rely on it (the
+// Dispatcher uses SignedOrderSigner and checks both branches).
+func VerifySignedOrderEnvelope(value string, evmChainID uint64, feeDenom string) error {
+	signer, err := SignedOrderSigner(value, evmChainID, feeDenom)
+	if err != nil {
 		return err
 	}
 	raw, _ := hex.DecodeString(value)
@@ -82,28 +121,22 @@ func VerifySignedOrderEnvelope(value string, evmChainID uint64, feeDenom string)
 	if err != nil {
 		return err
 	}
-	domainChainID := carrier.signatureChainID
-	if domainChainID == 0 {
-		domainChainID = evmChainID
-	}
-	digest, err := taskOrderSigningDigest(carrier.order, domainChainID, feeDenom)
-	if err != nil {
-		return err
-	}
-	compact := append([]byte{carrier.userSignature[64]}, carrier.userSignature[:64]...)
-	pub, _, err := ecdsa.RecoverCompact(compact, digest[:])
-	if err != nil {
-		return fmt.Errorf("recover order signer: %w", err)
-	}
 	address, err := CanonicalOperatorAddressBytes("user_address", carrier.order.UserAddress)
 	if err != nil {
 		return err
 	}
-	recovered := orderKeccak(pub.SerializeUncompressed()[1:])[12:]
-	if !bytes.Equal(address, recovered) {
-		return fmt.Errorf("SignedOrderV2 signature does not match user_address on EVM chain %s", strconv.FormatUint(domainChainID, 10))
+	if !bytes.Equal(address, signer) {
+		return fmt.Errorf("SignedOrderV2 signature does not match user_address on EVM chain %s", strconv.FormatUint(carrier.domainChainID(evmChainID), 10))
 	}
 	return nil
+}
+
+// domainChainID is the EIP-712 domain chain id the carrier was signed under.
+func (s signedOrderV2) domainChainID(fallback uint64) uint64 {
+	if s.signatureChainID != 0 {
+		return s.signatureChainID
+	}
+	return fallback
 }
 
 func orderKeccak(parts ...[]byte) []byte {

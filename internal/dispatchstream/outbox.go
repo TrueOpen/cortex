@@ -112,6 +112,21 @@ func (o *outbox) put(ctx context.Context, p pending) (uint64, error) {
 	return seq, nil
 }
 
+// lastSeq is the highest sequence ever assigned, 0 if none.
+func (o *outbox) lastSeq(ctx context.Context) (uint64, error) {
+	cur, err := o.st.GetRaw(ctx, o.counter)
+	if errors.Is(err, store.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(cur) != 8 {
+		return 0, fmt.Errorf("dispatchstream: outbox counter is %d bytes", len(cur))
+	}
+	return binary.BigEndian.Uint64(cur), nil
+}
+
 func (o *outbox) decode(key, value []byte) (pending, error) {
 	var p pending
 	seq, err := strconv.ParseUint(string(key[len(o.prefix):]), 10, 64)

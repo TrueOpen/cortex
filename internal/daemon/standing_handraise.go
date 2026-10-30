@@ -61,11 +61,14 @@ type StandingHandraiser struct {
 	builders    []string // sorted
 	wake        chan struct{}
 	passTimeout time.Duration
-	// Only the evaluating goroutine (Run, or a test calling evaluate)
-	// touches these.
+	// clock (and the gates' memo) is touched only under evalMu, by Refresh
+	// (from Run or the Dispatcher) or a test calling evaluate; pruneFrom and
+	// pruneMore only by Run's goroutine.
 	clock     blockClock
 	pruneFrom []byte // where the next prune batch resumes
 	pruneMore bool   // the last batch was full
+	// evalMu runs one evaluation at a time.
+	evalMu sync.Mutex
 
 	mu      sync.Mutex
 	current map[string]*CurrentHandraise
@@ -237,7 +240,7 @@ func (h *StandingHandraiser) Run(ctx context.Context) error {
 	prune := time.NewTicker(h.cfg.PruneEvery)
 	defer prune.Stop()
 	for {
-		if err := loggable(h.evaluate(ctx)); err != nil && ctx.Err() == nil {
+		if err := loggable(h.Refresh(ctx)); err != nil && ctx.Err() == nil {
 			h.cfg.Logger.Warn("standing handraise pass failed", "err", err)
 		}
 		select {
@@ -252,6 +255,16 @@ func (h *StandingHandraiser) Run(ctx context.Context) error {
 			h.pruneStep(ctx)
 		}
 	}
+}
+
+// Refresh runs one evaluation now and returns once every handraise it
+// decided is signed, persisted and enqueued. The Dispatcher calls it before a
+// capacity reject (CD §5.1 "容量变化先重签常驻举手再拒单"): the new handraise
+// enters the same Builder outbox ahead of the reject.
+func (h *StandingHandraiser) Refresh(ctx context.Context) error {
+	h.evalMu.Lock()
+	defer h.evalMu.Unlock()
+	return h.evaluate(ctx)
 }
 
 // loggable drops the enqueue failures the backoff already logs.
