@@ -411,30 +411,6 @@ func (w *Worker) produceOutput(ctx context.Context, event chainclient.Assignment
 	return output, tokenIDs, positionValues, descriptor, nil
 }
 
-// prepareOutput is produceOutput followed by the receipt, for a caller that
-// already holds the record's heights in event (tools and the package's
-// recovery seeds).
-func (w *Worker) prepareOutput(ctx context.Context, event chainclient.AssignmentFinalized) (*producedOutput, error) {
-	output, tokenIDs, positionValues, descriptor, err := w.produceOutput(ctx, event)
-	if err != nil {
-		return nil, err
-	}
-	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, tokenIDs, positionValues)
-	if err != nil {
-		return nil, err
-	}
-	return &producedOutput{
-		event: event, jobID: descriptor.JobID, output: append([]byte(nil), output...),
-		tokenIDs: append([]byte(nil), tokenIDs...), positionValues: append([]byte(nil), positionValues...),
-		receipt: receipt, workerValueEvidence: workerValueEvidenceInputs{
-			EvidenceSchemaHash: w.cfg.EvidenceSchemaHash,
-			FinishReason:       descriptor.FinishReason,
-		},
-		outputCID: descriptor.OutputCID,
-		result:    result,
-	}, nil
-}
-
 func (w *Worker) requireInferDependencies() error {
 	switch {
 	case w.cfg.DispatchTicketHash == (codec.Hash{}):
@@ -1070,9 +1046,8 @@ func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.As
 	// The evidence has to reach ceil(2/3) of the Task Builder group (CD W11);
 	// below that the relay is retried, and the Builders already confirmed are
 	// skipped next time.
-	if target := evidenceRedundancyTarget(len(builders)); len(finalized) < target {
-		return builderclient.Retryable(fmt.Errorf("evidence finalized on %d of %d Task Builders, below the ceil(2/3) target %d: %w",
-			len(finalized), len(builders), target, errors.Join(failures...)))
+	if err := evidenceFloorReached(len(finalized), len(builders), failures); err != nil {
+		return err
 	}
 	for _, failure := range failures {
 		// Reported, not returned: the task can proceed on the Builders that did

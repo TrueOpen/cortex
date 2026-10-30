@@ -199,6 +199,12 @@ func (w *Worker) resumeOutputRecorder(ctx context.Context, event chainclient.Ass
 	// no first-frame latency left to measure, only frames to re-send.
 	r := &outputStreamRecorder{w: w, ctx: ctx, event: event, taskHash: saved.TaskHash, mmr: mmr, frames: frames, pending: pending, total: total,
 		tokens: lastFrameTokens(frames), firstFrameTraced: len(frames) > 0}
+	if w.deliveryPaused(ctx) {
+		// Opening replays every journaled frame: a paused ticket sends none
+		// (CD §8.6); they are replayed when delivery resumes.
+		r.transportErr = ErrDeliveryPaused
+		return r, nil
+	}
 	r.stream, r.transportErr = w.openOutputStream(ctx, event, saved.TaskHash, frames)
 	return r, nil
 }
@@ -757,6 +763,11 @@ func (w *Worker) ensureOutputStreamStored(ctx context.Context, event chainclient
 			return fmt.Errorf("stored output stream acknowledgement differs from the committed output")
 		}
 		return nil
+	}
+	// Re-checked right before the send: the caller's check may be a whole
+	// frame verification pass old, and a REJECTED notice can land in between.
+	if w.deliveryPaused(ctx) {
+		return fmt.Errorf("%w: the Fin stays local", ErrDeliveryPaused)
 	}
 	stream := w.outputStream
 	if stream != nil {

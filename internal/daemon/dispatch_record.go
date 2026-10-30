@@ -218,6 +218,14 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 			return d.conflict(ctx, rec, fmt.Sprintf("recorded task %s carries accepted_task_hash %x / generation_params_digest %x; the ticket and order promised %s / %s",
 				rec.TaskID, a.AcceptedTaskHash, a.GenerationParamsDigest, rec.TaskHash, digest))
 		}
+		// The lease moves first: a crash or a retryable failure after it
+		// leaves an accepted ticket whose lease is on the task key, which a
+		// redelivery finishes and a release gives back (releaseTaskLeaseOf).
+		// The reverse order left a recorded ticket with nothing to retry the
+		// move.
+		if err := d.rebindLease(ctx, rec, false); err != nil {
+			return err
+		}
 		recordHash, _ := hash32(snap.RecordHash)
 		if rec, err = layout.UpdateDispatch(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 			r.State, r.StateReason = layout.DispatchRecorded, "recorded on chain with this ticket as the winner"
@@ -235,21 +243,32 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 	}
 	// Idempotent tail: a redelivery after a crash past the state write
 	// resumes here.
-	if _, err := d.cfg.Leases.Rebind(ctx, rec.TicketHash, rec.TaskID); err != nil {
-		switch {
-		case errors.Is(err, layout.ErrConflict) && alreadyRecorded:
-			// The lease moved earlier and has been given back since (the
-			// infer succeeded or ended): nothing left to move.
-		case errors.Is(err, layout.ErrConflict):
-			return fmt.Errorf("rebind lease of ticket %s: %w", rec.TicketHash, err)
-		default:
-			return builderclient.Retryable(fmt.Errorf("rebind lease: %w", err))
+	if alreadyRecorded {
+		if err := d.rebindLease(ctx, rec, true); err != nil {
+			return err
 		}
 	}
 	if err := d.cfg.Infer.RecordDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash, rec.RecordedHeight, rec.InferDeadlineHeight); err != nil {
 		return builderclient.Retryable(fmt.Errorf("record the infer deadline: %w", err))
 	}
 	return nil
+}
+
+// rebindLease moves rec's lease to (task_id, WORKER); idempotent.
+func (d *Dispatcher) rebindLease(ctx context.Context, rec layout.DispatchRecord, alreadyRecorded bool) error {
+	_, err := d.cfg.Leases.Rebind(ctx, rec.TicketHash, rec.TaskID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, layout.ErrConflict) && alreadyRecorded:
+		// The lease moved earlier and has been given back since (the infer
+		// succeeded or ended): nothing left to move.
+		return nil
+	case errors.Is(err, layout.ErrConflict):
+		return fmt.Errorf("rebind lease of ticket %s: %w", rec.TicketHash, err)
+	default:
+		return builderclient.Retryable(fmt.Errorf("rebind lease: %w", err))
+	}
 }
 
 // conflict fails a ticket closed whose record contradicts what the ticket and

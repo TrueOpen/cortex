@@ -8,6 +8,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 type fakeGate struct {
@@ -128,5 +129,67 @@ func TestEvidenceRedundancyTargetIsTwoThirdsRoundedUp(t *testing.T) {
 		if got := evidenceRedundancyTarget(n); got != want {
 			t.Fatalf("target(%d) = %d, want %d", n, got, want)
 		}
+	}
+}
+
+// M2: a ticket whose delivery pauses (a REJECTED notice) while it resumes
+// sends nothing: the resumed recorder opens no stream and replays no frame,
+// and the Fin is not sent past the gate.
+func TestWorkerSendsNothingWhenDeliveryPausesDuringResume(t *testing.T) {
+	ctx := context.Background()
+	gate := &fakeGate{}
+	h := newHarnessWithConfig(t, func(c *Config) { c.Dispatch = gate })
+	event := finalizedTask()
+	recorder, err := h.worker.newOutputRecorder(ctx, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder.awaitOpen()
+	for _, text := range []string{"first-frame-text", "tail"} {
+		if err := recorder.ObserveInferFrame(ctx, modelservice.InferStreamFrame{TaskID: event.TaskID, RequestID: "infer-" + event.TaskID, TextDelta: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved := completedModelInference{TaskHash: recorder.taskHash, FrameCount: uint64(len(recorder.frames)), Pending: recorder.pending, ObservedBytes: recorder.total}
+	_ = recorder.stream.Close()
+	gate.set(DeliveryState{Paused: true, Reason: "pending-claim"})
+	opened := len(h.taskData.UploadedOutputStreams)
+	restored, err := h.worker.resumeOutputRecorder(ctx, event, saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.stream != nil || len(h.taskData.UploadedOutputStreams) != opened {
+		t.Fatal("a paused ticket's resume opened a stream and replayed its frames")
+	}
+}
+
+func TestWorkerFinWaitsForTheGateRightBeforeItIsSent(t *testing.T) {
+	ctx := context.Background()
+	gate := &fakeGate{state: DeliveryState{Paused: true, Reason: "pending-claim"}}
+	h := newHarnessWithConfig(t, func(c *Config) { c.Dispatch = gate })
+	enableEvidenceSchema(&h)
+	event := finalizedTask()
+	event.WinnerConfirmHeight, event.InferDeadlineHeight = 100, 260
+	if _, err := New(h.worker.cfg).HandleAssignmentFinalized(ctx, event); !errors.Is(err, ErrDeliveryPaused) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := h.worker.ensureFinDelivered(ctx, event); !errors.Is(err, ErrDeliveryPaused) {
+		t.Fatalf("Fin past a paused gate: %v", err)
+	}
+	if len(h.taskData.UploadedOutputFins) != 0 {
+		t.Fatal("the Fin left a paused ticket")
+	}
+}
+
+// M3: the evidence floor is never met by an empty group.
+func TestEvidenceFloorRefusesAnEmptyGroup(t *testing.T) {
+	if err := evidenceFloorReached(0, 0, nil); err == nil {
+		t.Fatal("no Task Builder group is not success")
+	}
+	if err := evidenceFloorReached(1, 3, nil); !builderclient.IsRetryable(err) {
+		t.Fatalf("below ceil(2/3) retries: %v", err)
+	}
+	if err := evidenceFloorReached(2, 3, nil); err != nil {
+		t.Fatal(err)
 	}
 }

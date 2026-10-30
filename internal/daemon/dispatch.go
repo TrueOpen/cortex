@@ -381,6 +381,9 @@ func (d *Dispatcher) releaseWith(ctx context.Context, rec layout.DispatchRecord,
 	if err := d.releaseLease(ctx, rec.TicketHash); err != nil {
 		return err
 	}
+	if err := d.releaseTaskLeaseOf(ctx, rec); err != nil {
+		return err
+	}
 	if _, err := layout.UpdateDispatchDroppingInput(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 		r.State, r.StateReason = state, why
 		if set != nil {
@@ -432,13 +435,47 @@ func (d *Dispatcher) supersede(ctx context.Context, builder string, t *taskv1.Di
 	return nil
 }
 
+// releaseTaskLeaseOf gives back the task-key lease rec's ticket holds, if
+// any: Rebind runs before the Recorded write (I2), so a ticket released
+// before that write may already hold it.
+func (d *Dispatcher) releaseTaskLeaseOf(ctx context.Context, rec layout.DispatchRecord) error {
+	if rec.TaskID.IsZero() {
+		return nil
+	}
+	released, err := d.cfg.Leases.ReleaseTaskOf(ctx, rec.TaskID, rec.TicketHash)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("release task lease: %w", err))
+	}
+	if released {
+		d.cfg.Handraise.Notify()
+	}
+	return nil
+}
+
 // ReleaseTaskLease returns a recorded task's (task_id, WORKER) lease and
-// re-evaluates the standing handraise. It takes no Dispatcher lock, so the
-// runner may call it under its own (TaskRunnerConfig.ReleaseDispatchLease).
+// re-evaluates the standing handraise. A recorded ticket of the task whose
+// lease never left its ticket key (a record written before its Rebind, by
+// the order before I2) gives that lease back too. It takes no Dispatcher
+// lock, so the runner may call it under its own
+// (TaskRunnerConfig.ReleaseDispatchLease).
 func (d *Dispatcher) ReleaseTaskLease(ctx context.Context, taskID layout.StoredHash) error {
 	released, err := d.cfg.Leases.ReleaseTask(ctx, taskID)
 	if err != nil {
 		return err
+	}
+	recs, err := layout.DispatchRecordsForTask(ctx, d.cfg.Store, taskID)
+	if err != nil {
+		return fmt.Errorf("records for task %s: %w", taskID, err)
+	}
+	for _, rec := range recs {
+		if rec.State != layout.DispatchRecorded {
+			continue
+		}
+		dropped, err := d.cfg.Leases.Release(ctx, rec.TicketHash)
+		if err != nil {
+			return err
+		}
+		released = released || dropped
 	}
 	if released {
 		d.cfg.Handraise.Notify()

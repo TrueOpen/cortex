@@ -202,12 +202,19 @@ func (d *Dispatcher) recoverLeases(ctx context.Context) error {
 			return fmt.Errorf("dispatcher: lease %s: %w", ticket, err)
 		}
 		if err == nil && rec.State == layout.DispatchRecorded {
-			if _, err := d.cfg.Leases.Rebind(ctx, ticket, rec.TaskID); err != nil {
+			_, err := d.cfg.Leases.Rebind(ctx, ticket, rec.TaskID)
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, layout.ErrConflict) {
 				return fmt.Errorf("dispatcher: rebind lease %s: %w", ticket, err)
 			}
-			continue
-		}
-		if err == nil && rec.State.HoldsDuty() {
+			// The task key is held already (by this ticket's earlier move or
+			// by another ticket): this lease is a leftover. Starting must not
+			// fail on it; it goes back like any lease without a duty.
+			d.cfg.Logger.Warn("recorded ticket's lease cannot move to its task key; releasing it",
+				"ticket", ticket.String(), "task", rec.TaskID.String(), "err", err)
+		} else if err == nil && rec.State.HoldsDuty() {
 			continue
 		}
 		if _, err := d.cfg.Leases.Release(ctx, ticket); err != nil {

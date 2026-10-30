@@ -854,6 +854,30 @@ const workerTestHandraiseNonce = uint64(23)
 // Builder. This simulates the state a crashed
 // predecessor would leave behind so that the finalize pass can recover from
 // durable storage rather than re-running inference.
+// prepareOutput is produceOutput followed by the receipt, for a test that
+// already holds the record's heights in event (the package's recovery seeds).
+// Production waits for the dispatch record before it signs a receipt.
+func (w *Worker) prepareOutput(ctx context.Context, event chainclient.AssignmentFinalized) (*producedOutput, error) {
+	output, tokenIDs, positionValues, descriptor, err := w.produceOutput(ctx, event)
+	if err != nil {
+		return nil, err
+	}
+	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, tokenIDs, positionValues)
+	if err != nil {
+		return nil, err
+	}
+	return &producedOutput{
+		event: event, jobID: descriptor.JobID, output: append([]byte(nil), output...),
+		tokenIDs: append([]byte(nil), tokenIDs...), positionValues: append([]byte(nil), positionValues...),
+		receipt: receipt, workerValueEvidence: workerValueEvidenceInputs{
+			EvidenceSchemaHash: w.cfg.EvidenceSchemaHash,
+			FinishReason:       descriptor.FinishReason,
+		},
+		outputCID: descriptor.OutputCID,
+		result:    result,
+	}, nil
+}
+
 func (h harness) seedPreparedOutput(t *testing.T, event chainclient.AssignmentFinalized) builderclient.SignedInferReceipt {
 	t.Helper()
 	h.snapshotReader.seedFrom(event)

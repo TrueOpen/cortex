@@ -792,15 +792,39 @@ func (r *TaskRunner) reportAutoHalted(role, taskID string, taskHash codec.Hash, 
 
 // ApplyReconcilerEffects serializes Keeper-driven assignment and terminal
 // changes through the same infer/verify owner that checkpoints executions.
+//
+// The page is applied in its order. Each run of effects the runner owns is
+// applied under its lock, and each run of dispatch effects is forwarded
+// outside it before anything later in the page: a dispatch_recorded moves the
+// Worker lease to the task key, and an infer_terminal behind it in the same
+// page must find it there to release it.
 func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []ReconcilerEffect) error {
 	if r == nil || r.cfg.Store == nil {
 		return fmt.Errorf("task runner store is required")
 	}
-	recorded, err := r.applyReconcilerEffectsLocked(ctx, effects)
-	if err != nil {
-		return err
+	forwarded := func(e ReconcilerEffect) bool {
+		return e.Type == ReconcilerEffectDispatchRecorded || e.Type == ReconcilerEffectDispatchEvent
 	}
-	return r.forwardDispatchRecorded(ctx, recorded)
+	for len(effects) > 0 {
+		end := 0
+		if forwarded(effects[0]) {
+			for end < len(effects) && forwarded(effects[end]) {
+				end++
+			}
+			if err := r.forwardDispatchRecorded(ctx, effects[:end]); err != nil {
+				return err
+			}
+		} else {
+			for end < len(effects) && !forwarded(effects[end]) {
+				end++
+			}
+			if err := r.applyReconcilerEffectsLocked(ctx, effects[:end]); err != nil {
+				return err
+			}
+		}
+		effects = effects[end:]
+	}
+	return nil
 }
 
 // forwardDispatchRecorded hands dispatch_recorded and dispatch event effects
@@ -836,15 +860,13 @@ func (r *TaskRunner) forwardDispatchRecorded(ctx context.Context, effects []Reco
 }
 
 // applyReconcilerEffectsLocked applies every effect the runner owns under its
-// lock and returns the dispatch_recorded effects for the caller to forward.
-func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects []ReconcilerEffect) ([]ReconcilerEffect, error) {
+// lock. Dispatch effects are the caller's to forward and are skipped here.
+func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects []ReconcilerEffect) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var recorded []ReconcilerEffect
 	for _, effect := range effects {
 		switch effect.Type {
 		case ReconcilerEffectDispatchRecorded, ReconcilerEffectDispatchEvent:
-			recorded = append(recorded, effect)
 		case ReconcilerEffectVerifyReady:
 			v := effect.Snapshot.VerifierAssignment
 			if r.cfg.LocalVerifierAddress == "" || !slices.Contains([]string(v.FormalVerifierSet), r.cfg.LocalVerifierAddress) {
@@ -862,7 +884,7 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 			builderOperator := a.BuilderOperatorAddress
 			receiptJSON, err := json.Marshal(effect.Snapshot.InferReceipt)
 			if err != nil {
-				return nil, fmt.Errorf("encode Keeper infer receipt: %w", err)
+				return fmt.Errorf("encode Keeper infer receipt: %w", err)
 			}
 			task := layout.TaskRecord{
 				SessionID:              a.SessionID,
@@ -893,13 +915,13 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 			}
 			if err := layout.VerifyAssignmentBatch(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), task, verify); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return nil, err
+					return err
 				}
 				continue
 			}
 			storedTask, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash))
 			if err != nil {
-				return nil, fmt.Errorf("read admitted Verifier task: %w", err)
+				return fmt.Errorf("read admitted Verifier task: %w", err)
 			}
 			builderOperator = storedTask.BuilderOperatorAddress
 			// The verify responsibility carries these two commitments into output
@@ -940,7 +962,7 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 			record.RevealDeadlineHeight = revealDeadline
 			if err := layout.MergeVerify(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), record); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return nil, err
+					return err
 				}
 				continue
 			}
@@ -958,10 +980,10 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 				tasktrace.Str("stage", string(record.Stage)))
 		case ReconcilerEffectInferTerminal:
 			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
-				return nil, err
+				return err
 			}
 			if err := r.releaseDispatchLease(ctx, effect.TaskID); err != nil {
-				return nil, err
+				return err
 			}
 		case ReconcilerEffectTaskTerminal:
 			ev := layout.Evidence{TaskID: effect.TaskID, TerminalOrSettled: true, RetentionStartHeight: retentionStartHeight(effect)}
@@ -970,11 +992,11 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 			}
 			if err := layout.TaskTerminalBatch(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), ev); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return nil, err
+					return err
 				}
 			}
 			if err := r.releaseDispatchLease(ctx, effect.TaskID); err != nil {
-				return nil, err
+				return err
 			}
 		case ReconcilerEffectVerifyTerminal:
 			// Every node on the chain sees every reveal, and on a task with
@@ -987,7 +1009,7 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 				continue
 			}
 			if err := layout.DeleteVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
-				return nil, err
+				return err
 			}
 			// Traced because this delete is what takes the task out of the
 			// active set for good: loadActiveTasks rebuilds that set from the
@@ -1016,7 +1038,7 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 			}
 			if err := layout.MergeEvidence(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), ev); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return nil, err
+					return err
 				}
 			}
 		case ReconcilerEffectChallengeOpened, ReconcilerEffectChallengeClosed:
@@ -1026,12 +1048,12 @@ func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects [
 				OpenedHeight: effect.Event.Height,
 				LastPosition: layout.Position{Height: effect.Event.Height},
 			}); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
 	r.Wake()
-	return recorded, nil
+	return nil
 }
 
 // quarantineEffect decides what one failed effect does to the poll loop, and

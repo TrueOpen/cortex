@@ -88,6 +88,21 @@ func (l *DispatchLeases) ReleaseTask(ctx context.Context, taskID layout.StoredHa
 	return released, nil
 }
 
+// ReleaseTaskOf returns taskID's (task_id, WORKER) lease only if ticket holds
+// it: a lease that moved before its ticket's Recorded write (I2).
+func (l *DispatchLeases) ReleaseTaskOf(ctx context.Context, taskID, ticket layout.StoredHash) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	released, err := layout.ReleaseWorkerTaskLeaseOf(ctx, l.st, taskID, ticket)
+	if err != nil {
+		return false, err
+	}
+	if released && l.held > 0 {
+		l.held--
+	}
+	return released, nil
+}
+
 // FreeSlots is capacity minus held leases (CD §4.2.0 free_slot_count). It
 // reads only the in-memory count, so it takes no context; WithLeaseSlots adapts
 // it to HandraiseLocal.FreeSlots(ctx).

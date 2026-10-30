@@ -720,6 +720,30 @@ func ReleaseWorkerTaskLease(ctx context.Context, s *store.Store, taskID StoredHa
 	return released, nil
 }
 
+// ReleaseWorkerTaskLeaseOf drops taskID's post-record lease only if ticket
+// holds it; released reports it did.
+func ReleaseWorkerTaskLeaseOf(ctx context.Context, s *store.Store, taskID, ticket StoredHash) (bool, error) {
+	released := false
+	err := s.ApplyBatch(ctx, func(b *store.Batch) error {
+		var lease WorkerLease
+		err := getBatchJSON(b, WorkerTaskLeaseKey(taskID), &lease)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return nil
+		case err != nil:
+			return err
+		case lease.TicketHash != ticket:
+			return nil
+		}
+		released = true
+		return b.Delete(WorkerTaskLeaseKey(taskID))
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
 // HasWorkerTaskLease reports whether taskID holds a post-record lease.
 func HasWorkerTaskLease(ctx context.Context, s *store.Store, taskID StoredHash) (bool, error) {
 	_, err := s.GetRaw(ctx, WorkerTaskLeaseKey(taskID))
