@@ -52,12 +52,16 @@ func (d *Dispatcher) Rebound(builder string) {
 //   - accept certainly never transmitted and the deadline passed:
 //     accept-unsent, lease released, never resent (C4);
 //   - accept that may have been transmitted (WasSent, or an enqueue whose
-//     outcome was never recorded, Q9): re-request input after
-//     InputRetryEvery or a rebind, until the committed height reaches
-//     D_ticket. It stays accepted past the deadline; S6 settles it.
+//     outcome was never recorded, Q9), or a ticket past accepted
+//     (pending-claim, recorded), whose accept the Builder holds: re-request
+//     input after InputRetryEvery or a rebind, until the committed height
+//     reaches D_ticket, or infer_deadline_height once recorded. It stays
+//     accepted past the deadline; S6 settles it.
 //
-// Then it gives back the lease of any ticket that is not accepted and whose
-// deadline passed: an offer left unanswered by a failed attempt (I1).
+// Then it gives back the lease of any ticket that holds no duty and whose
+// deadline passed: an offer left unanswered by a failed attempt (I1). Last,
+// it re-asks the chain for the record of tickets whose Builder said
+// RECORDED (sweepRecords).
 func (d *Dispatcher) Sweep(ctx context.Context) error {
 	if err := d.lock(ctx); err != nil {
 		return err
@@ -84,15 +88,19 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		maybeSent := (e.AcceptSeq != 0 && enq.WasSent(e.AcceptSeq)) || (e.AcceptSeq == 0 && e.AcceptEnqueuing)
+		maybeSent := e.State != layout.DispatchAccepted || (e.AcceptSeq != 0 && enq.WasSent(e.AcceptSeq)) || (e.AcceptSeq == 0 && e.AcceptEnqueuing)
 		live := now.Before(d.deadlineOf(e.TicketHash, e.AcceptDeadlineUnixMs))
 		due := rebound[e.Builder] || now.Sub(time.UnixMilli(e.InputRequestedAtUnixMs)) >= d.cfg.InputRetryEvery
 		// TODO(S6): at D_ticket (ClaimFromHeight) a ticket whose input never
 		// arrived becomes S6's (PENDING_CLAIM); the sweep stops asking (I8).
-		claimable := herr != nil || height >= e.ClaimFromHeight
+		stop := e.ClaimFromHeight
+		if e.InferDeadlineHeight != 0 {
+			stop = e.InferDeadlineHeight // recorded: the input is due until the infer deadline
+		}
+		claimable := herr != nil || height >= stop
 		var act func(layout.DispatchRecord) error
 		switch {
-		case e.AcceptSeq == 0 && live:
+		case e.State == layout.DispatchAccepted && e.AcceptSeq == 0 && live:
 			act = func(rec layout.DispatchRecord) error { return d.sendAccept(ctx, enq, rec) }
 		case !maybeSent && !live:
 			act = func(rec layout.DispatchRecord) error {
@@ -118,6 +126,11 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	d.pruneDeadlines(now)
+	if herr == nil {
+		if err := d.sweepRecords(ctx, height); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -135,7 +148,7 @@ func (d *Dispatcher) releaseStaleLeases(ctx context.Context, now time.Time) erro
 		case err != nil && !errors.Is(err, store.ErrNotFound):
 			errs = append(errs, fmt.Errorf("lease %s: %w", ticket, err))
 			continue
-		case err == nil && (rec.State == layout.DispatchAccepted || now.Before(d.acceptDeadline(rec))):
+		case err == nil && (rec.State.HoldsDuty() || now.Before(d.acceptDeadline(rec))):
 			continue
 		}
 		if err := d.releaseLease(ctx, ticket); err != nil {
@@ -158,11 +171,12 @@ func (d *Dispatcher) pruneDeadlines(now time.Time) {
 	}
 }
 
-// recoverLeases releases pre-record leases whose ticket is not accepted: a
+// recoverLeases releases pre-record leases whose ticket holds no duty: a
 // crash between a state change and its release, or an offer that will be
 // redelivered and re-evaluated anyway. An accepted ticket keeps its lease
 // whatever became of its accept: after a restart an earlier process may have
-// sent it (Q9).
+// sent it (Q9). A recorded ticket whose lease a crash left on the ticket key
+// finishes its move to (task_id, WORKER).
 func (d *Dispatcher) recoverLeases(ctx context.Context) error {
 	tickets, err := layout.WorkerTicketLeases(ctx, d.cfg.Store)
 	if err != nil {
@@ -173,7 +187,13 @@ func (d *Dispatcher) recoverLeases(ctx context.Context) error {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("dispatcher: lease %s: %w", ticket, err)
 		}
-		if err == nil && rec.State == layout.DispatchAccepted {
+		if err == nil && rec.State == layout.DispatchRecorded {
+			if _, err := d.cfg.Leases.Rebind(ctx, ticket, rec.TaskID); err != nil {
+				return fmt.Errorf("dispatcher: rebind lease %s: %w", ticket, err)
+			}
+			continue
+		}
+		if err == nil && rec.State.HoldsDuty() {
 			continue
 		}
 		if _, err := d.cfg.Leases.Release(ctx, ticket); err != nil {

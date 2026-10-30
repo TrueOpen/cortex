@@ -271,6 +271,12 @@ type fakeDispatchChain struct {
 	calls       map[string]int
 	// Injected read failures.
 	nodeErr, bondErr, vrfErr error
+	// S5 record reads: an unset record or assignment answers ErrNotFound.
+	record        chainclient.DispatchRecordSnapshot
+	recordErr     error
+	recordQueries int
+	assignment    chainclient.DispatchAssignmentSnapshot
+	assignmentErr error
 }
 
 func newFakeDispatchChain(t testing.TB, f *offerFixture) *fakeDispatchChain {
@@ -413,6 +419,31 @@ func (f *fakeDispatchChain) WorkerLiabilityParamsAt(_ context.Context, height ui
 	defer f.mu.Unlock()
 	f.pinned(height)
 	return f.liability, nil
+}
+
+func (f *fakeDispatchChain) DispatchRecord(context.Context, []byte, uint64) (chainclient.DispatchRecordSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recordQueries++
+	if f.recordErr != nil {
+		return chainclient.DispatchRecordSnapshot{}, f.recordErr
+	}
+	if f.record.TaskID == nil {
+		return chainclient.DispatchRecordSnapshot{}, chainclient.ErrNotFound
+	}
+	return f.record, nil
+}
+
+func (f *fakeDispatchChain) DispatchAssignment(context.Context, []byte) (chainclient.DispatchAssignmentSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.assignmentErr != nil {
+		return chainclient.DispatchAssignmentSnapshot{}, f.assignmentErr
+	}
+	if f.assignment.TaskID == nil {
+		return chainclient.DispatchAssignmentSnapshot{}, chainclient.ErrNotFound
+	}
+	return f.assignment, nil
 }
 
 type fakeDispatchHandraise struct {
@@ -569,7 +600,26 @@ type fakeInferStarter struct {
 	mu                sync.Mutex
 	started           []DispatchInferEntry
 	stops             []layout.StoredHash // ticket hashes
+	records           []recordedInfer
 	startErr, stopErr error
+}
+
+type recordedInfer struct {
+	taskHash, ticket              layout.StoredHash
+	recordedHeight, inferDeadline uint64
+}
+
+func (f *fakeInferStarter) RecordDispatchedInfer(_ context.Context, taskHash, ticket layout.StoredHash, recordedHeight, inferDeadline uint64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.records = append(f.records, recordedInfer{taskHash, ticket, recordedHeight, inferDeadline})
+	return nil
+}
+
+func (f *fakeInferStarter) recorded() []recordedInfer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.records)
 }
 
 func (f *fakeInferStarter) StartDispatchedInfer(_ context.Context, e DispatchInferEntry) error {

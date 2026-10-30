@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
@@ -756,10 +757,49 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 	if r == nil || r.cfg.Store == nil {
 		return fmt.Errorf("task runner store is required")
 	}
+	recorded, err := r.applyReconcilerEffectsLocked(ctx, effects)
+	if err != nil {
+		return err
+	}
+	return r.forwardDispatchRecorded(ctx, recorded)
+}
+
+// forwardDispatchRecorded hands dispatch_recorded effects to the Dispatcher
+// outside the runner lock: it calls back into RecordDispatchedInfer, which
+// takes it. A retryable refusal retries the page (marked for the poller, which
+// only retries chainclient-retryable errors); a permanent one is reported and
+// the cursor moves on.
+func (r *TaskRunner) forwardDispatchRecorded(ctx context.Context, effects []ReconcilerEffect) error {
+	for _, effect := range effects {
+		if r.cfg.DispatchRecords == nil {
+			r.cfg.Trace.Event("dispatch_recorded_unobserved", tasktrace.Str("task", effect.TaskID))
+			continue
+		}
+		err := r.cfg.DispatchRecords.ObserveDispatchRecorded(ctx, effect.Dispatch)
+		switch {
+		case err == nil:
+		case builderclient.IsRetryable(err) || chainclient.IsRetryable(err):
+			return chainclient.Retryable(builderclient.Retryable(fmt.Errorf("dispatch_recorded for task %s: %w", effect.TaskID, err)))
+		default:
+			r.cfg.Trace.ErrorEvent("dispatch_recorded_refused", tasktrace.Str("task", effect.TaskID), tasktrace.Err("error", err))
+			if r.cfg.OnQuarantinedEffect != nil {
+				r.cfg.OnQuarantinedEffect(effect, err)
+			}
+		}
+	}
+	return nil
+}
+
+// applyReconcilerEffectsLocked applies every effect the runner owns under its
+// lock and returns the dispatch_recorded effects for the caller to forward.
+func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects []ReconcilerEffect) ([]ReconcilerEffect, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	var recorded []ReconcilerEffect
 	for _, effect := range effects {
 		switch effect.Type {
+		case ReconcilerEffectDispatchRecorded:
+			recorded = append(recorded, effect)
 		case ReconcilerEffectVerifyReady:
 			v := effect.Snapshot.VerifierAssignment
 			if r.cfg.LocalVerifierAddress == "" || !slices.Contains([]string(v.FormalVerifierSet), r.cfg.LocalVerifierAddress) {
@@ -777,7 +817,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 			builderOperator := a.BuilderOperatorAddress
 			receiptJSON, err := json.Marshal(effect.Snapshot.InferReceipt)
 			if err != nil {
-				return fmt.Errorf("encode Keeper infer receipt: %w", err)
+				return nil, fmt.Errorf("encode Keeper infer receipt: %w", err)
 			}
 			task := layout.TaskRecord{
 				SessionID:              a.SessionID,
@@ -808,13 +848,13 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 			}
 			if err := layout.VerifyAssignmentBatch(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), task, verify); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return err
+					return nil, err
 				}
 				continue
 			}
 			storedTask, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash))
 			if err != nil {
-				return fmt.Errorf("read admitted Verifier task: %w", err)
+				return nil, fmt.Errorf("read admitted Verifier task: %w", err)
 			}
 			builderOperator = storedTask.BuilderOperatorAddress
 			// The verify responsibility carries these two commitments into output
@@ -855,7 +895,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 			record.RevealDeadlineHeight = revealDeadline
 			if err := layout.MergeVerify(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), record); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return err
+					return nil, err
 				}
 				continue
 			}
@@ -873,7 +913,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				tasktrace.Str("stage", string(record.Stage)))
 		case ReconcilerEffectInferTerminal:
 			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
-				return err
+				return nil, err
 			}
 		case ReconcilerEffectTaskTerminal:
 			ev := layout.Evidence{TaskID: effect.TaskID, TerminalOrSettled: true, RetentionStartHeight: retentionStartHeight(effect)}
@@ -882,7 +922,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 			}
 			if err := layout.TaskTerminalBatch(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), ev); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return err
+					return nil, err
 				}
 			}
 		case ReconcilerEffectVerifyTerminal:
@@ -896,7 +936,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				continue
 			}
 			if err := layout.DeleteVerifyRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
-				return err
+				return nil, err
 			}
 			// Traced because this delete is what takes the task out of the
 			// active set for good: loadActiveTasks rebuilds that set from the
@@ -925,7 +965,7 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 			}
 			if err := layout.MergeEvidence(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), ev); err != nil {
 				if !r.quarantineEffect(effect, err) {
-					return err
+					return nil, err
 				}
 			}
 		case ReconcilerEffectChallengeOpened, ReconcilerEffectChallengeClosed:
@@ -935,12 +975,12 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				OpenedHeight: effect.Event.Height,
 				LastPosition: layout.Position{Height: effect.Event.Height},
 			}); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 	r.Wake()
-	return nil
+	return recorded, nil
 }
 
 // quarantineEffect decides what one failed effect does to the poll loop, and

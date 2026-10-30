@@ -65,6 +65,29 @@ func (l *DispatchLeases) Release(ctx context.Context, ticket layout.StoredHash) 
 	return released, nil
 }
 
+// Rebind moves ticket's lease to (task_id, WORKER) once the record lands; the
+// slot count is unchanged.
+func (l *DispatchLeases) Rebind(ctx context.Context, ticket, taskID layout.StoredHash) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return layout.RebindWorkerLease(ctx, l.st, ticket, taskID)
+}
+
+// ReleaseTask returns a recorded task's (task_id, WORKER) lease; released
+// reports it was held.
+func (l *DispatchLeases) ReleaseTask(ctx context.Context, taskID layout.StoredHash) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	released, err := layout.ReleaseWorkerTaskLease(ctx, l.st, taskID)
+	if err != nil {
+		return false, err
+	}
+	if released && l.held > 0 {
+		l.held--
+	}
+	return released, nil
+}
+
 // FreeSlots is capacity minus held leases (CD §4.2.0 free_slot_count). It
 // reads only the in-memory count, so it takes no context; WithLeaseSlots adapts
 // it to HandraiseLocal.FreeSlots(ctx).

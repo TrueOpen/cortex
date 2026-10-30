@@ -108,6 +108,9 @@ type TaskRunnerConfig struct {
 	// advances past the event, so this callback is the only trace that one task
 	// diverged from Keeper authority.
 	OnQuarantinedEffect func(ReconcilerEffect, error)
+	// DispatchRecords receives dispatch_recorded effects after the runner lock
+	// is released (S9 wires the Dispatcher). Nil: the effects are traced only.
+	DispatchRecords DispatchRecordObserver
 	// Trace reports every protocol milestone a task passes through, digests
 	// included. Nil is silent; cortexd supplies the sink that logs.
 	Trace          *tasktrace.Trace

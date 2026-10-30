@@ -290,6 +290,10 @@ func (d *Dispatcher) resume(ctx context.Context, enq DispatchEnqueuer, rec layou
 			return nil
 		}
 		return d.sendAccept(ctx, enq, rec)
+	case layout.DispatchPendingClaim, layout.DispatchRecorded:
+		// The Builder already holds the accept; fetching the input is the
+		// sweep's.
+		return nil
 	}
 	return d.drop(ctx, rec.Builder, rec.TicketHash, fmt.Errorf("ticket is already %s", rec.State))
 }

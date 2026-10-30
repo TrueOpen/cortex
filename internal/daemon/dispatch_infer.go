@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 )
@@ -27,16 +28,21 @@ type DispatchInferEntry struct {
 	WorkerAddress   string
 	BuilderSetID    string
 	BuilderSetHash  []byte
-	// ClaimFromHeight is D_ticket. Until S5 sets the record-based
-	// infer_deadline_height it is the responsibility's provisional deadline.
+	// ClaimFromHeight is D_ticket: the responsibility's deadline until the
+	// record lands (RecordDispatchedInfer moves it to infer_deadline_height).
 	ClaimFromHeight uint64
+	// RecordedHeight and InferDeadlineHeight are set when the record landed
+	// before the input was committed; zero otherwise.
+	RecordedHeight      uint64
+	InferDeadlineHeight uint64
 }
 
-// DispatchInferStarter starts and stops the inference of an accepted ticket.
-// Both are idempotent.
+// DispatchInferStarter starts and stops the inference of an accepted ticket,
+// and hands it the record once the chain has it. All are idempotent.
 type DispatchInferStarter interface {
 	StartDispatchedInfer(context.Context, DispatchInferEntry) error
 	StopDispatchedInfer(ctx context.Context, taskHash, ticketHash layout.StoredHash) error
+	RecordDispatchedInfer(ctx context.Context, taskHash, ticketHash layout.StoredHash, recordedHeight, inferDeadline uint64) error
 }
 
 var _ DispatchInferStarter = (*TaskRunner)(nil)
@@ -67,8 +73,13 @@ func (r *TaskRunner) StartDispatchedInfer(ctx context.Context, e DispatchInferEn
 		WorkerAddress: e.WorkerAddress, BuilderOperatorAddress: e.BuilderOperator,
 		TaskBuilderSetID: e.BuilderSetID, TaskBuilderSetHash: e.BuilderSetHash,
 	}
+	deadline := e.ClaimFromHeight
+	if e.InferDeadlineHeight != 0 {
+		deadline = e.InferDeadlineHeight
+	}
 	infer := layout.InferRecord{
-		TaskID: e.TaskID, DispatchTicketHash: e.TicketHash, Stage: layout.StageQueued, DeadlineHeight: e.ClaimFromHeight,
+		TaskID: e.TaskID, DispatchTicketHash: e.TicketHash, Stage: layout.StageQueued, DeadlineHeight: deadline,
+		WinnerConfirmHeight: e.RecordedHeight, InferDeadlineHeight: e.InferDeadlineHeight,
 	}
 	if err := layout.InferAssignmentBatch(ctx, r.cfg.Store, e.TaskHash, task, infer); err != nil {
 		return fmt.Errorf("admit dispatched infer: %w", err)
@@ -96,6 +107,42 @@ func (r *TaskRunner) StopDispatchedInfer(ctx context.Context, taskHash, ticketHa
 	}
 	if err := layout.DeleteInferRecord(ctx, r.cfg.Store, taskHash); err != nil {
 		return err
+	}
+	r.Wake()
+	return nil
+}
+
+// RecordDispatchedInfer merges the record into the responsibility ticket owns:
+// record height, infer_deadline_height and the runner's stop bound, which moves
+// from D_ticket to the infer deadline. A responsibility not admitted yet (input
+// still being fetched) gets them through DispatchInferEntry instead. It takes
+// the runner lock, so the runner's in-memory copy cannot write the old bound
+// back; callers must not hold it (the Dispatcher never does).
+func (r *TaskRunner) RecordDispatchedInfer(ctx context.Context, taskHash, ticket layout.StoredHash, recordedHeight, inferDeadline uint64) error {
+	if r == nil || r.cfg.Store == nil {
+		return fmt.Errorf("task runner store is required")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, err := layout.GetInferRecord(ctx, r.cfg.Store, taskHash)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if rec.DispatchTicketHash != ticket {
+		return nil
+	}
+	if err := layout.MergeInfer(ctx, r.cfg.Store, taskHash, layout.InferRecord{
+		TaskID: rec.TaskID, DispatchTicketHash: ticket, Stage: rec.Stage, WinnerConfirmHeight: recordedHeight,
+		InferDeadlineHeight: inferDeadline, DeadlineHeight: inferDeadline,
+	}); err != nil {
+		return err
+	}
+	if t, ok := r.infer[codec.Hash(taskHash)]; ok {
+		t.DeadlineHeight, t.WinnerConfirmHeight = inferDeadline, recordedHeight
+		r.infer[codec.Hash(taskHash)] = t
 	}
 	r.Wake()
 	return nil

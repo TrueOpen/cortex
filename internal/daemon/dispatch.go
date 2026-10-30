@@ -54,6 +54,10 @@ type DispatchChainView interface {
 	SessionAt(ctx context.Context, sessionID []byte, height uint64) (chainclient.SessionSnapshot, error)
 	DispatchParamsAt(ctx context.Context, height uint64) (chainclient.DispatchParamsSnapshot, error)
 	WorkerLiabilityParamsAt(ctx context.Context, height uint64) (chainclient.WorkerLiabilityParamsSnapshot, error)
+	// The S5 record reads are never memoised: each one asks for the latest
+	// committed state.
+	DispatchRecord(ctx context.Context, sessionID []byte, orderSequence uint64) (chainclient.DispatchRecordSnapshot, error)
+	DispatchAssignment(ctx context.Context, taskID []byte) (chainclient.DispatchAssignmentSnapshot, error)
 }
 
 var _ DispatchChainView = (*chainclient.KeeperABCIClient)(nil)
@@ -135,6 +139,10 @@ type Dispatcher struct {
 	deadline map[layout.StoredHash]time.Time // C4 accept deadlines seen by this process
 	rebound  map[string]bool
 	wake     chan struct{}
+	// recordCheckedAt is the committed height of the last notice-driven
+	// record re-check (sweepRecords): the chain is asked again only once the
+	// height moved.
+	recordCheckedAt uint64
 }
 
 // NewDispatcher validates cfg and fills local defaults.
@@ -221,6 +229,8 @@ func (d *Dispatcher) HandleFrame(ctx context.Context, from string, f *nexusv1.Di
 		return d.HandleRevoke(ctx, from, f.GetRevoke())
 	case f.GetInputResponse() != nil:
 		return d.HandleInputResponse(ctx, from, f.GetInputResponse())
+	case f.GetRecordResult() != nil:
+		return d.HandleRecordResult(ctx, from, f.GetRecordResult())
 	}
 	return fmt.Errorf("dispatcher: frame variant is not a Worker dispatch message")
 }
@@ -284,14 +294,15 @@ func (d *Dispatcher) drop(ctx context.Context, builder string, ticket layout.Sto
 	return fmt.Errorf("%w: %w", ErrOfferDropped, err)
 }
 
-// releaseIfNotAccepted returns ticket's lease unless its record is accepted:
-// the rule recoverLeases applies at start, and the sweep past the deadline.
+// releaseIfNotAccepted returns ticket's lease unless its record holds a duty
+// (accepted, pending-claim or recorded): the rule recoverLeases applies at
+// start, and the sweep past the deadline.
 func (d *Dispatcher) releaseIfNotAccepted(ctx context.Context, ticket layout.StoredHash) error {
 	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
 	}
-	if err == nil && rec.State == layout.DispatchAccepted {
+	if err == nil && rec.State.HoldsDuty() {
 		return nil
 	}
 	return d.releaseLease(ctx, ticket)
@@ -331,7 +342,8 @@ func (d *Dispatcher) releaseLease(ctx context.Context, ticket layout.StoredHash)
 }
 
 // supersede releases older rounds of the same task from the same Builder
-// before capacity is judged (CD §5.2 W3).
+// before capacity is judged (CD §5.2 W3). A pending-claim round is released
+// too (S5 Q16): whether it can still be claimed is S6's to decide.
 func (d *Dispatcher) supersede(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, self layout.StoredHash) error {
 	taskID, ok := hash32(t.GetTaskId())
 	if !ok {
@@ -345,7 +357,7 @@ func (d *Dispatcher) supersede(ctx context.Context, builder string, t *taskv1.Di
 		if r.TicketHash == self || r.Builder != builder || r.DispatchRound >= t.GetDispatchRound() {
 			continue
 		}
-		if r.State != layout.DispatchOffered && r.State != layout.DispatchAccepted {
+		if r.State != layout.DispatchOffered && r.State != layout.DispatchAccepted && r.State != layout.DispatchPendingClaim {
 			continue
 		}
 		if err := d.release(ctx, r, layout.DispatchSuperseded, fmt.Sprintf("dispatch round %d of the task arrived", t.GetDispatchRound())); err != nil {

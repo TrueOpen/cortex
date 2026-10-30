@@ -46,7 +46,7 @@ func (d *Dispatcher) HandleInputResponse(ctx context.Context, builder string, r 
 	if rec.Builder != builder {
 		return fmt.Errorf("dispatch input for ticket %s from %s, which did not dispatch it", ticket, builder)
 	}
-	if rec.State != layout.DispatchAccepted || rec.InputCommitted {
+	if !rec.State.HoldsDuty() || rec.InputCommitted {
 		d.cfg.Logger.Debug("dispatch input ignored", "ticket", ticket.String(), "state", rec.State, "committed", rec.InputCommitted)
 		return nil
 	}
@@ -109,7 +109,7 @@ func (d *Dispatcher) commitInput(ctx context.Context, rec layout.DispatchRecord)
 		OrderSequence: rec.OrderSequence, ModelID: rec.ModelID, ProfileVersion: rec.ProfileVersion,
 		InputHash: rec.InputHash, InputSizeBytes: rec.InputSizeBytes, BuilderOperator: rec.Builder,
 		WorkerAddress: d.cfg.Operator, BuilderSetID: o.GetBuilderSetId(), BuilderSetHash: bytes.Clone(o.GetBuilderSetHash()),
-		ClaimFromHeight: rec.ClaimFromHeight,
+		ClaimFromHeight: rec.ClaimFromHeight, RecordedHeight: rec.RecordedHeight, InferDeadlineHeight: rec.InferDeadlineHeight,
 	}); err != nil {
 		if errors.Is(err, layout.ErrConflict) {
 			// Another ticket owns this task's responsibility; no redelivery

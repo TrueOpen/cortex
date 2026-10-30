@@ -3,6 +3,7 @@ package layout
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,11 @@ import (
 // Phase 1 dispatch keys (CD §10 DispatchRecord, TaskProfileLease). Before the
 // record entry everything is keyed by dispatch_ticket_hash.
 //
-// TODO(S5/S6): nothing here deletes dispatch records or their task index.
-// S5 adds the task_id merge key at record time; S6 owns deleting records,
-// task-index entries and revoke tombstones after the claim window and
-// dispatch_evidence_retention_blocks.
+// TODO(S6): nothing here deletes dispatch records, their task index or the
+// await/receipt indexes. S5 moves the Worker lease to its task_id key at
+// record time (RebindWorkerLease); S6 owns deleting records, task-index
+// entries, revoke tombstones and the DispatchEvidenceScope namespaces after
+// the claim window and dispatch_evidence_retention_blocks.
 const (
 	dispatchTicketPrefix    = "dispatch-ticket/"
 	dispatchTaskPrefix      = "dispatch-task/"
@@ -26,6 +28,9 @@ const (
 	dispatchInputPrefix     = "dispatch-input/"
 	workerLeasePrefix       = "lease/worker/"
 	workerTicketLeasePrefix = "lease/worker/ticket/"
+	workerTaskLeasePrefix   = "lease/worker/task/"
+	dispatchAwaitPrefix     = "dispatch-await/"
+	dispatchReceiptPrefix   = "dispatch-receipt/"
 )
 
 // DispatchRecordSchemaVersion is the current DispatchRecord schema.
@@ -61,6 +66,20 @@ func WorkerTicketLeaseKey(ticket StoredHash) []byte {
 	return join([]byte(workerTicketLeasePrefix), ticket[:])
 }
 
+// WorkerTaskLeaseKey is the post-record lease key (task_id, WORKER).
+func WorkerTaskLeaseKey(taskID StoredHash) []byte {
+	return join([]byte(workerTaskLeasePrefix), taskID[:])
+}
+
+// DispatchAwaitKey marks an accepted ticket whose record is not settled yet.
+func DispatchAwaitKey(ticket StoredHash) []byte { return join([]byte(dispatchAwaitPrefix), ticket[:]) }
+
+// DispatchReceiptKey marks a recorded ticket whose signed receipt the chain has
+// not been seen to accept (self-rescue candidates, CD W13).
+func DispatchReceiptKey(ticket StoredHash) []byte {
+	return join([]byte(dispatchReceiptPrefix), ticket[:])
+}
+
 // DispatchState is the local state of one received ticket.
 type DispatchState string
 
@@ -71,15 +90,30 @@ const (
 	DispatchAcceptUnsent DispatchState = "accept-unsent" // signed, never transmitted before the deadline (C4)
 	DispatchRevoked      DispatchState = "revoked"       // DispatchRevokeV1 (RBF) received
 	DispatchSuperseded   DispatchState = "superseded"    // a newer round of the same task arrived
+	// DispatchPendingClaim: a REJECTED notice, or another ticket recorded for
+	// the order. Delivery is paused, inference continues; S6 settles it at
+	// D_ticket (CD §8.6).
+	DispatchPendingClaim DispatchState = "pending-claim"
+	DispatchRecorded     DispatchState = "recorded" // QueryDispatchRecord: this ticket is the winner
+	// DispatchConflict: recorded with this ticket, but the chain disagrees
+	// with the local facts (ChainObservationConflict). Fails closed.
+	DispatchConflict DispatchState = "conflict"
 )
 
-// dispatchTransitions lists the states each state may move to. S5 extends it
-// with the record observations.
+// dispatchTransitions lists the states each state may move to. S6 adds
+// CLAIMABLE, PAID and DISMISSED.
 var dispatchTransitions = map[DispatchState][]DispatchState{
 	DispatchOffered:      {DispatchRejected, DispatchAccepted, DispatchRevoked, DispatchSuperseded},
-	DispatchAccepted:     {DispatchAcceptUnsent, DispatchRevoked, DispatchSuperseded},
+	DispatchAccepted:     {DispatchAcceptUnsent, DispatchRevoked, DispatchSuperseded, DispatchPendingClaim, DispatchRecorded, DispatchConflict},
 	DispatchAcceptUnsent: {DispatchRevoked},
 	DispatchSuperseded:   {DispatchRevoked},
+	DispatchPendingClaim: {DispatchRecorded, DispatchSuperseded, DispatchConflict},
+}
+
+// HoldsDuty reports an accepted ticket not yet released: it holds a lease and
+// keeps fetching its input whether or not the record has landed.
+func (s DispatchState) HoldsDuty() bool {
+	return s == DispatchAccepted || s == DispatchPendingClaim || s == DispatchRecorded
 }
 
 // DispatchRecord is one received DispatchTicketV1 and what this node did with
@@ -143,6 +177,21 @@ type DispatchRecord struct {
 	InputCommitted      bool   `json:"input_committed,omitempty"`
 
 	Revoke []byte `json:"revoke,omitempty"`
+
+	// Record observation (S5). RecordNotice and NoticeStatus are the
+	// dispatching Builder's RecordResultNoticeV1, a hint only; the rest are
+	// chain facts read through QueryDispatchRecord and Query/TaskAssignment.
+	RecordNotice        []byte     `json:"record_notice,omitempty"`
+	NoticeStatus        int32      `json:"notice_status,omitempty"`
+	WinnerTicketHash    StoredHash `json:"winner_ticket_hash"`
+	RecordHash          StoredHash `json:"record_hash"`
+	RecordedHeight      uint64     `json:"recorded_height,omitempty"`
+	InferDeadlineHeight uint64     `json:"infer_deadline_height,omitempty"`
+	// Receipt is the signed InferReceiptV3 (builderclient JSON); self-rescue
+	// submits exactly these bytes. S6 keeps it when it voids the receipt.
+	Receipt         []byte `json:"receipt,omitempty"`
+	ReceiptAccepted bool   `json:"receipt_accepted,omitempty"`
+	RescueTxHash    string `json:"rescue_tx_hash,omitempty"`
 }
 
 // WorkerLease is a TaskProfileLease (CD §5.2 W3). Before the record entry it
@@ -161,28 +210,53 @@ type WorkerLease struct {
 // DispatchOpenEntry is the open index value: what the sweep decides on, so
 // it loads a full record only for a ticket it acts on.
 type DispatchOpenEntry struct {
-	TicketHash             StoredHash `json:"-"`
-	Builder                string     `json:"builder_operator"`
-	AcceptDeadlineUnixMs   int64      `json:"accept_deadline_unix_ms,omitempty"`
-	AcceptSeq              uint64     `json:"accept_seq,omitempty"`
-	AcceptEnqueuing        bool       `json:"accept_enqueuing,omitempty"`
-	InputRequestSeq        uint64     `json:"input_request_seq,omitempty"`
-	InputRequestedAtUnixMs int64      `json:"input_requested_at_unix_ms,omitempty"`
-	ClaimFromHeight        uint64     `json:"claim_from_height,omitempty"`
+	TicketHash             StoredHash    `json:"-"`
+	State                  DispatchState `json:"state"`
+	Builder                string        `json:"builder_operator"`
+	AcceptDeadlineUnixMs   int64         `json:"accept_deadline_unix_ms,omitempty"`
+	AcceptSeq              uint64        `json:"accept_seq,omitempty"`
+	AcceptEnqueuing        bool          `json:"accept_enqueuing,omitempty"`
+	InputRequestSeq        uint64        `json:"input_request_seq,omitempty"`
+	InputRequestedAtUnixMs int64         `json:"input_requested_at_unix_ms,omitempty"`
+	ClaimFromHeight        uint64        `json:"claim_from_height,omitempty"`
+	InferDeadlineHeight    uint64        `json:"infer_deadline_height,omitempty"`
 }
 
 func putDispatch(b *store.Batch, rec DispatchRecord) error {
 	if err := putBatchJSON(b, DispatchTicketKey(rec.TicketHash), rec); err != nil {
 		return err
 	}
-	if rec.State == DispatchAccepted && !rec.InputCommitted {
-		return putBatchJSON(b, DispatchOpenKey(rec.TicketHash), DispatchOpenEntry{
-			Builder: rec.Builder, AcceptDeadlineUnixMs: rec.AcceptDeadlineUnixMs, AcceptSeq: rec.AcceptSeq,
+	var err error
+	if rec.State.HoldsDuty() && !rec.InputCommitted {
+		err = putBatchJSON(b, DispatchOpenKey(rec.TicketHash), DispatchOpenEntry{
+			State: rec.State, Builder: rec.Builder, AcceptDeadlineUnixMs: rec.AcceptDeadlineUnixMs, AcceptSeq: rec.AcceptSeq,
 			AcceptEnqueuing: rec.AcceptEnqueuing, InputRequestSeq: rec.InputRequestSeq,
 			InputRequestedAtUnixMs: rec.InputRequestedAtUnixMs, ClaimFromHeight: rec.ClaimFromHeight,
+			InferDeadlineHeight: rec.InferDeadlineHeight,
 		})
+	} else {
+		err = b.Delete(DispatchOpenKey(rec.TicketHash))
 	}
-	return b.Delete(DispatchOpenKey(rec.TicketHash))
+	if err != nil {
+		return err
+	}
+	for _, ix := range []struct {
+		key []byte
+		on  bool
+	}{
+		{DispatchAwaitKey(rec.TicketHash), rec.State == DispatchAccepted || rec.State == DispatchPendingClaim},
+		{DispatchReceiptKey(rec.TicketHash), rec.State == DispatchRecorded && len(rec.Receipt) > 0 && !rec.ReceiptAccepted},
+	} {
+		if ix.on {
+			err = b.Set(ix.key, []byte{})
+		} else {
+			err = b.Delete(ix.key)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkDispatchUpdate enforces identity, write-once bytes, accept-xor-reject
@@ -197,6 +271,7 @@ func checkDispatchUpdate(cur, next DispatchRecord) error {
 	}{
 		{"ticket", cur.Ticket, next.Ticket}, {"signed order", cur.SignedOrder, next.SignedOrder},
 		{"accept", cur.Accept, next.Accept}, {"reject", cur.Reject, next.Reject}, {"revoke", cur.Revoke, next.Revoke},
+		{"record notice", cur.RecordNotice, next.RecordNotice}, {"receipt", cur.Receipt, next.Receipt},
 	} {
 		if len(f.cur) > 0 && !bytes.Equal(f.cur, f.next) {
 			return fmt.Errorf("%w: dispatch %s is write-once", ErrConflict, f.name)
@@ -204,6 +279,31 @@ func checkDispatchUpdate(cur, next DispatchRecord) error {
 	}
 	if !cur.AcceptDigest.IsZero() && next.AcceptDigest != cur.AcceptDigest {
 		return fmt.Errorf("%w: dispatch accept digest is write-once", ErrConflict)
+	}
+	for _, f := range []struct {
+		name      string
+		cur, next StoredHash
+	}{{"winner ticket", cur.WinnerTicketHash, next.WinnerTicketHash}, {"record hash", cur.RecordHash, next.RecordHash}} {
+		if !f.cur.IsZero() && f.next != f.cur {
+			return fmt.Errorf("%w: dispatch %s is write-once", ErrConflict, f.name)
+		}
+	}
+	for _, f := range []struct {
+		name      string
+		cur, next uint64
+	}{{"recorded height", cur.RecordedHeight, next.RecordedHeight}, {"infer deadline", cur.InferDeadlineHeight, next.InferDeadlineHeight}} {
+		if f.cur != 0 && f.next != f.cur {
+			return fmt.Errorf("%w: dispatch %s is write-once", ErrConflict, f.name)
+		}
+	}
+	if next.State == DispatchRecorded && (next.RecordedHeight == 0 || next.InferDeadlineHeight <= next.RecordedHeight || next.WinnerTicketHash != next.TicketHash) {
+		return fmt.Errorf("%w: a recorded ticket needs its record height, its infer deadline and itself as the winner", ErrConflict)
+	}
+	if len(next.Receipt) > 0 && next.State != DispatchRecorded {
+		return fmt.Errorf("%w: a receipt is only signed for a recorded ticket (S5 Q1)", ErrConflict)
+	}
+	if next.ReceiptAccepted && len(next.Receipt) == 0 {
+		return fmt.Errorf("%w: an accepted receipt needs the receipt", ErrConflict)
 	}
 	if len(next.Accept) > 0 && len(next.Reject) > 0 {
 		return fmt.Errorf("%w: a ticket is accepted or rejected, never both (CD §4.2.0)", ErrConflict)
@@ -398,8 +498,28 @@ func DispatchRecordsForTask(ctx context.Context, s *store.Store, taskID StoredHa
 	return getDispatchRecords(ctx, s, tickets)
 }
 
-// OpenDispatchEntries returns the open index: accepted tickets whose input is
-// not committed, without loading their records.
+// AwaitingRecordDispatches lists accepted tickets whose record is not settled:
+// accepted or pending-claim.
+func AwaitingRecordDispatches(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
+	tickets, err := scanHashes(ctx, s, []byte(dispatchAwaitPrefix))
+	if err != nil {
+		return nil, err
+	}
+	return getDispatchRecords(ctx, s, tickets)
+}
+
+// ReceiptRescueCandidates lists recorded tickets with a signed receipt the
+// chain has not been seen to accept.
+func ReceiptRescueCandidates(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
+	tickets, err := scanHashes(ctx, s, []byte(dispatchReceiptPrefix))
+	if err != nil {
+		return nil, err
+	}
+	return getDispatchRecords(ctx, s, tickets)
+}
+
+// OpenDispatchEntries returns the open index: tickets holding a duty whose
+// input is not committed, without loading their records.
 func OpenDispatchEntries(ctx context.Context, s *store.Store) ([]DispatchOpenEntry, error) {
 	prefix := []byte(dispatchOpenPrefix)
 	var out []DispatchOpenEntry
@@ -418,7 +538,7 @@ func OpenDispatchEntries(ctx context.Context, s *store.Store) ([]DispatchOpenEnt
 	return out, err
 }
 
-// OpenDispatches returns accepted tickets whose input is not committed.
+// OpenDispatches returns tickets holding a duty whose input is not committed.
 func OpenDispatches(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
 	tickets, err := scanHashes(ctx, s, []byte(dispatchOpenPrefix))
 	if err != nil {
@@ -483,6 +603,88 @@ func ReleaseWorkerLease(ctx context.Context, s *store.Store, ticket StoredHash) 
 	return released, nil
 }
 
+// RebindWorkerLease moves ticket's pre-record lease to (task_id, WORKER) in one
+// batch (CD §5.2 W3). The count under lease/worker/ is unchanged. moved=false
+// with no error: already rebound. A ticket with neither lease is a conflict:
+// the record names a ticket this node never reserved capacity for.
+func RebindWorkerLease(ctx context.Context, s *store.Store, ticket, taskID StoredHash) (moved bool, err error) {
+	err = s.ApplyBatch(ctx, func(b *store.Batch) error {
+		var held WorkerLease
+		taskErr := getBatchJSON(b, WorkerTaskLeaseKey(taskID), &held)
+		if taskErr != nil && !errors.Is(taskErr, store.ErrNotFound) {
+			return taskErr
+		}
+		var lease WorkerLease
+		err := getBatchJSON(b, WorkerTicketLeaseKey(ticket), &lease)
+		switch {
+		case errors.Is(err, store.ErrNotFound) && taskErr == nil:
+			if held.TicketHash != ticket {
+				return fmt.Errorf("%w: task %s holds the lease of ticket %s, not %s", ErrConflict, taskID, held.TicketHash, ticket)
+			}
+			return nil
+		case errors.Is(err, store.ErrNotFound):
+			return fmt.Errorf("%w: ticket %s holds no lease to rebind", ErrConflict, ticket)
+		case err != nil:
+			return err
+		case lease.TaskID != taskID:
+			return fmt.Errorf("%w: ticket %s leases task %s, not %s", ErrConflict, ticket, lease.TaskID, taskID)
+		case taskErr == nil:
+			return fmt.Errorf("%w: task %s already holds a Worker lease", ErrConflict, taskID)
+		}
+		moved = true
+		if err := putBatchJSON(b, WorkerTaskLeaseKey(taskID), lease); err != nil {
+			return err
+		}
+		return b.Delete(WorkerTicketLeaseKey(ticket))
+	})
+	if err != nil {
+		return false, err
+	}
+	return moved, nil
+}
+
+// ReleaseWorkerTaskLease drops a post-record lease; released reports it existed.
+func ReleaseWorkerTaskLease(ctx context.Context, s *store.Store, taskID StoredHash) (bool, error) {
+	released := false
+	err := s.ApplyBatch(ctx, func(b *store.Batch) error {
+		if _, err := b.Get(WorkerTaskLeaseKey(taskID)); errors.Is(err, store.ErrNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		released = true
+		return b.Delete(WorkerTaskLeaseKey(taskID))
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
+// HasWorkerTaskLease reports whether taskID holds a post-record lease.
+func HasWorkerTaskLease(ctx context.Context, s *store.Store, taskID StoredHash) (bool, error) {
+	_, err := s.GetRaw(ctx, WorkerTaskLeaseKey(taskID))
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// DispatchEvidenceScope is the evidence-store namespace of one ticket's Worker
+// material (S4 Q13, S5 Q8): frames, Fin, receipt, both bundles and the
+// confirmations are signed for one dispatch_ticket_hash and never mix with
+// another round of the same task. The verified input stays under the task
+// hash.
+func DispatchEvidenceScope(taskHash, ticket StoredHash) StoredHash {
+	h := sha256.New()
+	h.Write([]byte("CORTEX_DISPATCH_EVIDENCE_SCOPE_V1"))
+	h.Write(taskHash[:])
+	h.Write(ticket[:])
+	var out StoredHash
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
 // HasWorkerLease reports whether ticket holds a pre-record lease.
 func HasWorkerLease(ctx context.Context, s *store.Store, ticket StoredHash) (bool, error) {
 	_, err := s.GetRaw(ctx, WorkerTicketLeaseKey(ticket))
@@ -537,7 +739,7 @@ func DispatchInputChunkLimit(size uint64, count uint32) uint64 {
 // (stored=false); different bytes or a different chunk_count are ErrConflict;
 // a chunk that would take the staged total past input_size_bytes, or exceeds
 // DispatchInputChunkLimit, is ErrInputBound and changes nothing. A ticket
-// that is not accepted, or whose input is committed, is returned unchanged.
+// that holds no duty, or whose input is committed, is returned unchanged.
 func StageDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredHash, index, count uint32, data []byte) (DispatchRecord, bool, error) {
 	var out DispatchRecord
 	stored := false
@@ -547,7 +749,7 @@ func StageDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredH
 			return err
 		}
 		out = rec
-		if rec.State != DispatchAccepted || rec.InputCommitted {
+		if !rec.State.HoldsDuty() || rec.InputCommitted {
 			return nil
 		}
 		if count == 0 || index >= count {

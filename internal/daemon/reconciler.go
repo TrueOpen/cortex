@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 )
 
 type ReconcilerOptions struct {
@@ -71,6 +73,9 @@ const (
 	ReconcilerEffectEvidenceRetention ReconcilerEffectType = "evidence_retention"
 	ReconcilerEffectChallengeOpened   ReconcilerEffectType = "challenge_opened"
 	ReconcilerEffectChallengeClosed   ReconcilerEffectType = "challenge_closed"
+	// ReconcilerEffectDispatchRecorded is a committed dispatch_recorded event,
+	// handed to the Dispatcher (S5, CD §5.2 W6).
+	ReconcilerEffectDispatchRecorded ReconcilerEffectType = "dispatch_recorded"
 )
 
 // ReconcilerEffect is an ephemeral, replayable instruction to the infer and
@@ -98,6 +103,10 @@ type ReconcilerEffect struct {
 	NextCleanupHeight uint64
 	Event             chainclient.KeeperEvent
 	Snapshot          chainclient.TaskSnapshot
+	// Dispatch is the dispatch_recorded fact, copied out of the attributes
+	// before canonicalisation. Only ReconcilerEffectDispatchRecorded sets it;
+	// TaskHash is zero for it (the Dispatcher keys by ticket and task id).
+	Dispatch DispatchRecordedFact
 }
 
 // ReconcileFromKeeperQuery rebuilds reconciler effects for a set of events by
@@ -141,6 +150,18 @@ func (r *Reconciler) Apply(ctx context.Context, events []chainclient.KeeperEvent
 				r.quarantine(&event, fmt.Sprintf("recognized Keeper event %s has no explicit disposition", event.Type))
 				continue
 			}
+		}
+
+		// dispatch_recorded needs no Task snapshot here: the Dispatcher re-reads
+		// it through QueryDispatchRecord, the authority for the record (W6).
+		if event.Type == chainclient.KeeperEventDispatchRecorded {
+			fact, err := dispatchRecordedFact(event)
+			if err != nil {
+				r.quarantine(&event, err.Error())
+				continue
+			}
+			out = append(out, ReconcilerEffect{TaskID: event.TaskID, Type: ReconcilerEffectDispatchRecorded, Event: canonicalEffectEvent(event), Dispatch: fact})
+			continue
 		}
 
 		authoritative, snapshot, assignmentDigest, err := r.authoritativeTaskEvent(ctx, event)
@@ -496,11 +517,11 @@ func keeperEventDispositionFor(eventType chainclient.KeeperEventType) (keeperEve
 		return keeperEventFSMTransition, true
 	}
 	switch eventType {
+	case chainclient.KeeperEventDispatchRecorded:
+		return keeperEventFSMTransition, true
 	case chainclient.KeeperEventProtocolProjection,
-		// The Phase 1 dispatch record, compensation and omission-challenge
-		// events. Nothing consumes them yet; the dispatch flow attaches its
-		// effects to them.
-		chainclient.KeeperEventDispatchRecorded,
+		// The Phase 1 compensation and omission-challenge events. Nothing
+		// consumes them yet; S6 and S8 attach their effects to them.
 		chainclient.KeeperEventDispatchCompensationClaimed,
 		chainclient.KeeperEventDispatchCompensationPaid,
 		chainclient.KeeperEventDispatchCompensationRebutted,
@@ -723,4 +744,37 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// dispatchRecordedFact reads one dispatch_recorded event. Every Hash32 must be
+// present and the infer deadline must lie after the record height; anything
+// else is quarantined, never retried.
+func dispatchRecordedFact(e chainclient.KeeperEvent) (DispatchRecordedFact, error) {
+	hash := func(name, value string) (layout.StoredHash, error) {
+		raw, err := hex.DecodeString(value)
+		if err != nil || len(raw) != 32 {
+			return layout.StoredHash{}, fmt.Errorf("%s requires %s as Hash32", e.Type, name)
+		}
+		return layout.StoredHash(raw), nil
+	}
+	var f DispatchRecordedFact
+	var err error
+	if f.TaskID, err = hash("task_id", e.TaskID); err != nil {
+		return f, err
+	}
+	if f.SessionID, err = hash("session_id", e.SessionID); err != nil {
+		return f, err
+	}
+	if f.TicketHash, err = hash("dispatch_ticket_hash", chainclient.CanonicalEventHash32(e.Attributes["dispatch_ticket_hash"])); err != nil {
+		return f, err
+	}
+	if f.RecordHash, err = hash("dispatch_record_hash", chainclient.CanonicalEventHash32(e.Attributes["dispatch_record_hash"])); err != nil {
+		return f, err
+	}
+	f.Height, f.OrderSequence, f.Winner, f.InferDeadline = e.Height, e.OrderSequence, e.Worker, e.InferDeadlineHeight
+	f.Builder = strings.TrimSpace(e.Attributes["builder"])
+	if f.Builder == "" || f.Winner == "" || f.InferDeadline <= f.Height {
+		return f, fmt.Errorf("%s requires builder, winner_worker and an infer_deadline after the record height", e.Type)
+	}
+	return f, nil
 }
