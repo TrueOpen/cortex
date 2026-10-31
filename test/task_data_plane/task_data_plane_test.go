@@ -576,11 +576,19 @@ func TestWorkerTaskDataPlaneFinalizesAndRejectsBadConfirmations(t *testing.T) {
 // single RunOnce. So the number of rounds is derived from the fixture rather
 // than written beside it, and the upload case deliberately keeps two failures —
 // its third round resumes a prefix that a resumed round itself produced.
+// Since S5 the receipt is signed only after the Fin is delivered and the
+// dispatch is recorded (S5 Q1, CD W11), so in the upload case no receipt
+// exists until the Fin goes through; the receipt that is signed then is the
+// one relayed.
 func TestWorkerTaskDataPlaneRetriesPreserveSignedMaterial(t *testing.T) {
 	for _, failedStage := range []string{"relay", "upload"} {
 		t.Run(failedStage, func(t *testing.T) {
 			behavior := nexusBehavior{}
 			var transientFailures int
+			// A relay failure comes after the receipt is signed; the
+			// injected upload failure hits the output stream's Fin, which
+			// since S5 is delivered before the receipt is signed.
+			receiptBeforeFailure := failedStage == "relay"
 			if failedStage == "relay" {
 				behavior.failRelayAttempts = 1
 				transientFailures = behavior.failRelayAttempts
@@ -602,6 +610,15 @@ func TestWorkerTaskDataPlaneRetriesPreserveSignedMaterial(t *testing.T) {
 				}
 				h.requireActiveRetryCount(t, uint32(round))
 				persisted, ok := h.checkpoints.inferReceipt(proofTaskID)
+				if !receiptBeforeFailure {
+					// The Fin goes to the dispatching Builder before any
+					// receipt exists (S5, CD W11): a failed Fin leaves
+					// nothing signed but the journaled frames.
+					if ok {
+						t.Fatal("receipt signed before the Fin was delivered")
+					}
+					continue
+				}
 				if !ok {
 					t.Fatal("signed receipt not persisted before retry")
 				}
@@ -620,6 +637,15 @@ func TestWorkerTaskDataPlaneRetriesPreserveSignedMaterial(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.requireFinished(t)
+			if !receiptBeforeFailure {
+				persisted, ok := h.checkpoints.inferReceipt(proofTaskID)
+				if !ok {
+					t.Fatal("signed receipt not persisted once the Fin was delivered")
+				}
+				if err := json.Unmarshal(persisted.Payload, &first); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if h.executor.TerminalError() != nil || h.model.InferCalls() != 1 || !reflect.DeepEqual(first, h.nexus.Receipt()) || len(h.checkpoints.storageConfirmations(proofTaskID)) != 3 {
 				t.Fatalf("retry changed durable material: %v", h.executor.TerminalError())
 			}
