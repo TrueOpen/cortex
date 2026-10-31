@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
@@ -45,6 +46,9 @@ func newDispatchPlane(cfg config.Config, rt *daemon.Runtime, runner *daemon.Task
 	var submitter func() (txclient.Client, string)
 	if cfg.Tx.Enabled {
 		submitter = rt.WorkloadSubmitter
+	} else {
+		slog.Warn("dispatch is configured but tx.enabled is false: compensation claims, receipt rescue and omission challenges are off on this node",
+			"builders", cfg.Dispatch.AllBuilders())
 	}
 	return daemon.NewDispatchPlane(context.Background(), daemon.DispatchPlaneConfig{
 		Streams: rt.Dispatch, Runner: runner, Evidence: ev, Store: rt.Store,
