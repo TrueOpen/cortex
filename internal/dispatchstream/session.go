@@ -113,6 +113,37 @@ type Session struct {
 	// forgotten is the highest sequence dropped from sent; at or below it the
 	// answer stays the conservative "maybe sent".
 	forgotten uint64
+
+	stateMu sync.Mutex
+	state   SessionState
+}
+
+// SessionState is one Builder stream as readiness reports it (CD §14.1
+// "各 Builder 直连流状态").
+type SessionState struct {
+	Bound     bool      // a binding was sent and the connection is being served
+	Since     time.Time // when Bound last changed
+	Attempt   int       // reconnect attempts since the last progress
+	LastError string    // why the last connection ended; "" while bound
+}
+
+// State returns the current connection state.
+func (s *Session) State() SessionState {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	return s.state
+}
+
+func (s *Session) setState(bound bool, attempt int, err error) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.state.Bound != bound || s.state.Since.IsZero() {
+		s.state.Since = s.cfg.Now()
+	}
+	s.state.Bound, s.state.Attempt, s.state.LastError = bound, attempt, ""
+	if err != nil {
+		s.state.LastError = err.Error()
+	}
 }
 
 // New builds a Session. There must be exactly one Session per Builder per
@@ -251,6 +282,7 @@ func (s *Session) Run(ctx context.Context) error {
 		return errors.New("dispatchstream: session already running")
 	}
 	defer s.running.Store(false)
+	defer s.setState(false, 0, errors.New("session stopped"))
 	for attempt := 0; ; {
 		progressed, err := s.serve(ctx)
 		if ctx.Err() != nil {
@@ -259,6 +291,7 @@ func (s *Session) Run(ctx context.Context) error {
 		if progressed {
 			attempt = 0
 		}
+		s.setState(false, attempt, err)
 		s.cfg.Logger.Warn("dispatch stream disconnected; reconnecting", "err", err, "attempt", attempt)
 		t := time.NewTimer(s.cfg.Backoff(attempt))
 		select {
@@ -314,6 +347,7 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 	if s.cfg.OnBound != nil {
 		s.cfg.OnBound(s.cfg.BuilderOperator)
 	}
+	s.setState(true, 0, nil)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
