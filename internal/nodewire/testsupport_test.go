@@ -1,6 +1,8 @@
 package nodewire
 
 import (
+	"fmt"
+
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/hfields"
 )
@@ -60,4 +62,14 @@ func WorkerValueCommitmentV3Preimage(value WorkerValueCommitmentV3) ([]byte, err
 		return nil, err
 	}
 	return hfields.Preimage(DomainWorkerValueCommitmentV3, fields...)
+}
+
+// evmAccountAddress is the Bech32 account of an EVM-style secp256k1 key: the
+// last 20 bytes of keccak256 over the 64-byte uncompressed point, which is
+// what SignedOrderSigner recovers.
+func evmAccountAddress(hrp string, uncompressedPubkey []byte) (string, error) {
+	if len(uncompressedPubkey) != 65 || uncompressedPubkey[0] != 0x04 {
+		return "", fmt.Errorf("EVM account derivation needs a 65-byte uncompressed secp256k1 point")
+	}
+	return bech32ConvertAndEncode(hrp, orderKeccak(uncompressedPubkey[1:])[12:])
 }

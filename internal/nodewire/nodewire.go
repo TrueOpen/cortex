@@ -9,7 +9,6 @@ package nodewire
 const (
 	DomainInferEvidenceCommitmentsV1 = "TRUEOPEN_INFER_EVIDENCE_COMMITMENTS_V1"
 	DomainVerifyCommitV1             = "TRUEOPEN_COMMIT_V1"
-	DomainWorkerHandraiseV1          = "TRUEOPEN_WORKER_HANDRAISE_V1"
 	DomainVerifierHandraiseV1        = "TRUEOPEN_VERIFIER_HANDRAISE_V1"
 	DomainSettlementBillV1           = "TRUEOPEN_SETTLEMENT_BILL_V1"
 )
@@ -17,7 +16,6 @@ const (
 // Each signing contract carries its own published schema version.
 const (
 	VerifyCommitSchemaVersionV1      uint32 = 1
-	WorkerHandraiseSchemaVersionV1   uint32 = 1
 	VerifierHandraiseSchemaVersionV1 uint32 = 1
 )
 

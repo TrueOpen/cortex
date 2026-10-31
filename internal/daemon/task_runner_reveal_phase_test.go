@@ -458,14 +458,8 @@ func TestCommittedVerifyStopsAtTheRevealDeadline(t *testing.T) {
 }
 
 // TestRevealHalfSkipsOutputConfirmationTheModelAndTheCommitExit pins what the
-// reveal half is allowed to touch.
-//
-// The verification already happened in the commit half and its evidence is on
-// disk, so re-confirming the output would re-download it from the Builder once
-// per retry for nothing — and the retries are guaranteed until the metric
-// pipeline exists. The commit exit is skipped for a different reason: the reveal
-// travels the bus as VERIFY_RESULT, so demanding a workload tx client here would
-// fail a node closed for a route this half never takes.
+// reveal half is allowed to touch. The reveal half never re-confirms the output
+// or runs the model; without a persisted commit the gate stops it outright.
 func TestRevealHalfSkipsOutputConfirmationTheModelAndTheCommitExit(t *testing.T) {
 	sessionID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	taskID := identity.TaskIDString(sessionID, 1)
@@ -498,15 +492,11 @@ func TestRevealHalfSkipsOutputConfirmationTheModelAndTheCommitExit(t *testing.T)
 		Stage:             string(layout.StageCommitted),
 	}
 
-	_, terminal, err := executor.RunVerify(context.Background(), codec.HashBytes([]byte("task-hash")), task)
-	// The reveal reaches the frozen result body and stops at the one Keeper read
-	// this fixture does not wire. Reaching THAT boundary is the assertion: every
-	// step before it belongs to the commit half and was not repeated.
-	if err == nil || !strings.Contains(err.Error(), "Keeper task facts reader") {
-		t.Fatalf("RunVerify() error = %v, want the reveal to reach the frozen result body", err)
-	}
-	if terminal {
-		t.Fatalf("RunVerify() terminal = true, want the responsibility still live")
+	updated, terminal, err := executor.RunVerify(context.Background(), codec.HashBytes([]byte("task-hash")), task)
+	// No commit is persisted for this fixture, so the reveal gate stops the
+	// responsibility before any Builder, model or B-level read.
+	if err != nil || terminal || updated.Stage != "failed" || !strings.Contains(updated.LastError, "no signed commit is persisted") {
+		t.Fatalf("RunVerify() = %+v, %v, %v; want the gate to stop it", updated, terminal, err)
 	}
 	if len(confirmer.received) != 0 {
 		t.Fatalf("output confirmations on the reveal half = %#v, want none", confirmer.received)

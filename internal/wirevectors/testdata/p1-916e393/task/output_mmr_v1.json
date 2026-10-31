@@ -1,0 +1,255 @@
+{
+  "chunk_signing": {
+    "cases": [
+      {
+        "chunk_utf8": "Hello",
+        "digest_hex": "fafdc5c24425e0ed479dcde1aca95d8651bc4949d0166acd84179a58fc20d8ae",
+        "mmr_root_hex": "43563e7c76e0b5a63993b14b15d8d3db5be6a111e81e89532b426748997596ff",
+        "seq": 0,
+        "signature_hex": "8169f29367a97b3582095bae6234d89e2817176dd375bcbf68bf8c76e7e4342246a0eebcb48b85b227a8067672ac9c039a33e0714775eb6ec075cc5d2ae4e435"
+      },
+      {
+        "chunk_utf8": ", ",
+        "digest_hex": "d04bffe5eaba273ec25e8e44db624a099397a4b6707dc0171ac6697c6545efa7",
+        "mmr_root_hex": "6dfe72f925fdb0a408ad83b1339199d7a5cac40a0d79a0515cf167a858e5fa77",
+        "note": "The contract publishes this preimage in full, which pins the field order and both length prefixes.",
+        "preimage_hex": "0000000000000018545255454f50454e5f4f55545055545f4348554e4b5f56310000000000000013747275656f70656e2d6c6f63616c6e65742d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000008000000000000000100000000000000206dfe72f925fdb0a408ad83b1339199d7a5cac40a0d79a0515cf167a858e5fa77",
+        "seq": 1,
+        "signature_hex": "13188b404f60950cacd78ff2ff82be7645b2ed5408c03c4f5100bd5b0b2cb1722498681d9102413703a2bc283699d8e112edbc3600af5f3c812dd92fefb1e6d8"
+      },
+      {
+        "chunk_utf8": "world",
+        "digest_hex": "4d72354c7b964e955950de5d9033efd586cf095d86cb67eb963cde6763035d59",
+        "mmr_root_hex": "6df2d843848de023d294eb25f4eb7b0b763bd28de0d6b363a5d79e3468d27c5d",
+        "seq": 2,
+        "signature_hex": "c8365a3af5340b61cfa07771a00a5a9f8068410099fcedc79591da255c55e80830d8ed426e587cb323a62c3cab46dfb204b44f771f378376b7ec5ccdfa7b2b42"
+      },
+      {
+        "chunk_utf8": "!",
+        "digest_hex": "96ab76c70e321e1a07a03eae9f7e140164bed09cd4be8f1f43c8f8bac3de209b",
+        "mmr_root_hex": "17da96c6c109eb9889d40d667f726a0fdbb8a0c85173d2274aef93e93ebb0d45",
+        "seq": 3,
+        "signature_hex": "80a829a62c7a5ba8943bb93bb80439cfab7a38b621a3582887edabd763ce0d805f8340825c94099692097b1c40a4e7b77442d3b446b95f5528c98b3cd14a3f39"
+      }
+    ],
+    "dispatch_ticket_hash_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+    "domain": "TRUEOPEN_OUTPUT_CHUNK_V1",
+    "fields": [
+      "chain_id",
+      "task_hash",
+      "dispatch_ticket_hash",
+      "seq",
+      "mmr_root"
+    ],
+    "framing": "H_FIELDS_V1",
+    "producer": "selected Worker service key",
+    "signature_encoding": "secp256k1 direct over the 32-byte digest, RFC6979 deterministic, compact raw64 R||S with low-S",
+    "test_private_key_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+    "test_public_key_compressed_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+  },
+  "fin_signing": {
+    "accepted_finish_reasons": [
+      {
+        "digest_hex": "9183835f14791f8a53dc814a2f8ea994cb01e0893e65983559a4a1c6244bb041",
+        "enum": "FINISH_REASON_V1_EOS_TOKEN",
+        "value": 1
+      },
+      {
+        "digest_hex": "93be2aaff4335d17a845297e63cdbd666cba9624e7a09a6e19139a956ccce8f8",
+        "enum": "FINISH_REASON_V1_STOP_SEQUENCE",
+        "value": 2
+      },
+      {
+        "digest_hex": "a00432d51846cf8e74feece324f91d271ec4a76876f20352b72fa0b044655389",
+        "enum": "FINISH_REASON_V1_MAX_OUTPUT_TOKENS",
+        "value": 3
+      },
+      {
+        "digest_hex": "5d48fb882f59ececea890e8409a028f36bd878b799ae65eb8d881689e5dce79c",
+        "enum": "FINISH_REASON_V1_MAX_OUTPUT_DURATION",
+        "value": 4
+      },
+      {
+        "digest_hex": "7bfea2d490be4916648dfc489002e65236ff8bef0087ce3d66e59fcf213ab7db",
+        "enum": "FINISH_REASON_V1_USER_STOP",
+        "value": 5
+      },
+      {
+        "digest_hex": "33386204fd841c8b7ce94cba614c6222d7239a9faebd9f14ff03167df0c56d61",
+        "enum": "FINISH_REASON_V1_STOP_TOKEN",
+        "value": 6
+      }
+    ],
+    "chain_id": "trueopen-localnet-1",
+    "dispatch_ticket_hash_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+    "domain": "TRUEOPEN_OUTPUT_FIN_V1",
+    "eos_token_preimage_hex": "0000000000000016545255454f50454e5f4f55545055545f46494e5f56310000000000000013747275656f70656e2d6c6f63616c6e65742d31000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000020333333333333333333333333333333333333333333333333333333333333333300000000000000080000000000000003000000000000002017da96c6c109eb9889d40d667f726a0fdbb8a0c85173d2274aef93e93ebb0d45000000000000000400000001",
+    "eos_token_signature_hex": "c8a6ee1656eacb7b9fc92fe975ae75bab61a8d60e620ba48f21217bd001a75793fbd171c0b98f6f3f3a998d22dfa2ce0ad7d9ce6bf749484c1bfa1d2e3c888d6",
+    "field_encodings": {
+      "chain_id": "strict UTF-8",
+      "dispatch_ticket_hash": "raw32",
+      "final_seq": "uint64_be",
+      "finish_reason": "uint32_be enum number",
+      "output_mmr_root": "raw32",
+      "task_hash": "raw32"
+    },
+    "fields": [
+      "chain_id",
+      "task_hash",
+      "dispatch_ticket_hash",
+      "final_seq",
+      "output_mmr_root",
+      "finish_reason"
+    ],
+    "final_seq": 3,
+    "framing": "H_FIELDS_V1",
+    "mutation_digests": [
+      {
+        "digest_hex": "1cd5bfd9b062c1c9b1c2857de51f2d5842398b1d5c6b1c605eb6b79dc228341e",
+        "field": "chain_id",
+        "value": "trueopen-localnet-2"
+      },
+      {
+        "digest_hex": "fd3e867980888f8d49fd2fd77b1e9911a2e3781c1c79961158189d702c9415f6",
+        "field": "task_hash",
+        "value_hex": "1011111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "digest_hex": "a023b8054a14d3b1f8f21f044303b7bf63a3397682686e27025fcc41b42d4d87",
+        "field": "final_seq",
+        "value": 2
+      },
+      {
+        "digest_hex": "0ea0f298404e94f127e16764d3255375a64997f92e639aa4e42ec00de16f6e05",
+        "field": "output_mmr_root",
+        "value_hex": "6df2d843848de023d294eb25f4eb7b0b763bd28de0d6b363a5d79e3468d27c5d"
+      },
+      {
+        "digest_hex": "93be2aaff4335d17a845297e63cdbd666cba9624e7a09a6e19139a956ccce8f8",
+        "field": "finish_reason",
+        "note": "same value as the accepted STOP_SEQUENCE case; included explicitly as the finish_reason mutation",
+        "value": 2
+      },
+      {
+        "digest_hex": "7bca5721f8b099969156b2381332dbe6794609363b6a9d7bbbb8b9cf4143b35c",
+        "field": "dispatch_ticket_hash",
+        "value_hex": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    ],
+    "output_mmr_root_hex": "17da96c6c109eb9889d40d667f726a0fdbb8a0c85173d2274aef93e93ebb0d45",
+    "producer": "selected Worker service key",
+    "rejected_finish_reason_values": [
+      {
+        "enum": "FINISH_REASON_V1_UNSPECIFIED",
+        "reason": "unset is not a successful termination",
+        "value": 0
+      },
+      {
+        "reason": "unknown enum values fail closed; 7 is the first value above the closed set, which ends at STOP_TOKEN = 6",
+        "value": 7
+      },
+      {
+        "reason": "negative enum values fail closed",
+        "value": -1
+      }
+    ],
+    "task_hash_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "mmr": {
+    "chain_id": "trueopen-localnet-1",
+    "chunk_lengths": [
+      5,
+      2,
+      5,
+      1
+    ],
+    "chunks_utf8": [
+      "Hello",
+      ", ",
+      "world",
+      "!"
+    ],
+    "concatenated_utf8": "Hello, world!",
+    "domain": "TRUEOPEN_OUTPUT_MMR_V1",
+    "empty_output": {
+      "chunks_utf8": [
+        ""
+      ],
+      "empty_tree_root_hex": "932e5b84361104d3d319ebccd07b118c6d21e18526703855ce3cd15e20c8eb94",
+      "output_hash_hex": "df63f8049ceef9870c9238e256a1af5bd0011692f442cc6141b3b3a69517a9a6",
+      "output_leaf_count": 1
+    },
+    "framing": "MMR_ROOT_V1",
+    "output_hash_hex": "17da96c6c109eb9889d40d667f726a0fdbb8a0c85173d2274aef93e93ebb0d45",
+    "output_leaf_count": 4,
+    "prefix_roots_hex": [
+      "43563e7c76e0b5a63993b14b15d8d3db5be6a111e81e89532b426748997596ff",
+      "6dfe72f925fdb0a408ad83b1339199d7a5cac40a0d79a0515cf167a858e5fa77",
+      "6df2d843848de023d294eb25f4eb7b0b763bd28de0d6b363a5d79e3468d27c5d",
+      "17da96c6c109eb9889d40d667f726a0fdbb8a0c85173d2274aef93e93ebb0d45"
+    ],
+    "task_hash_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "negative": [
+    {
+      "chunks_utf8": [
+        "Hello, ",
+        "world",
+        "!"
+      ],
+      "name": "chunks_merged",
+      "output_hash_hex": "80f6fa281acb605a408f4b8a92e04c6a8ee4581387f273df8985d108ba2292ce",
+      "reason": "The same concatenated text in three chunks instead of four. Chunk boundaries are committed, so this is a different output_hash."
+    },
+    {
+      "chunks_utf8": [
+        ", ",
+        "Hello",
+        "world",
+        "!"
+      ],
+      "name": "chunks_reordered",
+      "output_hash_hex": "1cabfceb2dc5a613a19e658928599085d590816d3a0df24b55e52e5692d7639c",
+      "reason": "index enters the leaf preimage, so swapping two chunks changes the root."
+    },
+    {
+      "name": "empty_output_as_empty_tree",
+      "output_hash_hex": "932e5b84361104d3d319ebccd07b118c6d21e18526703855ce3cd15e20c8eb94",
+      "reason": "MmrEmptyV1(TRUEOPEN_OUTPUT_MMR_V1). An empty output is one zero-length leaf, so this value is never a legal output_hash."
+    },
+    {
+      "digest_hex": "af8b62fd317b9e5edaf29ff84f65d7e36293f3182b8070dad716a75695cc9a80",
+      "mmr_root_hex": "43563e7c76e0b5a63993b14b15d8d3db5be6a111e81e89532b426748997596ff",
+      "name": "seq_and_root_unpaired",
+      "reason": "seq 1 signed against root_1 instead of root_2. The pair is committed together, so the digest moves.",
+      "seq": 1
+    },
+    {
+      "chain_id": "trueopen-localnet-2",
+      "digest_hex": "95761fbeee3230114385e1795ad7f91ac6e6b4c96b6196fd27bcc95adf6eac92",
+      "name": "other_chain_id",
+      "reason": "A frame signature must not replay onto another chain.",
+      "seq": 1
+    },
+    {
+      "digest_hex": "22586f29baa5355e2ac9f5680082028a8a08b7c7dfed283ae75ce8c703d89613",
+      "name": "task_hash_one_bit_flipped",
+      "reason": "A frame signature must not replay onto another task.",
+      "seq": 1,
+      "task_hash_hex": "1011111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "notes": [
+    "output_hash is the MMR root of the ordered TEXT component chunks under TRUEOPEN_OUTPUT_MMR_V1, not a hash of the concatenated text. The two differ even at one chunk, so an implementation must not keep a whole-blob path for the single-chunk case.",
+    "Chunk boundaries are part of the commitment: re-chunking the same bytes changes output_hash. negative[] carries the merged and the reordered value, so an implementation that normalises boundaries fails here instead of at integration time.",
+    "An empty output is one zero-length leaf with output_leaf_count 1, not an empty tree. empty_output.empty_tree_root_hex is the value that must never appear as an output_hash.",
+    "prefix_roots_hex[k-1] is the root of the first k chunks, which is what the Worker signs at seq = k-1. Holding frame k is holding the Worker's commitment to the whole prefix.",
+    "TRUEOPEN_OUTPUT_CHUNK_V1 is H_FIELDS_V1 over exactly five fields in this order: chain_id, task_hash, dispatch_ticket_hash, seq, mmr_root. seq is u64_be and mmr_root is raw32, never hex text.",
+    "TRUEOPEN_OUTPUT_FIN_V1 is H_FIELDS_V1 over exactly six fields in this order: chain_id, task_hash, dispatch_ticket_hash, final_seq, output_mmr_root, finish_reason. final_seq is u64_be, output_mmr_root is raw32 and the FinishReasonV1 enum number is uint32_be.",
+    "OutputFinV1 is successful termination only. FinishReasonV1 values 1 through 4 are accepted; UNSPECIFIED, unknown values, failures and cancellations are rejected before digest verification.",
+    "output_leaf_count is an InferReceipt field and enters neither digest. The root alone does not fix the tree shape, so a prefix contradiction proof takes the leaf count from chain state rather than from the submitter.",
+    "Both domains feed the final output root in TRUEOPEN_INFER_RECEIPT_V3."
+  ],
+  "schema": "trueopen.task.output_mmr.v1",
+  "source": "Output-stream chunk and MMR wire contract; the shared tree primitive is in shared/mmr_primitive_v1.json."
+}

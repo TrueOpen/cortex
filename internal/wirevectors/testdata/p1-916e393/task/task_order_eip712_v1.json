@@ -1,0 +1,62 @@
+{
+  "contract": "TaskOrderV3 to order-domain EIP-712 digest",
+  "domain": {
+    "chain_id": "424242",
+    "domain_separator": "b7a73368af2c3101ea0a2e6f4c7d3668621d2dc7815c75aaf9d7b8943e6e378e",
+    "name": "TrueOpen Task Order",
+    "version": "3"
+  },
+  "encode_type": "TaskOrder(string chainId,string user,bytes32 sessionId,uint64 orderSequence,bytes32 modelId,uint32 profileVersion,string maxFee,string feeDenom,uint64 earliestSubmitHeight,uint64 orderExpireHeight,bytes32 taskHash)",
+  "fee_denom": "uusdc",
+  "notes": [
+    "Each case links a task_order_v3.json vector to the digest its user signs. taskHash is that vector digest_hex (TRUEOPEN_TASK_ORDER_V3 over the canonical order); the other ten message fields are copied from the same order, with user the canonical Bech32 form of its 20-byte user_address.",
+    "The domain is the order domain of shared/account_signing_v1.json: name \"TrueOpen Task Order\", version \"3\", chainId the signer-chosen signature_chain_id that SignedOrderV2 carries (424242 in these cases; a wallet uses its active network). feeDenom is not an order field: it is the chain business_denom (hub.v1 Params phase0.business_denom), and the Keeper verifies with its current value.",
+    "No signature is published: the user addresses of these orders have no published key. account_signing_v1.json task_order carries a signed example over an opaque taskHash.",
+    "task_order_v3_max_amounts has no case. Its non-zero assignment_priority_fee is rejected by the Phase 0 order validation before an EIP-712 digest is built, so it stays an encoding-only vector.",
+    "Derived from the Node implementation (BuildTaskOrderEIP712Digest over the TaskOrderV3 rebuilt from the typed fields, whose TaskOrderHash reproduces each vector digest)."
+  ],
+  "schema": "trueopen-task-order-eip712-v1",
+  "type_hash": "0ff134fd58c0e290fba30db564e6b74fced8f9cacbb8c246722d2ee072e3c114",
+  "vectors": [
+    {
+      "hash_struct": "373d0b87983477c9ebbcb5bdb28c2507cb4ae27707eb95314598d6f64a2bb660",
+      "message": {
+        "chainId": "trueopen-golden-1",
+        "earliestSubmitHeight": "1000",
+        "feeDenom": "uusdc",
+        "maxFee": "150000",
+        "modelId": "5555555555555555555555555555555555555555555555555555555555555555",
+        "orderExpireHeight": "2000",
+        "orderSequence": "42",
+        "profileVersion": "1",
+        "sessionId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "taskHash": "057fee505c662a2480239af6ff4925b4ccce4b2f0caac392c6d91a6132a0ba6e",
+        "user": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
+      },
+      "name": "task_order_v3_core_eip712",
+      "signing_digest": "0c06bc6a15f60ce1e2571ad4f087b0a1a25f8b77a484cd15ed1d49e5ff537d72",
+      "task_hash": "057fee505c662a2480239af6ff4925b4ccce4b2f0caac392c6d91a6132a0ba6e",
+      "task_order_vector": "task/task_order_v3.json#task_order_v3_core"
+    },
+    {
+      "hash_struct": "dc42ff06bc19fe4ab77d48db1741fa82889e24200d7879a52ae8361103be8d35",
+      "message": {
+        "chainId": "trueopen-golden-1",
+        "earliestSubmitHeight": "1000",
+        "feeDenom": "uusdc",
+        "maxFee": "150000",
+        "modelId": "5555555555555555555555555555555555555555555555555555555555555555",
+        "orderExpireHeight": "2000",
+        "orderSequence": "42",
+        "profileVersion": "1",
+        "sessionId": "1111111111111111111111111111111111111111111111111111111111111111",
+        "taskHash": "a0bf7a41ce993a8dfd16be02a96ac09880dcc57be06c538f6d5bd78a400c400c",
+        "user": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc"
+      },
+      "name": "task_order_v3_lower_bound_eip712",
+      "signing_digest": "ab870ae439d41370ec7606adb940d293d5b5c5e9d6322127744c543890086673",
+      "task_hash": "a0bf7a41ce993a8dfd16be02a96ac09880dcc57be06c538f6d5bd78a400c400c",
+      "task_order_vector": "task/task_order_v3.json#task_order_v3_lower_bound"
+    }
+  ]
+}

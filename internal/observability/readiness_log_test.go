@@ -114,7 +114,7 @@ func TestReadinessLogStaysQuietWhileEverythingIsReady(t *testing.T) {
 // the restatement interval elapses.
 func TestReadinessLogRepeatsAnUnchangedReasonOnlyAfterTheRestateInterval(t *testing.T) {
 	readinessLog, recorder := newReadinessLogRecorder(5 * time.Minute)
-	status := notReadyStatus("nexus", "nats://127.0.0.1:4222", "nexus readiness probe failed")
+	status := notReadyStatus("nexus", "https://127.0.0.1:8080", "nexus readiness probe failed")
 
 	readinessLog.Observe(false, []diagnostics.DependencyStatus{status})
 	recorder.reset()
@@ -274,7 +274,7 @@ func TestReadinessLogQuotesAndBoundsRemoteReasons(t *testing.T) {
 	readinessLog, recorder := newReadinessLogRecorder(0)
 
 	readinessLog.Observe(false, []diagnostics.DependencyStatus{
-		notReadyStatus("nexus", "nats://127.0.0.1:4222", "line one\nreason=\"forged\" "+strings.Repeat("x", 500)),
+		notReadyStatus("nexus", "https://127.0.0.1:8080", "line one\nreason=\"forged\" "+strings.Repeat("x", 500)),
 	})
 
 	line := recorder.records[0].Message
@@ -315,7 +315,7 @@ func TestReadinessLogStatesAnOptionalDependencyOnceAndNeverRestatesIt(t *testing
 	optional := notReadyStatus("tx_broadcaster", "http://127.0.0.1:1317",
 		"tx_broadcaster readiness probe failed: signer cannot produce Cosmos transactions")
 	optional.Optional = true
-	blocking := notReadyStatus("nexus", "nats://127.0.0.1:4222", "nexus readiness probe failed")
+	blocking := notReadyStatus("nexus", "https://127.0.0.1:8080", "nexus readiness probe failed")
 
 	readinessLog.Observe(false, []diagnostics.DependencyStatus{optional, blocking})
 	firstMessages := make([]string, 0, len(recorder.records))

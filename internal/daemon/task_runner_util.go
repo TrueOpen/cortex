@@ -8,11 +8,8 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
-	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/policy"
 	"github.com/TrueOpen/cortex/internal/txclient"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
-	"google.golang.org/protobuf/proto"
 )
 
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {
@@ -32,52 +29,6 @@ func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageS
 // carry, so FromTaskData is what tells the precheck not to look for either.
 func confirmedOutputSummary(taskID string, outputHash codec.Hash) policy.OutputPackageSummary {
 	return policy.OutputPackageSummary{TaskID: taskID, OutputHash: outputHash, FromTaskData: true}
-}
-
-// validateNexusOrderBroadcast checks an ORDER_BROADCAST payload. The signed
-// order it carries is the only authority in the frame: the user signed that
-// order, and every fact (session, sequence, model, deadline, builder set) is
-// read off the decoded TaskOrderV1 rather than off payload copies, which the
-// V2 payload no longer has.
-//
-// It returns the derived task_hash, the decoded order facts and the exact
-// SignedOrderV1 bytes (re-marshalled from the received message; task identity
-// is field-derived, so re-marshalling cannot change it).
-func validateNexusOrderBroadcast(order *busv1.OrderBroadcastV1, envelope builderclient.BusEnvelope, verifyTaskOrder bool) (codec.Hash, nodewire.TaskOrderFacts, []byte, error) {
-	signed := order.GetSignedOrder()
-	if signed == nil {
-		return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("OrderBroadcast signed_order is required")
-	}
-	signedOrderBytes, err := proto.Marshal(signed)
-	if err != nil {
-		return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("marshal OrderBroadcast signed_order: %w", err)
-	}
-	taskHash, facts, err := nodewire.TaskOrderHashAndFactsEnvelope(hex.EncodeToString(signedOrderBytes))
-	if err != nil {
-		return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("OrderBroadcast signed_order is not a canonical TaskOrderV1 carrier: %w", err)
-	}
-	if taskHash == (codec.Hash{}) {
-		return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("OrderBroadcast task_hash must not be zero")
-	}
-	if verifyTaskOrder {
-		if facts.ChainID != envelope.ChainID {
-			return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("OrderBroadcast order chain_id %q does not match envelope %q", facts.ChainID, envelope.ChainID)
-		}
-		// order_sequence is NOT checked for zero (#324): zero is the first order
-		// of every session, not an unset field. Keeper creates StreamState without
-		// assigning NextExpectedSequence and requires each order to equal it
-		// exactly, so 0 is the only legal opening value. Nothing is lost by
-		// dropping the check: task_id is derived from (session_id, order_sequence),
-		// so an order claiming a different sequence fails the task identity check
-		// the caller runs against the subject placeholder.
-		if facts.SessionID == "" || facts.ModelID == "" || facts.ProfileVersion == 0 || facts.OrderExpireHeight == 0 {
-			return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("OrderBroadcast signed order lacks authoritative fields")
-		}
-		if facts.SignatureScheme == "" || facts.UserSignature == "" {
-			return codec.Hash{}, nodewire.TaskOrderFacts{}, nil, fmt.Errorf("OrderBroadcast signed order lacks the user signature")
-		}
-	}
-	return taskHash, facts, signedOrderBytes, nil
 }
 
 // decodeHash32Hex reads a 32-byte commitment in the lowercase hex spelling the

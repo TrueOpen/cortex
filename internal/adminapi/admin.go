@@ -128,6 +128,12 @@ type ModelRegisterResponse struct {
 	DryRun       bool                                  `json:"dry_run"`
 }
 
+// retiredViaBuilderMode is the registration mode that published the
+// registration on the NATS bus. It is refused by name so a caller learns why.
+const retiredViaBuilderMode modelregistry.SubmitMode = "via-builder"
+
+var errViaBuilderRetired = errors.New("via-builder registration was retired with the NATS bus; use direct")
+
 type modelRegisterWireRequest struct {
 	ModelRegisterRequest
 	Quote *modelregistry.FeeQuote  `json:"quote,omitempty"`
@@ -138,7 +144,6 @@ type modelRegisterWireRequest struct {
 type modelRegisterWireResponse struct {
 	ModelRegisterResponse
 	TxID     string                              `json:"tx_id,omitempty"`
-	OutboxID string                              `json:"outbox_id,omitempty"`
 	Material *modelregistry.RegistrationMaterial `json:"material,omitempty"`
 }
 
@@ -524,6 +529,9 @@ func (s *Server) handleCurrentModelSelfTest(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleModelRegister(w http.ResponseWriter, r *http.Request) {
 	var req modelRegisterWireRequest
 	s.handle(w, r, &req, func(ctx context.Context) (any, error) {
+		if req.Mode == retiredViaBuilderMode {
+			return nil, errViaBuilderRetired
+		}
 		registryReq := modelregistry.RegisterRequest{
 			Manifest:               req.Manifest,
 			ModelRegistrationFee:   req.ModelRegistrationFee,
@@ -546,8 +554,7 @@ func (s *Server) handleModelRegister(w http.ResponseWriter, r *http.Request) {
 				Profile:      result.ProfileStage,
 				DryRun:       result.DryRun,
 			},
-			TxID:     result.TxID,
-			OutboxID: result.OutboxID,
+			TxID: result.TxID,
 		}
 		if req.Quote != nil {
 			response.Material = &result.Material
@@ -777,7 +784,6 @@ func (c *Client) ModelRegister(ctx context.Context, req modelregistry.RegisterRe
 		ProfileStage: out.Profile,
 		DryRun:       out.DryRun,
 		TxID:         out.TxID,
-		OutboxID:     out.OutboxID,
 	}
 	if out.Material != nil {
 		result.Material = *out.Material
@@ -994,14 +1000,11 @@ func truncateError(message string) string {
 
 func diagnosticsTable(report diagnostics.Diagnostics) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("mode\tmodel_transport\tkeeper_endpoint\tnexus_ingress\tnexus_nats\tnexus_envelope_auth_mode\tnexus_nats_identity\tsecurity_warnings\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\n",
+	b.WriteString(fmt.Sprintf("mode\tmodel_transport\tkeeper_endpoint\tnexus_ingress\tsecurity_warnings\n%s\t%s\t%s\t%s\t%s\n\n",
 		report.Mode,
 		report.ModelTransport,
 		report.KeeperEndpoint,
 		report.NexusIngress,
-		report.NexusNATS,
-		report.NexusEnvelopeAuthMode,
-		formatNATSIdentityStatus(report.NexusNATSIdentity),
 		strings.Join(report.SecurityWarnings, ","),
 	))
 	b.WriteString("name\tendpoint\tconfigured\tready\terror\n")
@@ -1009,21 +1012,6 @@ func diagnosticsTable(report diagnostics.Diagnostics) string {
 		b.WriteString(fmt.Sprintf("%s\t%s\t%t\t%t\t%s\n", status.Name, status.Endpoint, status.Configured, status.Ready, status.Error))
 	}
 	return b.String()
-}
-
-// formatNATSIdentityStatus renders the on-chain NATS identity binding for the
-// table format: "(none)" when the node still connects with creds or a token,
-// otherwise the generated public key, the on-chain nonce it was bound to, and
-// the AUTH account whose sentinel JWT the CONNECT presents.
-func formatNATSIdentityStatus(status *diagnostics.NATSIdentityStatus) string {
-	if status == nil {
-		return "(none)"
-	}
-	sentinel := status.SentinelAccount
-	if sentinel == "" {
-		sentinel = "(none)"
-	}
-	return fmt.Sprintf("%s nonce=%d sentinel_account=%s", status.UserPublicKey, status.BindingNonce, sentinel)
 }
 
 func modelStatusProjectionTable(status modelregistry.StatusProjection) string {

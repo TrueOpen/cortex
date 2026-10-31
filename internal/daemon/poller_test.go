@@ -21,8 +21,8 @@ func TestKeeperPollerReplaysWholeBlockBeforeAdvancingHeight(t *testing.T) {
 	page := chainclient.KeeperEventsPage{
 		ChainHeight: 20, FinalizedHeight: 12, LastPosition: chainclient.BlockEndPosition(12), RangeStartHeight: 1, RangeEndHeight: 12, RangeComplete: true,
 		Events: []chainclient.KeeperEvent{
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-a", SessionID: "session-1", OrderDigest: hashA, Height: 12},
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-b", SessionID: "session-1", OrderDigest: hashB, Height: 12},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-a", SessionID: "session-1", OrderDigest: hashA, Height: 12},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-b", SessionID: "session-1", OrderDigest: hashB, Height: 12},
 		},
 	}
 	keeper := &scriptedKeeperEvents{pages: []chainclient.KeeperEventsPage{page, page}, taskReader: terminalTaskReader(map[string]codec.Hash{"task-a": hashA, "task-b": hashB})}
@@ -66,8 +66,8 @@ func TestKeeperPollerCommitsCompletedBlocksIndependently(t *testing.T) {
 	keeper := &scriptedKeeperEvents{pages: []chainclient.KeeperEventsPage{{
 		ChainHeight: 20, FinalizedHeight: 12, LastPosition: chainclient.BlockEndPosition(12), RangeStartHeight: 1, RangeEndHeight: 12, RangeComplete: true,
 		Events: []chainclient.KeeperEvent{
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-a", SessionID: "session-1", OrderDigest: hashA, Height: 11},
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-b", SessionID: "session-1", OrderDigest: hashB, Height: 12},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-a", SessionID: "session-1", OrderDigest: hashA, Height: 11},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-b", SessionID: "session-1", OrderDigest: hashB, Height: 12},
 		},
 	}}, taskReader: terminalTaskReader(map[string]codec.Hash{"task-a": hashA, "task-b": hashB})}
 	poller := NewKeeperPoller(db, keeper, NewReconciler(ReconcilerOptions{TaskReader: keeper.taskReader}), KeeperPollerConfig{
@@ -244,8 +244,8 @@ func TestKeeperPollerAdvancesPastAnEventItCanNeverUse(t *testing.T) {
 	keeper := &scriptedKeeperEvents{pages: []chainclient.KeeperEventsPage{{
 		ChainHeight: 20, FinalizedHeight: 12, LastPosition: chainclient.BlockEndPosition(12), RangeStartHeight: 1, RangeEndHeight: 12, RangeComplete: true,
 		Events: []chainclient.KeeperEvent{
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-unreadable", SessionID: "session-1", Height: 12},
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-good", SessionID: "session-1", Height: 12},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-unreadable", SessionID: "session-1", Height: 12},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-good", SessionID: "session-1", Height: 12},
 		},
 	}}}
 	keeper.taskReader = taskReaderFunc(func(_ context.Context, sessionID, taskID string) (chainclient.TaskSnapshot, error) {
@@ -292,7 +292,7 @@ func TestKeeperPollerRetriesRatherThanSkippingATransientKeeperFailure(t *testing
 	keeper := &scriptedKeeperEvents{pages: []chainclient.KeeperEventsPage{{
 		ChainHeight: 20, FinalizedHeight: 12, LastPosition: chainclient.BlockEndPosition(12), RangeStartHeight: 1, RangeEndHeight: 12, RangeComplete: true,
 		Events: []chainclient.KeeperEvent{
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: "task-a", SessionID: "session-1", Height: 12},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "task-a", SessionID: "session-1", Height: 12},
 		},
 	}}}
 	keeper.taskReader = taskReaderFunc(func(context.Context, string, string) (chainclient.TaskSnapshot, error) {
@@ -360,7 +360,7 @@ func TestKeeperPollerRecoversFromEventGap(t *testing.T) {
 	}
 	hash := codec.HashWithDomain("TEST_TASK", []byte("gap-task"))
 	gapEvent := chainclient.KeeperEvent{
-		Type: chainclient.KeeperEventAssignmentFailed, TaskID: "gap-task", SessionID: "session-1",
+		Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: "gap-task", SessionID: "session-1",
 		OrderDigest: hash, Height: 41,
 	}
 	// First call returns a page that starts after the current cursor, creating

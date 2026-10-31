@@ -2,7 +2,6 @@ package builderclient
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -11,19 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 )
-
-type recordingPublisher struct {
-	subject string
-	taskID  string
-	payload []byte
-}
-
-func (p *recordingPublisher) Publish(_ context.Context, req PublishRequest) error {
-	p.subject = req.Subject
-	p.taskID = req.TaskID
-	p.payload = append([]byte(nil), req.Payload...)
-	return nil
-}
 
 // TestNewNexusHTTPClientAppliesTLSFloor pins the transport hardening the Nexus
 // HTTP client injects when the caller brings no transport of its own, and that a
@@ -171,83 +157,4 @@ func TestNexusHTTPClientRedirectPolicy(t *testing.T) {
 			t.Fatalf("downgrade target requests = %d body=%v, want no replay", targetRequests.Load(), targetBody.Load())
 		}
 	})
-}
-
-func TestNexusClientPublishDelegatesToPublisher(t *testing.T) {
-	publisher := &recordingPublisher{}
-	client := NewNexusClient(publisher)
-	payload := []byte("receipt")
-
-	if err := client.Publish(context.Background(), PublishRequest{
-		Subject: "trueopen.output-avail.task-1",
-		TaskID:  "task-1",
-		Payload: payload,
-	}); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-
-	if publisher.subject != "trueopen.output-avail.task-1" {
-		t.Fatalf("subject = %q", publisher.subject)
-	}
-	if publisher.taskID != "task-1" {
-		t.Fatalf("taskID = %q, want task-1", publisher.taskID)
-	}
-	if !bytes.Equal(publisher.payload, payload) {
-		t.Fatalf("payload = %q, want %q", publisher.payload, payload)
-	}
-}
-
-func TestNexusClientRejectsMissingPublishFields(t *testing.T) {
-	client := NewNexusClient(&recordingPublisher{})
-	if err := client.Publish(context.Background(), PublishRequest{Subject: "", TaskID: "task-1"}); err == nil {
-		t.Fatalf("Publish() error = nil, want missing subject error")
-	}
-	if err := client.Publish(context.Background(), PublishRequest{Subject: "trueopen.output-avail.task-1"}); err == nil {
-		t.Fatalf("Publish() error = nil, want missing task id error")
-	}
-}
-
-func TestNexusClientRejectsMissingPublisher(t *testing.T) {
-	client := NewNexusClient(nil)
-	err := client.Publish(context.Background(), PublishRequest{Subject: "trueopen.output-avail.task-1", TaskID: "task-1"})
-	if err == nil {
-		t.Fatalf("Publish() error = nil, want missing publisher error")
-	}
-}
-
-func TestNewNATSPublisherValidatesURL(t *testing.T) {
-	for _, rawURL := range []string{"nats://127.0.0.1:4222", "tls://nexus.devnet.trueopen.xyz:4222"} {
-		t.Run(rawURL, func(t *testing.T) {
-			publisher, err := NewNATSPublisher(rawURL, "token-1")
-			if err != nil {
-				t.Fatalf("NewNATSPublisher() error = %v", err)
-			}
-			if publisher == nil {
-				t.Fatalf("NewNATSPublisher() publisher = nil")
-			}
-		})
-	}
-
-	for _, rawURL := range []string{"", "http://127.0.0.1:4222", "://bad"} {
-		t.Run("reject "+rawURL, func(t *testing.T) {
-			if publisher, err := NewNATSPublisher(rawURL, ""); err == nil || publisher != nil {
-				t.Fatalf("NewNATSPublisher(%q) = (%T, %v), want nil error", rawURL, publisher, err)
-			}
-		})
-	}
-}
-
-func TestNewNATSPublisherDoesNotDialDuringConstruction(t *testing.T) {
-	restore := replaceNATSConnectorForTest(t, func(_ string, _ string) (natsPublishTransport, error) {
-		return nil, errors.New("connect failed")
-	})
-	defer restore()
-
-	publisher, err := NewNATSPublisher("tls://nexus.devnet.trueopen.xyz:4222", "token-1")
-	if err != nil {
-		t.Fatalf("NewNATSPublisher() error = %v", err)
-	}
-	if publisher == nil {
-		t.Fatalf("NewNATSPublisher() publisher = nil")
-	}
 }

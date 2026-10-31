@@ -139,25 +139,19 @@ func (a *Authenticator) SignFetch(ctx context.Context, key builderclient.TaskDat
 	return a.SignRequest(ctx, "FetchTaskData", key, builderOperator, digest)
 }
 
-// CommittedBusEnvelopeIdentity returns the two values this node's own committed
+// CommittedServiceBinding returns the two values this node's own committed
 // chain view supplies to every outbound frozen wire: the
 // service_authorization_nonce Keeper currently holds for this Cortex node, and
 // the height Keeper served that binding at.
 //
 // The nonce is the replay counter the frozen Task wires carry and the Keeper
 // compares for equality against the node's own record, so it must come from a
-// committed read rather than a local counter. It is also TRUEOPEN_BUS_ENVELOPE_V1
-// field 7, which the receiver checks against the binding it resolves at
-// verification time (interface-and-topic-list.md §5.2 field 7) - one value, one source,
-// used by both wires.
+// committed read rather than a local counter.
 //
-// The height is bus envelope field 14, source_snapshot_height: the sender's own
-// chain view (§5.2 field 14). §5.2 field 14 states outright that it is NOT used
-// for historical key lookup, and §5.2 forbids a historical-key fallback outright,
-// so do not pass it
-// to a key, BuilderSet or binding query. It is provenance a receiver may log or
-// bound freshness with, nothing more.
-func (a *Authenticator) CommittedBusEnvelopeIdentity(ctx context.Context) (uint64, uint64, error) {
+// The height is this node's own chain view. It is NOT for historical key
+// lookup, so do not pass it to a key, BuilderSet or binding query. It is
+// provenance a caller may log or bound freshness with, nothing more.
+func (a *Authenticator) CommittedServiceBinding(ctx context.Context) (uint64, uint64, error) {
 	if a == nil {
 		return 0, 0, fmt.Errorf("task-data authenticator is required")
 	}
@@ -169,7 +163,7 @@ func (a *Authenticator) CommittedBusEnvelopeIdentity(ctx context.Context) (uint6
 }
 
 // committedIdentity performs the one committed read the request expiry, the
-// receipt's replay counter and the bus envelope's chain-view fields are all bound
+// receipt's replay counter and the chain-view height are all bound
 // to, and returns (service_authorization_nonce, committed height, request expiry
 // height).
 //

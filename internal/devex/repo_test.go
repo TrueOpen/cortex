@@ -1,11 +1,9 @@
 package devex
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -98,15 +96,20 @@ func devnetRendererEnv(generatedDir, tokenPath, chainID string) []string {
 		"CORTEX_OPERATOR_ADDRESS=trueopen1operator",
 		"CORTEX_MODEL_ID=6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2", "CORTEX_MODEL_PROFILES=6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1=llm_text_v1",
 		"CORTEX_MODEL_SERVICE_ID=model-service-dev", "CORTEX_MODEL_ENDPOINT=model-service:9090",
-		"CORTEX_MODEL_TLS_PUBKEY_HASH="+strings.Repeat("ab", 32), "CORTEX_NEXUS_NATS_CA_FILE=/etc/cortex/nats-ca.pem",
-		"CORTEX_NEXUS_NATS_USER_KEY_FILE=/etc/cortex/nats-user.nk",
+		"CORTEX_MODEL_TLS_PUBKEY_HASH="+strings.Repeat("ab", 32),
 		"CORTEX_NODE_RPC=https://rpc.example", "CORTEX_NODE_REST=https://rest.example",
 		"CORTEX_KEEPER_API=https://keeper.example", "CORTEX_NEXUS_INGRESS=https://nexus.example",
-		"CORTEX_NEXUS_NATS=tls://nats.example:4222", "CORTEX_SIGNER_URI=http://signer:9080",
+		"CORTEX_SIGNER_URI=http://signer:9080",
 		"CORTEX_SERVICE_KEY_REF=kms://cortex/service-key&alias|dev",
 		"CORTEX_NEXUS_BUILDER_OPERATOR=", "CORTEX_GAS_PAYER=trueopen1operator",
 		"CORTEX_RETENTION_POLICY_VERSION=retention-v1", "CORTEX_MINIMUM_RETENTION_BLOCKS=100800",
 		"NEXUS_TOKEN_FILE="+tokenPath,
+		"CORTEX_DISPATCH_BUILDERS=trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+		"CORTEX_DISPATCH_EVIDENCE_RETENTION_BLOCKS=201600", "CORTEX_DISPATCH_HEARTBEAT_MS=10000",
+		"CORTEX_DISPATCH_TTL_MS=30000", "CORTEX_DISPATCH_MIN_CHANGE_INTERVAL_MS=500",
+		"CORTEX_DISPATCH_MIN_PRICE_BID=1000", "CORTEX_DISPATCH_KEEPALIVE_MS=15000",
+		"CORTEX_DISPATCH_KEEPALIVE_MAX_MISSED=3", "CORTEX_DISPATCH_RESCUE_MARGIN_BLOCKS=5",
+		"CORTEX_DISPATCH_ROSTER_GRACE_BLOCKS=20", "CORTEX_DISPATCH_CHALLENGE_MARGIN_BLOCKS=5",
 	)
 }
 
@@ -141,8 +144,8 @@ func TestRepositoryDocumentsIntegrationBoundary(t *testing.T) {
 		"evidence-retention.md",
 		"troubleshooting.md",
 		"Integration Status",
-		"concrete publish and",
-		"subscribe adapters",
+		"one direct",
+		"`IngressAPI.DispatchStream` per Builder",
 		"Pebble stores only restart-critical local state",
 		"active infer and verify responsibility documents",
 		"not an audit or",
@@ -225,12 +228,12 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"v0.5.1",
-		"1c9db9b8d45baf28f2963357a963b1403cb4886c",
-		"d0726ab567377a84842f5a273db2ce8b508c86c2a7895aeae49197fd389bd6b4",
-		"proto/testdata/wire-v0.5.1.binpb",
-		// The release asset is a buf build, so the provenance names the buf
-		// version that reproduces it as well as the tag.
+		"916e3936355cb787f6e82509619f55c6b5aad7e2",
+		"v0.5.2-0.20261029083751-916e3936355c",
+		"ad68a72183f458830515a8d2f161c2f4f7801eeb4ce68f32bfc4d1ddefbe2467",
+		"proto/testdata/wire-916e393.binpb",
+		// The descriptor is a buf build, so the provenance names the buf
+		// version that reproduces it as well as the commit.
 		"buf@v1.71.0",
 		"protoc-gen-go",
 		"make proto-gen-chain",
@@ -241,59 +244,5 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("proto/CHAIN_BINDINGS.md missing %q", want)
 		}
-	}
-}
-
-// FakeBus does not merely skip the envelope signature the way TrustedNATSDev
-// does: it passes verifyTaskOrder=false to validateNexusOrderBroadcast, which
-// drops canonical TaskOrderV1 decoding, the task_hash-commits-signed_order
-// check, and every payload-matches-signed_order comparison
-// (internal/daemon/task_runner_util.go:60-75). A deployment that could set it
-// would accept an OrderBroadcast contradicting the order its own Builder
-// signed.
-//
-// It used to be wired from configuration as `FakeBus: cfg.Mode ==
-// config.ModeFake`, which was dead — newTaskRunner returns for every mode but
-// real before reaching it — and would have been a hole the moment anyone gave
-// fake mode a task runner to make the loop runnable. Reads of the field are
-// fine; this pins that nothing outside a test writes it.
-func TestFakeBusStaysTestOnly(t *testing.T) {
-	assign := regexp.MustCompile(`(^|[^.\w])FakeBus\s*[:=]`)
-	root := "../.."
-	var offenders []string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", "bin":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		body, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		for i, line := range strings.Split(string(body), "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "//") {
-				continue
-			}
-			if assign.MatchString(line) {
-				offenders = append(offenders, fmt.Sprintf("%s:%d: %s", path, i+1, strings.TrimSpace(line)))
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk repository: %v", err)
-	}
-	if len(offenders) != 0 {
-		t.Fatalf("FakeBus is assigned outside a test, which makes canonical order verification configuration-reachable:\n%s",
-			strings.Join(offenders, "\n"))
 	}
 }

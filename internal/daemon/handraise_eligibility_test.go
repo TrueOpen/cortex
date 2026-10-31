@@ -2,11 +2,9 @@ package daemon
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/policy"
 )
@@ -20,20 +18,8 @@ func TestKeeperHandraiseEligibilityUsesAuthoritativeSingleNodeFacts(t *testing.T
 	resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: model,
 		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
-		VerifyDeadlineDelta: 30, SelfRescueGasBudget: 10,
+		VerifyDeadlineDelta: 30,
 	})
-
-	workerInput, expires, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID,
-		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
-	})
-	if err != nil {
-		t.Fatalf("Worker eligibility error = %v", err)
-	}
-	if !policy.EvaluateWorkerPrecheck(workerInput).Accepted || workerInput.CurrentHeight != 120 || workerInput.SupportFreshnessWindow != 30 || workerInput.AvailableSlots != 2 || expires != 140 ||
-		!strings.Contains(workerInput.CapacitySnapshotRef, "queue:2:max:4:available:2") {
-		t.Fatalf("Worker eligibility = %#v expires=%d", workerInput, expires)
-	}
 
 	verifierInput, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
 		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
@@ -61,14 +47,7 @@ func TestKeeperHandraiseEligibilityRejectsMissingOrExhaustedModelCapacity(t *tes
 				ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"},
 				Keeper:      activeHandraiseKeeper(),
 				Model:       model, ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
-				SelfRescueGasBudget: 10,
 			})
-			if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-				ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
-			}); err == nil {
-				t.Fatal("Worker eligibility accepted unavailable model capacity")
-			}
 			if _, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
 				TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
@@ -98,18 +77,14 @@ func TestKeeperHandraiseEligibilityRejectsInactiveSupport(t *testing.T) {
 	keeper.support = support
 	resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: modelservice.NewFakeService(),
-		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
+		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
 	})
-	if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140}); err == nil {
-		t.Fatal("Worker eligibility accepted inactive Keeper support")
+	if _, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115}); err == nil {
+		t.Fatal("Verifier eligibility accepted inactive Keeper support")
 	}
 }
 
 func TestKeeperHandraiseEligibilityUsesAuthoritativeSupportFreshness(t *testing.T) {
-	worker := WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-		ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
-	}
 	verifier := VerifierHandraiseCandidate{
 		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
@@ -149,18 +124,17 @@ func TestKeeperHandraiseEligibilityUsesAuthoritativeSupportFreshness(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 				ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: test.keeper, Model: modelservice.NewFakeService(),
-				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
+				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
 			})
-			workerInput, _, workerErr := resolver.Worker(context.Background(), worker)
 			verifierInput, verifierErr := resolver.Verifier(context.Background(), verifier)
 			if test.wantOK {
-				if workerErr != nil || verifierErr != nil || workerInput.SupportFreshnessWindow != 30 || verifierInput.SupportFreshnessWindow != 30 {
-					t.Fatalf("boundary worker = %#v err=%v, verifier = %#v err=%v", workerInput, workerErr, verifierInput, verifierErr)
+				if verifierErr != nil || verifierInput.SupportFreshnessWindow != 30 {
+					t.Fatalf("boundary verifier = %#v err=%v", verifierInput, verifierErr)
 				}
 				return
 			}
-			if workerErr == nil || verifierErr == nil {
-				t.Fatalf("stale facts accepted: worker err=%v verifier err=%v", workerErr, verifierErr)
+			if verifierErr == nil {
+				t.Fatal("stale facts accepted by verifier eligibility")
 			}
 		})
 	}
@@ -174,21 +148,14 @@ func TestKeeperHandraiseEligibilityAllowsCurrentNodeColdStart(t *testing.T) {
 	keeper.support.ActiveSupportStakeSnapshot = chainclient.NewUint64String(0)
 	resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: modelservice.NewFakeService(),
-		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
-	})
-	workerInput, _, workerErr := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-		ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
 	})
 	verifierInput, verifierErr := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
 		TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 		Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 	})
-	if workerErr != nil || verifierErr != nil || workerInput.SupportState != policy.SupportDeclaredBootstrap || !workerInput.P30ColdStartCandidate || verifierInput.SupportState != policy.SupportDeclaredBootstrap {
-		t.Fatalf("cold-start worker = %#v err=%v, verifier = %#v err=%v", workerInput, workerErr, verifierInput, verifierErr)
-	}
-	if decision := policy.EvaluateWorkerPrecheck(workerInput); !decision.Accepted {
-		t.Fatalf("cold-start Worker policy rejected current Node eligibility: %#v", decision)
+	if verifierErr != nil || verifierInput.SupportState != policy.SupportDeclaredBootstrap {
+		t.Fatalf("cold-start verifier = %#v err=%v", verifierInput, verifierErr)
 	}
 }
 
@@ -214,18 +181,14 @@ func TestKeeperHandraiseEligibilityRejectsCurrentNodeAdmissionMismatches(t *test
 			test.mutate(&keeper)
 			resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 				ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: modelservice.NewFakeService(),
-				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
-			})
-			_, _, workerErr := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-				ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
+				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
 			})
 			_, verifierErr := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
 				TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
 			})
-			if workerErr == nil || verifierErr == nil {
-				t.Fatalf("admission mismatch accepted: worker err=%v verifier err=%v", workerErr, verifierErr)
+			if verifierErr == nil {
+				t.Fatal("admission mismatch accepted by verifier eligibility")
 			}
 		})
 	}
@@ -245,14 +208,8 @@ func TestKeeperHandraiseEligibilityAdmitsCandidateEligibleBonds(t *testing.T) {
 			keeper.bond.Status = status
 			resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 				ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: keeper, Model: modelservice.NewFakeService(),
-				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
+				ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service",
 			})
-			if _, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-				TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1,
-				ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140,
-			}); err != nil {
-				t.Fatalf("Worker eligibility refused bond status %q: %v", status, err)
-			}
 			if _, err := resolver.Verifier(context.Background(), VerifierHandraiseCandidate{
 				TaskID: "task-2", SessionID: "session-2", ModelID: modelservice.FakeModelID, ProfileVersion: 1,
 				Capability: modelservice.CapabilityLLMTextV1, WorkerAddress: "remote-node", OpenHeight: 115,
@@ -263,37 +220,9 @@ func TestKeeperHandraiseEligibilityAdmitsCandidateEligibleBonds(t *testing.T) {
 	}
 }
 
-func TestKeeperHandraiseEligibilityRejectsExpiredWorkerDeadline(t *testing.T) {
-	resolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
-		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: activeHandraiseKeeper(), Model: modelservice.NewFakeService(),
-		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
-	})
-	_, _, err := resolver.Worker(context.Background(), WorkerHandraiseCandidate{
-		TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID,
-		ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 120,
-	})
-	if err == nil {
-		t.Fatal("Worker eligibility accepted an expired deadline")
-	}
-}
-
 func TestKeeperHandraiseEligibilityRejectsCapabilityDutyMismatch(t *testing.T) {
 	workerOnly := activeHandraiseCapability()
 	workerOnly.VerificationCapability = false
-	verifierOnly := activeHandraiseCapability()
-	verifierOnly.InferenceCapability = false
-
-	workerResolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
-		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: func() handraiseKeeper {
-			keeper := activeHandraiseKeeper()
-			keeper.capability = verifierOnly
-			return keeper
-		}(), Model: modelservice.NewFakeService(),
-		ChainID: "chain-A", OperatorAddress: "cortex-node-1", ModelServiceID: "fake-model-service", SelfRescueGasBudget: 10,
-	})
-	if _, _, err := workerResolver.Worker(context.Background(), WorkerHandraiseCandidate{TaskID: identity.TaskIDString("84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", 1), SessionID: "84097828fc31a8c8d29210df48901a85de7fd013f686b17be77d1be29cb7a98b", OrderSequence: 1, ModelID: modelservice.FakeModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1, DeadlineHeight: 140}); err == nil {
-		t.Fatal("Worker eligibility accepted verifier-only Keeper capability")
-	}
 
 	verifierResolver := NewKeeperHandraiseEligibility(KeeperHandraiseEligibilityConfig{
 		ChainStatus: handraiseChainStatus{height: 120, chainID: "chain-A"}, Keeper: func() handraiseKeeper {
@@ -324,6 +253,9 @@ type handraiseKeeper struct {
 	bond       chainclient.ServiceBondSnapshot
 	capability chainclient.ModelCapabilitySnapshot
 	support    chainclient.ModelSupportSnapshot
+	serviceKey chainclient.ServiceKeySnapshot
+	keyErr     error
+	keyReads   *[]uint64 // heights CurrentServiceKey was read at, when set
 }
 
 func (k handraiseKeeper) Params(context.Context) (chainclient.ParamsSnapshot, error) {
@@ -342,8 +274,11 @@ func (k handraiseKeeper) ServiceBond(context.Context, string) (chainclient.Servi
 	return k.bond, nil
 }
 
-func (k handraiseKeeper) CurrentServiceKey(context.Context, string, string, uint64) (chainclient.ServiceKeySnapshot, error) {
-	return chainclient.ServiceKeySnapshot{}, nil
+func (k handraiseKeeper) CurrentServiceKey(_ context.Context, _, _ string, height uint64) (chainclient.ServiceKeySnapshot, error) {
+	if k.keyReads != nil {
+		*k.keyReads = append(*k.keyReads, height)
+	}
+	return k.serviceKey, k.keyErr
 }
 
 func (k handraiseKeeper) ModelCapability(context.Context, string, string) (chainclient.ModelCapabilitySnapshot, error) {

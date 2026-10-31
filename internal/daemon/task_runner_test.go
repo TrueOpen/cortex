@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -20,150 +19,15 @@ import (
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
-	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/policy"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/worker"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
-	bussharedv1 "github.com/TrueOpen/cortex/proto/shared/v1"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
-	"google.golang.org/protobuf/proto"
 )
-
-func TestTaskRunnerSessionAdmissionCacheIsBounded(t *testing.T) {
-	runner := NewTaskRunner(TaskRunnerConfig{MaxSessionAdmissions: 2})
-	runner.recordSessionAdmission("session-1", 1, codec.HashBytes([]byte("one")))
-	runner.recordSessionAdmission("session-2", 1, codec.HashBytes([]byte("two")))
-	runner.recordSessionAdmission("session-3", 1, codec.HashBytes([]byte("three")))
-	if len(runner.sessions) != 2 {
-		t.Fatalf("session cache size = %d, want 2", len(runner.sessions))
-	}
-	if _, ok := runner.sessions["session-1"]; ok {
-		t.Fatal("oldest session admission was not evicted")
-	}
-}
-func TestTaskRunnerResolvesServiceIdentityAfterConstruction(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	serviceAddress := ""
-	builder := &admissionBuilder{}
-	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain",
-		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
-		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
-		TaskDataAuth:         taskRunnerTaskDataAuth(t),
-		ServiceIdentity: func() (string, string) {
-			return serviceAddress, ""
-		},
-		SignerKeyRef: "service.json",
-		Signer: signer.DigestSignerFunc(func(_ context.Context, request signer.DigestRequest) ([]byte, error) {
-			if request.ExpectedSignerAddress != "trueopen1service" {
-				return nil, errors.New("signer address mismatch")
-			}
-			return bytes.Repeat([]byte{1}, 64), nil
-		}),
-	})
-
-	// The runner is constructed before dynamic workload readiness activates the
-	// current service key. Admission must resolve identity at action time.
-	serviceAddress = "trueopen1service"
-	message, taskHash := orderMessage(t)
-	if err := runner.HandleNexusMessage(ctx, message); err != nil {
-		t.Fatalf("HandleNexusMessage() error = %v", err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash)); err != nil {
-		t.Fatalf("Candidate() error = %v, want durable handraise", err)
-	}
-}
-
-func TestTaskRunnerReportsPermanentAdmissionFailure(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	var diagnostic TaskRunnerDiagnostic
-	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker", ChainID: "chain",
-		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
-		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
-		TaskDataAuth:         taskRunnerTaskDataAuth(t),
-		ServiceIdentity:      func() (string, string) { return "wrong-service", "" },
-		SignerKeyRef:         "service.json",
-		Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) {
-			return nil, errors.New("signer address mismatch")
-		}),
-		Diagnostic: func(got TaskRunnerDiagnostic) { diagnostic = got },
-	})
-
-	message, _ := orderMessage(t)
-	if err := runner.HandleNexusMessage(ctx, message); err == nil {
-		t.Fatal("HandleNexusMessage() error = nil, want signer refusal")
-	}
-	if diagnostic.Source != "nexus_order_broadcast" || diagnostic.Record == "" || !strings.Contains(diagnostic.Error, "signer address mismatch") {
-		t.Fatalf("diagnostic = %#v, want observable permanent admission refusal", diagnostic)
-	}
-}
-
-func TestHandleNexusMessageAdmitsUnsignedOrderUnderTrustedNATSDev(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	modelID := "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
-	const deadlineHeight = uint64(151206)
-	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker",
-		ChainID: "trueopen-localnet-1", FakeOutput: true, TrustedNATSDev: true,
-		CandidateMemberReader: staticCandidateMemberReader{},
-		ProfileCapabilities:   map[string]string{modelID + "\x001": modelservice.CapabilityLLMTextV1},
-		HandraiseEligibility:  staticEligibility{input: acceptingEligibility(), expiry: deadlineHeight},
-		TaskDataAuth:          taskRunnerTaskDataAuth(t),
-		SignerAddress:         "service", SignerKeyRef: "key",
-		Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) {
-			return bytes.Repeat([]byte{1}, 64), nil
-		}),
-		EnvelopeTTL: 30 * time.Second,
-	})
-
-	sessionID := strings.Repeat("12", 32)
-	const orderSequence = uint64(1)
-	taskID := identity.TaskIDString(sessionID, orderSequence)
-	_ = taskID
-	signedOrder, taskHash := testSignedOrderProto(t, "trueopen-localnet-1", modelID, sessionID, orderSequence, deadlineHeight)
-	now := time.Now().UTC()
-	subject := builderclient.NATSTaskOpenSubject(modelID)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOrderBroadcast, ChainID: "trueopen-localnet-1", Subject: subject,
-		SenderOperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc", SenderParticipantType: builderclient.ParticipantBuilder,
-		ServiceAuthorizationNonce: 1,
-		IssuedAt:                  now, ExpiresAt: now.Add(30 * time.Second),
-	}, &busv1.OrderBroadcastV1{SignedOrder: signedOrder}, true)
-	if err != nil {
-		t.Fatalf("encode testorder frame: %v", err)
-	}
-	if err := runner.HandleNexusMessage(ctx, builderclient.NATSMessage{Subject: subject, Data: frame}); err != nil {
-		t.Fatalf("HandleNexusMessage(unsigned trusted_nats_dev testorder) error = %v", err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash)); err != nil {
-		t.Fatalf("Candidate() error = %v, want the unsigned order admitted", err)
-	}
-}
 
 func TestInferReceiptCheckpointSurvivesReopenBeforeRunOnceCompletes(t *testing.T) {
 	ctx := context.Background()
@@ -223,12 +87,13 @@ func TestInferReceiptCheckpointSurvivesReopenBeforeRunOnceCompletes(t *testing.T
 	}
 }
 
-// outputAvailableFixture is one Verifier-side world: a Keeper snapshot that is
+// openVerifyFixture is one Verifier-side world: a Keeper snapshot that is
 // the sole authority on what the task committed, and a runner wired to raise a
-// Verifier hand off it. Tests vary only the OUTPUT_AVAILABLE hint.
-type outputAvailableFixture struct {
+// Verifier hand off it. Tests vary only the OPEN_VERIFY call.
+type openVerifyFixture struct {
 	runner    *TaskRunner
 	builder   *outputAdmissionBuilder
+	sender    *recordingFrameSender
 	confirmer *recordingOutputConfirmer
 	trace     *collectTrace
 	snapshot  chainclient.TaskSnapshot
@@ -237,7 +102,7 @@ type outputAvailableFixture struct {
 	taskID    string
 }
 
-func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
+func newOpenVerifyFixture(t *testing.T) *openVerifyFixture {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
@@ -275,6 +140,7 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 		},
 	}
 	builder := &outputAdmissionBuilder{pkg: pkg}
+	sender := &recordingFrameSender{}
 	confirmer := &recordingOutputConfirmer{pkg: pkg}
 	trace := &collectTrace{}
 	eligibility := staticEligibility{verifierInput: policy.VerifierPrecheckInput{
@@ -282,10 +148,17 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 		SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 1,
 	}}
 	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: builder, LocalVerifierAddress: "verifier-1", ChainID: "chain", FakeOutput: true, FakeBus: true,
+		Store: db, Builder: builder, VerifierSender: sender, LocalVerifierAddress: "verifier-1", ChainID: "chain", FakeOutput: true,
 		OutputConfirmer: confirmer, Trace: trace.trace(),
+		VerifierMemberReader: openVerifierWindow{snapshot: chainclient.VerifierCandidateMemberSnapshot{
+			CandidateMemberRefSnapshot: chainclient.CandidateMemberRefSnapshot{
+				CandidatePoolSnapshotID: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x11}, 32)),
+				Slot:                    1, SlotVersion: 1, OperatorAddress: "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+			},
+			InferReceiptHash: chainclient.ProtoBytes32(snapshot.InferReceipt.InferReceiptHash[:]), ExpiryHeight: 40,
+		}},
 		TaskReader: staticKeeperTaskReader{snapshot: snapshot}, HandraiseEligibility: eligibility,
-		// admitOutputAvailable reads this node's own current ServiceKey binding for
+		// admitOpenVerify reads this node's own current ServiceKey binding for
 		// the verifier handraise's service_authorization_nonce (interface-and-topic-list.md
 		// §5.2 field 7).
 		TaskDataAuth:        taskRunnerTaskDataAuth(t),
@@ -293,42 +166,13 @@ func newOutputAvailableFixture(t *testing.T) *outputAvailableFixture {
 		ChainStatus:         fixedChainStatus{height: 10, chainID: "chain"},
 		SignerAddress:       "verifier-service", SignerKeyRef: "key", Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return bytes.Repeat([]byte{1}, 64), nil }),
 	})
-	return &outputAvailableFixture{runner: runner, builder: builder, confirmer: confirmer, trace: trace, snapshot: snapshot, pkg: pkg, sessionID: sessionID, taskID: taskID}
+	return &openVerifyFixture{runner: runner, builder: builder, sender: sender, confirmer: confirmer, trace: trace, snapshot: snapshot, pkg: pkg, sessionID: sessionID, taskID: taskID}
 }
 
-// fullHint is the whole OUTPUT_AVAILABLE field set (interface-and-topic-list.md §5.8).
-// It is short now: §4.4 removed output_cid and canonical_output_package_hash and
-// §5.8 removed dedup_id, so a hint says which task it is about, what the output
-// commitment is, and who published it - nothing else.
-func (f *outputAvailableFixture) fullHint() *busv1.OutputAvailableV1 {
-	taskID, _ := hex.DecodeString(f.taskID)
-	return &busv1.OutputAvailableV1{
-		TaskId: taskID, TaskHash: bytes.Repeat([]byte{0x5a}, 32),
-		OutputHash:            append([]byte(nil), f.pkg.OutputHash[:]...),
-		WorkerOperatorAddress: "worker-1", PublishedAtUnixMs: uint64(time.Now().UnixMilli()),
-	}
-}
-
-// deliver publishes the hint the way JetStream would, through the subject and
-// envelope decode path rather than straight into the handler.
-func (f *outputAvailableFixture) deliver(t *testing.T, message *busv1.OutputAvailableV1) error {
+func (f *openVerifyFixture) assertHandraised(t *testing.T) {
 	t.Helper()
-	subject := builderclient.NATSOutputAvailableSubject(f.taskID)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOutputAvailable, ChainID: "chain", Subject: subject,
-		SenderOperatorAddress: "worker-1", SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, message, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f.runner.HandleNexusMessage(context.Background(), builderclient.NATSMessage{Subject: subject, Data: frame, JetStream: true})
-}
-
-func (f *outputAvailableFixture) assertHandraised(t *testing.T) {
-	t.Helper()
-	if len(f.builder.published) != 1 || f.builder.published[0].Subject != builderclient.NATSVerifierHandraiseSubject(f.taskID) {
-		t.Fatalf("published = %#v, want one verifier handraise without an active infer document", f.builder.published)
+	if len(f.sender.handraises) != 1 {
+		t.Fatalf("sent = %#v, want one verifier handraise without an active infer document", f.sender.handraises)
 	}
 	// data-plane-and-evidence-transfer.md §6: a candidate's metadata comes off the control message
 	// and the Keeper snapshot, never off the data plane. So a handraise must be
@@ -339,80 +183,82 @@ func (f *outputAvailableFixture) assertHandraised(t *testing.T) {
 	if len(f.confirmer.received) != 0 {
 		t.Fatalf("task-data plane calls before the handraise = %#v, want none from a candidate", f.confirmer.received)
 	}
-	// The published frame is a decodable V2 envelope carrying the frozen
-	// verifier handraise from the CORTEX participant domain.
-	outbound, err := builderclient.DecodeBusEnvelope(f.builder.published[0].Payload)
-	if err != nil {
-		t.Fatalf("DecodeBusEnvelope(verifier handraise) error = %v", err)
-	}
-	if outbound.Kind != builderclient.KindVerifierHandraise || outbound.SenderParticipantType != builderclient.ParticipantCortex {
-		t.Fatalf("verifier handraise envelope = %#v", outbound)
-	}
 	// And the output hash it commits to is the chain's, not the frame's: that is
 	// what the deleted metadata round trip used to be asked to prove.
-	var handraise bustaskv1.VerifierHandraiseV1
-	if err := outbound.DecodePayload(&handraise); err != nil {
-		t.Fatalf("DecodePayload(verifier handraise) error = %v", err)
-	}
+	handraise := f.sender.handraises[0]
 	if !bytes.Equal(handraise.GetOutputHash(), f.snapshot.InferReceipt.OutputHash[:]) {
 		t.Fatalf("handraise output_hash = %x, want the Keeper infer receipt's %x",
 			handraise.GetOutputHash(), f.snapshot.InferReceipt.OutputHash)
 	}
 }
 
-func TestVerifierOnlyOutputAvailableUsesAuthoritativeKeeperTask(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
-		t.Fatal(err)
-	}
-	fixture.assertHandraised(t)
-	requireTraceLevel(t, fixture.trace, "verifier_handraise", slog.LevelInfo)
+// recordingFrameSender stands in for the per-Builder stream the Verifier sends
+// its handraise on.
+type recordingFrameSender struct {
+	handraises []*bustaskv1.VerifierHandraiseV1
 }
 
-// Two OUTPUT_AVAILABLE messages for the same task with different message_ids
-// produce one verifier handraise (and one output confirmation) because the
+func (s *recordingFrameSender) SendVerifierHandraise(_ context.Context, h *bustaskv1.VerifierHandraiseV1) error {
+	s.handraises = append(s.handraises, h)
+	return nil
+}
+
+// openVerifierWindow is a verifier candidate window that is open for this node.
+type openVerifierWindow struct {
+	snapshot chainclient.VerifierCandidateMemberSnapshot
+}
+
+func (w openVerifierWindow) VerifierCandidateMember(context.Context, string, uint32, string) (chainclient.VerifierCandidateMemberSnapshot, error) {
+	return w.snapshot, nil
+}
+
+func (w openVerifierWindow) FrozenVerifierWindowMember(context.Context, string, uint32, string) (chainclient.VerifierCandidateMemberSnapshot, error) {
+	return w.snapshot, nil
+}
+
+// Two OPEN_VERIFY calls for the same task produce one verifier handraise (and one output confirmation) because the
 // durable verify-candidate claim suppresses the duplicate.
-func TestOutputAvailableDuplicateSuppressed(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-	hint1 := fixture.fullHint()
-	if err := fixture.deliver(t, hint1); err != nil {
+func TestOpenVerifyDuplicateSuppressed(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
+	hint1 := fixture.openVerifyCall()
+	if err := fixture.deliverOpenVerify(t, hint1); err != nil {
 		t.Fatal(err)
 	}
 	fixture.assertHandraised(t)
 
-	hint2 := fixture.fullHint()
-	if err := fixture.deliver(t, hint2); err != nil {
-		t.Fatalf("second OUTPUT_AVAILABLE: %v", err)
+	hint2 := fixture.openVerifyCall()
+	if err := fixture.deliverOpenVerify(t, hint2); err != nil {
+		t.Fatalf("second OPEN_VERIFY: %v", err)
 	}
 	// Still only one handraise.
-	if len(fixture.builder.published) != 1 {
-		t.Fatalf("published = %d, want 1", len(fixture.builder.published))
+	if len(fixture.sender.handraises) != 1 {
+		t.Fatalf("published = %d, want 1", len(fixture.sender.handraises))
 	}
 }
 
 // The claim is taken before the Keeper read, and the chain can legitimately be
-// behind the hint - TestOutputAvailableAheadOfTheKeeperReceiptIsRetryable pins
+// behind the hint - TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable pins
 // exactly that. So a claim left by a failed attempt must not suppress the
 // redelivery, or the "not yet" silently becomes "never": no confirmation and no
 // handraise, for good.
-func TestOutputAvailableRetriesAfterAClaimedButFailedAttempt(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+func TestOpenVerifyRetriesAfterAClaimedButFailedAttempt(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
 	behind := fixture.snapshot
 	behind.InferReceipt = chainclient.InferReceiptSnapshot{}
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: behind}
 
-	first := fixture.fullHint()
-	if err := fixture.deliver(t, first); err == nil || !builderclient.IsRetryable(err) {
+	first := fixture.openVerifyCall()
+	if err := fixture.deliverOpenVerify(t, first); err == nil || !builderclient.IsRetryable(err) {
 		t.Fatalf("first delivery error = %v, want a retryable not-yet", err)
 	}
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published=%#v, want no handraise while the chain is behind", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published=%#v, want no handraise while the chain is behind", fixture.sender.handraises)
 	}
 
 	// The chain catches up and the frame is redelivered.
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: fixture.snapshot}
-	second := fixture.fullHint()
-	if err := fixture.deliver(t, second); err != nil {
+	second := fixture.openVerifyCall()
+	if err := fixture.deliverOpenVerify(t, second); err != nil {
 		t.Fatalf("redelivery after the chain caught up: %v", err)
 	}
 	fixture.assertHandraised(t)
@@ -424,97 +270,78 @@ func TestOutputAvailableRetriesAfterAClaimedButFailedAttempt(t *testing.T) {
 // withhold. It is also, per cortex-detailed-design.md:1032, the ONLY output content
 // commitment there is; a frame that disagrees with the chain about it is
 // refused rather than reconciled.
-func TestOutputAvailableTakesTheOutputHashFromKeeperNotTheFrame(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+func TestOpenVerifyTakesTheOutputHashFromKeeperNotTheFrame(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
 
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
-		t.Fatalf("OutputAvailable hint was refused: %v", err)
+	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
+		t.Fatalf("OpenVerify was refused: %v", err)
 	}
 	fixture.assertHandraised(t)
 }
 
-// Envelope identity is the one thing the frame is authoritative about: it says
-// which task it is talking about, and a frame whose body disagrees with its own
-// authenticated envelope is not a hint about anything.
-func TestOutputAvailableEnvelopeIdentityMismatchIsStillRefused(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-	envelope := testBusEnvelope(t, builderclient.KindOutputAvailable, builderclient.ParticipantCortex,
-		builderclient.NATSOutputAvailableSubject(fixture.taskID), fixture.fullHint())
-	for _, testCase := range []struct {
-		name   string
-		mutate func(*busv1.OutputAvailableV1)
-	}{
-		{"task id", func(m *busv1.OutputAvailableV1) { m.TaskId = bytes.Repeat([]byte{0x01}, 32) }},
-		{"short task id", func(m *busv1.OutputAvailableV1) { m.TaskId = m.TaskId[:16] }},
-		{"sender", func(m *busv1.OutputAvailableV1) { m.WorkerOperatorAddress = "" }},
-		{"output hash", func(m *busv1.OutputAvailableV1) { m.OutputHash = nil }},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			message := fixture.fullHint()
-			testCase.mutate(message)
-			err := fixture.runner.admitOutputAvailable(context.Background(), envelope, message)
-			if err == nil || !strings.Contains(err.Error(), "OutputAvailable") {
-				t.Fatalf("admitOutputAvailable() error = %v, want a refusal on message identity", err)
-			}
-			if len(fixture.builder.published) != 0 {
-				t.Fatalf("published = %#v, want nothing", fixture.builder.published)
-			}
-		})
-	}
-}
-
 // The hint may be dropped, but it may not lie. A frame whose commitments
 // contradict the chain is a permanent refusal, not a retry.
-func TestOutputAvailableContradictingTheKeeperSnapshotIsStillRefused(t *testing.T) {
+func TestOpenVerifyContradictingTheKeeperSnapshotIsStillRefused(t *testing.T) {
 	other := codec.HashBytes([]byte("other"))
 	for _, testCase := range []struct {
 		name   string
-		mutate func(*busv1.OutputAvailableV1)
+		mutate func(*nexusv1.OpenVerifyV1)
 	}{
-		{"output hash", func(m *busv1.OutputAvailableV1) { m.OutputHash = other[:] }},
-		{"sender is not the Keeper winner", func(m *busv1.OutputAvailableV1) { m.WorkerOperatorAddress = "worker-2" }},
+		{"output hash", func(m *nexusv1.OpenVerifyV1) { m.OutputHash = other[:] }},
+		{"sender is not the Keeper winner", func(m *nexusv1.OpenVerifyV1) { m.WorkerOperatorAddress = "worker-2" }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			fixture := newOutputAvailableFixture(t)
-			message := fixture.fullHint()
+			fixture := newOpenVerifyFixture(t)
+			message := fixture.openVerifyCall()
 			testCase.mutate(message)
 
-			err := fixture.deliver(t, message)
+			err := fixture.deliverOpenVerify(t, message)
 			if err == nil {
 				t.Fatal("a hint contradicting the Keeper snapshot was admitted")
 			}
 			if builderclient.IsRetryable(err) {
-				t.Fatalf("admitOutputAvailable() error = %v, want a permanent refusal", err)
+				t.Fatalf("admitOpenVerify() error = %v, want a permanent refusal", err)
 			}
-			if len(fixture.confirmer.received) != 0 || len(fixture.builder.published) != 0 {
-				t.Fatalf("confirmations = %#v published = %#v, want neither", fixture.confirmer.received, fixture.builder.published)
+			if len(fixture.confirmer.received) != 0 || len(fixture.sender.handraises) != 0 {
+				t.Fatalf("confirmations = %#v published = %#v, want neither", fixture.confirmer.received, fixture.sender.handraises)
 			}
 		})
 	}
 }
 
-// A hint can outrun the chain. Before Keeper has the infer receipt there is no
-// authority to read the commitments from, and that has to be a "not yet" the
-// inbox redelivers rather than a permanent refusal that strands the task.
-func TestOutputAvailableAheadOfTheKeeperReceiptIsRetryable(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+// A call can outrun the chain. Before Keeper has the infer receipt there is no
+// authority to read the commitments from, and that has to be a retryable
+// "not yet" rather than a permanent refusal that strands the task.
+func TestOpenVerifyAheadOfTheKeeperReceiptIsRetryable(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
 	snapshot := fixture.snapshot
 	snapshot.InferReceipt = chainclient.InferReceiptSnapshot{}
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: snapshot}
 
-	err := fixture.deliver(t, fixture.fullHint())
+	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
 	if err == nil || !builderclient.IsRetryable(err) {
-		t.Fatalf("admitOutputAvailable() error = %v, want a retryable not-yet", err)
+		t.Fatalf("admitOpenVerify() error = %v, want a retryable not-yet", err)
+	}
+}
+
+// A node with no frame sender cannot raise a hand however often the call is
+// redelivered, so that is a permanent refusal, not a retry loop.
+func TestOpenVerifyWithoutAFrameSenderIsPermanent(t *testing.T) {
+	fixture := newOpenVerifyFixture(t)
+	fixture.runner.cfg.VerifierSender = nil
+
+	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
+	if err == nil || !builderclient.IsPermanent(err) || !strings.Contains(err.Error(), "verifier frame sender is not configured") {
+		t.Fatalf("admitOpenVerify() error = %v, want a permanent missing-sender refusal", err)
 	}
 }
 
 // Verifiability is decided by OPEN_VERIFY plus the Keeper snapshot, so a
-// Verifier that never receives an OUTPUT_AVAILABLE frame -- lost, filtered, or
-// simply never sent -- still gets the responsibility and can still confirm the
+// Verifier needs no other frame to get the responsibility and confirm the
 // output. Both halves run production code: the chain admits the task, and the
 // real Nexus confirmer resolves the package from the chain-committed canonical
 // package hash with no locator anywhere in the path.
-func TestVerifyPathCompletesFromOpenVerifyWithNoOutputAvailableHint(t *testing.T) {
+func TestVerifyPathCompletesFromOpenVerifyAlone(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
 	if err != nil {
@@ -662,22 +489,11 @@ func newVerifierControlFixture(t *testing.T) verifierControlFixture {
 	}
 }
 
-// verifierAssignmentEnvelope wraps a VERIFIER_ASSIGNMENT_NOTIFY body in the
-// authenticated 20-field envelope it would arrive in. Verification only ever
-// begins after a proposal was accepted, so the BuilderSet authority is the
-// Task's locked reference (interface-and-topic-list.md §5.2 field 12, §5.2 "after the stage
-// is frozen").
-func (f verifierControlFixture) verifierAssignmentEnvelope(t *testing.T, message *busv1.VerifierAssignmentNotifyV1) builderclient.BusEnvelope {
-	t.Helper()
-	return testBusEnvelope(t, builderclient.KindVerifierAssignmentNotify, builderclient.ParticipantBuilder,
-		builderclient.NATSVerifierAssignmentSubject("abababababababababababababababababababababababababababababababab"), message)
-}
-
 // keeperVerifierAssignment is the notify a Builder sends when it agrees with the
 // chain: every field equals the Keeper snapshot the fixture serves.
-func (f verifierControlFixture) keeperVerifierAssignment() *busv1.VerifierAssignmentNotifyV1 {
+func (f verifierControlFixture) keeperVerifierAssignment() *nexusv1.VerifierAssignmentNotifyV1 {
 	taskID, _ := hex.DecodeString("abababababababababababababababababababababababababababababababab")
-	return &busv1.VerifierAssignmentNotifyV1{
+	return &nexusv1.VerifierAssignmentNotifyV1{
 		TaskId: taskID, TaskHash: bytes.Repeat([]byte{0x5a}, 32), VerifyRound: 1,
 		Verifiers:        []*bustaskv1.SelectedVerifierV1{{OperatorAddress: "verifier-1"}},
 		OutputHash:       append([]byte(nil), f.outputHash[:]...),
@@ -694,9 +510,8 @@ func TestVerifierAssignmentRefusesFieldsThatDisagreeWithTheKeeperSnapshot(t *tes
 	fixture := newVerifierControlFixture(t)
 	forged := fixture.keeperVerifierAssignment()
 	forged.VerifyDeadlineHeight = 61
-	envelope := fixture.verifierAssignmentEnvelope(t, forged)
 
-	if err := fixture.runner.recordVerifierAssignment(ctx, envelope, forged); err == nil {
+	if err := fixture.runner.recordVerifierAssignment(ctx, forged); err == nil {
 		t.Fatal("a verify deadline that contradicts Keeper was accepted")
 	}
 	rec, err := layout.GetVerifyRecord(ctx, fixture.db, layout.StoredHash(fixture.taskHash))
@@ -754,91 +569,6 @@ func TestTaskRunnerAppliesKeeperRetentionTerminalAndChallengeEffectsToEvidence(t
 	if err != nil || challenge.Open {
 		t.Fatalf("closed challenge metadata = (%#v, %v)", challenge, err)
 	}
-}
-
-func TestHandleNexusMessageAtomicallyReplacesPreAcceptanceRBF(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	publisher := &admissionBuilder{}
-	runner := admissionRunner(t, db, publisher, acceptingEligibility())
-	firstMessage, firstHash := orderMessage(t)
-	if err := runner.HandleNexusMessage(ctx, firstMessage); err != nil {
-		t.Fatal(err)
-	}
-	// RBF: same (session, sequence), different order content -> different
-	// task_hash derived from the carrier itself.
-	secondMessage, secondHash := orderMessageAt(t, 201)
-	if err := runner.HandleNexusMessage(ctx, secondMessage); err != nil {
-		t.Fatalf("RBF replacement error = %v", err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(firstHash)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("superseded candidate error = %v, want ErrNotFound", err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(secondHash)); err != nil {
-		t.Fatalf("replacement candidate error = %v", err)
-	}
-	restarted := admissionRunner(t, db, publisher, acceptingEligibility())
-	err = restarted.HandleNexusMessage(ctx, firstMessage)
-	if !errors.Is(err, layout.ErrStaleCandidateReplacement) {
-		t.Fatalf("stale redelivery error = %v, want ErrStaleCandidateReplacement", err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(secondHash)); err != nil {
-		t.Fatalf("stale redelivery removed replacement candidate: %v", err)
-	}
-}
-
-func TestHandleNexusMessageAdmitsBeforeCandidateAndRedeliveryPublishesStableBytes(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	publisher := &admissionBuilder{fail: errors.New("offline")}
-	r := admissionRunner(t, db, publisher, acceptingEligibility())
-	msg, taskHash := orderMessage(t)
-	if err := r.HandleNexusMessage(ctx, msg); err == nil || !builderclient.IsRetryable(err) {
-		t.Fatalf("first error=%v, want retryable", err)
-	}
-	candidate, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatalf("candidate after publish failure: %v", err)
-	}
-	publisher.fail = nil
-	if err := r.HandleNexusMessage(ctx, msg); err != nil {
-		t.Fatalf("redelivery: %v", err)
-	}
-	if len(publisher.payloads) != 2 || !bytes.Equal(publisher.payloads[0], publisher.payloads[1]) || !bytes.Equal(publisher.payloads[1], candidate.HandraisePayload) {
-		t.Fatalf("published payloads are not the stable candidate: %#v", publisher.payloads)
-	}
-}
-
-func TestHandleNexusMessageNonAdmittedOrderWritesNothing(t *testing.T) {
-	ctx := context.Background()
-	db, _ := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	t.Cleanup(func() { _ = db.Close() })
-	input := acceptingEligibility()
-	input.AvailableSlots = 0
-	var diagnostic TaskRunnerDiagnostic
-	trace := &collectTrace{}
-	r := admissionRunner(t, db, &admissionBuilder{}, input)
-	r.cfg.Diagnostic = func(got TaskRunnerDiagnostic) { diagnostic = got }
-	r.cfg.Trace = trace.trace()
-	msg, taskHash := orderMessage(t)
-	if err := r.HandleNexusMessage(ctx, msg); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("candidate error=%v, want ErrNotFound", err)
-	}
-	if diagnostic.Source != "nexus_order_broadcast" || !strings.Contains(diagnostic.Error, "not admitted") {
-		t.Fatalf("diagnostic = %#v, want an observable ineligibility skip", diagnostic)
-	}
-	requireTraceLevel(t, trace, "worker_handraise", slog.LevelError)
 }
 
 func TestRunOnceRestoresIndependentActiveDocuments(t *testing.T) {
@@ -988,8 +718,10 @@ func TestTaskRunnerOwnsReconcilerEffectDocuments(t *testing.T) {
 		InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 	}}
 	r := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
-	effect := ReconcilerEffect{Type: ReconcilerEffectAssignment, TaskHash: taskHash, TaskID: "task-1", Snapshot: snapshot}
-	if err := r.ApplyReconcilerEffects(ctx, []ReconcilerEffect{effect, effect}); err != nil {
+	a := snapshot.Assignment
+	if err := layout.InferAssignmentBatch(ctx, db, layout.StoredHash(taskHash),
+		layout.TaskRecord{SessionID: a.SessionID, OrderSequence: a.OrderSequence.Uint64(), ModelID: a.ModelID, ProfileVersion: a.ProfileVersion.Uint32(), WorkerAddress: a.SelectedWorker},
+		layout.InferRecord{TaskID: "task-1", Stage: layout.StageQueued, DeadlineHeight: a.InferDeadlineHeight.Uint64()}); err != nil {
 		t.Fatal(err)
 	}
 	infer, err := layout.GetInferRecord(ctx, db, layout.StoredHash(taskHash))
@@ -1027,12 +759,15 @@ func TestConflictingReconcilerEffectIsQuarantinedSoLaterEffectsStillApply(t *tes
 			TaskID: taskID, SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
 			SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 			InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
+		}, VerifierAssignment: chainclient.VerifierAssignmentSnapshot{
+			TaskID: taskID, VerifyRound: chainclient.NewUint64String(1), FormalVerifierSet: chainclient.CSVStrings{"verifier-1"},
+			OpenVerifyHeight: chainclient.NewUint64String(20), CommitDeadlineHeight: chainclient.NewUint64String(30), VerifyDeadlineHeight: chainclient.NewUint64String(60),
 		}}
 	}
 
 	var quarantined []ReconcilerEffect
 	r := NewTaskRunner(TaskRunnerConfig{
-		Store: db, LocalWorkerAddress: "worker-1",
+		Store: db, LocalVerifierAddress: "verifier-1",
 		OnQuarantinedEffect: func(effect ReconcilerEffect, err error) {
 			quarantined = append(quarantined, effect)
 			if !errors.Is(err, layout.ErrConflict) {
@@ -1041,41 +776,20 @@ func TestConflictingReconcilerEffectIsQuarantinedSoLaterEffectsStillApply(t *tes
 		},
 	})
 	if err := r.ApplyReconcilerEffects(ctx, []ReconcilerEffect{
-		{Type: ReconcilerEffectAssignment, TaskHash: poisoned, TaskID: "task-poisoned", Snapshot: assignment("task-poisoned")},
-		{Type: ReconcilerEffectAssignment, TaskHash: healthy, TaskID: "task-healthy", Snapshot: assignment("task-healthy")},
+		{Type: ReconcilerEffectVerifyReady, TaskHash: poisoned, TaskID: "task-poisoned", Snapshot: assignment("task-poisoned")},
+		{Type: ReconcilerEffectVerifyReady, TaskHash: healthy, TaskID: "task-healthy", Snapshot: assignment("task-healthy")},
 	}); err != nil {
 		t.Fatalf("ApplyReconcilerEffects() error = %v, want the conflict quarantined so the cursor advances", err)
 	}
 	if len(quarantined) != 1 || quarantined[0].TaskID != "task-poisoned" {
 		t.Fatalf("quarantined = %#v, want exactly the conflicting effect reported", quarantined)
 	}
-	if infer, err := layout.GetInferRecord(ctx, db, layout.StoredHash(healthy)); err != nil || infer.Stage != layout.StageQueued {
-		t.Fatalf("infer record behind the conflict = %#v, %v, want it applied", infer, err)
+	if verify, err := layout.GetVerifyRecord(ctx, db, layout.StoredHash(healthy)); err != nil || verify.Stage != layout.StageQueued {
+		t.Fatalf("verify record behind the conflict = %#v, %v, want it applied", verify, err)
 	}
 	// The refused batch is atomic, so the poisoned task must not be half-written.
-	if _, err := layout.GetInferRecord(ctx, db, layout.StoredHash(poisoned)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("poisoned infer record error = %v, want ErrNotFound", err)
-	}
-}
-
-// The inbox redelivers the verifier subjects by subject alone, so classification
-// is the only thing that can stop a permanent refusal from looping. The envelope
-// claim has to follow the same verdict: releasing it would arm a replay of a
-// frame the inbox is about to acknowledge.
-func TestInboxWillNotRedeliverAnAssertedPermanentRefusal(t *testing.T) {
-	conflict := builderclient.Permanent(fmt.Errorf("%w: verify.OutputCID", layout.ErrConflict))
-	notYet := errors.New("Keeper infer receipt is not available")
-	for _, subject := range []string{
-		builderclient.NATSWorkerAssignmentSubject("task-1"),
-		builderclient.NATSOutputAvailableSubject("task-1"),
-		builderclient.NATSVerifierAssignmentSubject("task-1"),
-	} {
-		if inboxWillRedeliver(subject, conflict) {
-			t.Fatalf("%s: a permanent conflict was reported as redeliverable", subject)
-		}
-		if !inboxWillRedeliver(subject, notYet) {
-			t.Fatalf("%s: an unmarked failure must still be redelivered", subject)
-		}
+	if _, err := layout.GetVerifyRecord(ctx, db, layout.StoredHash(poisoned)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("poisoned verify record error = %v, want ErrNotFound", err)
 	}
 }
 
@@ -1202,96 +916,18 @@ func (f verifyExecutorFunc) RunVerify(ctx context.Context, hash codec.Hash, task
 }
 
 type staticEligibility struct {
-	input         policy.WorkerPrecheckInput
 	verifierInput policy.VerifierPrecheckInput
-	expiry        uint64
 	err           error
 }
 
-func (e staticEligibility) Worker(context.Context, WorkerHandraiseCandidate) (policy.WorkerPrecheckInput, uint64, error) {
-	return e.input, e.expiry, e.err
-}
 func (e staticEligibility) Verifier(context.Context, VerifierHandraiseCandidate) (policy.VerifierPrecheckInput, error) {
 	return e.verifierInput, e.err
 }
 
-func acceptingEligibility() policy.WorkerPrecheckInput {
-	return policy.WorkerPrecheckInput{ChainSynced: true, CurrentHeight: 10, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 10, SupportFreshnessWindow: 10, Profile: modelservice.CapabilityLLMTextV1, SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 1, CapacitySnapshotRef: "capacity"}
-}
-
-// testBusEnvelope builds a complete 20-field TRUEOPEN_BUS_ENVELOPE_V1 for the
-// handler paths a test drives directly instead of through HandleNexusMessage. It
-// runs the production constructor, so stage, sender_participant_type,
-// payload_codec, the canonical payload bytes and payload_digest are all derived
-// (interface-and-topic-list.md §5.2) rather than typed in by the test - a hand-set digest
-// is exactly the disagreement field 20 exists to catch.
-// testSignedOrderProto builds the typed SignedOrderV1 the V2 broadcast carries
-// and derives its frozen task_hash through nodewire.
-func testSignedOrderProto(t *testing.T, chainID, modelID, sessionID string, sequence, deadline uint64) (*bustaskv1.SignedOrderV2, codec.Hash) {
-	t.Helper()
-	session, err := hex.DecodeString(sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hash := bytes.Repeat([]byte{0x5a}, 32)
-	amount := func(value string) *bussharedv1.Amount { return &bussharedv1.Amount{AtomicUnits: value} }
-	signed := &bustaskv1.SignedOrderV2{
-		Order: &bustaskv1.TaskOrderV3{
-			SchemaVersion: 3, ChainId: chainID, UserAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-			SessionId: session, OrderSequence: sequence,
-			ModelId: mustModelIDBytes(t, modelID), ProfileVersion: 1, TaskType: bussharedv1.TaskType_TASK_TYPE_CHAT,
-			InputHash: bytes.Repeat([]byte{0xaa}, 32), InputSizeBytes: 32,
-			InputBucket: 1, OutputBudgetBucket: 1,
-			GenerationParams: &bustaskv1.GenerationParamsV1{
-				GenerationParamsSchemaVersion: 1, MaxOutputTokens: 128, MaxOutputDuration: 2000,
-				DecodingParams: &bustaskv1.DecodingParamsV1{
-					TopPPpm: 1_000_000, Seed: 1, RepetitionPenaltyPpm: 1_000_000,
-					StopSequences: []string{}, StopTokenIds: []uint32{},
-				},
-			},
-			PriceBid: amount("1"), MaxFee: amount("3000"),
-			AssignmentPriorityFee: amount("0"), TxFeeReserve: amount("1000"),
-			EarliestSubmitHeight: 100, OrderExpireHeight: deadline,
-			DeadlinePolicy:       &bustaskv1.DeadlinePolicyV1{LatencyClass: bustaskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_STANDARD},
-			TimeoutBucketVersion: 1, SessionAnchorHeight: 100,
-			SessionAnchorBlockHash: hash, BuilderSetId: "7", BuilderSetHash: hash,
-			PayloadMode:        bustaskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT,
-			InputKeyCommitment: make([]byte, 32),
-		},
-		SignatureScheme: "eip712",
-		UserSignature:   append(bytes.Repeat([]byte{0x01}, 64), 27),
-	}
-	raw, err := proto.Marshal(signed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	taskHash, _, err := nodewire.TaskOrderHashAndFactsEnvelope(hex.EncodeToString(raw))
-	if err != nil {
-		t.Fatalf("derive task hash from typed signed order: %v", err)
-	}
-	return signed, taskHash
-}
-
-func testBusEnvelope(t *testing.T, kind builderclient.BusMessageKind, participant builderclient.BusParticipantType,
-	subject string, payload proto.Message,
-) builderclient.BusEnvelope {
-	t.Helper()
-	envelope, err := builderclient.NewUnsignedBusEnvelope(builderclient.UnsignedEnvelopeInput{
-		Kind: kind, ChainID: "chain", Subject: subject,
-		SenderOperatorAddress: "builder", SenderParticipantType: participant,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, payload)
-	if err != nil {
-		t.Fatalf("NewUnsignedBusEnvelope(%s): %v", kind, err)
-	}
-	return envelope
-}
-
-// taskRunnerTaskDataAuth is the committed current-binding reader admitOrder
-// uses for TRUEOPEN_BUS_ENVELOPE_V1 field 7: the outbound handraise's
-// service_authorization_nonce comes from one committed read of this node's own
-// ServiceKey binding (interface-and-topic-list.md §5.2 field 7), so a runner that admits
-// an order cannot have a nil one.
+// taskRunnerTaskDataAuth is the committed current-binding reader: the outbound
+// handraise's service_authorization_nonce comes from one committed read of this
+// node's own ServiceKey binding, so a runner that raises a hand cannot have a
+// nil one.
 func taskRunnerTaskDataAuth(t *testing.T) *taskdataauth.Authenticator {
 	t.Helper()
 	signing, binding := localInputServiceSigner(t)
@@ -1307,71 +943,10 @@ func taskRunnerTaskDataAuth(t *testing.T) *taskdataauth.Authenticator {
 	return auth
 }
 
-func admissionRunner(t *testing.T, db *store.Store, builder builderclient.Client, input policy.WorkerPrecheckInput) *TaskRunner {
-	t.Helper()
-	return NewTaskRunner(TaskRunnerConfig{Store: db, Builder: builder, LocalWorkerAddress: "worker", ChainID: "chain", FakeOutput: true, FakeBus: true, ProfileCapabilities: map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1}, HandraiseEligibility: staticEligibility{input: input, expiry: 100}, TaskDataAuth: taskRunnerTaskDataAuth(t), SignerAddress: "service", SignerKeyRef: "key", Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return bytes.Repeat([]byte{1}, 64), nil })})
-}
-
-func orderMessage(t *testing.T) (builderclient.NATSMessage, codec.Hash) {
-	t.Helper()
-	return orderMessageFor(t, 1, 200)
-}
-
-// orderMessageAt fixes order_expire_height so an RBF replacement of the same
-// (session, sequence) derives a different task_hash.
-func orderMessageAt(t *testing.T, expireHeight uint64) (builderclient.NATSMessage, codec.Hash) {
-	t.Helper()
-	return orderMessageFor(t, 1, expireHeight)
-}
-
-// orderMessageWithSequence fixes order_sequence; zero is legal and is the first
-// order of a session (#324).
-func orderMessageWithSequence(t *testing.T, sequence uint64) (builderclient.NATSMessage, codec.Hash) {
-	t.Helper()
-	return orderMessageFor(t, sequence, 200)
-}
-
-// orderMessageFor builds a typed ORDER_BROADCAST for one (sequence, expire
-// height) pair. Both dimensions matter to identity: task_id derives from
-// (session_id, order_sequence) and task_hash covers order_expire_height.
-func orderMessageFor(t *testing.T, sequence, expireHeight uint64) (builderclient.NATSMessage, codec.Hash) {
-	t.Helper()
-	session := "3f3af1ecebbd1410ab417ec0d27bbfcb5d340e177ae159b59fc8626c2dfd9175"
-	signedOrder, taskHash := testSignedOrderProto(t, "chain", testModelID, session, sequence, expireHeight)
-	payload, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOrderBroadcast, ChainID: "chain", Subject: builderclient.NATSTaskOpenSubject(testModelID),
-		SenderOperatorAddress: "builder", SenderParticipantType: builderclient.ParticipantBuilder,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, &busv1.OrderBroadcastV1{SignedOrder: signedOrder}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return builderclient.NATSMessage{Subject: builderclient.NATSTaskOpenSubject(testModelID), Data: payload, JetStream: true}, taskHash
-}
-
-type staticCandidateMemberReader struct{}
-
-func (staticCandidateMemberReader) CurrentCandidateMember(context.Context, string) (chainclient.CandidateMemberRefSnapshot, error) {
-	return chainclient.CandidateMemberRefSnapshot{
-		CandidatePoolSnapshotID: chainclient.ProtoBytes32(bytes.Repeat([]byte{0x31}, 32)),
-		Slot:                    1, SlotVersion: 1, OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
-	}, nil
-}
-
-type admissionBuilder struct {
-	fail     error
-	payloads [][]byte
-}
-
 type outputAdmissionBuilder struct {
-	pkg       builderclient.OutputPackage
-	published []builderclient.PublishRequest
+	pkg builderclient.OutputPackage
 }
 
-func (b *outputAdmissionBuilder) Publish(_ context.Context, req builderclient.PublishRequest) error {
-	b.published = append(b.published, req)
-	return nil
-}
 func (b *outputAdmissionBuilder) ValidateOutputPackage(context.Context, builderclient.OutputPackage) error {
 	return nil
 }
@@ -1391,287 +966,7 @@ func (c *recordingOutputConfirmer) ConfirmOutput(_ context.Context, commitments 
 	return c.pkg, c.err
 }
 
-func (b *admissionBuilder) Publish(_ context.Context, req builderclient.PublishRequest) error {
-	b.payloads = append(b.payloads, append([]byte(nil), req.Payload...))
-	return b.fail
-}
-func (*admissionBuilder) ValidateOutputPackage(context.Context, builderclient.OutputPackage) error {
-	return nil
-}
-
-func TestInferTaskCopiesInputSizeBytesFromCandidate(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	taskHash := codec.HashBytes([]byte("input-size-task"))
-	if err := layout.AdmissionBatch(ctx, db, "session-1", 1, layout.StoredHash(taskHash), layout.CandidateAdmission{
-		SignedOrder:      []byte("{}"),
-		HandraisePayload: []byte("handraise"),
-		HandraiseDigest:  layout.StoredHashFromCodec(codec.HashBytes([]byte("handraise"))),
-		PublishTS:        1234567890,
-		InputSizeBytes:   12345,
-	}); err != nil {
-		t.Fatalf("AdmissionBatch() error = %v", err)
-	}
-
-	snapshot := chainclient.TaskSnapshot{
-		Assignment: chainclient.AssignmentSnapshot{
-			SessionID:                "session-1",
-			OrderSequence:            chainclient.NewUint64String(1),
-			OrderDigest:              chainclient.HexHash{1},
-			AcceptedOrderPayloadHash: chainclient.HexHash{2},
-			SelectedWorker:           "worker-1",
-			WinnerConfirmHeight:      chainclient.NewUint64String(10),
-			InferDeadlineHeight:      chainclient.NewUint64String(100),
-			ModelID:                  testModelID,
-			ProfileVersion:           chainclient.NewProfileVersion(1),
-			BuilderOperatorAddress:   "trueopen1builder",
-		},
-	}
-
-	runner := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
-	if err := runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
-		Type: ReconcilerEffectAssignment, TaskHash: taskHash, TaskID: "task-1", Snapshot: snapshot,
-	}}); err != nil {
-		t.Fatalf("ApplyReconcilerEffects() error = %v", err)
-	}
-
-	task, err := layout.GetTaskRecord(ctx, db, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatalf("GetTaskRecord() error = %v", err)
-	}
-	if task.InputSizeBytes != 12345 {
-		t.Fatalf("InputSizeBytes = %d, want 12345", task.InputSizeBytes)
-	}
-}
-
-// Freshness is enforced in every trust posture, and this is the regression that
-// keeps it that way.
-//
-// The check used to live only inside the strict authenticator, which
-// trusted_nats_dev skips wholesale, so under the integration posture an inbound
-// frame had no expiry at all. Because a handler failure like an ASSIGN_NOTIFY the
-// local store has no assignment for is classified Retryable, and the JetStream
-// durable carries the server default of unlimited deliveries, that turned a
-// bounded refusal into a permanent redelivery loop: measured at 23KB/min per node
-// on gpu-test against one unbacked notify, running well past the envelope's own
-// 30s expiry.
-//
-// Both refusals must be PERMANENT. A retryable expiry refusal would redeliver the
-// very frame that can never become valid, which is the loop this closes.
-func TestNexusFreshnessIsEnforcedUnderTrustedNATSDevAndIsPermanent(t *testing.T) {
-	for _, testCase := range []struct {
-		name     string
-		lifetime time.Duration
-		age      time.Duration
-		want     string
-	}{
-		{name: "lifetime beyond the deployment TTL", lifetime: 2 * time.Minute, want: "exceeds the accepted TTL"},
-		{name: "already expired", lifetime: 30 * time.Second, age: time.Hour, want: "expired at"},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			ctx := context.Background()
-			db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-
-			runner := NewTaskRunner(TaskRunnerConfig{
-				Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker",
-				ChainID: "trueopen-localnet-1", FakeOutput: true, TrustedNATSDev: true,
-				EnvelopeTTL: 30 * time.Second, EnvelopeClockSkew: 2 * time.Second,
-			})
-
-			issuedAt := time.Now().UTC().Add(-testCase.age)
-			frame := trustedOrderFrame(t, issuedAt, issuedAt.Add(testCase.lifetime))
-			err = runner.HandleNexusMessage(ctx, builderclient.NATSMessage{
-				Subject: builderclient.NATSTaskOpenSubject(freshnessTestModelID), Data: frame, JetStream: true,
-			})
-			if err == nil {
-				t.Fatal("HandleNexusMessage() = nil, want the frame refused on freshness")
-			}
-			if !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("error = %v, want it to name %q", err, testCase.want)
-			}
-			if !builderclient.IsPermanent(err) {
-				t.Fatalf("error = %v is not permanent; a retryable freshness refusal redelivers a frame that can never become valid", err)
-			}
-		})
-	}
-}
-
 const freshnessTestModelID = "ad410b3157d13dbfb8263e92914cfe5a75868ce68fd722d2f73c75ff8cc7378b"
-
-// trustedOrderFrame builds the same unsigned ORDER_BROADCAST frame
-// TestHandleNexusMessageAdmitsUnsignedOrderUnderTrustedNATSDev drives, with the
-// two stamps under the caller's control so freshness can be varied.
-func trustedOrderFrame(t *testing.T, issuedAt, expiresAt time.Time) []byte {
-	t.Helper()
-	const deadlineHeight = uint64(151206)
-	const orderSequence = uint64(1)
-	sessionID := strings.Repeat("12", 32)
-	signedOrder, _ := testSignedOrderProto(t, "trueopen-localnet-1", freshnessTestModelID, sessionID, orderSequence, deadlineHeight)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOrderBroadcast, ChainID: "trueopen-localnet-1",
-		Subject:               builderclient.NATSTaskOpenSubject(freshnessTestModelID),
-		SenderOperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc", SenderParticipantType: builderclient.ParticipantBuilder,
-		ServiceAuthorizationNonce: 1,
-		IssuedAt:                  issuedAt, ExpiresAt: expiresAt,
-	}, &busv1.OrderBroadcastV1{SignedOrder: signedOrder}, true)
-	if err != nil {
-		t.Fatalf("encode testorder frame: %v", err)
-	}
-	return frame
-}
-
-// deliverFrom is deliver with a chosen envelope sender, for the one case where
-// the sender and the worker the hint names are not the same node.
-func (f *outputAvailableFixture) deliverFrom(t *testing.T, sender string, message *busv1.OutputAvailableV1) error {
-	t.Helper()
-	subject := builderclient.NATSOutputAvailableSubject(f.taskID)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOutputAvailable, ChainID: "chain", Subject: subject,
-		SenderOperatorAddress: sender, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, message, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f.runner.HandleNexusMessage(context.Background(), builderclient.NATSMessage{Subject: subject, Data: frame, JetStream: true})
-}
-
-// TestOutputAvailableFromACortexNodeThatIsNotTheWorkerItNamesIsRefused is the
-// consumer half of the sender-domain fix.
-//
-// The frozen subject table admits a CORTEX sender on trueopen.output-avail.* and
-// says so with a condition attached: "the sender must still agree with the
-// on-chain winner, which the consumer checks". The authenticator can only prove
-// that the sender holds a current ACTIVE CORTEX_NODE key - there is no chain
-// query for the set of Cortex nodes - so without this check any registered
-// Cortex node could publish a hint about another node's task. raiseVerifierHand
-// already binds the NAMED worker to the Keeper winner; this binds the sender to
-// the name, which is what closes the chain.
-func TestOutputAvailableFromACortexNodeThatIsNotTheWorkerItNamesIsRefused(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-
-	err := fixture.deliverFrom(t, "worker-2", fixture.fullHint())
-	if err == nil {
-		t.Fatal("delivery error = nil, want the mismatched sender refused")
-	}
-	if builderclient.IsRetryable(err) {
-		t.Fatalf("delivery error = %v, want a permanent refusal: redelivering the same frame cannot change who signed it", err)
-	}
-	if len(fixture.builder.published) != 0 || len(fixture.confirmer.received) != 0 {
-		t.Fatalf("published=%#v confirmed=%#v, want no handraise from a hint the sender was not entitled to make",
-			fixture.builder.published, fixture.confirmer.received)
-	}
-}
-
-// A Builder may also publish this kind (the BUILDER row of the same table), and
-// it is not the Worker: the sender/worker identity rule is CORTEX-only.
-func TestOutputAvailableFromABuilderNeedNotBeTheWorker(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-	subject := builderclient.NATSOutputAvailableSubject(fixture.taskID)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOutputAvailable, ChainID: "chain", Subject: subject,
-		SenderOperatorAddress: "builder-1", SenderParticipantType: builderclient.ParticipantBuilder,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, fixture.fullHint(), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.runner.HandleNexusMessage(context.Background(),
-		builderclient.NATSMessage{Subject: subject, Data: frame, JetStream: true}); err != nil {
-		t.Fatalf("Builder-published OUTPUT_AVAILABLE error = %v, want accepted", err)
-	}
-	fixture.assertHandraised(t)
-}
-
-// TestLosingAnAssignmentReleasesTheCandidateAdmission pins the call site of the
-// candidate release.
-//
-// The chain finalizing the assignment to another Worker is the moment this
-// node's handraise obligation ends. It is applied here rather than on the
-// WORKER_ASSIGNMENT_NOTIFY loser branch because the Keeper effect is the
-// authoritative statement of the same fact and carries everything the release
-// needs - session, order sequence and accepted task hash - while the
-// notification is only an early wake-up that may never arrive.
-func TestLosingAnAssignmentReleasesTheCandidateAdmission(t *testing.T) {
-	ctx := context.Background()
-	db, _ := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	t.Cleanup(func() { _ = db.Close() })
-	taskHash := codec.HashBytes([]byte("lost-order"))
-	if err := layout.AdmissionBatch(ctx, db, "session-1", 1, layout.StoredHash(taskHash), layout.CandidateAdmission{
-		SchemaVersion: layout.CandidateAdmissionSchemaVersion,
-		SignedOrder:   []byte("order"), HandraisePayload: []byte("handraise"), PublishTS: 5,
-	}); err != nil {
-		t.Fatalf("AdmissionBatch() error = %v", err)
-	}
-	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
-		TaskID: "task-1", SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-		SelectedWorker: "worker-2", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
-		InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
-	}}
-	r := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
-
-	if err := r.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
-		Type: ReconcilerEffectAssignment, TaskHash: taskHash, TaskID: "task-1", Snapshot: snapshot,
-	}}); err != nil {
-		t.Fatalf("ApplyReconcilerEffects() error = %v", err)
-	}
-
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("candidate admission error = %v, want the lost order's row released", err)
-	}
-	// Losing must not admit the task: no infer document may appear.
-	if _, err := layout.GetInferRecord(ctx, db, layout.StoredHash(taskHash)); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("infer record error = %v, want no responsibility admitted for a lost order", err)
-	}
-}
-
-// Winning keeps the candidate row: ApplyReconcilerEffects reads InputSizeBytes
-// and the broadcasting Builder out of it while building the task record, so
-// releasing it on the winner's path would drop facts the chain does not carry.
-func TestWinningAnAssignmentKeepsTheCandidateAdmission(t *testing.T) {
-	ctx := context.Background()
-	db, _ := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	t.Cleanup(func() { _ = db.Close() })
-	taskHash := codec.HashBytes([]byte("won-order"))
-	if err := layout.AdmissionBatch(ctx, db, "session-1", 1, layout.StoredHash(taskHash), layout.CandidateAdmission{
-		SchemaVersion: layout.CandidateAdmissionSchemaVersion,
-		SignedOrder:   []byte("order"), HandraisePayload: []byte("handraise"), PublishTS: 5,
-		InputSizeBytes: 4096, BroadcastingBuilder: "builder-1",
-	}); err != nil {
-		t.Fatalf("AdmissionBatch() error = %v", err)
-	}
-	snapshot := chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
-		TaskID: "task-1", SessionID: "session-1", OrderSequence: chainclient.NewUint64String(1),
-		SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
-		InferDeadlineHeight: chainclient.NewUint64String(100), AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
-	}}
-	r := NewTaskRunner(TaskRunnerConfig{Store: db, LocalWorkerAddress: "worker-1"})
-
-	if err := r.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
-		Type: ReconcilerEffectAssignment, TaskHash: taskHash, TaskID: "task-1", Snapshot: snapshot,
-	}}); err != nil {
-		t.Fatalf("ApplyReconcilerEffects() error = %v", err)
-	}
-	if _, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash)); err != nil {
-		t.Fatalf("candidate admission error = %v, want the winner's row kept", err)
-	}
-	task, err := layout.GetTaskRecord(ctx, db, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatalf("GetTaskRecord() error = %v", err)
-	}
-	if task.InputSizeBytes != 4096 || task.BuilderOperatorAddress != "builder-1" {
-		t.Fatalf("task record = %#v, want the admission's off-chain facts carried over", task)
-	}
-}
 
 // V3 touches nothing off-node and V7a is the download. data-plane-and-evidence-transfer.md §6:
 // candidate metadata arrives on ORDER_BROADCAST / OPEN_VERIFY and is "not obtained
@@ -1681,10 +976,10 @@ func TestWinningAnAssignmentKeepsTheCandidateAdmission(t *testing.T) {
 // -- so the metadata round trip this handraise used to make was refused
 // NEXUS_DATA_UNAUTHORIZED and no handraise was ever sent.
 func TestVerifierHandraiseReachesTheTaskDataPlaneNotAtAll(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
-		t.Fatalf("OutputAvailable hint was refused: %v", err)
+	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
+		t.Fatalf("OpenVerify was refused: %v", err)
 	}
 	fixture.assertHandraised(t)
 	if len(fixture.confirmer.received) != 0 {
@@ -1698,14 +993,14 @@ func TestVerifierHandraiseReachesTheTaskDataPlaneNotAtAll(t *testing.T) {
 // if a handraise needed one then §6's "candidate metadata does not come from the
 // data plane" would not be true of this code.
 func TestVerifierHandraiseNeedsNoOutputConfirmer(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.OutputConfirmer = nil
 
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
+	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("handraise without an output confirmer was refused: %v", err)
 	}
-	if len(fixture.builder.published) != 1 {
-		t.Fatalf("published = %#v, want one verifier handraise", fixture.builder.published)
+	if len(fixture.sender.handraises) != 1 {
+		t.Fatalf("published = %#v, want one verifier handraise", fixture.sender.handraises)
 	}
 }
 
@@ -1715,43 +1010,42 @@ func TestVerifierHandraiseNeedsNoOutputConfirmer(t *testing.T) {
 // OPEN_VERIFY with "output confirmation requires committed output and package
 // hashes", so no Cortex node could ever raise a Verifier hand.
 func TestVerifierHandraiseSucceedsWhenKeeperCommitsNoPackageHash(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	chain := fixture.snapshot
 	chain.InferReceipt.CanonicalOutputPackageHash = chainclient.HexHash{}
 	fixture.runner.cfg.TaskReader = staticKeeperTaskReader{snapshot: chain}
 
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
+	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OPEN_VERIFY with no committed package hash was refused: %v", err)
 	}
-	if len(fixture.builder.published) != 1 {
-		t.Fatalf("published = %#v, want one verifier handraise", fixture.builder.published)
+	if len(fixture.sender.handraises) != 1 {
+		t.Fatalf("published = %#v, want one verifier handraise", fixture.sender.handraises)
 	}
 }
 
 // The precheck's mutual-exclusion skip has to come before any fetch (the
 // cortex-detailed-design.md timing red line). The winning Worker receiving its own task's
-// OPEN_VERIFY is the normal case -- once duty selection retired every node
-// subscribes to both subject groups -- so this path runs once per task. It used to
+// OPEN_VERIFY is the normal case, so this path runs once per task. It used to
 // pull the node's own output back from the Builder in full before the L1 mutual
-// exclusion refused it; and even refusing early, returning an error would have left
-// OUTPUT_AVAILABLE NAKed forever.
+// exclusion refused it; and even refusing early, returning an error would only
+// make the Builder retry it.
 func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.LocalVerifierAddress = fixture.snapshot.Assignment.SelectedWorker
 
-	err := fixture.deliver(t, fixture.fullHint())
+	err := fixture.deliverOpenVerify(t, fixture.openVerifyCall())
 
 	if err != nil {
-		t.Fatalf("self-winner OUTPUT_AVAILABLE error = %v, want nil so JetStream ACKs", err)
+		t.Fatalf("self-winner OPEN_VERIFY error = %v, want nil", err)
 	}
 	if len(fixture.confirmer.received) != 0 {
 		t.Fatalf("task-data plane calls = %#v, want none: the skip precedes every fetch", fixture.confirmer.received)
 	}
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published = %#v, want nothing", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published = %#v, want nothing", fixture.sender.handraises)
 	}
 	requireTraceFields(t, fixture.trace.event(t, "verifier_trigger_skipped"),
-		`kind="OutputAvailable"`, `task="`+fixture.taskID+`"`,
+		`kind="OpenVerify"`, `task="`+fixture.taskID+`"`,
 		`worker="worker-1"`, `reason="self_winner"`)
 	requireTraceLevel(t, fixture.trace, "verifier_trigger_skipped", slog.LevelInfo)
 }
@@ -1759,11 +1053,25 @@ func TestVerifierHandraiseAcknowledgesTheWinningWorkerBeforeAnyConfirmation(t *t
 // testModelID is the Hash32 model id, as canonical hex, the daemon tests run.
 const testModelID = "0101010101010101010101010101010101010101010101010101010101010101"
 
-func mustModelIDBytes(t testing.TB, modelID string) []byte {
+// seedAssignedInfer records the Worker responsibility an assignment snapshot
+// describes, the way the retired Keeper assignment effect did, and wakes the
+// runner so the next pass picks it up.
+func seedAssignedInfer(ctx context.Context, t *testing.T, runner *TaskRunner, effect ReconcilerEffect) {
 	t.Helper()
-	raw, err := identity.ModelIDBytes(modelID)
-	if err != nil {
+	a := effect.Snapshot.Assignment
+	task := layout.TaskRecord{
+		SessionID: a.SessionID, OrderSequence: a.OrderSequence.Uint64(), ModelID: a.ModelID, ProfileVersion: a.ProfileVersion.Uint32(),
+		AssignmentOrderDigest: layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
+		AcceptedInputHash:     layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
+		InputDigest:           layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
+		WorkerAddress:         a.SelectedWorker,
+	}
+	infer := layout.InferRecord{
+		TaskID: effect.TaskID, WinnerConfirmHeight: a.WinnerConfirmHeight.Uint64(), InferDeadlineHeight: a.InferDeadlineHeight.Uint64(),
+		Stage: layout.StageQueued, DeadlineHeight: a.InferDeadlineHeight.Uint64(),
+	}
+	if err := layout.InferAssignmentBatch(ctx, runner.cfg.Store, layout.StoredHash(effect.TaskHash), task, infer); err != nil {
 		t.Fatal(err)
 	}
-	return raw
+	runner.Wake()
 }

@@ -2,14 +2,17 @@ package daemon
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
@@ -37,6 +40,11 @@ type taskOutcome struct {
 	verify   store.VerifyTask
 	terminal bool
 	err      error
+	// stale: the execution was stopped before it ran; nothing to apply.
+	stale bool
+	// ticket is the dispatch ticket the execution was launched for, captured
+	// at launch: the executor's own returned task cannot be trusted to say.
+	ticket codec.Hash
 	// stopReason fails the responsibility without having run it. It is
 	// applied after the execution merge, which by contract carries only the
 	// stage and the output/receipt fields across and would otherwise drop
@@ -97,6 +105,19 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	if r == nil || r.cfg.Store == nil {
 		return batch, fmt.Errorf("task runner store is required")
 	}
+	tip := r.currentChainTip(ctx)
+	// The OPEN_VERIFY inbox (verifier_inbox.go), before the due
+	// responsibilities, because this is the step that decides whether there
+	// will BE one: a Verifier candidate that never got its handraise out is
+	// never selected, so no verify document ever exists for the loop below to
+	// find. It runs outside r.mu on purpose - it publishes and waits on the
+	// chain - and it swallows its own errors, because a scheduling pass
+	// returning one stops the daemon. It also runs before the snapshot below,
+	// not between it and the launches: its store scans and chain reads would
+	// otherwise leave the pass holding a "queued" copy of a responsibility
+	// whose execution finished and released its claim in the meantime.
+	r.drainVerifierInbox(ctx, tip)
+
 	r.mu.Lock()
 	infer, verify, err := r.loadActiveTasks(ctx)
 	if err != nil {
@@ -111,24 +132,26 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	infer, verify = copyInfer(infer), copyVerify(verify)
 	r.mu.Unlock()
 
-	tip := r.currentChainTip(ctx)
-	// Before the due responsibilities, because this is the step that decides
-	// whether there will BE one: a Verifier candidate that never got its
-	// handraise out is never selected, so no verify document ever exists for the
-	// loop below to find. It runs outside r.mu on purpose - it publishes and
-	// waits on the chain - and it swallows its own errors, because a scheduling
-	// pass returning one stops the daemon.
-	r.redriveVerifierHandraises(ctx, tip)
-	// And the Worker half of the same problem. trueopen.task.open.* is Core tier
-	// too, so a busy node's retryable refusal has no transport to honour it;
-	// this is where an order held over from a full moment gets its next attempt.
-	// Same placement and same reason: it decides whether a responsibility will
-	// exist at all, and it swallows its own errors because a scheduling pass
-	// returning one stops the daemon.
-	r.redriveWorkerOrders(ctx, tip)
 	now := time.Now().UTC()
-	launch := func(key responsibilityKey, taskID string, run func() taskOutcome) {
-		if !r.claimInflight(key) {
+	launch := func(key responsibilityKey, taskID string, unchanged func() bool, run func(context.Context) taskOutcome) {
+		execCtx, cancel := context.WithCancel(ctx)
+		if !r.claimInflight(key, cancel) {
+			cancel()
+			return
+		}
+		if r.dispatchClaimHook != nil {
+			r.dispatchClaimHook(key)
+		}
+		// The snapshot this pass decided on can be stale by now: an execution
+		// that finished after the snapshot released its claim, so the claim
+		// above succeeded against a "queued" copy of a record the outcome has
+		// already advanced. Only the live view under r.mu can tell.
+		r.mu.Lock()
+		fresh := unchanged()
+		r.mu.Unlock()
+		if !fresh {
+			r.releaseInflight(key)
+			cancel()
 			return
 		}
 		batch.Add(1)
@@ -136,6 +159,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		go func() {
 			defer batch.Done()
 			defer r.executions.Done()
+			defer cancel()
 			// Released after the outcome is durable, never before: the record of
 			// a running task still reads "queued" until this goroutine writes it,
 			// so a pass that saw the claim gone would read that stale document
@@ -167,7 +191,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			// query, and a slot held through that is GPU time nobody is using.
 			slot := sync.OnceFunc(func() { <-r.slots })
 			defer slot()
-			outcome := run()
+			outcome := run(execCtx)
 			slot()
 			if err := r.applyOutcome(ctx, outcome); err != nil {
 				r.recordExecutionFailure(err)
@@ -175,14 +199,28 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		}()
 	}
 	launchInfer := func(hash codec.Hash, task store.InferTask) {
-		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, func() taskOutcome {
-			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(ctx, hash, task)
-			return taskOutcome{role: "infer", hash: hash, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
+		unchanged := func() bool {
+			live, ok := r.infer[hash]
+			return ok && live.Stage == task.Stage && live.RetryCount == task.RetryCount && live.RetryAtUnixMilli == task.RetryAtUnixMilli
+		}
+		launch(responsibilityKey{role: "infer", hash: hash}, task.TaskID, unchanged, func(execCtx context.Context) taskOutcome {
+			// The cancel is registered before this check, so a stop that
+			// lands after it still reaches the execution.
+			ticket := task.DispatchTicketHash
+			if !r.ownsInfer(hash, ticket) {
+				return taskOutcome{role: "infer", hash: hash, ticket: ticket, stale: true}
+			}
+			updated, terminal, runErr := r.cfg.InferExecutor.RunInfer(execCtx, hash, task)
+			return taskOutcome{role: "infer", hash: hash, ticket: ticket, infer: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
 	}
 	launchVerify := func(hash codec.Hash, task store.VerifyTask) {
-		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, func() taskOutcome {
-			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(ctx, hash, task)
+		unchanged := func() bool {
+			live, ok := r.verify[hash]
+			return ok && live.Stage == task.Stage && live.RetryCount == task.RetryCount && live.RetryAtUnixMilli == task.RetryAtUnixMilli
+		}
+		launch(responsibilityKey{role: "verify", hash: hash}, task.TaskID, unchanged, func(execCtx context.Context) taskOutcome {
+			updated, terminal, runErr := r.cfg.VerifyExecutor.RunVerify(execCtx, hash, task)
 			return taskOutcome{role: "verify", hash: hash, verify: updated, terminal: terminal, err: runErr, finishedAt: time.Now().UTC()}
 		})
 	}
@@ -198,7 +236,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		deadline := inferDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
 			r.reportStoppedResponsibility("infer", task.TaskID, hash, tip, deadline, task.RetryCount, reason)
-			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: task, stopReason: reason}); err != nil {
+			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, ticket: task.DispatchTicketHash, infer: task, stopReason: reason}); err != nil {
 				return batch, err
 			}
 			continue
@@ -215,7 +253,7 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			continue
 		}
 		if reason != "" {
-			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, infer: task, stopReason: reason}); err != nil {
+			if err := r.applyOutcome(ctx, taskOutcome{role: "infer", hash: hash, ticket: task.DispatchTicketHash, infer: task, stopReason: reason}); err != nil {
 				return batch, err
 			}
 			continue
@@ -259,7 +297,11 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 			r.reportAutoHalted("verify", task.TaskID, hash, task.HaltCode, task.HaltReason)
 			continue
 		}
-		if r.cfg.VerifyExecutor == nil || !r.taskDue(now, tip, task.Stage, task.RetryAtUnixMilli, deadline) {
+		retryAt := task.RetryAtUnixMilli
+		if verifyRetryHeightDue(task, tip) {
+			retryAt = 0 // the report window is open: the backoff must not step over it
+		}
+		if r.cfg.VerifyExecutor == nil || !r.taskDue(now, tip, task.Stage, retryAt, deadline) {
 			continue
 		}
 		reason, undecided := r.localObjectsRecoveryReason(ctx, hash, "verify", task.TaskID)
@@ -302,6 +344,9 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 		if !ok {
 			return nil
 		}
+		if outcome.stale || outcome.ticket != current.DispatchTicketHash {
+			return nil // a stopped ticket's outcome never lands on the next round's record
+		}
 		updated := mergeInferExecution(current, outcome.infer)
 		if outcome.stopReason != "" {
 			updated.Stage, updated.LastError = "failed", outcome.stopReason
@@ -312,6 +357,13 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 		if outcome.terminal {
 			delete(r.infer, outcome.hash)
 			return layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(outcome.hash))
+		}
+		// A dispatched infer that succeeded (receipt relayed, evidence at its
+		// redundancy target) gives its (task_id, WORKER) lease back (S5 Q7).
+		if updated.Stage == "succeeded" && current.Stage != "succeeded" && updated.DispatchTicketHash != (codec.Hash{}) {
+			if err := r.releaseDispatchLease(ctx, updated.TaskID); err != nil {
+				return err
+			}
 		}
 		r.infer[outcome.hash] = updated
 		return r.persistInferTaskToLayout(ctx, outcome.hash, updated)
@@ -359,16 +411,19 @@ func (r *TaskRunner) rememberRecoveredRevealDeadline(hash codec.Hash, task store
 // executor for work already in the model. For a Worker that is two signed
 // answers to one question; for a Verifier it is a second commit attempt against
 // a round the first one is still committing.
-func (r *TaskRunner) claimInflight(key responsibilityKey) bool {
+func (r *TaskRunner) claimInflight(key responsibilityKey, cancel context.CancelFunc) bool {
 	r.inflightMu.Lock()
 	defer r.inflightMu.Unlock()
 	if r.inflight == nil {
 		r.inflight = make(map[responsibilityKey]struct{})
 	}
+	if r.cancels == nil {
+		r.cancels = make(map[responsibilityKey]context.CancelFunc)
+	}
 	if _, running := r.inflight[key]; running {
 		return false
 	}
-	r.inflight[key] = struct{}{}
+	r.inflight[key], r.cancels[key] = struct{}{}, cancel
 	return true
 }
 
@@ -376,6 +431,25 @@ func (r *TaskRunner) releaseInflight(key responsibilityKey) {
 	r.inflightMu.Lock()
 	defer r.inflightMu.Unlock()
 	delete(r.inflight, key)
+	delete(r.cancels, key)
+}
+
+// cancelInflight ends the execution running for key, if any.
+func (r *TaskRunner) cancelInflight(key responsibilityKey) {
+	r.inflightMu.Lock()
+	cancel := r.cancels[key]
+	r.inflightMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// ownsInfer reports whether ticket still owns hash's live responsibility.
+func (r *TaskRunner) ownsInfer(hash, ticket codec.Hash) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.infer[hash]
+	return ok && t.DispatchTicketHash == ticket
 }
 
 func (r *TaskRunner) executing(key responsibilityKey) bool {
@@ -476,29 +550,12 @@ type taskDeadline struct {
 	note   string
 }
 
-// missingDataUnavailableRemedy is what a Verifier owes the chain when it lets a
-// commit deadline pass without a commit, and cannot pay.
-//
-// 02-data-plane-and-evidence-transfer.md §5 gives the remedy: a selected Verifier that retried the
-// fixed Task Builders and still could not obtain complete, commitment-checked
-// data submits MsgReportDataUnavailable, marking the Builders that failed it with
-// "a bitmap in Task Builder order". §7 makes it the only local failure that enters
-// protocol attribution at all -- "local diagnostic information does not enter
-// consensus".
-//
-// Cortex cannot build that bitmap. The order it must be expressed in is
-// TaskBuilderSelectionState.selected_task_builders (keeper-data-structure-contract.md §6.5,
-// the same frozen order §10.4/§10.5 derive the bitmap from), and the frozen
-// task.v1.Query service registers no rpc that returns it: QueryTaskBuilders
-// is named in the state's own contract but is not on the service, and no frozen
-// task event carries the list either. MsgReportDataUnavailable itself IS
-// registered ACTIVE (msg_verification.proto), and it refuses a bitmap with
-// out-of-range or trailing bits -- so a guessed order is not a degraded report,
-// it is a rejected tx and a Verifier that believes it reported when it did not.
-//
-// The step without an authoritative read is refused rather than guessed.
-// Remove this note when the read lands and wire the producer beside it.
-const missingDataUnavailableRemedy = "the V7b remedy (MsgReportDataUnavailable) is owed and cannot be submitted: its Task Builder bitmap must follow TaskBuilderSelectionState.selected_task_builders, and the frozen task.v1.Query service registers no rpc serving that list"
+// missedDataUnavailableRemedy is what a commit deadline that passed with no
+// commit leaves behind: either the A-level set kept failing and the V7b
+// window (the last dataUnavailableReportMarginBlocks blocks, verify_reports.go)
+// was missed, or the round never reached a report. It is named so an operator
+// escalates.
+const missedDataUnavailableRemedy = "no commit and no MsgReportDataUnavailable reached the chain before the commit deadline (CD §6.2 V7b)"
 
 // inferDeadline is the infer deadline and nothing else. A Worker's whole
 // responsibility ends at it.
@@ -542,7 +599,7 @@ func verifyDeadline(task store.VerifyTask) taskDeadline {
 		return taskDeadline{
 			height: task.CommitDeadlineHeight,
 			label:  "commit deadline",
-			note:   missingDataUnavailableRemedy,
+			note:   missedDataUnavailableRemedy,
 		}
 	}
 	return taskDeadline{height: task.DeadlineHeight, label: "task deadline"}
@@ -726,6 +783,14 @@ func (r *TaskRunner) applyRunFailure(role, taskID string, taskHash codec.Hash, e
 }
 
 func (r *TaskRunner) recordInferRetry(task *store.InferTask, err error, finishedAt time.Time, taskHash codec.Hash) {
+	if isChainStateWait(err) {
+		// Waiting for the dispatch record, or paused by a REJECTED notice: the
+		// protocol's clock, bounded by the task deadline (D_ticket before the
+		// record, infer_deadline after). It spends no retry.
+		task.LastError = err.Error()
+		task.RetryAtUnixMilli = finishedAt.Add(r.cfg.DispatchWaitInterval).UnixMilli()
+		return
+	}
 	r.applyRunFailure("infer", task.TaskID, taskHash, err, finishedAt,
 		&task.Stage, &task.RetryCount, &task.RetryAtUnixMilli, &task.LastError,
 		&task.AutoHalted, &task.HaltCode, &task.HaltReason)
@@ -735,6 +800,35 @@ func (r *TaskRunner) recordVerifyRetry(task *store.VerifyTask, err error, finish
 	r.applyRunFailure("verify", task.TaskID, taskHash, err, finishedAt,
 		&task.Stage, &task.RetryCount, &task.RetryAtUnixMilli, &task.LastError,
 		&task.AutoHalted, &task.HaltCode, &task.HaltReason)
+	// A round waiting for its data-unavailable report window is also due by
+	// height (verify_reports.go reportWindowWait). Any other failure retires a
+	// previous height schedule: MergeVerify never writes a zero over a set
+	// field, so "none" is a sentinel rather than 0.
+	var wait *reportWindowWait
+	switch {
+	case errors.As(err, &wait):
+		task.RetryAtHeight = wait.Height
+	case task.RetryAtHeight != 0:
+		task.RetryAtHeight = noRetryAtHeight
+	}
+}
+
+// noRetryAtHeight retires a verify record's height schedule.
+const noRetryAtHeight = math.MaxUint64
+
+// verifyRetryHeightDue reports whether a verify round's height schedule has
+// come due. It only counts inside the window it was scheduled for: an A-level
+// height is at most the commit deadline and is read only before the commit,
+// a B-level one is above it and read only after (reportWindowHeight).
+func verifyRetryHeightDue(task store.VerifyTask, tip chainTip) bool {
+	h := task.RetryAtHeight
+	if h == 0 || h == noRetryAtHeight || !tip.readable || tip.height < h {
+		return false
+	}
+	if task.Stage == string(layout.StageCommitted) {
+		return h > task.CommitDeadlineHeight
+	}
+	return h <= task.CommitDeadlineHeight
 }
 
 // reportAutoHalted makes a halted responsibility visible on every tick it is
@@ -759,99 +853,81 @@ func (r *TaskRunner) reportAutoHalted(role, taskID string, taskHash codec.Hash, 
 
 // ApplyReconcilerEffects serializes Keeper-driven assignment and terminal
 // changes through the same infer/verify owner that checkpoints executions.
+//
+// The page is applied in its order. Each run of effects the runner owns is
+// applied under its lock, and each run of dispatch effects is forwarded
+// outside it before anything later in the page: a dispatch_recorded moves the
+// Worker lease to the task key, and an infer_terminal behind it in the same
+// page must find it there to release it.
 func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []ReconcilerEffect) error {
 	if r == nil || r.cfg.Store == nil {
 		return fmt.Errorf("task runner store is required")
 	}
+	forwarded := func(e ReconcilerEffect) bool {
+		return e.Type == ReconcilerEffectDispatchRecorded || e.Type == ReconcilerEffectDispatchEvent
+	}
+	for len(effects) > 0 {
+		end := 0
+		if forwarded(effects[0]) {
+			for end < len(effects) && forwarded(effects[end]) {
+				end++
+			}
+			if err := r.forwardDispatchRecorded(ctx, effects[:end]); err != nil {
+				return err
+			}
+		} else {
+			for end < len(effects) && !forwarded(effects[end]) {
+				end++
+			}
+			if err := r.applyReconcilerEffectsLocked(ctx, effects[:end]); err != nil {
+				return err
+			}
+		}
+		effects = effects[end:]
+	}
+	return nil
+}
+
+// forwardDispatchRecorded hands dispatch_recorded and dispatch event effects
+// to the Dispatcher outside the runner lock: it calls back into
+// RecordDispatchedInfer and StopDispatchedInfer, which take it. A retryable
+// refusal retries the page (marked for the poller, which only retries
+// chainclient-retryable errors); a permanent one is reported and the cursor
+// moves on.
+func (r *TaskRunner) forwardDispatchRecorded(ctx context.Context, effects []ReconcilerEffect) error {
+	for _, effect := range effects {
+		var err error
+		switch {
+		case effect.Type == ReconcilerEffectDispatchRecorded && r.cfg.DispatchRecords != nil:
+			err = r.cfg.DispatchRecords.ObserveDispatchRecorded(ctx, effect.Dispatch)
+		case effect.Type == ReconcilerEffectDispatchEvent && r.cfg.DispatchEvents != nil:
+			err = r.cfg.DispatchEvents.ObserveDispatchEvent(ctx, effect.DispatchEvent)
+		default:
+			r.cfg.Trace.Event("dispatch_effect_unobserved", tasktrace.Str("task", effect.TaskID), tasktrace.Str("type", string(effect.Type)))
+			continue
+		}
+		switch {
+		case err == nil:
+		case builderclient.IsRetryable(err) || chainclient.IsRetryable(err):
+			return chainclient.Retryable(builderclient.Retryable(fmt.Errorf("%s for task %s: %w", effect.Type, effect.TaskID, err)))
+		default:
+			r.cfg.Trace.ErrorEvent("dispatch_effect_refused", tasktrace.Str("task", effect.TaskID), tasktrace.Str("type", string(effect.Type)), tasktrace.Err("error", err))
+			if r.cfg.OnQuarantinedEffect != nil {
+				r.cfg.OnQuarantinedEffect(effect, err)
+			}
+		}
+	}
+	return nil
+}
+
+// applyReconcilerEffectsLocked applies every effect the runner owns under its
+// lock. Dispatch effects are the caller's to forward and are skipped here.
+func (r *TaskRunner) applyReconcilerEffectsLocked(ctx context.Context, effects []ReconcilerEffect) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, effect := range effects {
 		switch effect.Type {
-		case ReconcilerEffectAssignment:
-			a := effect.Snapshot.Assignment
-			if r.cfg.LocalWorkerAddress == "" || a.SelectedWorker != r.cfg.LocalWorkerAddress {
-				// An input prefetched on the Builder's announcement is
-				// dropped unused: the chain assigned the task elsewhere.
-				r.prefetches.discard(effect.TaskHash, "assigned_elsewhere")
-				// Not selected: this node's handraise obligation ends here and the candidate
-				// row should go. It was written down so that "a restart in the middle of a
-				// handraise can still publish the signed document it promised"; once the
-				// winner is final that obligation is discharged, and since this store holds
-				// restart obligations only, keeping the row leaves one line of permanent
-				// garbage per losing bid.
-				//
-				// Cleared only on this authoritative path: the chain's final assignment is
-				// what settles "not selected", while WORKER_ASSIGNMENT_NOTIFY is an early
-				// wake-up that may never arrive at all. A failed cleanup does not affect
-				// correctness (the next candidate for the same (session, order) overwrites
-				// it), so it must not stop the rest of this batch of effects from landing.
-				if r.cfg.LocalWorkerAddress != "" && a.SessionID != "" {
-					if err := layout.ReleaseCandidateAdmission(ctx, r.cfg.Store, a.SessionID, a.OrderSequence.Uint64(), layout.StoredHash(effect.TaskHash)); err != nil && r.cfg.Diagnostic != nil {
-						r.cfg.Diagnostic(TaskRunnerDiagnostic{
-							Source: "assignment_lost", Record: effect.TaskID, Error: err.Error(),
-						})
-					}
-				}
-				continue
-			}
-			inputSizeBytes := uint64(0)
-			// Keeper's task snapshot does not currently serve builder_operator_address,
-			// and the chain has no field saying which Builder is the receiver. The Builder
-			// that broadcast this order must have accepted it and therefore holds the
-			// input, so the sender recorded at admission is a reliable fallback source.
-			// Once the chain carries the field, the snapshot value wins.
-			builderOperator := a.BuilderOperatorAddress
-			if candidate, err := layout.GetCandidateAdmission(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err == nil {
-				inputSizeBytes = candidate.InputSizeBytes
-				if builderOperator == "" {
-					builderOperator = candidate.BroadcastingBuilder
-				}
-			}
-			task := layout.TaskRecord{
-				SessionID:              a.SessionID,
-				OrderSequence:          a.OrderSequence.Uint64(),
-				ModelID:                a.ModelID,
-				ProfileVersion:         a.ProfileVersion.Uint32(),
-				AssignmentOrderDigest:  layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
-				AssignmentDigest:       layout.StoredHashFromCodec(effect.AssignmentDigest),
-				AcceptedInputHash:      layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
-				InputDigest:            layout.StoredHashFromCodec(codec.Hash(a.AcceptedOrderPayloadHash)),
-				WorkerAddress:          a.SelectedWorker,
-				BuilderOperatorAddress: builderOperator,
-				InputSizeBytes:         inputSizeBytes,
-			}
-			infer := layout.InferRecord{
-				TaskID:              effect.TaskID,
-				WinnerConfirmHeight: a.WinnerConfirmHeight.Uint64(),
-				InferDeadlineHeight: a.InferDeadlineHeight.Uint64(),
-				Stage:               layout.StageQueued,
-				DeadlineHeight:      a.InferDeadlineHeight.Uint64(),
-			}
-			// woken_by says whether this node waited out its own poll interval or
-			// was told to look. It is the measurement that decides whether the
-			// interval is worth shortening, or worth replacing with a chain
-			// subscription: an assignment admitted on a tick waited up to one
-			// interval that a notify would have saved.
-			wokenBy := tasktrace.Field{}
-			if source, ok := WakeSourceFrom(ctx); ok {
-				wokenBy = tasktrace.Str("woken_by", string(source))
-			}
-			r.cfg.Trace.Event("keeper_assignment_admitted",
-				tasktrace.Str("task", effect.TaskID), tasktrace.Hash("task_hash", effect.TaskHash),
-				wokenBy,
-				tasktrace.Str("session", a.SessionID), tasktrace.Uint("order_sequence", a.OrderSequence.Uint64()),
-				tasktrace.Str("model", a.ModelID), tasktrace.Uint("profile_version", uint64(a.ProfileVersion.Uint32())),
-				tasktrace.Hash("accepted_order_payload_hash", codec.Hash(a.AcceptedOrderPayloadHash)),
-				tasktrace.Hash("assignment_digest", effect.AssignmentDigest),
-				tasktrace.Str("worker", a.SelectedWorker), tasktrace.Str("builder", builderOperator),
-				tasktrace.Uint("input_size_bytes", inputSizeBytes),
-				tasktrace.Uint("winner_confirm_height", a.WinnerConfirmHeight.Uint64()),
-				tasktrace.Uint("infer_deadline_height", a.InferDeadlineHeight.Uint64()))
-			if err := layout.InferAssignmentBatch(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash), task, infer); err != nil {
-				if !r.quarantineEffect(effect, err) {
-					return err
-				}
-			}
+		case ReconcilerEffectDispatchRecorded, ReconcilerEffectDispatchEvent:
 		case ReconcilerEffectVerifyReady:
 			v := effect.Snapshot.VerifierAssignment
 			if r.cfg.LocalVerifierAddress == "" || !slices.Contains([]string(v.FormalVerifierSet), r.cfg.LocalVerifierAddress) {
@@ -964,12 +1040,13 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				tasktrace.Uint("chain_height", effect.Event.Height),
 				tasktrace.Str("stage", string(record.Stage)))
 		case ReconcilerEffectInferTerminal:
-			r.prefetches.discard(effect.TaskHash, "infer_terminal")
 			if err := layout.DeleteInferRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err != nil {
 				return err
 			}
+			if err := r.releaseDispatchLease(ctx, effect.TaskID); err != nil {
+				return err
+			}
 		case ReconcilerEffectTaskTerminal:
-			r.prefetches.discard(effect.TaskHash, "task_terminal")
 			ev := layout.Evidence{TaskID: effect.TaskID, TerminalOrSettled: true, RetentionStartHeight: retentionStartHeight(effect)}
 			if taskRecord, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(effect.TaskHash)); err == nil {
 				ev.SessionID = taskRecord.SessionID
@@ -978,6 +1055,9 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 				if !r.quarantineEffect(effect, err) {
 					return err
 				}
+			}
+			if err := r.releaseDispatchLease(ctx, effect.TaskID); err != nil {
+				return err
 			}
 		case ReconcilerEffectVerifyTerminal:
 			// Every node on the chain sees every reveal, and on a task with
@@ -1034,7 +1114,6 @@ func (r *TaskRunner) ApplyReconcilerEffects(ctx context.Context, effects []Recon
 		}
 	}
 	r.Wake()
-	r.signalKeeperProgress()
 	return nil
 }
 
@@ -1085,4 +1164,21 @@ func retentionStartHeight(effect ReconcilerEffect) uint64 {
 		return effect.FinalityHeight
 	}
 	return effect.Event.Height
+}
+
+// releaseDispatchLease returns a recorded task's (task_id, WORKER) lease. The
+// hook never takes the runner lock (cortexd: Dispatcher.ReleaseTaskLease);
+// releasing a lease that is not held is a no-op.
+func (r *TaskRunner) releaseDispatchLease(ctx context.Context, taskID string) error {
+	if r.cfg.ReleaseDispatchLease == nil {
+		return nil
+	}
+	raw, err := hex.DecodeString(taskID)
+	if err != nil || len(raw) != 32 {
+		return nil // not a Phase 1 task id
+	}
+	if err := r.cfg.ReleaseDispatchLease(ctx, layout.StoredHash(raw)); err != nil {
+		return fmt.Errorf("release the dispatch lease of task %s: %w", taskID, err)
+	}
+	return nil
 }

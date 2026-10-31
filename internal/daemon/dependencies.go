@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	UnsafeTrustedTransportMarker = "UNSAFE_TRUSTED_TRANSPORT"
 	// UnsafeInsecureDescriptorMarker records that a plaintext http:// Builder
 	// endpoint is accepted: both where the on-chain descriptor publishes it and
 	// where the task-data transport dials it. V1 Task payloads are application
@@ -33,21 +32,11 @@ const (
 )
 
 type DependencyOptions struct {
-	ModelClient                modelservice.Client
-	ModelTransport             modelservice.Transport
-	NexusPublisher             builderclient.Publisher
-	NexusSubscriber            builderclient.Subscriber
-	NexusEnvelopeAuthenticator builderclient.BusEnvelopeAuthenticator
-	NexusEnvelopeSigner        builderclient.BusEnvelopeSigner
-	NexusToken                 string
-	TaskDataClient             builderclient.TaskDataClient
-	TxClient                   txclient.Client
-	Keeper                     KeeperClient
-	// NexusPublishObserver reports every outbound bus publish. It is attached to
-	// the Builder client only, never to the publisher the runtime keeps for
-	// readiness and shutdown, because those two paths type-assert the value for
-	// its Probe and Close methods.
-	NexusPublishObserver func(builderclient.PublishCompletion)
+	ModelClient    modelservice.Client
+	ModelTransport modelservice.Transport
+	TaskDataClient builderclient.TaskDataClient
+	TxClient       txclient.Client
+	Keeper         KeeperClient
 }
 
 // KeeperClient is the runtime's Keeper injection point. It is deliberately
@@ -99,16 +88,13 @@ func requireUsableKeeperClient(keeper KeeperClient) error {
 }
 
 type Dependencies struct {
-	Model                      modelservice.Client
-	Builder                    builderclient.Client
-	OutputPackages             builderclient.OutputPackageStore
-	TaskData                   builderclient.TaskDataClient
-	Subscriber                 builderclient.Subscriber
-	NexusEnvelopeAuthenticator builderclient.BusEnvelopeAuthenticator
-	NexusEnvelopeSigner        builderclient.BusEnvelopeSigner
-	Keeper                     KeeperClient
-	Tx                         txclient.Client
-	Diagnostics                diagnostics.Diagnostics
+	Model          modelservice.Client
+	Builder        builderclient.Client
+	OutputPackages builderclient.OutputPackageStore
+	TaskData       builderclient.TaskDataClient
+	Keeper         KeeperClient
+	Tx             txclient.Client
+	Diagnostics    diagnostics.Diagnostics
 }
 
 func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies, error) {
@@ -123,16 +109,11 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 	}
 
 	report := diagnostics.Diagnostics{
-		Mode:                  cfg.Mode,
-		ModelTransport:        cfg.ModelManagement.Transport,
-		KeeperEndpoint:        cfg.Node.RPCEndpoint,
-		NexusIngress:          cfg.Nexus.IngressURL,
-		NexusNATS:             diagnostics.RedactEndpoint(cfg.Nexus.NATSURL),
-		NexusEnvelopeAuthMode: cfg.Nexus.EnvelopeAuthMode,
-		NexusBuilderOperator:  cfg.Nexus.BuilderOperatorAddress,
-	}
-	if cfg.Nexus.TrustedNATSDev() {
-		report.SecurityWarnings = append(report.SecurityWarnings, UnsafeTrustedTransportMarker)
+		Mode:                 cfg.Mode,
+		ModelTransport:       cfg.ModelManagement.Transport,
+		KeeperEndpoint:       cfg.Node.RPCEndpoint,
+		NexusIngress:         cfg.Nexus.IngressURL,
+		NexusBuilderOperator: cfg.Nexus.BuilderOperatorAddress,
 	}
 	if cfg.Nexus.AllowInsecureDescriptor {
 		report.SecurityWarnings = append(report.SecurityWarnings, UnsafeInsecureDescriptorMarker)
@@ -152,8 +133,6 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 			fixtureReady("keeper", cfg.Node.RPCEndpoint),
 			fixtureReady("keeper_identity", cfg.LocalIdentity.OperatorAddress),
 			fixtureReady("model_support", strings.Join(cfg.LocalIdentity.SupportedModelProfiles, ",")),
-			fixtureReady("nexus", cfg.Nexus.IngressURL),
-			fixtureReady("nexus_envelope_auth", "fixture"),
 			fixtureReady("builder_descriptor", "fixture"),
 			fixtureReady("tx_broadcaster", cfg.Node.RESTEndpoint),
 		}
@@ -170,26 +149,13 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 	}
 	deps.Tx = opts.TxClient
 	modelReady := opts.ModelClient != nil || opts.ModelTransport != nil || isLocalModelTransport(cfg) || isFakeModelTransport(cfg)
-	authReady := opts.NexusEnvelopeAuthenticator != nil && opts.NexusEnvelopeSigner != nil
-	authError := "canonical Nexus BusEnvelope signer and authenticator are required"
-	if cfg.Nexus.TrustedNATSDev() {
-		transportAuthenticated := strings.TrimSpace(opts.NexusToken) != "" || cfg.Nexus.NATSURLCredentials()
-		authReady = transportAuthenticated && opts.NexusPublisher != nil && opts.NexusSubscriber != nil
-		authError = "trusted_nats_dev requires an authenticated NATS transport (token file or URL credentials) and a publisher/subscriber ACL boundary"
-	}
 	// chain, keeper and store start unprobed: the readiness controller replaces
-	// them with live results. nexus is labelled with the NATS URL because that is
-	// what its probe exercises -- the publisher and subscriber transports. It used
-	// to display the HTTP ingress URL while checking NATS, so an ingress URL whose
-	// DNS had never resolved was reported ready.
+	// them with live results.
 	deps.Diagnostics.Dependencies = []diagnostics.DependencyStatus{
 		unprobed("chain", cfg.Node.RPCEndpoint),
 		modelStatus(modelEndpoint(cfg), isLocalModelTransport(cfg) || isFakeModelTransport(cfg), modelReady, "model transport is required"),
 		unprobed("store", cfg.Store.Path),
 		unprobed("keeper", cfg.Node.RPCEndpoint),
-		realStatus("nexus", cfg.Nexus.NATSURL, opts.NexusPublisher != nil && opts.NexusSubscriber != nil, "nexus publisher and subscriber are required"),
-		realStatus("nexus_envelope_auth", cfg.Nexus.NATSURL, authReady, authError),
-		natsIdentityStatus(cfg),
 		builderDescriptorStatus(cfg, false, "Builder service descriptor has not been verified yet"),
 		txBroadcasterStatus(cfg, opts.TxClient != nil),
 	}
@@ -248,15 +214,12 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 		}
 		deps.OutputPackages = packages
 	}
-	deps.Subscriber = opts.NexusSubscriber
-	deps.NexusEnvelopeAuthenticator = opts.NexusEnvelopeAuthenticator
-	deps.NexusEnvelopeSigner = opts.NexusEnvelopeSigner
 	deps.TaskData = opts.TaskDataClient
-	// The Builder client is a bus publisher and a local validator now: no Nexus
-	// call takes cfg.Nexus.IngressURL as a target. The ingress URL survives only
-	// as the readiness cross-check against the Builder's on-chain descriptor
+	// The Builder client is a local validator now: no Nexus call takes
+	// cfg.Nexus.IngressURL as a target. The ingress URL survives only as the
+	// readiness cross-check against the Builder's on-chain descriptor
 	// (Runtime.checkBuilderDescriptorReadiness).
-	deps.Builder = builderclient.NewNexusClient(builderclient.NewObservedPublisher(opts.NexusPublisher, opts.NexusPublishObserver))
+	deps.Builder = builderclient.NewNexusClient()
 	return deps, nil
 }
 
@@ -282,28 +245,6 @@ func (r keeperLocalProfileResolver) ResolveLocalProfile(ctx context.Context, mod
 		return chainclient.CurrentProfileSnapshot{}, err
 	}
 	return snapshot.Profile, nil
-}
-
-// natsIdentityDependency is the name of the "join NATS with the on-chain identity"
-// dependency in diagnostics and health checks.
-const natsIdentityDependency = "nexus_nats_identity"
-
-// natsIdentityStatus reports whether joining NATS with the on-chain identity is
-// configured (ADR-0016 decision three). Without a user key file it is marked
-// optional-not-configured - that is the creds/token path, not something missing.
-// Readiness is decided by the runtime's Binder probe.
-func natsIdentityStatus(cfg config.Config) diagnostics.DependencyStatus {
-	configured := strings.TrimSpace(cfg.Nexus.NATSUserKeyFile) != ""
-	status := diagnostics.DependencyStatus{
-		Name:       natsIdentityDependency,
-		Endpoint:   diagnostics.RedactEndpoint(cfg.Nexus.NATSURL),
-		Configured: configured,
-		Optional:   !configured,
-	}
-	if configured {
-		status.Error = "nats chain identity binding has not been built yet"
-	}
-	return status
 }
 
 // fixtureReady reports a dependency that is satisfied by a fixture rather than
@@ -338,11 +279,8 @@ func unprobed(name string, endpoint string) diagnostics.DependencyStatus {
 
 // realStatus, unprobed and fixtureReady are the three constructors every
 // dependency row in this package is built by, so the endpoint credential
-// stripping lives in them rather than at the two call sites that pass a NATS
-// URL today. cortexctl prints this record and operators paste that output into
-// issues; nexus.nats_url is the one configured value that routinely carries a
-// password, and both the nexus and nexus_envelope_auth rows are labelled with
-// it (they probe the NATS transport, not the HTTP ingress).
+// stripping lives in them. cortexctl prints this record and operators paste
+// that output into issues.
 func realStatus(name string, endpoint string, ready bool, message string) diagnostics.DependencyStatus {
 	status := diagnostics.DependencyStatus{
 		Name:       name,

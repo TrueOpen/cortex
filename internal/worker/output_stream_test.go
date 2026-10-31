@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
@@ -61,7 +62,7 @@ func TestOutputFinIsSignedOncePersistedAndReused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			digest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, taskHash[:], 7, root[:], reason)
+			digest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, taskHash[:], h.worker.cfg.DispatchTicketHash[:], 7, root[:], reason)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,7 +213,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 			return errors.New("sent frame differs from durable bytes")
 		}
 		facts := workerTestServedTaskFacts(event.TaskID)
-		digest, err := nodewire.OutputChunkSigningDigest("chain-A", facts.AcceptedTaskHash, chunk.Seq, chunk.MMRRoot[:])
+		digest, err := nodewire.OutputChunkSigningDigest("chain-A", facts.AcceptedTaskHash, h.worker.cfg.DispatchTicketHash[:], chunk.Seq, chunk.MMRRoot[:])
 		if err != nil {
 			return err
 		}
@@ -244,7 +245,7 @@ func TestWorkerStreamsPersistedSignedPrefixBeforeGenerationCompletes(t *testing.
 		t.Fatalf("signed Fin=%+v", data.fins)
 	}
 	finFacts := workerTestServedTaskFacts(event.TaskID)
-	finDigest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, finFacts.AcceptedTaskHash, frames[1].Seq, frames[1].MMRRoot[:], data.fins[0].FinishReason)
+	finDigest, err := nodewire.OutputFinSigningDigest(h.worker.cfg.ChainID, finFacts.AcceptedTaskHash, h.worker.cfg.DispatchTicketHash[:], frames[1].Seq, frames[1].MMRRoot[:], data.fins[0].FinishReason)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestWorkerFinFailureReplaysOriginalSignedFramesWithoutRegeneration(t *testi
 	}
 	// Nothing reached the Builder: the Fin is what failed, and the receipt is
 	// behind it. The retry below is what delivers both.
-	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 || pendingOutputAvailable(h.persistence.outbox) {
+	if len(h.taskData.relays) != 0 || len(h.taskData.uploads) != 0 {
 		t.Fatal("a refused Fin must hold the receipt back, not leave it relayed")
 	}
 	frames, err := h.persistence.OutputStreamFrames(context.Background(), event.TaskID)
@@ -341,7 +342,11 @@ func TestWorkerRecoveryRejectsTamperedSignedFrames(t *testing.T) {
 				}
 				record.Data, _ = json.Marshal(chunk)
 			}
-			if err := h.worker.ensureOutputStreamStored(context.Background(), event, receipt); err == nil {
+			commit, err := receiptCommit(receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := h.worker.ensureOutputStreamStored(context.Background(), event, commit); err == nil {
 				t.Fatal("accepted tampered signed frame journal")
 			}
 		})
@@ -385,7 +390,7 @@ func TestOutputStreamRecorderEnforcesLimitsBeforeSigningExtraFrames(t *testing.T
 			if readErr != nil || len(frames) != test.wantFrames {
 				t.Fatalf("frames=%d err=%v", len(frames), readErr)
 			}
-			if len(h.taskData.relays) != 0 || pendingOutputAvailable(h.persistence.outbox) {
+			if len(h.taskData.relays) != 0 {
 				t.Fatal("invalid stream released availability")
 			}
 		})
@@ -545,7 +550,7 @@ func TestOutputRecorderRecoversCompletedUnsignedTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lengths, err := restored.finish(context.Background(), []byte("first-frame-texttail"))
+	lengths, err := restored.finish(context.Background(), []byte("first-frame-texttail"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,15 +560,30 @@ func TestOutputRecorderRecoversCompletedUnsignedTail(t *testing.T) {
 	}
 }
 
+// failingSecondFrameSigner fails the second output frame signature. The
+// stream header is told apart by its digest, not by call order: it is signed
+// on its own goroutine, concurrently with the frames.
 type failingSecondFrameSigner struct {
 	signer.DigestSigner
-	calls int
+	header codec.Hash // the OutputStreamHeaderV2 signing digest
+	frames atomic.Int32
+}
+
+func newFailingSecondFrameSigner(t *testing.T, h harness, event chainclient.AssignmentFinalized, inner signer.DigestSigner) *failingSecondFrameSigner {
+	t.Helper()
+	facts, err := h.worker.taskFacts(context.Background(), event.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := builderclient.OutputStreamHeaderDigest(h.worker.cfg.ChainID, codec.Hash(facts.AcceptedTaskHash).String(), h.worker.cfg.DispatchTicketHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &failingSecondFrameSigner{DigestSigner: inner, header: header}
 }
 
 func (s *failingSecondFrameSigner) SignDigest(ctx context.Context, request signer.DigestRequest) ([]byte, error) {
-	s.calls++
-	// Call 1 signs the output stream header, call 2 the first frame.
-	if s.calls == 3 {
+	if request.Digest != s.header && s.frames.Add(1) == 2 {
 		return nil, signer.ErrRetryable
 	}
 	return s.DigestSigner.SignDigest(ctx, request)
@@ -614,7 +634,7 @@ func TestWorkerCompletesGenerationAfterDeferredFrameFailureAndResumesSuffix(t *t
 			service.SetStreamInference(true)
 			h.worker.cfg.Model, h.worker.cfg.ModelServiceID = service, "deferred-frame"
 			if failure == "signer" {
-				h.worker.cfg.Signer = &failingSecondFrameSigner{DigestSigner: h.signer}
+				h.worker.cfg.Signer = newFailingSecondFrameSigner(t, h, event, h.signer)
 			} else {
 				h.persistence.evidenceWriteError = func(record EvidenceRecord) error {
 					if record.Kind == OutputStreamFrameKind(1) {

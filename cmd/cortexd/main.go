@@ -9,14 +9,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/TrueOpen/cortex/internal/adminapi"
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/buildinfo"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -26,8 +24,8 @@ import (
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/observability"
-	"github.com/TrueOpen/cortex/internal/outbox"
 	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/txclient"
 	"github.com/TrueOpen/cortex/internal/worker"
@@ -45,19 +43,10 @@ func buildDaemonRuntime(ctx context.Context, cfg config.Config) (*daemon.Runtime
 // daemon package.
 func daemonRuntimeOptions() daemon.RuntimeOptions {
 	return daemon.RuntimeOptions{
-		NexusPublishObserver: logNexusPublishCompletion,
 		TaskTraceObserver: func(record observability.LogRecord) {
 			observability.Emit(record)
 		},
 	}
-}
-
-func logNexusPublishCompletion(completion builderclient.PublishCompletion) {
-	level := slog.LevelInfo
-	if completion.Err != nil {
-		level = slog.LevelError
-	}
-	observability.LogAtDepth(level, 1, formatNexusPublishCompletion(completion))
 }
 
 // signerForRuntime resolves the signer built during runtime construction. It
@@ -112,14 +101,7 @@ type daemonFlags struct {
 	taskFixtureRoot              string
 	taskMaxOutputBytes           string
 	nexusIngress                 string
-	nexusNATS                    string
 	nexusAuthTokenFile           string
-	nexusJetStreamStream         string
-	nexusEnvelopeAuthMode        string
-	nexusEnvelopeTTLMS           string
-	nexusEnvelopeClockSkewMS     string
-	nexusSubscribeModels         string
-	nexusSubscribeTasks          string
 	evidenceRoot                 string
 	artifactsRoot                string
 	storePath                    string
@@ -135,14 +117,12 @@ type daemonFlags struct {
 	nexusBuilderOperator         string
 	nexusAllowInsecureDescriptor bool
 	nexusDowngradeDescriptorTLS  bool
-	nexusNATSCAFile              string
-	nexusNATSCredsFile           string
-	nexusNATSUserKeyFile         string
 	modelServiceTLSCAFile        string
 	modelServiceTLSPubkeyHash    string
 	nodeTLSCAFile                string
 	nodeTLSPubkeyHash            string
 	healthBind                   string
+	dispatchBuilders             string
 }
 
 func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
@@ -167,14 +147,11 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 				"task-input-resolver":     "task_input_resolver",
 				"task-fixture-root":       "task_fixture_root",
 				"task-max-output-bytes":   "task_max_output_bytes",
-				"nexus-ingress":           "nexus_ingress", "nexus-nats": "nexus_nats",
-				"nexus-auth-token-file": "nexus_auth_token_file", "nexus-envelope-auth-mode": "nexus_envelope_auth_mode",
-				"nexus-jetstream-stream": "nexus_jetstream_stream",
-				"nexus-envelope-ttl-ms":  "nexus_envelope_ttl_ms", "nexus-envelope-clock-skew-ms": "nexus_envelope_clock_skew_ms",
-				"evidence-root":          "evidence_root",
-				"artifacts-root":         "artifacts_root",
-				"nexus-subscribe-models": "nexus_subscribe_models", "nexus-subscribe-tasks": "nexus_subscribe_tasks",
-				"store-path": "store_path", "signer-uri": "signer_uri",
+				"nexus-ingress":           "nexus_ingress",
+				"nexus-auth-token-file":   "nexus_auth_token_file",
+				"evidence-root":           "evidence_root",
+				"artifacts-root":          "artifacts_root",
+				"store-path":              "store_path", "signer-uri": "signer_uri",
 				"signer-readiness-proof-interval-ms": "signer_readiness_proof_interval_ms",
 				"signer-password-env":                "signer_password_env", "signer-password-file": "signer_password_file",
 				"signer-password-stdin": "signer_password_stdin",
@@ -184,14 +161,12 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 				"nexus-builder-operator-address":  "nexus_builder_operator_address",
 				"nexus-allow-insecure-descriptor": "nexus_allow_insecure_descriptor",
 				"nexus-downgrade-descriptor-tls":  "nexus_downgrade_descriptor_tls",
-				"nexus-nats-ca-file":              "nexus_nats_ca_file",
-				"nexus-nats-creds-file":           "nexus_nats_creds_file",
-				"nexus-nats-user-key-file":        "nexus_nats_user_key_file",
 				"model-service-tls-ca-file":       "model_service_tls_ca_file",
 				"model-service-tls-pubkey-hash":   "model_service_tls_pubkey_hash",
 				"node-tls-ca-file":                "node_tls_ca_file",
 				"node-tls-pubkey-hash":            "node_tls_pubkey_hash",
 				"health-bind":                     "health_bind",
+				"dispatch-builders":               "dispatch_builders",
 			} {
 				if cmd.Flags().Changed(flagName) {
 					overrides[key] = cmd.Flags().Lookup(flagName).Value.String()
@@ -226,14 +201,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.taskFixtureRoot, "task-fixture-root", "", "fixture root for the fixture input resolver")
 	flags.StringVar(&values.taskMaxOutputBytes, "task-max-output-bytes", "", "bound on the Verifier output artifact fetch in bytes; 0 takes the built-in default")
 	flags.StringVar(&values.nexusIngress, "nexus-ingress", "", "Nexus ingress endpoint")
-	flags.StringVar(&values.nexusNATS, "nexus-nats", "", "Nexus NATS endpoint")
 	flags.StringVar(&values.nexusAuthTokenFile, "nexus-auth-token-file", "", "Nexus token file path")
-	flags.StringVar(&values.nexusJetStreamStream, "nexus-jetstream-stream", "", "JetStream stream Nexus publishes task frames to (required in real mode)")
-	flags.StringVar(&values.nexusEnvelopeAuthMode, "nexus-envelope-auth-mode", "", "Nexus envelope auth mode: strict or trusted_nats_dev")
-	flags.StringVar(&values.nexusEnvelopeTTLMS, "nexus-envelope-ttl-ms", "", "Nexus bus envelope TTL in milliseconds")
-	flags.StringVar(&values.nexusEnvelopeClockSkewMS, "nexus-envelope-clock-skew-ms", "", "tolerated clock skew for Nexus bus envelope stamps in milliseconds")
-	flags.StringVar(&values.nexusSubscribeModels, "nexus-subscribe-models", "", "comma-separated Nexus model subjects")
-	flags.StringVar(&values.nexusSubscribeTasks, "nexus-subscribe-tasks", "", "comma-separated Nexus task subjects")
 	flags.StringVar(&values.evidenceRoot, "evidence-root", "", "deprecated; use --artifacts-root")
 	flags.StringVar(&values.artifactsRoot, "artifacts-root", "", "task artifacts root path")
 	flags.StringVar(&values.storePath, "store-path", "", "Pebble database directory")
@@ -249,14 +217,12 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.nexusBuilderOperator, "nexus-builder-operator-address", "", "Builder operator address that owns the configured Nexus ingress")
 	flags.BoolVar(&values.nexusAllowInsecureDescriptor, "nexus-allow-insecure-descriptor", false, "allow a plaintext http:// Builder endpoint from the on-chain service descriptor (devnet only)")
 	flags.BoolVar(&values.nexusDowngradeDescriptorTLS, "nexus-downgrade-descriptor-tls", false, "dial an https:// Builder endpoint from the on-chain service descriptor in plaintext; requires --nexus-allow-insecure-descriptor (devnet only)")
-	flags.StringVar(&values.nexusNATSCAFile, "nexus-nats-ca-file", "", "NATS server certificate / CA PEM used to verify a tls:// NATS (ADR-0016)")
-	flags.StringVar(&values.nexusNATSCredsFile, "nexus-nats-creds-file", "", "NATS creds file (user JWT + nkey seed) replacing the token (ADR-0016); retired in real mode")
-	flags.StringVar(&values.nexusNATSUserKeyFile, "nexus-nats-user-key-file", "", "NATS user key seed file (ed25519 nkey); generated on first start when absent; cortexd binds it to its on-chain service key (ADR-0016 decision three); required in real mode for a remote NATS")
 	flags.StringVar(&values.modelServiceTLSCAFile, "model-service-tls-ca-file", "", "model service certificate / CA PEM for the grpc transport")
 	flags.StringVar(&values.modelServiceTLSPubkeyHash, "model-service-tls-pubkey-hash", "", "sha256 of the model service certificate SubjectPublicKeyInfo (64 lowercase hex)")
 	flags.StringVar(&values.nodeTLSCAFile, "node-tls-ca-file", "", "chain node certificate / CA PEM for the https node endpoints")
 	flags.StringVar(&values.nodeTLSPubkeyHash, "node-tls-pubkey-hash", "", "sha256 of the chain node certificate SubjectPublicKeyInfo (64 lowercase hex)")
 	flags.StringVar(&values.healthBind, "health-bind", "", "health HTTP bind address")
+	flags.StringVar(&values.dispatchBuilders, "dispatch-builders", "", "comma-separated Builder operators to keep a standing handraise with (dispatch.builders)")
 	return cmd
 }
 
@@ -282,13 +248,10 @@ func taskFactsReader(rt *daemon.Runtime) taskfacts.Reader {
 
 func runDaemon(ctx context.Context, cfg config.Config) error {
 	// The posture is announced before anything is built, so a node that came up
-	// with relaxed envelope trust says so in its first log lines rather than
+	// with a relaxed security posture says so in its first log lines rather than
 	// only in a diagnostics call nobody makes.
 	if cfg.Mode == config.ModeIntegration {
-		slog.Info("SECURITY WARNING: mode=integration: real dependencies with a relaxed Nexus envelope boundary; never promote this configuration to production")
-	}
-	if cfg.Nexus.TrustedNATSDev() {
-		slog.Info("SECURITY WARNING: " + daemon.UnsafeTrustedTransportMarker + ": Nexus BusEnvelope signatures are disabled; trust is limited to the configured NATS token/ACL transport")
+		slog.Info("SECURITY WARNING: mode=integration: real dependencies with relaxed Nexus security flags; never promote this configuration to production")
 	}
 	if cfg.Nexus.DowngradeDescriptorTLS {
 		slog.Info("SECURITY WARNING: " + daemon.UnsafeDescriptorTLSDowngradeMarker + ": a Builder endpoint published as https:// or grpcs:// is dialled in plaintext; task prompts and outputs travel in the clear until the Builder republishes its descriptor")
@@ -331,15 +294,13 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 	}
 
 	health := newRuntimeHealth(cfg)
-	if cfg.Nexus.TrustedNATSDev() {
-		health.SetWarning(daemon.UnsafeTrustedTransportMarker)
-	}
 	if cfg.Nexus.AllowInsecureDescriptor {
 		health.SetWarning(daemon.UnsafeInsecureDescriptorMarker)
 	}
 	if cfg.Nexus.DowngradeDescriptorTLS {
 		health.SetWarning(daemon.UnsafeDescriptorTLSDowngradeMarker)
 	}
+	registerDispatchHealth(health, runtime)
 	if err := health.Apply(dependencies.Diagnostics.Dependencies); err != nil {
 		return err
 	}
@@ -454,6 +415,15 @@ func nodeStateSource(rt *daemon.Runtime, health *observability.Health, tasks *da
 			ChainLagBlocks:    report.ChainLagBlocks,
 			Ready:             ready,
 			Dependencies:      dependencies,
+		}
+		if rt.Store != nil && rt.Dispatch != nil {
+			answers, err := layout.DispatchAnswerCounts(ctx, rt.Store)
+			if err != nil {
+				return observability.NodeState{}, fmt.Errorf("read dispatch answers: %w", err)
+			}
+			for a, n := range answers {
+				state.DispatchAnswers = append(state.DispatchAnswers, observability.DispatchAnswerRow{Builder: a.Builder, Answer: a.Answer, BuilderSide: a.BuilderSide, Count: n})
+			}
 		}
 		if tasks == nil {
 			return state, nil
@@ -589,6 +559,12 @@ func newEvidenceCleanupConfig(cfg config.Config, runtime *daemon.Runtime, height
 		MinimumRetentionBlocks: cfg.Artifacts.MinimumRetentionBlocks,
 		SweepGracePeriod:       cfg.Artifacts.SweepGracePeriod,
 		TaskStatus: func(ctx context.Context, taskHash codec.Hash) (evidence.TaskCleanupStatus, error) {
+			if rec, ok, err := layout.DispatchScopeOwner(ctx, runtime.Store, layout.StoredHash(taskHash)); err != nil {
+				return evidence.TaskCleanupStatus{}, err
+			} else if ok {
+				// A per-ticket evidence scope (S5 Q8) follows its task (S6 Q9).
+				taskHash = codec.Hash(rec.TaskHash)
+			}
 			metadata, err := (&evidence.LayoutStoreIndex{Store: runtime.Store}).Evidence(ctx, taskHash)
 			if err != nil {
 				return evidence.TaskCleanupStatus{}, err
@@ -606,14 +582,6 @@ func newEvidenceCleanupConfig(cfg config.Config, runtime *daemon.Runtime, height
 			return evidence.TaskCleanupStatus{TerminalOrSettled: metadata.TerminalOrSettled, OpenChallenge: openChallenge}, nil
 		},
 	}
-}
-
-func shouldStartNexusOutboxRunners(cfg config.Config, deps daemon.Dependencies) bool {
-	if !cfg.UsesRealDependencies() {
-		return false
-	}
-	status, ok := deps.Diagnostics.Dependency("nexus")
-	return ok && status.Ready
 }
 
 type runtimeRunner func(context.Context) error
@@ -689,30 +657,20 @@ func runtimeRunnersWithHealthAndTaskRunner(cfg config.Config, rt *daemon.Runtime
 				if err := rt.ActivateWorkload(readiness.ServiceAddress, readiness.ServicePubkey); err != nil {
 					return err
 				}
-				barrier := newStartupBarrier()
-				workload, workloadCleanup, err := workloadRunnersWithTaskRunner(cfg, rt, barrier, taskRunner)
-				if err != nil {
-					return err
-				}
-				barrier.seal()
-				return runRuntimeRunnerGroupWithStarted(ctx, workload, workloadCleanup, started, barrier)
+				return runRuntimeRunnerGroupWithStarted(ctx, workloadRunners(rt, taskRunner), started)
 			},
 		})
 		runners = append(runners, controller.Run)
 		return runners, cleanup, nil
 	}
 
-	legacyWorkload, legacyCleanup, err := workloadRunnersWithTaskRunner(cfg, rt, nil, taskRunner)
-	if err != nil {
-		return nil, cleanup, err
-	}
+	legacyWorkload := workloadRunners(rt, taskRunner)
 	// Without dynamic readiness the workload runners start unconditionally and
 	// run for the process lifetime, so the workload is live from here on.
 	if health != nil && len(legacyWorkload) > 0 {
 		_ = health.SetDependency(observability.DependencyWorkload, true)
 	}
 	runners = append(runners, legacyWorkload...)
-	cleanup = legacyCleanup
 	return runners, cleanup, nil
 }
 
@@ -749,164 +707,22 @@ func readinessObserver(health *observability.Health, readinessLog *observability
 	}
 }
 
-func workloadRunnersWithTaskRunner(cfg config.Config, rt *daemon.Runtime, barrier *startupBarrier, taskRunner *daemon.TaskRunner) ([]runtimeRunner, func(), error) {
-	if rt == nil {
-		return nil, func() {}, nil
+func workloadRunners(rt *daemon.Runtime, taskRunner *daemon.TaskRunner) []runtimeRunner {
+	if rt == nil || taskRunner == nil {
+		return nil
 	}
-	var runners []runtimeRunner
-	var subscriptions []builderclient.Subscription
-	cleanup := func() {
-		for _, subscription := range subscriptions {
-			_ = subscription.Unsubscribe()
-		}
-	}
-	dependencies := rt.Dependencies
-	if cfg.UsesRealDependencies() && !cfg.Nexus.TrustedNATSDev() && dependencies.NexusEnvelopeAuthenticator == nil {
-		return nil, cleanup, builderclient.ErrBusEnvelopeAuthenticationUnavailable
-	}
-	if shouldStartNexusOutboxRunners(cfg, dependencies) && rt.Store != nil && dependencies.Builder != nil {
-		inboxConfig := outbox.InboxRunnerConfig{
-			ModelIDs:     cfg.Nexus.SubscribeModels,
-			TaskIDs:      cfg.Nexus.SubscribeTasks,
-			AllTasks:     true,
-			Refuse:       logNexusInboxRefusal,
-			OnCompletion: logNexusInboxCompletion,
-		}
-		if taskRunner != nil {
-			inboxConfig.Process = taskRunner.HandleNexusMessage
-		}
-
-		inboxRunner := outbox.NewInboxRunner(dependencies.Subscriber, inboxConfig)
-		subscribed := barrier.expect()
-		runners = append(runners, func(ctx context.Context) error {
-			started, err := inboxRunner.Start(ctx)
-			if err != nil {
-				return err
+	runners := []runtimeRunner{taskRunner.Run}
+	if rt.Dispatch != nil {
+		if plane := rt.Dispatch.Plane(); plane != nil {
+			for _, run := range plane.Runners() {
+				runners = append(runners, runtimeRunner(run))
 			}
-			subscriptions = append(subscriptions, started...)
-			slog.Info("nexus inbox subscribed",
-				slog.Int("subjects_count", len(started)),
-				slog.String("subjects", strings.Join(outbox.InboxSubjects(inboxConfig), " ")))
-			// The node is serving from here: its subscriptions exist.
-			subscribed()
-			<-ctx.Done()
-			return nil
-		})
-		runners = append(runners, func(ctx context.Context) error {
-			return inboxRunner.DrainErrors(ctx, logNexusSubscriberError)
-		})
-	} else if cfg.UsesRealDependencies() {
-		nexusReady := shouldStartNexusOutboxRunners(cfg, dependencies)
-		slog.Info("nexus inbox skipped",
-			slog.Bool("nexus_ready", nexusReady),
-			slog.Bool("store", rt.Store != nil),
-			slog.Bool("builder", dependencies.Builder != nil))
+		}
 	}
-
-	if taskRunner != nil {
-		runners = append(runners, taskRunner.Run)
-	}
-	return runners, cleanup, nil
+	return runners
 }
 
-func formatNexusInboxCompletion(completion outbox.InboxMessageCompletion) string {
-	return fmt.Sprintf(
-		"nexus inbox completed subject=%s kind=%s task=%s message_id=%s jetstream=%t bytes=%d result=%s duration_ms=%d",
-		quoteNexusLogValue(completion.Subject), quoteNexusLogValue(string(completion.Kind)),
-		quoteNexusLogValue(completion.TaskID), quoteNexusLogValue(completion.MessageID), completion.JetStream,
-		completion.SizeBytes, quoteNexusLogValue(completion.Result), completion.Duration.Milliseconds(),
-	)
-}
-
-// formatNexusPublishCompletion is the outbound counterpart of
-// formatNexusInboxCompletion. A successful publish used to be silent, which left
-// "did this node send its handraise" answerable only by elimination from the
-// failure logs — and the precheck path that declines to raise a hand returns no
-// error at all, so elimination could not distinguish "sent" from "never signed".
-func formatNexusPublishCompletion(completion builderclient.PublishCompletion) string {
-	line := fmt.Sprintf(
-		"nexus publish completed subject=%s kind=%s task=%s message_id=%s dedup_id=%s jetstream=%t bytes=%d result=%s duration_ms=%d",
-		quoteNexusLogValue(completion.Subject), quoteNexusLogValue(string(completion.Kind)),
-		quoteNexusLogValue(completion.TaskID), quoteNexusLogValue(completion.MessageID),
-		quoteNexusLogValue(completion.DedupID), completion.JetStream, completion.SizeBytes,
-		quoteNexusLogValue(completion.Result), completion.Duration.Milliseconds(),
-	)
-	if completion.Err != nil {
-		line += " error=" + quoteNexusLogValue(completion.Err.Error())
-	}
-	return line
-}
-
-// quoteNexusLogValue keeps these formatters' escaping identical to the
-// readiness log's: one rule for every key=value line cortexd emits.
-func quoteNexusLogValue(value string) string {
-	return observability.QuoteLogValue(value)
-}
-
-// startupBarrier releases once every runner with a startup phase has reported
-// that phase complete. Workload readiness waits on it, because spawning a
-// runner goroutine is not the same as the runner having done its job: the Nexus
-// inbox runner establishes its subscriptions inside its goroutine, and a node
-// with no subscriptions is not serving no matter how many goroutines are alive.
-type startupBarrier struct {
-	mu      sync.Mutex
-	pending int
-	ready   chan struct{}
-	closed  bool
-}
-
-func newStartupBarrier() *startupBarrier {
-	return &startupBarrier{ready: make(chan struct{})}
-}
-
-// expect registers a startup phase and returns the signal that completes it.
-func (b *startupBarrier) expect() func() {
-	if b == nil {
-		return func() {}
-	}
-	b.mu.Lock()
-	b.pending++
-	b.mu.Unlock()
-	var once sync.Once
-	return func() { once.Do(b.complete) }
-}
-
-func (b *startupBarrier) complete() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.pending--
-	b.releaseLocked()
-}
-
-// seal declares that no further startup phases will be registered, releasing
-// the barrier when there were none.
-func (b *startupBarrier) seal() {
-	if b == nil {
-		return
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.releaseLocked()
-}
-
-func (b *startupBarrier) releaseLocked() {
-	if b.pending == 0 && !b.closed {
-		b.closed = true
-		close(b.ready)
-	}
-}
-
-func (b *startupBarrier) Ready() <-chan struct{} {
-	if b == nil {
-		closed := make(chan struct{})
-		close(closed)
-		return closed
-	}
-	return b.ready
-}
-
-func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunner, cleanup func(), started func(), barrier *startupBarrier) error {
-	defer cleanup()
+func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunner, started func()) error {
 	if len(runners) == 0 {
 		<-ctx.Done()
 		return nil
@@ -937,48 +753,17 @@ func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunn
 		}
 	}
 
-	// Startup phase. One loop consumes both runner exits and the startup
-	// barrier, so a runner that has already exited is always observed before
-	// the workload is reported as running. Racing a separate barrier goroutine
-	// against this collector let a completed subscription report readiness
-	// while another runner's failure was still sitting unread in errCh.
-	startupPending := started != nil
-	ready := barrier.Ready()
-	for startupPending && remaining > 0 {
-		// An already-finished runner wins over the barrier: its exit happened
-		// first, whether or not its error has been collected yet.
+	// The workload is reported as running unless a runner has already
+	// returned: its exit happened first, whether or not its error has been
+	// collected yet.
+	if started != nil {
 		select {
 		case err := <-errCh:
 			collect(err)
-			startupPending = false
-			continue
 		default:
-			if exited.Load() > 0 {
-				// A runner has returned; its error is on its way. Do not report
-				// the workload as running, and let the collector below drain.
-				startupPending = false
-				continue
+			if exited.Load() == 0 {
+				started()
 			}
-		}
-		select {
-		case err := <-errCh:
-			collect(err)
-			// Any runner exiting during startup means the group is going down,
-			// so the workload is not serving and is never reported as such.
-			startupPending = false
-		case <-ready:
-			// A runner may have exited while the barrier was releasing. Consume
-			// it if its error already landed; otherwise the exit counter still
-			// reveals that one returned, so readiness is withheld either way.
-			select {
-			case err := <-errCh:
-				collect(err)
-			default:
-				if exited.Load() == 0 {
-					started()
-				}
-			}
-			startupPending = false
 		}
 	}
 
@@ -1023,8 +808,6 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 	taskReader, _ = rt.Dependencies.Keeper.(daemon.KeeperTaskReader)
 	var profileReader daemon.KeeperProfileReader
 	profileReader, _ = rt.Dependencies.Keeper.(daemon.KeeperProfileReader)
-	var candidateMemberReader daemon.CandidateMemberReader
-	candidateMemberReader, _ = rt.Dependencies.Keeper.(daemon.CandidateMemberReader)
 	var verifierMemberReader daemon.VerifierMemberReader
 	verifierMemberReader, _ = rt.Dependencies.Keeper.(daemon.VerifierMemberReader)
 	if !fakeOutput {
@@ -1033,72 +816,69 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 			handraiseEligibility = daemon.NewKeeperHandraiseEligibility(daemon.KeeperHandraiseEligibilityConfig{
 				ChainStatus: rt, Keeper: keeper, Model: rt.Dependencies.Model,
 				ChainID: cfg.ChainID, OperatorAddress: cfg.LocalIdentity.OperatorAddress, ModelServiceID: cfg.LocalIdentity.ModelServiceID,
-				SelfRescueGasBudget: cfg.SelfRescue.MaxFeeAmount,
 			})
 		}
 	}
-	return daemon.NewTaskRunner(daemon.TaskRunnerConfig{
-		Store:             rt.Store,
-		Evidence:          evidenceStore,
-		Model:             rt.Dependencies.Model,
-		Builder:           rt.Dependencies.Builder,
-		OutputPackages:    rt.Dependencies.OutputPackages,
-		OutputConfirmer:   rt.OutputConfirmer,
-		EvidenceConfirmer: rt.EvidenceConfirmer,
-		VerifyCommitRelay: rt.VerifyCommitRelay,
-		Trace:             rt.TaskTrace(),
-		FakeOutput:        fakeOutput,
-		TrustedNATSDev:    cfg.Nexus.TrustedNATSDev(),
-		// FakeBus is deliberately not set from configuration. It disables
-		// canonical order verification outright, and this function has already
-		// returned for every mode but real, so the old
-		// `cfg.Mode == config.ModeFake` was always false. Wiring it back would
-		// not give fake mode a task loop; it would give a real bus a Worker
-		// that accepts an OrderBroadcast disagreeing with its own signed_order.
-		EnvelopeTTL:                cfg.Nexus.EnvelopeTTL(),
-		EnvelopeClockSkew:          cfg.Nexus.EnvelopeClockSkew(),
-		HandraiseEligibility:       handraiseEligibility,
-		NexusEnvelopeAuthenticator: rt.Dependencies.NexusEnvelopeAuthenticator,
-		NexusEnvelopeSigner:        rt.Dependencies.NexusEnvelopeSigner,
-		Tx:                         taskTx,
-		TxGasPayer:                 rt.ServiceAddress,
-		TxFeeCap:                   txclient.Coin{Amount: cfg.Tx.MaxFeeAmount, Denom: cfg.Tx.FeeDenom},
+	runnerCfg := daemon.TaskRunnerConfig{
+		Store:                rt.Store,
+		Evidence:             evidenceStore,
+		Model:                rt.Dependencies.Model,
+		Builder:              rt.Dependencies.Builder,
+		OutputPackages:       rt.Dependencies.OutputPackages,
+		OutputConfirmer:      rt.OutputConfirmer,
+		EvidenceConfirmer:    rt.EvidenceConfirmer,
+		VerifyCommitRelay:    rt.VerifyCommitRelay,
+		Trace:                rt.TaskTrace(),
+		FakeOutput:           fakeOutput,
+		HandraiseEligibility: handraiseEligibility,
+		Tx:                   taskTx,
+		TxGasPayer:           rt.ServiceAddress,
+		TxFeeCap:             txclient.Coin{Amount: cfg.Tx.MaxFeeAmount, Denom: cfg.Tx.FeeDenom},
 		// taskTx above is read once, here, and on a dynamic-readiness node that
 		// is before ActivateWorkload has run -- so it is nil for the whole
 		// process on exactly the deployments that need it. The verifier commit
 		// exit resolves the live client through this provider instead, the same
 		// way ServiceIdentity resolves the live service address.
-		TxProvider:            rt.WorkloadTxClient,
-		CommitExitFeeCap:      txclient.Coin{Amount: cfg.CommitExitFeeCap(), Denom: cfg.Tx.FeeDenom},
-		LocalWorkerAddress:    cfg.LocalIdentity.OperatorAddress,
-		LocalVerifierAddress:  cfg.LocalIdentity.OperatorAddress,
-		ModelServiceID:        cfg.LocalIdentity.ModelServiceID,
-		ChainID:               cfg.ChainID,
-		SignerAddress:         rt.ServiceAddress,
-		SignerKeyRef:          cfg.LocalIdentity.ServiceKeyRef,
-		SignerPubkey:          rt.ServicePubkey,
-		Signer:                signerForRuntime(rt),
-		ServiceIdentity:       rt.WorkloadIdentity,
-		MaxConcurrency:        cfg.ModelManagement.MaxConcurrency,
-		PollInterval:          intervalFromMillis(cfg.Keeper.PollIntervalMS),
-		RetryDelay:            intervalFromMillis(cfg.TaskExecution.RetryDelayMS),
-		MaxRetryDelay:         intervalFromMillis(cfg.TaskExecution.MaxRetryDelayMS),
-		ChainStatus:           rt,
-		MaxRetryAttempts:      cfg.TaskExecution.MaxRetryAttempts,
-		MaxOutputBytes:        cfg.TaskExecution.MaxOutputBytes,
-		InputResolver:         rt.TaskInputResolver,
-		TaskData:              rt.Dependencies.TaskData,
-		TaskDataAuth:          rt.TaskDataAuth,
-		ReceivingBuilder:      receivingBuilderProvider(rt),
-		TaskFacts:             taskFactsReader(rt),
-		CandidateMemberReader: candidateMemberReader,
-		VerifierMemberReader:  verifierMemberReader,
-		ProfileCapabilities:   profileCapabilities,
-		ProfileReader:         profileReader,
-		TaskReader:            taskReader,
-		Diagnostic:            logTaskRunnerDiagnostic,
-		OnQuarantinedEffect:   logQuarantinedKeeperEffect,
-	}), nil
+		TxProvider:           rt.WorkloadTxClient,
+		CommitExitFeeCap:     txclient.Coin{Amount: cfg.CommitExitFeeCap(), Denom: cfg.Tx.FeeDenom},
+		LocalWorkerAddress:   cfg.LocalIdentity.OperatorAddress,
+		LocalVerifierAddress: cfg.LocalIdentity.OperatorAddress,
+		ModelServiceID:       cfg.LocalIdentity.ModelServiceID,
+		ChainID:              cfg.ChainID,
+		SignerAddress:        rt.ServiceAddress,
+		SignerKeyRef:         cfg.LocalIdentity.ServiceKeyRef,
+		SignerPubkey:         rt.ServicePubkey,
+		Signer:               signerForRuntime(rt),
+		ServiceIdentity:      rt.WorkloadIdentity,
+		MaxConcurrency:       cfg.ModelManagement.MaxConcurrency,
+		PollInterval:         intervalFromMillis(cfg.Keeper.PollIntervalMS),
+		RetryDelay:           intervalFromMillis(cfg.TaskExecution.RetryDelayMS),
+		MaxRetryDelay:        intervalFromMillis(cfg.TaskExecution.MaxRetryDelayMS),
+		ChainStatus:          rt,
+		MaxRetryAttempts:     cfg.TaskExecution.MaxRetryAttempts,
+		MaxOutputBytes:       cfg.TaskExecution.MaxOutputBytes,
+		InputResolver:        rt.TaskInputResolver,
+		TaskData:             rt.Dependencies.TaskData,
+		TaskDataAuth:         rt.TaskDataAuth,
+		ReceivingBuilder:     receivingBuilderProvider(rt),
+		TaskFacts:            taskFactsReader(rt),
+		VerifierMemberReader: verifierMemberReader,
+		ProfileCapabilities:  profileCapabilities,
+		ProfileReader:        profileReader,
+		TaskReader:           taskReader,
+		Diagnostic:           logTaskRunnerDiagnostic,
+		OnQuarantinedEffect:  logQuarantinedKeeperEffect,
+	}
+	link := wireDispatchRunnerConfig(&runnerCfg, rt)
+	runner := daemon.NewTaskRunner(runnerCfg)
+	if link != nil {
+		plane, err := newDispatchPlane(cfg, rt, runner, evidenceStore)
+		if err != nil {
+			return nil, err
+		}
+		link.Bind(plane)
+	}
+	return runner, nil
 }
 
 func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, taskRunner *daemon.TaskRunner) *daemon.KeeperPoller {
@@ -1107,14 +887,10 @@ func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, taskRu
 	}
 	interval := time.Duration(cfg.Keeper.PollIntervalMS) * time.Millisecond
 	poller := daemon.NewKeeperPoller(rt.Store, rt.KeeperEvents, rt.Reconciler, daemon.KeeperPollerConfig{
-		Interval:    interval,
-		MaxChainLag: cfg.Keeper.MaxLagBlocks,
-		ObserveChainProgress: func(progress daemon.ChainProgress) {
-			rt.ObserveChainProgress(progress)
-			// A WORKER_ASSIGNMENT_NOTIFY may be waiting for this scan.
-			taskRunner.ObserveKeeperProgress(progress)
-		},
-		OnRetryableFailure: logKeeperPollFailure,
+		Interval:             interval,
+		MaxChainLag:          cfg.Keeper.MaxLagBlocks,
+		ObserveChainProgress: rt.ObserveChainProgress,
+		OnRetryableFailure:   logKeeperPollFailure,
 		EffectSink: func(ctx context.Context, effects []daemon.ReconcilerEffect) error {
 			if len(effects) > 0 {
 				if taskRunner == nil {
@@ -1127,29 +903,11 @@ func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, taskRu
 			return nil
 		},
 	})
-	// Closed after construction because the poller is built around this runner:
-	// a bus frame that names chain state the cursor has not reached can now ask
-	// for the scan instead of waiting for the next tick.
-	if taskRunner != nil {
-		taskRunner.SetKeeperPollWake(poller.Wake)
-	}
 	return poller
 }
 
 func logWorkloadStartFailure(err error) {
 	observability.LogAtDepth(slog.LevelError, 1, "workload start failed, retrying on the next readiness tick", slog.Any("error", err))
-}
-
-func logNexusInboxRefusal(err error) {
-	observability.LogAtDepth(slog.LevelError, 1, "nexus inbox refused", slog.Any("error", err))
-}
-
-func logNexusInboxCompletion(completion outbox.InboxMessageCompletion) {
-	observability.LogAtDepth(slog.LevelInfo, 1, formatNexusInboxCompletion(completion))
-}
-
-func logNexusSubscriberError(err error) {
-	observability.LogAtDepth(slog.LevelError, 1, "nexus subscriber delivery error", slog.Any("error", err))
 }
 
 func logTaskRunnerDiagnostic(diagnostic daemon.TaskRunnerDiagnostic) {
@@ -1234,7 +992,6 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 		registryConfig.Signer = fakeModelRegistrationSigner
 		registryConfig.FeeGrant = modelregistry.StaticFeeGrant{Granter: "operator", Amount: 1_000_000, GasLimit: 1_000_000}
 		registryConfig.Submitter = fakeRegistrationSubmitter{}
-		registryConfig.Outbox = fakeRegistrationOutbox{}
 		return modelregistry.NewRegistry(registryConfig)
 	}
 	if rt == nil || rt.Store == nil {
@@ -1259,15 +1016,12 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 			return rt.Dependencies.Keeper.ChainHeight(ctx)
 		}
 	}
-	if rt.Dependencies.Builder != nil {
-		registryConfig.Outbox = modelregistry.NewBuilderRegistrationPublisher(rt.Dependencies.Builder)
-	}
 	if rt.WorkloadTx != nil && cfg.Tx.Enabled && rt.TaskDataAuth != nil {
 		registryConfig.SupportConfirmer = modelregistry.NewTxSupportConfirmer(rt.WorkloadTx, modelregistry.TxSupportConfirmerOptions{
 			ChainID: cfg.ChainID, OperatorAddress: cfg.LocalIdentity.OperatorAddress,
 			Signer: signingClient, ServiceKeyRef: cfg.LocalIdentity.ServiceKeyRef, ServiceAddress: rt.ServiceAddress,
 			ServiceIdentity: func(ctx context.Context) (uint64, uint64, uint64, uint64, error) {
-				nonce, height, err := rt.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+				nonce, height, err := rt.TaskDataAuth.CommittedServiceBinding(ctx)
 				if err != nil {
 					return 0, 0, 0, 0, err
 				}
@@ -1382,10 +1136,4 @@ type fakeRegistrationSubmitter struct{}
 
 func (fakeRegistrationSubmitter) SubmitRegistration(_ context.Context, material modelregistry.RegistrationMaterial) (string, error) {
 	return "tx-" + material.ManifestHash, nil
-}
-
-type fakeRegistrationOutbox struct{}
-
-func (fakeRegistrationOutbox) WriteRegistration(_ context.Context, msg modelregistry.OutboxMessage) (string, error) {
-	return "outbox-" + msg.Material.ManifestHash, nil
 }

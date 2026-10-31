@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 )
@@ -13,8 +12,8 @@ import (
 // resolved. It deliberately carries the task identity beside the current
 // single-Builder compatibility source. The frozen contract carries the
 // authoritative per-task list in TaskBuilderSelectionState.selected_task_builders;
-// until that Query is serveable, Worker input uses an authenticated ORDER_BROADCAST
-// sender and Verifier output uses an authenticated data-ready OPEN_VERIFY sender.
+// until that Query is serveable, Worker input uses the Builder the task record
+// names and Verifier output uses an authenticated data-ready OPEN_VERIFY sender.
 // When the read path lands, only the provider implementation changes and
 // AssignedBuilderOperator goes away; nothing in the relay path has to change.
 type ReceivingBuilderRef struct {
@@ -220,66 +219,17 @@ func (w *Worker) checkReceivingBuilder(builder BuilderEndpoint, err error) (Buil
 	return builder, nil
 }
 
-// PreresolvedBuilders is a Task Builder resolution started before the output
-// stream needs it, so the reads overlap with fetching the input. It is used at
-// most once, by the first stream open of the attempt that started it; every
-// later read (reopen, relay, storage confirmation, refresh) resolves afresh.
-// The reads are the same ones the open would make after the assignment is
-// confirmed, only earlier.
-type PreresolvedBuilders struct {
-	ref      ReceivingBuilderRef
-	done     chan struct{}
-	builders []BuilderEndpoint
-	err      error
-	taken    atomic.Bool
-}
-
-// PreresolveBuilders starts resolving every Task Builder for ref.
-func PreresolveBuilders(ctx context.Context, provider ReceivingBuilderProvider, ref ReceivingBuilderRef) *PreresolvedBuilders {
-	p := &PreresolvedBuilders{ref: ref, done: make(chan struct{})}
-	go func() {
-		defer close(p.done)
-		p.builders, p.err = provider.ResolveReceivingBuilders(ctx, ref)
-	}()
-	return p
-}
-
-// Wait blocks until the resolution has finished. A caller that cancels the
-// context it passed to PreresolveBuilders calls Wait so the read does not
-// outlive it.
-func (p *PreresolvedBuilders) Wait() {
-	if p != nil {
-		<-p.done
+// dispatchingBuilder is the one Builder output frames go to (CD §5.2 W11, C1):
+// the Builder that dispatched the accepted ticket. It forwards to the user and
+// syncs the Task Builder group's copies; the Worker never pushes frames to the
+// others, which before the record cannot authenticate them anyway.
+func (w *Worker) dispatchingBuilder(ctx context.Context, ref ReceivingBuilderRef) ([]BuilderEndpoint, error) {
+	endpoint, err := w.receivingBuilder(ctx, ref)
+	if err != nil {
+		return nil, err
 	}
-}
-
-// take returns the resolution for ref the first time it is asked, or false
-// when there is none to use: not started, already taken, for another task, or
-// failed. A caller that gets false resolves for itself.
-func (p *PreresolvedBuilders) take(ctx context.Context, ref ReceivingBuilderRef) ([]BuilderEndpoint, bool) {
-	if p == nil || p.ref != ref || !p.taken.CompareAndSwap(false, true) {
-		return nil, false
+	if endpoint.OperatorAddress != ref.AssignedBuilderOperator {
+		return nil, fmt.Errorf("receiving Builder %s is not the dispatching Builder %s", endpoint.OperatorAddress, ref.AssignedBuilderOperator)
 	}
-	select {
-	case <-p.done:
-	case <-ctx.Done():
-		return nil, false
-	}
-	if p.err != nil {
-		return nil, false
-	}
-	return p.builders, true
-}
-
-// openReceivingBuilders resolves the Task Builders for a stream open, using a
-// preresolved set when one is waiting. The set is checked exactly as a fresh
-// resolution is; a set that fails the check is dropped and the Builders are
-// resolved again.
-func (w *Worker) openReceivingBuilders(ctx context.Context, ref ReceivingBuilderRef) ([]BuilderEndpoint, error) {
-	if builders, ok := w.cfg.PreresolvedBuilders.take(ctx, ref); ok {
-		if checked, err := w.checkReceivingBuilders(builders); err == nil {
-			return checked, nil
-		}
-	}
-	return w.receivingBuilders(ctx, ref)
+	return []BuilderEndpoint{endpoint}, nil
 }

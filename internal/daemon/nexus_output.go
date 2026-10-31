@@ -27,9 +27,8 @@ type OutputCommitments struct {
 	// WorkerOperatorAddress is the Keeper-confirmed winner. The Builder's signed
 	// receipt has to name the same Worker.
 	WorkerOperatorAddress string
-	// There is deliberately no locator field. OUTPUT_AVAILABLE's output_cid is
-	// an auxiliary hint with no authoritative source -- Keeper commits no
-	// locator and GetTaskDataMetadata returns none by contract.
+	// There is deliberately no locator field: Keeper commits no locator and
+	// GetTaskDataMetadata returns none by contract.
 	//
 	// OutputHash is V1's ONLY output content commitment
 	// (keeper-service-design-appendix.md item 50, keeper-data-structure-contract.md:1881), and
@@ -58,8 +57,9 @@ type OutputCommitments struct {
 // step at which Cortex touches the task-data plane as a Verifier.
 //
 // There is deliberately no metadata-only method beside it. V3 -- the candidate's
-// metadata check before a handraise -- is served entirely by the OPEN_VERIFY
-// control message plus the Keeper snapshot: data-plane-and-evidence-transfer.md §6 says candidate
+// metadata check before a handraise -- is served entirely by the OpenVerify
+// frame plus the Keeper snapshot (the spec text below predates the frame stream and
+// still names the retired ORDER_BROADCAST bus message): data-plane-and-evidence-transfer.md §6 says candidate
 // metadata is "broadcast by the ORDER_BROADCAST / OPEN_VERIFY control messages and
 // not obtained through the data query interface", and that GetTaskDataMetadata "is
 // not a prerequisite step of the normal Task flow". A ConfirmOutputMetadata

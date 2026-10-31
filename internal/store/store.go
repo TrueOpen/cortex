@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -40,22 +41,25 @@ type Store struct {
 }
 
 type InferTask struct {
-	TaskID           string     `json:"task_id"`
-	SessionID        string     `json:"session_id"`
-	OrderSequence    uint64     `json:"order_sequence"`
-	AssignmentDigest codec.Hash `json:"assignment_digest"`
-	OrderDigest      codec.Hash `json:"order_digest"`
-	ModelID          string     `json:"model_id"`
-	ProfileVersion   uint32     `json:"profile_version"`
-	Capability       string     `json:"capability"`
-	DeadlineHeight   uint64     `json:"deadline_height"`
-	InputCID         string     `json:"input_cid"`
-	InputDigest      codec.Hash `json:"input_digest"`
-	Stage            string     `json:"stage"`
-	RetryCount       uint32     `json:"retry_count"`
-	RetryAtHeight    uint64     `json:"retry_at_height"`
-	RetryAtUnixMilli int64      `json:"retry_at_unix_milli"`
-	LastError        string     `json:"last_error"`
+	TaskID string `json:"task_id"`
+	// DispatchTicketHash is the Phase 1 ticket this responsibility executes;
+	// S5 binds the output stream and receipt to it.
+	DispatchTicketHash codec.Hash `json:"dispatch_ticket_hash"`
+	SessionID          string     `json:"session_id"`
+	OrderSequence      uint64     `json:"order_sequence"`
+	AssignmentDigest   codec.Hash `json:"assignment_digest"`
+	OrderDigest        codec.Hash `json:"order_digest"`
+	ModelID            string     `json:"model_id"`
+	ProfileVersion     uint32     `json:"profile_version"`
+	Capability         string     `json:"capability"`
+	DeadlineHeight     uint64     `json:"deadline_height"`
+	InputCID           string     `json:"input_cid"`
+	InputDigest        codec.Hash `json:"input_digest"`
+	Stage              string     `json:"stage"`
+	RetryCount         uint32     `json:"retry_count"`
+	RetryAtHeight      uint64     `json:"retry_at_height"`
+	RetryAtUnixMilli   int64      `json:"retry_at_unix_milli"`
+	LastError          string     `json:"last_error"`
 	// AutoHalted, HaltCode and HaltReason mirror layout.AutoHalt: the local
 	// scheduler must not re-enter the executor for this responsibility. See the
 	// AutoHalt doc comment for why it is neither task-terminal nor
@@ -73,14 +77,9 @@ type InferTask struct {
 	// InputSizeBytes is the user-signed input size from the accepted TaskOrderV1.
 	// Zero means unknown and forces a metadata round trip before fetching.
 	InputSizeBytes uint64 `json:"input_size_bytes,omitempty"`
-	// BuilderSetID and BuilderSetHash are TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12
-	// for this task (interface-and-topic-list.md §5.2 fields 11-12). After the first proposal is
-	// accepted the authority is the Task's locked BuilderSet reference, which is
-	// Task state on the chain and not something Cortex derives; the runner copies
-	// it out of the authenticated WORKER_ASSIGNMENT_NOTIFY frame that named this node the
-	// winner. Absent until such a frame arrives, and absent is a refusal at
-	// publish time rather than an empty envelope field: §5.2 forbids an empty
-	// builder_set_id on a task-control message.
+	// BuilderSetID and BuilderSetHash are the Task's locked BuilderSet
+	// reference, which is Task state on the chain and not something Cortex
+	// derives. Absent until a source supplies them.
 	//
 	// The hash is []byte rather than codec.Hash so absent stays distinguishable
 	// from 32 zero bytes.
@@ -133,13 +132,9 @@ type VerifyTask struct {
 	OutputRef                  string     `json:"output_ref"`
 	TokenIDsRef                string     `json:"token_ids_ref"`
 	PositionValuesRef          string     `json:"position_values_ref"`
-	// BuilderSetID and BuilderSetHash are TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12
-	// for this task (interface-and-topic-list.md §5.2 fields 11-12). A verify
-	// responsibility exists only after the first proposal was accepted, so the
-	// authority is always the Task's locked BuilderSet reference (§5.2 field 12);
-	// the runner copies it out of the authenticated VERIFIER_ASSIGNMENT_NOTIFY
-	// frame. Absent is a refusal at publish time, never an
-	// empty envelope field (§5.2).
+	// BuilderSetID and BuilderSetHash are the Task's locked BuilderSet
+	// reference. A verify responsibility exists only after the first proposal
+	// was accepted, so the authority is always that locked reference.
 	BuilderSetID   string `json:"builder_set_id,omitempty"`
 	BuilderSetHash []byte `json:"builder_set_hash,omitempty"`
 }
@@ -608,7 +603,23 @@ func (s *Store) DeleteRaw(ctx context.Context, key []byte) error {
 // ScanPrefix iterates over every key-value pair whose key begins with prefix
 // and calls fn for each. If fn returns an error, iteration stops and that
 // error is returned.
+// fn runs under the store mutex and must not call back into Store.
 func (s *Store) ScanPrefix(ctx context.Context, prefix []byte, fn func(key, value []byte) error) error {
+	return s.scan(ctx, prefix, prefix, fn)
+}
+
+// ScanPrefixFrom is ScanPrefix starting at start (inclusive), which must
+// itself carry prefix. It lets an ordered queue resume past what it has
+// already consumed instead of rescanning from the beginning.
+// fn runs under the store mutex and must not call back into Store.
+func (s *Store) ScanPrefixFrom(ctx context.Context, prefix, start []byte, fn func(key, value []byte) error) error {
+	if !bytes.HasPrefix(start, prefix) {
+		return fmt.Errorf("scan start %q is outside prefix %q", start, prefix)
+	}
+	return s.scan(ctx, prefix, start, fn)
+}
+
+func (s *Store) scan(ctx context.Context, prefix, start []byte, fn func(key, value []byte) error) error {
 	if err := contextError(ctx); err != nil {
 		return err
 	}
@@ -618,7 +629,7 @@ func (s *Store) ScanPrefix(ctx context.Context, prefix []byte, fn func(key, valu
 		return ErrClosed
 	}
 	iter, err := s.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
+		LowerBound: start,
 		UpperBound: prefixUpperBound(prefix),
 	})
 	if err != nil {

@@ -103,17 +103,6 @@ func TestIntegrationHealthRequiresKeeperIdentityNexusAndTxBroadcaster(t *testing
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("/readyz status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
-	if err := health.SetDependency("nexus", true); err != nil {
-		t.Fatalf("SetDependency(nexus): %v", err)
-	}
-	rec = httptest.NewRecorder()
-	health.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("/readyz status = %d, want %d until envelope auth is ready", rec.Code, http.StatusServiceUnavailable)
-	}
-	if err := health.SetDependency("nexus_envelope_auth", true); err != nil {
-		t.Fatalf("SetDependency(nexus_envelope_auth): %v", err)
-	}
 	rec = httptest.NewRecorder()
 	health.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
@@ -161,7 +150,7 @@ func TestIntegrationHealthRequiresKeeperIdentityNexusAndTxBroadcaster(t *testing
 // answers 200 for a node that cannot take any work.
 func TestIntegrationHealthReportsNotReadyWhenWorkloadStops(t *testing.T) {
 	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
-	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "builder_descriptor", "tx_broadcaster", DependencyChainSync, DependencyWorkload} {
+	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "builder_descriptor", "tx_broadcaster", DependencyChainSync, DependencyWorkload} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
 		}
@@ -186,7 +175,7 @@ func TestIntegrationHealthReportsNotReadyWhenWorkloadStops(t *testing.T) {
 
 func TestIntegrationHealthAllowsOptionalTxBroadcasterToBeUnready(t *testing.T) {
 	health := NewIntegrationHealthWithTxRequirement(false)
-	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "builder_descriptor", DependencyChainSync, DependencyWorkload} {
+	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "builder_descriptor", DependencyChainSync, DependencyWorkload} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
 		}
@@ -209,7 +198,7 @@ func TestHealthApplyDependencyStatuses(t *testing.T) {
 		{Name: "model_service", Ready: true},
 		{Name: "store", Ready: true},
 		{Name: "keeper", Ready: true},
-		{Name: "nexus", Ready: false, Error: "nexus publisher is required"},
+		{Name: "builder_descriptor", Ready: false, Error: "Builder service descriptor has not been verified yet"},
 		{Name: "tx_broadcaster", Ready: true},
 	})
 	if err != nil {
@@ -267,8 +256,8 @@ func TestHealthApplyRejectsUnknownDependencyWithoutPartialUpdate(t *testing.T) {
 	if err := health.SetDependency("keeper", true); err != nil {
 		t.Fatalf("SetDependency(keeper): %v", err)
 	}
-	if err := health.SetDependency("nexus", true); err != nil {
-		t.Fatalf("SetDependency(nexus): %v", err)
+	if err := health.SetDependency("builder_descriptor", true); err != nil {
+		t.Fatalf("SetDependency(builder_descriptor): %v", err)
 	}
 	rec = httptest.NewRecorder()
 	health.Handler().ServeHTTP(rec, req)
@@ -282,7 +271,7 @@ func TestHealthApplyRejectsUnknownDependencyWithoutPartialUpdate(t *testing.T) {
 // cortexctl diagnostics, which reports the boundaries resolved at startup.
 func TestReadyzNamesTheBlockingDependencies(t *testing.T) {
 	health := NewIntegrationHealthWithRuntimeRequirements(true, true, true)
-	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "nexus", "nexus_envelope_auth", "tx_broadcaster"} {
+	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "tx_broadcaster"} {
 		if err := health.SetDependency(name, true); err != nil {
 			t.Fatalf("SetDependency(%s): %v", name, err)
 		}
@@ -332,5 +321,25 @@ func TestMetricsRouteIsEmptyWithoutMetrics(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != "" {
 		t.Fatalf("/metrics body = %q, want empty", body)
+	}
+}
+
+func TestHealthRegisterDependency(t *testing.T) {
+	h := NewIntegrationHealthWithRuntimeRequirements(false, false, false)
+	if err := h.SetDependency("dispatch_stream:b1", true); err != ErrUnknownDependency {
+		t.Fatalf("unregistered = %v", err)
+	}
+	h.RegisterDependency("dispatch_stream:b1", false)
+	h.RegisterDependency("dispatch_streams", true)
+	h.RegisterDependency("dispatch_streams", true)
+	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "builder_descriptor"} {
+		_ = h.SetDependency(name, true)
+	}
+	if ready, _ := h.Readiness(); ready {
+		t.Fatal("the required aggregate stream row is not ready yet")
+	}
+	_ = h.SetDependency("dispatch_streams", true)
+	if ready, deps := h.Readiness(); !ready || deps["dispatch_stream:b1"] {
+		t.Fatalf("ready = %v deps = %v: an optional row never blocks", ready, deps)
 	}
 }

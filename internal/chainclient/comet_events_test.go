@@ -28,7 +28,7 @@ func TestCometEventClientReadsFinalizedKeeperEventsWithStablePositions(t *testin
 			if got := r.URL.Query().Get("height"); got != "10" {
 				t.Errorf("block_results height = %q, want 10", got)
 			}
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"10","txs_results":[{"code":0,"events":[{"type":"message","attributes":[{"key":"action","value":"/task.v1.MsgAssign","index":true}]},{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"` + b64("session_id") + `","value":"` + b64("session-1") + `","index":true},{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"trueopen1node","index":true},{"key":"winner_confirm_height","value":"9","index":true},{"key":"infer_deadline_height","value":"20","index":true},{"key":"prompt","value":"must-not-be-consumed","index":false}]},{"type":"custom_notice","attributes":[{"key":"status","value":"seen","index":true}]}]}],"finalize_block_events":[]}}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"10","txs_results":[{"code":0,"events":[{"type":"message","attributes":[{"key":"action","value":"/task.v1.MsgAssign","index":true}]},{"type":"task.v1.EventDispatchRecorded","attributes":[{"key":"` + b64("session_id") + `","value":"` + b64("session-1") + `","index":true},{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"trueopen1node","index":true},{"key":"winner_confirm_height","value":"9","index":true},{"key":"infer_deadline_height","value":"20","index":true},{"key":"prompt","value":"must-not-be-consumed","index":false}]},{"type":"custom_notice","attributes":[{"key":"status","value":"seen","index":true}]}]}],"finalize_block_events":[]}}`))
 		case "/block":
 			if got := r.URL.Query().Get("height"); got != "10" {
 				t.Errorf("block height = %q, want 10", got)
@@ -59,7 +59,7 @@ func TestCometEventClientReadsFinalizedKeeperEventsWithStablePositions(t *testin
 		t.Fatalf("events = %#v, want recognized and unknown events", page.Events)
 	}
 	assignment := page.Events[0]
-	if assignment.Type != KeeperEventAssignmentFinalized || assignment.RawType != "task.v1.EventWorkerAssignmentFinalized" {
+	if assignment.Type != KeeperEventDispatchRecorded || assignment.RawType != "task.v1.EventDispatchRecorded" {
 		t.Fatalf("assignment type = %q raw=%q", assignment.Type, assignment.RawType)
 	}
 	if assignment.ContractVersion != KeeperEventContractVersionV1 {
@@ -181,7 +181,7 @@ func TestCometEventClientClassifiesRetryableRPCFailures(t *testing.T) {
 
 func TestParseCometEventsQuarantinesMalformedKnownEvent(t *testing.T) {
 	events, err := parseCometEvents(MessageNameEventIdentifier(), "trueopen-devnet-1", 10, 0, "tx-hash", []cometEvent{{
-		Type: "task.v1.EventWorkerAssignmentFinalized",
+		Type: "task.v1.EventDispatchRecorded",
 		Attributes: []cometAttribute{
 			{Key: "winner_worker", Value: "trueopen1node"},
 		},
@@ -241,7 +241,7 @@ func TestParseCometEventsRecognizesKeeperNamespacedEvents(t *testing.T) {
 // untyped map left every task id quoted and every height unparsable.
 func TestParseCometEventsDecodesProtoJSONTypedEventAttributes(t *testing.T) {
 	events, err := parseCometEvents(MessageNameEventIdentifier(), "trueopen-devnet-1", 300, 0, "tx-typed", []cometEvent{{
-		Type: "task.v1.EventWorkerAssignmentFinalized",
+		Type: "task.v1.EventDispatchRecorded",
 		Attributes: []cometAttribute{
 			{Key: "session_id", Value: `"session-1"`},
 			{Key: "task_id", Value: `"task-1"`},
@@ -403,7 +403,7 @@ func TestParseEventPositionRejectsMalformedValues(t *testing.T) {
 func TestParseCometEventsReadsKeeperOperatorAttributes(t *testing.T) {
 	events, err := parseCometEvents(MessageNameEventIdentifier(), "trueopen-devnet-1", 53135, 0, "tx-1", []cometEvent{
 		{
-			Type: "task.v1.EventWorkerAssignmentFinalized",
+			Type: "task.v1.EventDispatchRecorded",
 			Attributes: []cometAttribute{
 				{Key: "session_id", Value: "session-1"},
 				{Key: "task_id", Value: "task-1"},
@@ -456,14 +456,14 @@ func TestParseCometEventsQuarantinesInvalidKnownEvent(t *testing.T) {
 	events, err := parseCometEvents(MessageNameEventIdentifier(), "trueopen-devnet-1", 53135, 0, "tx-1", []cometEvent{
 		{
 			// Missing worker: exactly what an unmapped attribute name produced.
-			Type: "task.v1.EventWorkerAssignmentFinalized",
+			Type: "task.v1.EventDispatchRecorded",
 			Attributes: []cometAttribute{
 				{Key: "session_id", Value: "session-1"},
 				{Key: "task_id", Value: "task-1"},
 			},
 		},
 		{
-			Type: "task.v1.EventWorkerAssignmentFinalized",
+			Type: "task.v1.EventDispatchRecorded",
 			Attributes: []cometAttribute{
 				{Key: "session_id", Value: "session-2"},
 				{Key: "task_id", Value: "task-2"},
@@ -560,7 +560,7 @@ func cometChainServer(t *testing.T, tip uint64, fail uint64, inFlight *atomicMax
 				http.Error(w, "not ready", http.StatusServiceUnavailable)
 				return
 			}
-			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"height":%q,"txs_results":[],"finalize_block_events":[{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"task_id","value":"task-%s","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}}`, height, height)
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"height":%q,"txs_results":[],"finalize_block_events":[{"type":"task.v1.EventDispatchRecorded","attributes":[{"key":"task_id","value":"task-%s","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}}`, height, height)
 		case "/block":
 			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"block":{"header":{"chain_id":"trueopen-devnet-1","height":%q},"data":{"txs":[]}}}}`, height)
 		default:
@@ -690,11 +690,11 @@ func TestCometEventClientReadsTheBlockOnlyForSuccessfulTransactions(t *testing.T
 		case "/block_results":
 			switch height {
 			case "1": // empty, with a finalize-block event
-				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"1","txs_results":[],"finalize_block_events":[{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}}`))
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"1","txs_results":[],"finalize_block_events":[{"type":"task.v1.EventDispatchRecorded","attributes":[{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}}`))
 			case "2": // only a failed transaction
 				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"2","txs_results":[{"code":5,"events":[]}],"finalize_block_events":[]}}`))
 			case "3": // a successful transaction
-				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"3","txs_results":[{"code":0,"events":[{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"task_id","value":"task-3","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}],"finalize_block_events":[]}}`))
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"height":"3","txs_results":[{"code":0,"events":[{"type":"task.v1.EventDispatchRecorded","attributes":[{"key":"task_id","value":"task-3","index":true},{"key":"winner_worker","value":"trueopen1node","index":true}]}]}],"finalize_block_events":[]}}`))
 			}
 		case "/block":
 			mu.Lock()

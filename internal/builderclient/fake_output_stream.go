@@ -27,7 +27,7 @@ func (f *FakeClient) OpenTaskOutputStream(_ context.Context, endpoint string, re
 			return nil, err
 		}
 	}
-	scope := endpoint + "|" + request.Auth.BuilderAddress + "|" + request.Auth.ChainID + "|" + request.TaskHash + "|" + request.SessionID + "|" + request.TaskID
+	scope := endpoint + "|" + request.Auth.BuilderAddress + "|" + request.Auth.ChainID + "|" + request.TaskHash + "|" + request.SessionID + "|" + request.TaskID + "|" + request.DispatchTicketHash.String()
 	// The Worker opens its streams to every Task Builder at once, so this is the
 	// one method of the fake that is entered concurrently. The resume check
 	// below reads the retained chunks and the write replaces them, which has to
@@ -82,7 +82,7 @@ func (s *fakeOutputStream) Finish(fin OutputFin) (OutputStreamResult, error) {
 	}
 	s.closed = true
 	root := s.mmr.Root()
-	if _, err := outputFinFrame(s.request.Auth.ChainID, s.request.TaskHash, root, s.mmr.LeafCount(), fin); err != nil {
+	if _, err := outputFinFrame(s.request.Auth.ChainID, s.request.TaskHash, s.request.DispatchTicketHash, root, s.mmr.LeafCount(), fin); err != nil {
 		return OutputStreamResult{}, err
 	}
 	fin.WorkerSignature = append([]byte(nil), fin.WorkerSignature...)

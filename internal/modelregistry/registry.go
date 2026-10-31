@@ -27,8 +27,9 @@ const (
 	RegistrationStageSkipped   = "skipped"
 	RegistrationStageFailed    = "failed"
 
-	SubmitDirect     SubmitMode = "direct"
-	SubmitViaBuilder SubmitMode = "via-builder"
+	// SubmitDirect is the only submission mode. The via-builder mode was
+	// retired with the NATS bus.
+	SubmitDirect SubmitMode = "direct"
 )
 
 type SubmitMode string
@@ -48,7 +49,6 @@ type RegistryConfig struct {
 	Treasury                   string
 	FeeDenom                   string
 	Submitter                  TxSubmitter
-	Outbox                     BuilderOutbox
 	SelfTester                 SelfTestFunc
 	Signer                     Signer
 	FeeGrant                   StaticFeeGrant
@@ -73,7 +73,6 @@ type Registry struct {
 	treasury                     string
 	feeDenom                     string
 	submitter                    TxSubmitter
-	outbox                       BuilderOutbox
 	selfTester                   SelfTestFunc
 	signer                       Signer
 	feeGrant                     StaticFeeGrant
@@ -100,10 +99,6 @@ type RegistrationReader interface {
 	Params(context.Context) (chainclient.ParamsSnapshot, error)
 	Model(context.Context, string) (chainclient.ModelSnapshot, error)
 	Profile(context.Context, string, string) (chainclient.ProfileSnapshot, error)
-}
-
-type BuilderOutbox interface {
-	WriteRegistration(context.Context, OutboxMessage) (string, error)
 }
 
 type SupportConfirmer interface {
@@ -192,7 +187,6 @@ type RegisterResult struct {
 	ModelStage   RegistrationStageResult `json:"model"`
 	ProfileStage RegistrationStageResult `json:"profile"`
 	TxID         string                  `json:"-"`
-	OutboxID     string                  `json:"-"`
 	DryRun       bool                    `json:"dry_run"`
 	Material     RegistrationMaterial    `json:"-"`
 }
@@ -200,25 +194,6 @@ type RegisterResult struct {
 type RegistrationStageResult struct {
 	Status string `json:"status"`
 	TxID   string `json:"tx_id,omitempty"`
-}
-
-type OutboxMessage struct {
-	Material      RegistrationMaterial
-	Authorization BuilderAuthorization
-}
-
-type BuilderAuthorization struct {
-	Granter               string
-	CoversRegistrationFee bool
-	CoversGas             bool
-	RegistrationFeeAmount uint64
-	GasLimit              uint64
-	TreasuryDestination   string
-	RegistrationFeeDenom  string
-	RegistrationFeeKind   string
-	QuoteHeight           uint64
-	QuoteExpiresAtHeight  uint64
-	SignedEnvelope        string
 }
 
 func NewRegistry(config RegistryConfig) *Registry {
@@ -240,7 +215,6 @@ func NewRegistry(config RegistryConfig) *Registry {
 		treasury:                     strings.TrimSpace(config.Treasury),
 		feeDenom:                     strings.TrimSpace(config.FeeDenom),
 		submitter:                    config.Submitter,
-		outbox:                       config.Outbox,
 		selfTester:                   config.SelfTester,
 		signer:                       config.Signer,
 		feeGrant:                     config.FeeGrant,
@@ -312,9 +286,8 @@ func (r *Registry) Register(ctx context.Context, req RegisterRequest) (RegisterR
 	if r.signer == nil {
 		return RegisterResult{}, fmt.Errorf("model registration signer is required")
 	}
-	// The signature travels as material.SignedEnvelope: the builder outbox frames
-	// it into the published registration payload and into that payload's dedup
-	// digest, and a dry run returns it for offline inspection. material.Message is
+	// The signature travels as material.SignedEnvelope: the submitter carries it,
+	// and a dry run returns it for offline inspection. material.Message is
 	// only the signing preimage - it is json:"-" and the signer clears
 	// RegistrantSignature before hashing - so writing the signature back into it
 	// would be work no reader can ever observe.
@@ -341,18 +314,6 @@ func (r *Registry) Register(ctx context.Context, req RegisterRequest) (RegisterR
 			return RegisterResult{}, err
 		}
 		result.TxID = txID
-	case SubmitViaBuilder:
-		if r.outbox == nil {
-			return RegisterResult{}, fmt.Errorf("builder outbox is required")
-		}
-		outboxID, err := r.outbox.WriteRegistration(ctx, OutboxMessage{
-			Material:      *material,
-			Authorization: r.builderAuthorization(req.Quote, *material),
-		})
-		if err != nil {
-			return RegisterResult{}, err
-		}
-		result.OutboxID = outboxID
 	default:
 		return RegisterResult{}, fmt.Errorf("unknown submit mode %q", req.Mode)
 	}
@@ -571,21 +532,5 @@ func (r *Registry) bindRegistrationMaterial(material *RegistrationMaterial, mani
 		SchemaHash: strings.TrimPrefix(manifest.SchemaHash, "sha256:"), PreviousProfileVersion: manifest.PreviousProfileVersion,
 		RegistrationFee: txclient.CoinMessage{Denom: quote.Denom, Amount: txclient.ProtoUint64(quote.Amount)},
 		MetadataHash:    strings.TrimPrefix(manifest.MetadataHash, "sha256:"), OptionalDisplayTagHash: strings.TrimPrefix(manifest.DisplayTagHash, "sha256:"),
-	}
-}
-
-func (r *Registry) builderAuthorization(quote FeeQuote, material RegistrationMaterial) BuilderAuthorization {
-	return BuilderAuthorization{
-		Granter:               r.feeGrant.Granter,
-		CoversRegistrationFee: r.feeGrant.Amount >= quote.Amount,
-		CoversGas:             r.feeGrant.GasLimit >= quote.GasLimit,
-		RegistrationFeeAmount: quote.Amount,
-		GasLimit:              quote.GasLimit,
-		TreasuryDestination:   quote.TreasuryDestination,
-		RegistrationFeeDenom:  quote.Denom,
-		RegistrationFeeKind:   quote.FeeKind,
-		QuoteHeight:           quote.Height,
-		QuoteExpiresAtHeight:  quote.ExpiresAtHeight,
-		SignedEnvelope:        material.SignedEnvelope,
 	}
 }

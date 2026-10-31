@@ -4,17 +4,14 @@ go 1.25.0
 
 require (
 	connectrpc.com/connect v1.18.1
-	github.com/TrueOpen/wire v0.5.1
+	github.com/TrueOpen/wire v0.5.2-0.20261029083751-916e3936355c
 	github.com/cockroachdb/pebble/v2 v2.1.6
 	github.com/cosmos/gogoproto v1.4.12
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/google/go-cmp v0.7.0
-	github.com/nats-io/jwt/v2 v2.5.8
-	github.com/nats-io/nats.go v1.37.0
-	github.com/nats-io/nkeys v0.4.7
 	github.com/spf13/cobra v1.8.1
-	golang.org/x/crypto v0.24.0
-	golang.org/x/term v0.21.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/term v0.44.0
 	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
@@ -52,11 +49,11 @@ require (
 	github.com/cosmos/btcutil v1.0.5 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
-	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/net v0.26.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240318140521-94a12d6c2237 // indirect
 )

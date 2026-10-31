@@ -116,31 +116,31 @@ func notReadyTxStatus() diagnostics.DependencyStatus {
 // TestDependencyReadinessScrubsCredentialsFromTheProbeReason is the constraint
 // that made the reason a fixed string in the first place.
 //
-// A probe error can quote the endpoint it dialled, and a NATS URL may carry
-// userinfo (config.NexusConfig.NATSURLCredentials). Discarding the whole
+// A probe error can quote the endpoint it dialled, and an endpoint URL may
+// carry userinfo. Discarding the whole
 // message was one way to guarantee no credential reached the log; keeping the
 // message and scrubbing the userinfo is the other, and it is the one that also
 // tells an operator what failed. The host stays: it is already published in
 // DependencyStatus.Endpoint, so hiding it buys nothing.
 func TestDependencyReadinessScrubsCredentialsFromTheProbeReason(t *testing.T) {
 	cfg := realConfig()
-	cfg.Nexus.NATSURL = "tls://operator:s3cret@nexus.devnet.trueopen.xyz:4222"
+	cfg.Keeper.APIURL = "https://operator:s3cret@keeper.devnet.trueopen.xyz"
 	rt := &Runtime{cfg: cfg}
 	rt.Dependencies.Diagnostics = diagnostics.Diagnostics{Dependencies: []diagnostics.DependencyStatus{
-		{Name: "nexus", Endpoint: cfg.Nexus.NATSURL},
+		{Name: "nexus", Endpoint: cfg.Keeper.APIURL},
 	}}
 	probe := readinessProbeFunc(func(context.Context) error {
-		return errors.New("nats: no servers available at " + cfg.Nexus.NATSURL)
+		return errors.New("keeper: no servers available at " + cfg.Keeper.APIURL)
 	})
 
 	status := rt.checkDependencyReadiness(context.Background(), "nexus", probe)
 	if strings.Contains(status.Error, "s3cret") {
-		t.Fatalf("status.Error = %q, want the NATS userinfo scrubbed", status.Error)
+		t.Fatalf("status.Error = %q, want the endpoint userinfo scrubbed", status.Error)
 	}
 	if !strings.Contains(status.Error, "no servers available") {
 		t.Fatalf("status.Error = %q, want the probe's reason preserved", status.Error)
 	}
-	if !strings.Contains(status.Error, "nexus.devnet.trueopen.xyz:4222") {
+	if !strings.Contains(status.Error, "keeper.devnet.trueopen.xyz") {
 		t.Fatalf("status.Error = %q, want the host kept: it is already in the Endpoint field", status.Error)
 	}
 }

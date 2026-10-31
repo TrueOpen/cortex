@@ -1,0 +1,3390 @@
+{
+  "notes": [
+    "TaskOrderV3 has 27 top-level fields and binds a raw Hash32 model ID.",
+    "Plaintext fresh-genesis requires payload_mode PLAINTEXT, zero32 input_key_commitment and an empty user_recipient_pubkey.",
+    "The 19-field order opening remains under TRUEOPEN_ORDER_OPENING_V2 and also uses the raw model ID.",
+    "Each mutation recomputes a digest after changing one encoded leaf of the V3 field list.",
+    "Each mutation row's edit states its change machine-readably, applied to the vector's typed fields: replace puts the given typed field at a dotted field path, swap exchanges two fields, remove drops one, append adds one after the last top-level field. The rule used here is: an integer leaf +1, a string leaf with \"x\" appended, a byte leaf with bit 0 of its last byte flipped (an empty byte leaf becomes the single byte 01), a bool flipped, a repeated field's count +1 with its elements unchanged, and a single-leaf message changed through that leaf. __order swaps the first two top-level fields, __missing removes the last and __extra appends a uint32 1. tools/verify-vector-consistency recomputes every row from its edit."
+  ],
+  "schema": "trueopen.task.task_order.v3",
+  "source": "Task order and opening wire contract",
+  "vectors": [
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "057fee505c662a2480239af6ff4925b4ccce4b2f0caac392c6d91a6132a0ba6e",
+      "domain": "TRUEOPEN_TASK_ORDER_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "fields": [
+            {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 256
+            },
+            {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 30000
+            },
+            {
+              "fields": [
+                {
+                  "bool": true,
+                  "name": "sampling_enabled",
+                  "type": "bool"
+                },
+                {
+                  "name": "temperature_milli",
+                  "type": "uint32",
+                  "value": 700
+                },
+                {
+                  "name": "top_p_ppm",
+                  "type": "uint32",
+                  "value": 950000
+                },
+                {
+                  "name": "top_k",
+                  "type": "uint32",
+                  "value": 40
+                },
+                {
+                  "name": "seed",
+                  "type": "uint64",
+                  "value": 8675309
+                },
+                {
+                  "name": "presence_penalty_milli",
+                  "type": "int32",
+                  "value": -250
+                },
+                {
+                  "name": "frequency_penalty_milli",
+                  "type": "int32",
+                  "value": 125
+                },
+                {
+                  "name": "repetition_penalty_ppm",
+                  "type": "uint32",
+                  "value": 1050000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_sequences[0]",
+                      "type": "string",
+                      "utf8": "\u003c/s\u003e"
+                    },
+                    {
+                      "name": "stop_sequences[1]",
+                      "type": "string",
+                      "utf8": "STOP"
+                    }
+                  ],
+                  "name": "stop_sequences",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_token_ids[0]",
+                      "type": "uint32",
+                      "value": 11
+                    },
+                    {
+                      "name": "stop_token_ids[1]",
+                      "type": "uint32",
+                      "value": 220
+                    }
+                  ],
+                  "name": "stop_token_ids",
+                  "type": "frame"
+                }
+              ],
+              "name": "decoding_params",
+              "type": "frame"
+            }
+          ],
+          "name": "generation_params",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000"
+            }
+          ],
+          "name": "price_bid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "150000"
+            }
+          ],
+          "name": "max_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0"
+            }
+          ],
+          "name": "assignment_priority_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "250"
+            }
+          ],
+          "name": "tx_fee_reserve",
+          "type": "frame"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+          "name": "payload_mode",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "input_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f55d081916d0dde8a763ba15200799909ea6bd1d79f590ba31e85d53abb1597e",
+          "edit": {
+            "field": {
+              "name": "schema_version",
+              "type": "uint32",
+              "value": 4
+            },
+            "op": "replace",
+            "path": "schema_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3a249830fec48440d914e5cb142ba89a9fbc983dedc46c0d6317f7ebbc06d31a",
+          "edit": {
+            "field": {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1x"
+            },
+            "op": "replace",
+            "path": "chain_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0a1fa5b0d0bdc894cfed981e656ef407373cf9d0aa7298e5c2d6a044c8ffc4ff",
+          "edit": {
+            "field": {
+              "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b2",
+              "name": "user_address",
+              "type": "address"
+            },
+            "op": "replace",
+            "path": "user_address"
+          },
+          "expect": "digest_changes",
+          "field_path": "user_address",
+          "name": "field.user_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "22f7ce234fb2ce7e5f603ddbcac1b2d07096ae5a40273964b5f6a36d15df4a68",
+          "edit": {
+            "field": {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111110",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "session_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "7f74b687cd86b2d0512397a9dcf7783d094de5ea711689f6e7899ed000437ec9",
+          "edit": {
+            "field": {
+              "name": "order_sequence",
+              "type": "uint64",
+              "value": 43
+            },
+            "op": "replace",
+            "path": "order_sequence"
+          },
+          "expect": "digest_changes",
+          "field_path": "order_sequence",
+          "name": "field.order_sequence"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "aa7cd4c61a7c1e85347ca4fd78f068075fb031f34d595ee3012ba85a339ec354",
+          "edit": {
+            "field": {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555554",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "model_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "model_id",
+          "name": "field.model_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "29df179a9afba06e1ae1e90f29f6308b75a6f62dd94e98d68a505de6e74c004e",
+          "edit": {
+            "field": {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "profile_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "profile_version",
+          "name": "field.profile_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "bf1bb96965bc406cc55253f8c71de62e11d9cee0ec3da41f4219edb844781b99",
+          "edit": {
+            "field": {
+              "name": "task_type",
+              "type": "enum",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "task_type"
+          },
+          "expect": "digest_changes",
+          "field_path": "task_type",
+          "name": "field.task_type"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4fc94d0ce8463b65c51414341b4fb6af433f5e67489db9e02345a5a73d066833",
+          "edit": {
+            "field": {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222223",
+              "name": "input_hash",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "input_hash"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_hash",
+          "name": "field.input_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2a082aebeaee6e7bd90e8ff8f2dbf5d7f976d6854be3a4d62710641ae5de05c1",
+          "edit": {
+            "field": {
+              "name": "input_size_bytes",
+              "type": "uint64",
+              "value": 4097
+            },
+            "op": "replace",
+            "path": "input_size_bytes"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_size_bytes",
+          "name": "field.input_size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6bbf4551b120b433ccd165481f3453a686a573b0dd4d4da769d4ddacfbc0ef76",
+          "edit": {
+            "field": {
+              "name": "input_bucket",
+              "type": "uint32",
+              "value": 4
+            },
+            "op": "replace",
+            "path": "input_bucket"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_bucket",
+          "name": "field.input_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "98957cd9383c164e9be0e31a2dff92306c98077d5fb969aaa4388d1ad73a58a2",
+          "edit": {
+            "field": {
+              "name": "output_budget_bucket",
+              "type": "uint32",
+              "value": 5
+            },
+            "op": "replace",
+            "path": "output_budget_bucket"
+          },
+          "expect": "digest_changes",
+          "field_path": "output_budget_bucket",
+          "name": "field.output_budget_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "171f7974ef354db35da6701d2f1997c0001b1760d012e3212dc7499ef1dba765",
+          "edit": {
+            "field": {
+              "name": "earliest_submit_height",
+              "type": "uint64",
+              "value": 1001
+            },
+            "op": "replace",
+            "path": "earliest_submit_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "earliest_submit_height",
+          "name": "field.earliest_submit_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "36aef84065793bbb9610e731fa670578336e9f743f3d86a9b2b4fe1a785610cc",
+          "edit": {
+            "field": {
+              "name": "order_expire_height",
+              "type": "uint64",
+              "value": 2001
+            },
+            "op": "replace",
+            "path": "order_expire_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "order_expire_height",
+          "name": "field.order_expire_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "85f63fd881625c071a0c35a8737b5f16ad3ba7713a4c85c8d3ef9b6ddaea13db",
+          "edit": {
+            "field": {
+              "name": "timeout_bucket_version",
+              "type": "uint64",
+              "value": 10
+            },
+            "op": "replace",
+            "path": "timeout_bucket_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "timeout_bucket_version",
+          "name": "field.timeout_bucket_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3d7fb73056167e6efb17975a63c6b9fd5fee4fc4926a10cd657719f3c3c88548",
+          "edit": {
+            "field": {
+              "name": "session_anchor_height",
+              "type": "uint64",
+              "value": 991
+            },
+            "op": "replace",
+            "path": "session_anchor_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "session_anchor_height",
+          "name": "field.session_anchor_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4fb80bd2574f15216978048fdf9fd697451798a5eb47a4e4ada4c1eb1a5130c7",
+          "edit": {
+            "field": {
+              "name": "builder_set_id",
+              "type": "string",
+              "utf8": "12x"
+            },
+            "op": "replace",
+            "path": "builder_set_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "builder_set_id",
+          "name": "field.builder_set_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c8723a7d67dfd6ee7f88b93fc88c69c842e9d613702a27d321dc442ce06a058d",
+          "edit": {
+            "field": {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444445",
+              "name": "builder_set_hash",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "builder_set_hash"
+          },
+          "expect": "digest_changes",
+          "field_path": "builder_set_hash",
+          "name": "field.builder_set_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ae60e849d6bccc5b4a79f3686a6c0c1d98950eaa4413eb5182c479c02bd61458",
+          "edit": {
+            "field": {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "generation_params.generation_params_schema_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.generation_params_schema_version",
+          "name": "field.generation_params.generation_params_schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "93ca268c117e63f9836d5ff32c4eac58b229392a07f93ae4f16957a252676e33",
+          "edit": {
+            "field": {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 257
+            },
+            "op": "replace",
+            "path": "generation_params.max_output_tokens"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_tokens",
+          "name": "field.generation_params.max_output_tokens"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8dcd5d99b6973caf1b6b726ff87abad58be0081055ef8404fa304cf991e5b4ca",
+          "edit": {
+            "field": {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 30001
+            },
+            "op": "replace",
+            "path": "generation_params.max_output_duration"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_duration",
+          "name": "field.generation_params.max_output_duration"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2008052655d19d887e8c7f5f20d99c4f4abf40f8ed07b20f9f531033690800a3",
+          "edit": {
+            "field": {
+              "bool": false,
+              "name": "sampling_enabled",
+              "type": "bool"
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.sampling_enabled"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.sampling_enabled",
+          "name": "field.generation_params.decoding_params.sampling_enabled"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1cad4fff5eba03435e9365cfb7a651c4ca094712a78b06e43d2c5f4e6e5f6ffa",
+          "edit": {
+            "field": {
+              "name": "temperature_milli",
+              "type": "uint32",
+              "value": 701
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.temperature_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.temperature_milli",
+          "name": "field.generation_params.decoding_params.temperature_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ec3d3a1db2270cf4cd49b98211a427859587fbef562bdd2459d072b3eade9334",
+          "edit": {
+            "field": {
+              "name": "top_p_ppm",
+              "type": "uint32",
+              "value": 950001
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.top_p_ppm"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_p_ppm",
+          "name": "field.generation_params.decoding_params.top_p_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "499f6c76b31d2c7b2b8b20d5b524bb024d73798abbfde6a48e36215bad77c1e7",
+          "edit": {
+            "field": {
+              "name": "top_k",
+              "type": "uint32",
+              "value": 41
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.top_k"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_k",
+          "name": "field.generation_params.decoding_params.top_k"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "dc4befb17a150fff71d2f317cc9bd848f490c12e5ebac5e8cd1a4245c9b342e0",
+          "edit": {
+            "field": {
+              "name": "seed",
+              "type": "uint64",
+              "value": 8675310
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.seed"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.seed",
+          "name": "field.generation_params.decoding_params.seed"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4dffd7fc3328a8554aba5f6a5aed9681316d672cde5c04058de4e42c1e156c4f",
+          "edit": {
+            "field": {
+              "name": "presence_penalty_milli",
+              "type": "int32",
+              "value": -249
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.presence_penalty_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.presence_penalty_milli",
+          "name": "field.generation_params.decoding_params.presence_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "dceb2e7e1a0f2e56431cc5df27550b5dc62ac7d9d10a033c288ffe7ae80e3009",
+          "edit": {
+            "field": {
+              "name": "frequency_penalty_milli",
+              "type": "int32",
+              "value": 126
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.frequency_penalty_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.frequency_penalty_milli",
+          "name": "field.generation_params.decoding_params.frequency_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a3d96f3ce24a25d9596853b006923f9423d5b73053db38cf6428675c90766fd0",
+          "edit": {
+            "field": {
+              "name": "repetition_penalty_ppm",
+              "type": "uint32",
+              "value": 1050001
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.repetition_penalty_ppm"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.repetition_penalty_ppm",
+          "name": "field.generation_params.decoding_params.repetition_penalty_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "81232c45f9eee880a237f345f8a2659afaa537d20a8ec0161d5680f70ff5038a",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000x"
+            },
+            "op": "replace",
+            "path": "price_bid.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "price_bid.atomic_units",
+          "name": "field.price_bid.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "fc0fbc59d880a008b2ef774df3502c8738f650fd3a4569735a434685d8993e2a",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "150000x"
+            },
+            "op": "replace",
+            "path": "max_fee.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "max_fee.atomic_units",
+          "name": "field.max_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d4065582c8e3ecf7f785fea5d4cef9f4178ebad48e236ddb3af5ea62fc2b702a",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0x"
+            },
+            "op": "replace",
+            "path": "assignment_priority_fee.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "assignment_priority_fee.atomic_units",
+          "name": "field.assignment_priority_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "516570867e5bd96f31b0a853065e51676832f021027880b173bad6bbb5a834c7",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "250x"
+            },
+            "op": "replace",
+            "path": "tx_fee_reserve.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "tx_fee_reserve.atomic_units",
+          "name": "field.tx_fee_reserve.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2a846fc05bd9b54b67948af3d5cd77c95ebac0c7e3a9312680684817edb64ce1",
+          "edit": {
+            "field": {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "deadline_policy.latency_class"
+          },
+          "expect": "digest_changes",
+          "field_path": "deadline_policy.latency_class",
+          "name": "field.deadline_policy.latency_class"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "47171b0e71c7333df208f04ba7ef79c162146efb4e6cf21f1c1235dfc23ed82d",
+          "edit": {
+            "op": "swap",
+            "paths": [
+              "schema_version",
+              "chain_id"
+            ]
+          },
+          "expect": "digest_changes",
+          "field_path": "__order",
+          "name": "field.__order"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4d5e8a60a1cbc22d769298bd3615636291a3e156ec6d623b73ddc78633eafbb5",
+          "edit": {
+            "op": "remove",
+            "path": "user_recipient_pubkey"
+          },
+          "expect": "digest_changes",
+          "field_path": "__missing",
+          "name": "field.__missing"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a5f0b29c762924489a3b0514c6958efc7dc8e1bfa85523689e7beafe1eccb04a",
+          "edit": {
+            "field": {
+              "name": "__extra",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "append"
+          },
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "81232c45f9eee880a237f345f8a2659afaa537d20a8ec0161d5680f70ff5038a",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000x"
+            },
+            "op": "replace",
+            "path": "price_bid.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "price_bid",
+          "name": "field.price_bid"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2a846fc05bd9b54b67948af3d5cd77c95ebac0c7e3a9312680684817edb64ce1",
+          "edit": {
+            "field": {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "deadline_policy.latency_class"
+          },
+          "expect": "digest_changes",
+          "field_path": "deadline_policy",
+          "name": "field.deadline_policy"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0cdb18860e3a4ddf9d1d9daa59ab4b02d84ae57cb3f0b72ad206409ff448edca",
+          "edit": {
+            "field": {
+              "name": "count",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.stop_sequences.count"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_sequences",
+          "name": "field.generation_params.decoding_params.stop_sequences"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0bd2d5e2320f26c05def29e10dcc9da3441cd8ebb8249a66f9a13066f7d6b54a",
+          "edit": {
+            "field": {
+              "name": "count",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.stop_token_ids.count"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_token_ids",
+          "name": "field.generation_params.decoding_params.stop_token_ids"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "659cf1f8a652afa70fa355f5fa234e6cbe514af15d92cde22891518286834bc7",
+          "edit": {
+            "field": {
+              "name": "payload_mode",
+              "type": "enum",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "payload_mode"
+          },
+          "expect": "digest_changes",
+          "field_path": "payload_mode",
+          "name": "field.payload_mode"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "949e8c330222c1fa6835a37c25b29fd311768427960b006e772162151db04923",
+          "edit": {
+            "field": {
+              "hex": "0000000000000000000000000000000000000000000000000000000000000001",
+              "name": "input_key_commitment",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "input_key_commitment"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_key_commitment",
+          "name": "field.input_key_commitment"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "b35c358711191e936f85054052c4f30815d73d530a762eef3b613f4477c74773",
+          "edit": {
+            "field": {
+              "hex": "01",
+              "name": "user_recipient_pubkey",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "user_recipient_pubkey"
+          },
+          "expect": "digest_changes",
+          "field_path": "user_recipient_pubkey",
+          "name": "field.user_recipient_pubkey"
+        }
+      ],
+      "name": "task_order_v3_core",
+      "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000ed000000000000000400000001000000000000000800000000000001000000000000000008000000000000753000000000000000b90000000000000001010000000000000004000002bc0000000000000004000e7ef000000000000000040000002800000000000000080000000000845fed0000000000000004ffffff0600000000000000040000007d000000000000000400100590000000000000002400000000000000040000000200000000000000043c2f733e000000000000000453544f50000000000000002400000000000000040000000200000000000000040000000b0000000000000004000000dc000000000000000f000000000000000734303030303030000000000000000e00000000000000063135303030300000000000000009000000000000000130000000000000000b0000000000000003323530000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de0000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 855,
+      "producer": "TaskOrderHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "1d58985917955561e9c9586f0b681e1580b8e89be2045e0f80ee82448259312a",
+      "domain": "TRUEOPEN_ORDER_OPENING_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "generation_params_digest_hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0e2b5e37b541feee16a2cd167580820ee15434073b635ece21a5610ba99030d6",
+          "edit": {
+            "field": {
+              "hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560f",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "generation_params_digest"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e280bdc69c17741309011f77ceca16ab4d973d4953f9a5121aabdcaa577d1879",
+          "edit": {
+            "field": {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1x"
+            },
+            "op": "replace",
+            "path": "chain_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d4c856707c6afdf4f95ecce75b5435e09926b5759407d936a2bfad8580cdc500",
+          "edit": {
+            "field": {
+              "name": "__extra",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "append"
+          },
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        }
+      ],
+      "name": "order_opening_v2_core",
+      "preimage_hex": "0000000000000019545255454f50454e5f4f524445525f4f50454e494e475f56320000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a0000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000100000000000000040000000200000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000000800000000000010000000000000000004000000030000000000000004000000040000000000000020591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de0000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "preimage_size_bytes": 500,
+      "producer": "AcceptedOrderOpeningHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "a0bf7a41ce993a8dfd16be02a96ac09880dcc57be06c538f6d5bd78a400c400c",
+      "domain": "TRUEOPEN_TASK_ORDER_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "fields": [
+            {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "bool": false,
+                  "name": "sampling_enabled",
+                  "type": "bool"
+                },
+                {
+                  "name": "temperature_milli",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "name": "top_p_ppm",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "top_k",
+                  "type": "uint32",
+                  "value": 0
+                },
+                {
+                  "name": "seed",
+                  "type": "uint64",
+                  "value": 0
+                },
+                {
+                  "name": "presence_penalty_milli",
+                  "type": "int32",
+                  "value": -2000
+                },
+                {
+                  "name": "frequency_penalty_milli",
+                  "type": "int32",
+                  "value": -2000
+                },
+                {
+                  "name": "repetition_penalty_ppm",
+                  "type": "uint32",
+                  "value": 100000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 0
+                    }
+                  ],
+                  "name": "stop_sequences",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 0
+                    }
+                  ],
+                  "name": "stop_token_ids",
+                  "type": "frame"
+                }
+              ],
+              "name": "decoding_params",
+              "type": "frame"
+            }
+          ],
+          "name": "generation_params",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000"
+            }
+          ],
+          "name": "price_bid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "150000"
+            }
+          ],
+          "name": "max_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0"
+            }
+          ],
+          "name": "assignment_priority_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "250"
+            }
+          ],
+          "name": "tx_fee_reserve",
+          "type": "frame"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+          "name": "payload_mode",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "input_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "734a296d9103a31aceb29aaaa11055cb4f70faea6bfeeca8689d007ea0b2305e",
+          "edit": {
+            "field": {
+              "name": "schema_version",
+              "type": "uint32",
+              "value": 4
+            },
+            "op": "replace",
+            "path": "schema_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ad2f217743c2f0ed2e3365092d9448f4778b285f3f8ce8805090c5b8fdb1584a",
+          "edit": {
+            "field": {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1x"
+            },
+            "op": "replace",
+            "path": "chain_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e1f552a6940aad12f3af196eb1f22f9b4049ad12cfefd62b62fdfa45d6458547",
+          "edit": {
+            "field": {
+              "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b2",
+              "name": "user_address",
+              "type": "address"
+            },
+            "op": "replace",
+            "path": "user_address"
+          },
+          "expect": "digest_changes",
+          "field_path": "user_address",
+          "name": "field.user_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "fa496a870bdf8036f1dec969b3765242eade0944e6c925487f7391f514bddeed",
+          "edit": {
+            "field": {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111110",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "session_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "43cce9d4e0ca25cb1114556d9706dc3fbf574c64fa5843017f0cc608cd9b5452",
+          "edit": {
+            "field": {
+              "name": "order_sequence",
+              "type": "uint64",
+              "value": 43
+            },
+            "op": "replace",
+            "path": "order_sequence"
+          },
+          "expect": "digest_changes",
+          "field_path": "order_sequence",
+          "name": "field.order_sequence"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "099f0a9f791f22d85ee951af3c9a0e7316c9948747c4ee5469b7612ff974ddd4",
+          "edit": {
+            "field": {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555554",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "model_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "model_id",
+          "name": "field.model_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "81d1703c7f735ed6ed640f3fbb91e95e0bca841f5f7f69ebec5609c1e119e274",
+          "edit": {
+            "field": {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "profile_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "profile_version",
+          "name": "field.profile_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6f30c64770810e4dc0cf80f9c7343014cdf492e244fdbf8f6eeba0c69e2dfdec",
+          "edit": {
+            "field": {
+              "name": "task_type",
+              "type": "enum",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "task_type"
+          },
+          "expect": "digest_changes",
+          "field_path": "task_type",
+          "name": "field.task_type"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "956ce41c48d521c4a73d91bc7e71f496427f9e785ce9ef0bdc305b6253f1e7a4",
+          "edit": {
+            "field": {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222223",
+              "name": "input_hash",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "input_hash"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_hash",
+          "name": "field.input_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5a9421e18efa7f82f6753192a68321cc76a4bcc1adf192e66965c19568d1b7b8",
+          "edit": {
+            "field": {
+              "name": "input_size_bytes",
+              "type": "uint64",
+              "value": 4097
+            },
+            "op": "replace",
+            "path": "input_size_bytes"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_size_bytes",
+          "name": "field.input_size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "bc6e6e39a3b574599837453cd7020b159a2a298c331072eb390445ed03ea27b1",
+          "edit": {
+            "field": {
+              "name": "input_bucket",
+              "type": "uint32",
+              "value": 4
+            },
+            "op": "replace",
+            "path": "input_bucket"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_bucket",
+          "name": "field.input_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "37ef06d5160ef861e5622054e06d7691808fca741e794eb33eef9ce92d107e25",
+          "edit": {
+            "field": {
+              "name": "output_budget_bucket",
+              "type": "uint32",
+              "value": 5
+            },
+            "op": "replace",
+            "path": "output_budget_bucket"
+          },
+          "expect": "digest_changes",
+          "field_path": "output_budget_bucket",
+          "name": "field.output_budget_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "af982e47c522e41d065bb7311af382abf4fc0c986acfb736e85cde21b1795758",
+          "edit": {
+            "field": {
+              "name": "earliest_submit_height",
+              "type": "uint64",
+              "value": 1001
+            },
+            "op": "replace",
+            "path": "earliest_submit_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "earliest_submit_height",
+          "name": "field.earliest_submit_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1ee548980b141640db3dc1da40aaac8490e1fd4b002a4deb8a23dc5e3c208e4f",
+          "edit": {
+            "field": {
+              "name": "order_expire_height",
+              "type": "uint64",
+              "value": 2001
+            },
+            "op": "replace",
+            "path": "order_expire_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "order_expire_height",
+          "name": "field.order_expire_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "62c04284121e5377c67dc0c580a1a2d6c07398a89a8ce649ed1a53038b857aeb",
+          "edit": {
+            "field": {
+              "name": "timeout_bucket_version",
+              "type": "uint64",
+              "value": 10
+            },
+            "op": "replace",
+            "path": "timeout_bucket_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "timeout_bucket_version",
+          "name": "field.timeout_bucket_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e8fb1cc34942d37205cec9cbe8c178f49f5d7c877d95f44c6371bbeb5444bb6e",
+          "edit": {
+            "field": {
+              "name": "session_anchor_height",
+              "type": "uint64",
+              "value": 991
+            },
+            "op": "replace",
+            "path": "session_anchor_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "session_anchor_height",
+          "name": "field.session_anchor_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5eee460575aa37e5b141005e5a585f6ad884d61490244856cfc9d4e79ca22e86",
+          "edit": {
+            "field": {
+              "name": "builder_set_id",
+              "type": "string",
+              "utf8": "12x"
+            },
+            "op": "replace",
+            "path": "builder_set_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "builder_set_id",
+          "name": "field.builder_set_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d3adcfd723542c4f70df57c0dc5cf4b8b61d4e86560d0b6823f2762d9597ec78",
+          "edit": {
+            "field": {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444445",
+              "name": "builder_set_hash",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "builder_set_hash"
+          },
+          "expect": "digest_changes",
+          "field_path": "builder_set_hash",
+          "name": "field.builder_set_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2d87aa831c0414f54e41d109ae84b485e00bc6783f03273388f5d5d09a903b13",
+          "edit": {
+            "field": {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "generation_params.generation_params_schema_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.generation_params_schema_version",
+          "name": "field.generation_params.generation_params_schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c3936593140d3f0fd327ec0442fbcef7fdf44d9f9536b4db2b308b7e819e5080",
+          "edit": {
+            "field": {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "generation_params.max_output_tokens"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_tokens",
+          "name": "field.generation_params.max_output_tokens"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1f0e55c923374d807d5fc00fa3fd20ca54a1d7c5c3901a8580c9d651a9a50271",
+          "edit": {
+            "field": {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "generation_params.max_output_duration"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_duration",
+          "name": "field.generation_params.max_output_duration"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3af7b1411b3876fc5f82e2739444d42292cfc07a2bb2b25c51984b316337b07e",
+          "edit": {
+            "field": {
+              "bool": true,
+              "name": "sampling_enabled",
+              "type": "bool"
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.sampling_enabled"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.sampling_enabled",
+          "name": "field.generation_params.decoding_params.sampling_enabled"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "34958b797efe10ced683a4f40c9c337378105eca6d924bace825929ea1ef08e0",
+          "edit": {
+            "field": {
+              "name": "temperature_milli",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.temperature_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.temperature_milli",
+          "name": "field.generation_params.decoding_params.temperature_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "337e6be22343cbc928437804da5f34cea84000cf710c4134412ecd3f4d81d37b",
+          "edit": {
+            "field": {
+              "name": "top_p_ppm",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.top_p_ppm"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_p_ppm",
+          "name": "field.generation_params.decoding_params.top_p_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0d31bf00bafd5b959aa25df25861a5bbdc3fe5474ddd935b4094336b732ae67c",
+          "edit": {
+            "field": {
+              "name": "top_k",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.top_k"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_k",
+          "name": "field.generation_params.decoding_params.top_k"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2707685d6cd817eb34c74864f1702321d32594698013ace3f4e69d37277f5de6",
+          "edit": {
+            "field": {
+              "name": "seed",
+              "type": "uint64",
+              "value": 1
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.seed"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.seed",
+          "name": "field.generation_params.decoding_params.seed"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "94881951f08602dab74356d99514216aa565c245f4656d92b5599632357cdbe8",
+          "edit": {
+            "field": {
+              "name": "presence_penalty_milli",
+              "type": "int32",
+              "value": -1999
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.presence_penalty_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.presence_penalty_milli",
+          "name": "field.generation_params.decoding_params.presence_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1b4995e53e34c483d20886d3f80b8493518a89b229560fc1369548ea38c46c2f",
+          "edit": {
+            "field": {
+              "name": "frequency_penalty_milli",
+              "type": "int32",
+              "value": -1999
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.frequency_penalty_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.frequency_penalty_milli",
+          "name": "field.generation_params.decoding_params.frequency_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "9481c96caaadcffe75764cb279a3917eb418cbac8c9e417b87c12a9bce3a029a",
+          "edit": {
+            "field": {
+              "name": "repetition_penalty_ppm",
+              "type": "uint32",
+              "value": 100001
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.repetition_penalty_ppm"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.repetition_penalty_ppm",
+          "name": "field.generation_params.decoding_params.repetition_penalty_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1db4d0ad3dacabcc5740b361279c2fb0a9a33c625188df2f421b83e8b13b8eec",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000x"
+            },
+            "op": "replace",
+            "path": "price_bid.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "price_bid.atomic_units",
+          "name": "field.price_bid.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ef6a3ffb20cc499849e52fc04c0b7bf458d7574806ac06d1878ee0f0fcd499a1",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "150000x"
+            },
+            "op": "replace",
+            "path": "max_fee.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "max_fee.atomic_units",
+          "name": "field.max_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "90f409f2d63a697eace2d468c50756c5ca411cc369b5bd459e142fbafa7ec29f",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "0x"
+            },
+            "op": "replace",
+            "path": "assignment_priority_fee.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "assignment_priority_fee.atomic_units",
+          "name": "field.assignment_priority_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0d8509cee0107ece4d2f2a6c431f432df49cab7c7a688996742617295be2736e",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "250x"
+            },
+            "op": "replace",
+            "path": "tx_fee_reserve.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "tx_fee_reserve.atomic_units",
+          "name": "field.tx_fee_reserve.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "54f39e23da05c8ed0b3e44c4f03ceeb9dac90ea839f14d94fd0e557cf16063f8",
+          "edit": {
+            "field": {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "deadline_policy.latency_class"
+          },
+          "expect": "digest_changes",
+          "field_path": "deadline_policy.latency_class",
+          "name": "field.deadline_policy.latency_class"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4e5b925386b6b396436d9b498d63bb7df98d7687b36139335d449432dc3689e9",
+          "edit": {
+            "op": "swap",
+            "paths": [
+              "schema_version",
+              "chain_id"
+            ]
+          },
+          "expect": "digest_changes",
+          "field_path": "__order",
+          "name": "field.__order"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "b113c34afbe69a90a8243ab70a89a6f35ce63ee677227c2b8d7af6ed7c106ccf",
+          "edit": {
+            "op": "remove",
+            "path": "user_recipient_pubkey"
+          },
+          "expect": "digest_changes",
+          "field_path": "__missing",
+          "name": "field.__missing"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c2df496cbfe0321fd3412b251c80fca7678439526faba52dffa94bc5575c45cc",
+          "edit": {
+            "field": {
+              "name": "__extra",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "append"
+          },
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1db4d0ad3dacabcc5740b361279c2fb0a9a33c625188df2f421b83e8b13b8eec",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "4000000x"
+            },
+            "op": "replace",
+            "path": "price_bid.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "price_bid",
+          "name": "field.price_bid"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "54f39e23da05c8ed0b3e44c4f03ceeb9dac90ea839f14d94fd0e557cf16063f8",
+          "edit": {
+            "field": {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "deadline_policy.latency_class"
+          },
+          "expect": "digest_changes",
+          "field_path": "deadline_policy",
+          "name": "field.deadline_policy"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1754fc4b789c9b317e9cb1cea3c64a00d2338e7ea7ca4067cace0f1a1951326e",
+          "edit": {
+            "field": {
+              "name": "payload_mode",
+              "type": "enum",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "payload_mode"
+          },
+          "expect": "digest_changes",
+          "field_path": "payload_mode",
+          "name": "field.payload_mode"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3717b5460232cb7e468749f1d1e5d645a2d456d3590b2f8611e4d48f946a1dcd",
+          "edit": {
+            "field": {
+              "hex": "0000000000000000000000000000000000000000000000000000000000000001",
+              "name": "input_key_commitment",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "input_key_commitment"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_key_commitment",
+          "name": "field.input_key_commitment"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cdd8bf61325d986ad54d62dc759f01b6966957a2599b5190f307ef51f4491460",
+          "edit": {
+            "field": {
+              "hex": "01",
+              "name": "user_recipient_pubkey",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "user_recipient_pubkey"
+          },
+          "expect": "digest_changes",
+          "field_path": "user_recipient_pubkey",
+          "name": "field.user_recipient_pubkey"
+        }
+      ],
+      "name": "task_order_v3_lower_bound",
+      "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000bd00000000000000040000000100000000000000080000000000000001000000000000000800000000000000010000000000000089000000000000000100000000000000000400000000000000000000000400000001000000000000000400000000000000000000000800000000000000000000000000000004fffff8300000000000000004fffff8300000000000000004000186a0000000000000000c000000000000000400000000000000000000000c000000000000000400000000000000000000000f000000000000000734303030303030000000000000000e00000000000000063135303030300000000000000009000000000000000130000000000000000b0000000000000003323530000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de0000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 807,
+      "producer": "TaskOrderHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "82af31a326215bfdbb5919c6115ae7deed46dc847d9e0dc4de6b03b051c1fe52",
+      "domain": "TRUEOPEN_ORDER_OPENING_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "hex": "90e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d411",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "generation_params_digest_hex": "90e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d411",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2f8f5bef979b4eba23e3003ef88c1ce8b41b0f55e15046839afade678fa72a78",
+          "edit": {
+            "field": {
+              "hex": "90e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d410",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "generation_params_digest"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "4e2b4ecef333741dbba8c080472f767a209b5c0ea8d654bc0dea2fd201234690",
+          "edit": {
+            "field": {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1x"
+            },
+            "op": "replace",
+            "path": "chain_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e0bed30ffad15a46fe37f60d278591edb7015cad29d238ffb16e23d5a5bf80ac",
+          "edit": {
+            "field": {
+              "name": "__extra",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "append"
+          },
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        }
+      ],
+      "name": "order_opening_v2_lower_bound",
+      "preimage_hex": "0000000000000019545255454f50454e5f4f524445525f4f50454e494e475f56320000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a000000000000002055555555555555555555555555555555555555555555555555555555555555550000000000000004000000010000000000000004000000020000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000080000000000001000000000000000000400000003000000000000000400000004000000000000002090e7b812af8e0fb30a9e458577e93acb4a34dc3f5861f6b139d304779691d411000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de0000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "preimage_size_bytes": 500,
+      "producer": "AcceptedOrderOpeningHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "d31471db22b3e5f3d7a73131458ecaffeb4c9d1e12c64c9c854a8523c548e9b8",
+      "domain": "TRUEOPEN_TASK_ORDER_V3",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "fields": [
+            {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 256
+            },
+            {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 30000
+            },
+            {
+              "fields": [
+                {
+                  "bool": true,
+                  "name": "sampling_enabled",
+                  "type": "bool"
+                },
+                {
+                  "name": "temperature_milli",
+                  "type": "uint32",
+                  "value": 700
+                },
+                {
+                  "name": "top_p_ppm",
+                  "type": "uint32",
+                  "value": 950000
+                },
+                {
+                  "name": "top_k",
+                  "type": "uint32",
+                  "value": 40
+                },
+                {
+                  "name": "seed",
+                  "type": "uint64",
+                  "value": 8675309
+                },
+                {
+                  "name": "presence_penalty_milli",
+                  "type": "int32",
+                  "value": -250
+                },
+                {
+                  "name": "frequency_penalty_milli",
+                  "type": "int32",
+                  "value": 125
+                },
+                {
+                  "name": "repetition_penalty_ppm",
+                  "type": "uint32",
+                  "value": 1050000
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_sequences[0]",
+                      "type": "string",
+                      "utf8": "\u003c/s\u003e"
+                    },
+                    {
+                      "name": "stop_sequences[1]",
+                      "type": "string",
+                      "utf8": "STOP"
+                    }
+                  ],
+                  "name": "stop_sequences",
+                  "type": "frame"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "count",
+                      "type": "uint32",
+                      "value": 2
+                    },
+                    {
+                      "name": "stop_token_ids[0]",
+                      "type": "uint32",
+                      "value": 11
+                    },
+                    {
+                      "name": "stop_token_ids[1]",
+                      "type": "uint32",
+                      "value": 220
+                    }
+                  ],
+                  "name": "stop_token_ids",
+                  "type": "frame"
+                }
+              ],
+              "name": "decoding_params",
+              "type": "frame"
+            }
+          ],
+          "name": "generation_params",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "price_bid",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "max_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "assignment_priority_fee",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615"
+            }
+          ],
+          "name": "tx_fee_reserve",
+          "type": "frame"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        },
+        {
+          "enum": "PAYLOAD_MODE_V1_PLAINTEXT",
+          "name": "payload_mode",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "input_key_commitment",
+          "type": "bytes"
+        },
+        {
+          "empty": true,
+          "name": "user_recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f0cff5e8b16fc3d47b4fb03270bccfede39b2a8148782761531da92197b47aa5",
+          "edit": {
+            "field": {
+              "name": "schema_version",
+              "type": "uint32",
+              "value": 4
+            },
+            "op": "replace",
+            "path": "schema_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "schema_version",
+          "name": "field.schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f629161f7a119346163d2e14267d2ef33e684670360be6aca9cb9a197b649a37",
+          "edit": {
+            "field": {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1x"
+            },
+            "op": "replace",
+            "path": "chain_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e2308c309e0eabeea2a2900d87691a50d1dadc42630e317f9eacb2b7a2798fb3",
+          "edit": {
+            "field": {
+              "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b2",
+              "name": "user_address",
+              "type": "address"
+            },
+            "op": "replace",
+            "path": "user_address"
+          },
+          "expect": "digest_changes",
+          "field_path": "user_address",
+          "name": "field.user_address"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8a9bd5e7268e65ca9d4c5441a7fdef9ffdf8b6306f46e8f575891eb80eaf63ef",
+          "edit": {
+            "field": {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111110",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "session_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "session_id",
+          "name": "field.session_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "53e4d0d1401887ad669c31601516eae1e303419abf7e1af81fbccc2f6d05a7eb",
+          "edit": {
+            "field": {
+              "name": "order_sequence",
+              "type": "uint64",
+              "value": 43
+            },
+            "op": "replace",
+            "path": "order_sequence"
+          },
+          "expect": "digest_changes",
+          "field_path": "order_sequence",
+          "name": "field.order_sequence"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "927aa460d2f238ee2e1baaa416b2fd38f190cd95cc3a0e139b2d4c1ff5aa5877",
+          "edit": {
+            "field": {
+              "hex": "5555555555555555555555555555555555555555555555555555555555555554",
+              "name": "model_id",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "model_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "model_id",
+          "name": "field.model_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f7f42156d4d6e1ed64b90baa7db1974856a3cdf0330d3d9235ac9d58866939cd",
+          "edit": {
+            "field": {
+              "name": "profile_version",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "profile_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "profile_version",
+          "name": "field.profile_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a3dc7998c0e9c8256e5b67ebb128a61148d7196828b470aab69a744331c58478",
+          "edit": {
+            "field": {
+              "name": "task_type",
+              "type": "enum",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "task_type"
+          },
+          "expect": "digest_changes",
+          "field_path": "task_type",
+          "name": "field.task_type"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f0b6db23385826ce2d9d69ca887345f3713574775c5b69e5054d6e5c49601735",
+          "edit": {
+            "field": {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222223",
+              "name": "input_hash",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "input_hash"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_hash",
+          "name": "field.input_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0a7e4034895a493903158b510edaed5fb458ac1dc5acf11b292ba9cbef476c9e",
+          "edit": {
+            "field": {
+              "name": "input_size_bytes",
+              "type": "uint64",
+              "value": 4097
+            },
+            "op": "replace",
+            "path": "input_size_bytes"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_size_bytes",
+          "name": "field.input_size_bytes"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "c23291a1408def8289ecee65c9491a2dc8d558c3d1d6def7e6ee0a17d1a7b55c",
+          "edit": {
+            "field": {
+              "name": "input_bucket",
+              "type": "uint32",
+              "value": 4
+            },
+            "op": "replace",
+            "path": "input_bucket"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_bucket",
+          "name": "field.input_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6839f901d72ce41d21e9ce6e40886bbb67226c516d46c350357149896e123ce9",
+          "edit": {
+            "field": {
+              "name": "output_budget_bucket",
+              "type": "uint32",
+              "value": 5
+            },
+            "op": "replace",
+            "path": "output_budget_bucket"
+          },
+          "expect": "digest_changes",
+          "field_path": "output_budget_bucket",
+          "name": "field.output_budget_bucket"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5145eaea23814abf4c4563915c04a797e664004de16fdc12b60de018389cceaf",
+          "edit": {
+            "field": {
+              "name": "earliest_submit_height",
+              "type": "uint64",
+              "value": 1001
+            },
+            "op": "replace",
+            "path": "earliest_submit_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "earliest_submit_height",
+          "name": "field.earliest_submit_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "1c349a49bc0f86cc9524210e481a011a3c272190acd75fb2e131804752faa3bf",
+          "edit": {
+            "field": {
+              "name": "order_expire_height",
+              "type": "uint64",
+              "value": 2001
+            },
+            "op": "replace",
+            "path": "order_expire_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "order_expire_height",
+          "name": "field.order_expire_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "28306f64808dd55e7f67c4ebb083fb39f85ca2c2542c4931ea3cb0e0bf6914dd",
+          "edit": {
+            "field": {
+              "name": "timeout_bucket_version",
+              "type": "uint64",
+              "value": 10
+            },
+            "op": "replace",
+            "path": "timeout_bucket_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "timeout_bucket_version",
+          "name": "field.timeout_bucket_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2641c69ca781bce23efe2a1d5080e3f752ee16f1743d297ceab763a371fae851",
+          "edit": {
+            "field": {
+              "name": "session_anchor_height",
+              "type": "uint64",
+              "value": 991
+            },
+            "op": "replace",
+            "path": "session_anchor_height"
+          },
+          "expect": "digest_changes",
+          "field_path": "session_anchor_height",
+          "name": "field.session_anchor_height"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a2709102fc10da609ac6cec3725bd6ccf62ddc9f86aa5403dcd3cf6acf3ac9a3",
+          "edit": {
+            "field": {
+              "name": "builder_set_id",
+              "type": "string",
+              "utf8": "12x"
+            },
+            "op": "replace",
+            "path": "builder_set_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "builder_set_id",
+          "name": "field.builder_set_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "89d7987bf1a542188e1330c0a0d13ec84ed6b0c2e97c78576e6a093108bee648",
+          "edit": {
+            "field": {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444445",
+              "name": "builder_set_hash",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "builder_set_hash"
+          },
+          "expect": "digest_changes",
+          "field_path": "builder_set_hash",
+          "name": "field.builder_set_hash"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "8f4f3622fe57b92b1694a5f48e68a80c47fa300e6ca47e603cfbd9aead5d8416",
+          "edit": {
+            "field": {
+              "name": "generation_params_schema_version",
+              "type": "uint32",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "generation_params.generation_params_schema_version"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.generation_params_schema_version",
+          "name": "field.generation_params.generation_params_schema_version"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "cdab5ab19f58ecbbc53065d809728c40633a203661e16f6625673e210c5598c4",
+          "edit": {
+            "field": {
+              "name": "max_output_tokens",
+              "type": "uint64",
+              "value": 257
+            },
+            "op": "replace",
+            "path": "generation_params.max_output_tokens"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_tokens",
+          "name": "field.generation_params.max_output_tokens"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "a7907c698b08669e35fb6fdbf2f6dce9314bed617166f3141a4699458d4175bd",
+          "edit": {
+            "field": {
+              "name": "max_output_duration",
+              "type": "uint64",
+              "value": 30001
+            },
+            "op": "replace",
+            "path": "generation_params.max_output_duration"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.max_output_duration",
+          "name": "field.generation_params.max_output_duration"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0d0fcc5d65a097260a922fd4771da2f7509f47c71afff71818d23a1c18eeced1",
+          "edit": {
+            "field": {
+              "bool": false,
+              "name": "sampling_enabled",
+              "type": "bool"
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.sampling_enabled"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.sampling_enabled",
+          "name": "field.generation_params.decoding_params.sampling_enabled"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "380a0d0f8d5d683b48716f502d26a52c77ff02516070921e2e15b929d44330ca",
+          "edit": {
+            "field": {
+              "name": "temperature_milli",
+              "type": "uint32",
+              "value": 701
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.temperature_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.temperature_milli",
+          "name": "field.generation_params.decoding_params.temperature_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "84c6701cf12e562930536b0f472e00ff7bd7a8691f474b400332395a12a2bddc",
+          "edit": {
+            "field": {
+              "name": "top_p_ppm",
+              "type": "uint32",
+              "value": 950001
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.top_p_ppm"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_p_ppm",
+          "name": "field.generation_params.decoding_params.top_p_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e15d7c336b49606180e7212ab82c658d350553d0f52e1a1f47d0c8e09b3e80ff",
+          "edit": {
+            "field": {
+              "name": "top_k",
+              "type": "uint32",
+              "value": 41
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.top_k"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.top_k",
+          "name": "field.generation_params.decoding_params.top_k"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "6cdfa3a2b6e433ba5f1a95aa7eb92988e340f31a0875224f0b41d99197cbc0ba",
+          "edit": {
+            "field": {
+              "name": "seed",
+              "type": "uint64",
+              "value": 8675310
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.seed"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.seed",
+          "name": "field.generation_params.decoding_params.seed"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "7fa6f2c728f4d564ab74331e5616ae2698d80236adbd725b756f2a1b55de5ccc",
+          "edit": {
+            "field": {
+              "name": "presence_penalty_milli",
+              "type": "int32",
+              "value": -249
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.presence_penalty_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.presence_penalty_milli",
+          "name": "field.generation_params.decoding_params.presence_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "01ee42031dc4614a75329857c98ed6b6e640115d01d56d2ae8949c0961d7fa07",
+          "edit": {
+            "field": {
+              "name": "frequency_penalty_milli",
+              "type": "int32",
+              "value": 126
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.frequency_penalty_milli"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.frequency_penalty_milli",
+          "name": "field.generation_params.decoding_params.frequency_penalty_milli"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "f789ac993d1d7ca54c21836d1cdc261aa06e0e5b329650540809c6e439893294",
+          "edit": {
+            "field": {
+              "name": "repetition_penalty_ppm",
+              "type": "uint32",
+              "value": 1050001
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.repetition_penalty_ppm"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.repetition_penalty_ppm",
+          "name": "field.generation_params.decoding_params.repetition_penalty_ppm"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "67b99aae1640fdb29793379fc34f54ea1dea0d3113b9e403e6e5a3fbfd01c9ab",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615x"
+            },
+            "op": "replace",
+            "path": "price_bid.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "price_bid.atomic_units",
+          "name": "field.price_bid.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "371f79b1e9e775a28a490c17a1148944fa02cde79e513d3d6714a989a177fc59",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615x"
+            },
+            "op": "replace",
+            "path": "max_fee.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "max_fee.atomic_units",
+          "name": "field.max_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3f0b58379dd7154cc22b7dfb83294944ed8aa82436b3755228563d5c613ce122",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615x"
+            },
+            "op": "replace",
+            "path": "assignment_priority_fee.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "assignment_priority_fee.atomic_units",
+          "name": "field.assignment_priority_fee.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "21145f1505e0a32c586632ef557a5f363230ba51fba42a4928bc835c782c28cb",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615x"
+            },
+            "op": "replace",
+            "path": "tx_fee_reserve.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "tx_fee_reserve.atomic_units",
+          "name": "field.tx_fee_reserve.atomic_units"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3a963217dab73b06f744a889d4c3c39ab6f768bdedd178c34c2799a890ce804b",
+          "edit": {
+            "field": {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "deadline_policy.latency_class"
+          },
+          "expect": "digest_changes",
+          "field_path": "deadline_policy.latency_class",
+          "name": "field.deadline_policy.latency_class"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "67ad3baa2e4cce94aebf2129c851b25952f089383a27b506c63b13ad063365cc",
+          "edit": {
+            "op": "swap",
+            "paths": [
+              "schema_version",
+              "chain_id"
+            ]
+          },
+          "expect": "digest_changes",
+          "field_path": "__order",
+          "name": "field.__order"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "ca3926cdca88641d95e3db8c0973336c05de196dfaa36c3c5031117e36381f91",
+          "edit": {
+            "op": "remove",
+            "path": "user_recipient_pubkey"
+          },
+          "expect": "digest_changes",
+          "field_path": "__missing",
+          "name": "field.__missing"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "898d0324e446f53fed8e43f5fb230ec1b4180b91d1841588ea44fba3036619a0",
+          "edit": {
+            "field": {
+              "name": "__extra",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "append"
+          },
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "67b99aae1640fdb29793379fc34f54ea1dea0d3113b9e403e6e5a3fbfd01c9ab",
+          "edit": {
+            "field": {
+              "name": "atomic_units",
+              "type": "string",
+              "utf8": "18446744073709551615x"
+            },
+            "op": "replace",
+            "path": "price_bid.atomic_units"
+          },
+          "expect": "digest_changes",
+          "field_path": "price_bid",
+          "name": "field.price_bid"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3a963217dab73b06f744a889d4c3c39ab6f768bdedd178c34c2799a890ce804b",
+          "edit": {
+            "field": {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "deadline_policy.latency_class"
+          },
+          "expect": "digest_changes",
+          "field_path": "deadline_policy",
+          "name": "field.deadline_policy"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e45d998b31302c75640e13fdb75c41984220e8c16bf6ce5ac74aae958d401b43",
+          "edit": {
+            "field": {
+              "name": "count",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.stop_sequences.count"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_sequences",
+          "name": "field.generation_params.decoding_params.stop_sequences"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "82817fe7cf0272906ef624e2cd8931f5e555f4e315408b58447b2cab835a9be0",
+          "edit": {
+            "field": {
+              "name": "count",
+              "type": "uint32",
+              "value": 3
+            },
+            "op": "replace",
+            "path": "generation_params.decoding_params.stop_token_ids.count"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params.decoding_params.stop_token_ids",
+          "name": "field.generation_params.decoding_params.stop_token_ids"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "2d0a0190ff3a94fe05b3293ac0330c2aab20d15b85cdeadeb4feeca3886b18ee",
+          "edit": {
+            "field": {
+              "name": "payload_mode",
+              "type": "enum",
+              "value": 2
+            },
+            "op": "replace",
+            "path": "payload_mode"
+          },
+          "expect": "digest_changes",
+          "field_path": "payload_mode",
+          "name": "field.payload_mode"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "5824260c90e489f45ac2211973fb1f481adf32ca29387ca7947d630512549843",
+          "edit": {
+            "field": {
+              "hex": "0000000000000000000000000000000000000000000000000000000000000001",
+              "name": "input_key_commitment",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "input_key_commitment"
+          },
+          "expect": "digest_changes",
+          "field_path": "input_key_commitment",
+          "name": "field.input_key_commitment"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "3daf48560baf6fb9ff848a567ccca2411dcccea95f2d300098d82269c2eeb523",
+          "edit": {
+            "field": {
+              "hex": "01",
+              "name": "user_recipient_pubkey",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "user_recipient_pubkey"
+          },
+          "expect": "digest_changes",
+          "field_path": "user_recipient_pubkey",
+          "name": "field.user_recipient_pubkey"
+        }
+      ],
+      "name": "task_order_v3_max_amounts",
+      "preimage_hex": "0000000000000016545255454f50454e5f5441534b5f4f524445525f56330000000000000004000000030000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a00000000000000205555555555555555555555555555555555555555555555555555555555555555000000000000000400000001000000000000000400000002000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000008000000000000100000000000000000040000000300000000000000040000000400000000000000ed000000000000000400000001000000000000000800000000000001000000000000000008000000000000753000000000000000b90000000000000001010000000000000004000002bc0000000000000004000e7ef000000000000000040000002800000000000000080000000000845fed0000000000000004ffffff0600000000000000040000007d000000000000000400100590000000000000002400000000000000040000000200000000000000043c2f733e000000000000000453544f50000000000000002400000000000000040000000200000000000000040000000b0000000000000004000000dc000000000000001c00000000000000143138343436373434303733373039353531363135000000000000001c00000000000000143138343436373434303733373039353531363135000000000000001c00000000000000143138343436373434303733373039353531363135000000000000001c00000000000000143138343436373434303733373039353531363135000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de0000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "preimage_size_bytes": 918,
+      "producer": "TaskOrderHash"
+    },
+    {
+      "contract_section": "Task order and opening wire contract",
+      "digest_hex": "1d58985917955561e9c9586f0b681e1580b8e89be2045e0f80ee82448259312a",
+      "domain": "TRUEOPEN_ORDER_OPENING_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-golden-1"
+        },
+        {
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "user_address",
+          "type": "address"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 42
+        },
+        {
+          "hex": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "task_type",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 4096
+        },
+        {
+          "name": "input_bucket",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "output_budget_bucket",
+          "type": "uint32",
+          "value": 4
+        },
+        {
+          "hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+          "name": "generation_params_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "earliest_submit_height",
+          "type": "uint64",
+          "value": 1000
+        },
+        {
+          "name": "order_expire_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "fields": [
+            {
+              "name": "latency_class",
+              "type": "uint32",
+              "value": 2
+            }
+          ],
+          "name": "deadline_policy",
+          "type": "frame"
+        },
+        {
+          "name": "timeout_bucket_version",
+          "type": "uint64",
+          "value": 9
+        },
+        {
+          "name": "session_anchor_height",
+          "type": "uint64",
+          "value": 990
+        },
+        {
+          "name": "builder_set_id",
+          "type": "string",
+          "utf8": "12"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "builder_set_hash",
+          "type": "bytes"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "generation_params_digest_hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e",
+      "mutations": [
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "0e2b5e37b541feee16a2cd167580820ee15434073b635ece21a5610ba99030d6",
+          "edit": {
+            "field": {
+              "hex": "591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560f",
+              "name": "generation_params_digest",
+              "type": "bytes"
+            },
+            "op": "replace",
+            "path": "generation_params_digest"
+          },
+          "expect": "digest_changes",
+          "field_path": "generation_params_digest",
+          "name": "field.generation_params_digest"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "e280bdc69c17741309011f77ceca16ab4d973d4953f9a5121aabdcaa577d1879",
+          "edit": {
+            "field": {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-golden-1x"
+            },
+            "op": "replace",
+            "path": "chain_id"
+          },
+          "expect": "digest_changes",
+          "field_path": "chain_id",
+          "name": "field.chain_id"
+        },
+        {
+          "change": "one encoded leaf changed",
+          "digest_hex": "d4c856707c6afdf4f95ecce75b5435e09926b5759407d936a2bfad8580cdc500",
+          "edit": {
+            "field": {
+              "name": "__extra",
+              "type": "uint32",
+              "value": 1
+            },
+            "op": "append"
+          },
+          "expect": "digest_changes",
+          "field_path": "__extra",
+          "name": "field.__extra"
+        }
+      ],
+      "name": "order_opening_v2_max_amounts",
+      "preimage_hex": "0000000000000019545255454f50454e5f4f524445525f4f50454e494e475f56320000000000000011747275656f70656e2d676f6c64656e2d310000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3000000000000002011111111111111111111111111111111111111111111111111111111111111110000000000000008000000000000002a0000000000000020555555555555555555555555555555555555555555555555555555555555555500000000000000040000000100000000000000040000000200000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000000800000000000010000000000000000004000000030000000000000004000000040000000000000020591b8bdbfda05974211176ff9f6d023bb64b703c8126d7c302ad4ac17725560e000000000000000800000000000003e8000000000000000800000000000007d0000000000000000c00000000000000040000000200000000000000080000000000000009000000000000000800000000000003de0000000000000002313200000000000000204444444444444444444444444444444444444444444444444444444444444444",
+      "preimage_size_bytes": 500,
+      "producer": "AcceptedOrderOpeningHash"
+    }
+  ]
+}

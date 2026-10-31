@@ -20,7 +20,7 @@ import (
 // behaviour is to report an error carrying the reject code and keep the redelivery
 // alive until the chain sweeps the task at its deadline.
 func TestOpenVerifyPrecheckRejectionIsReportedAndRetried(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	noSlots := staticEligibility{verifierInput: policy.VerifierPrecheckInput{
 		ChainSynced: true, SupportState: policy.SupportActive, SupportLastConfirmedHeight: 0, SupportFreshnessWindow: 20,
 		SupportedProfiles: []string{modelservice.CapabilityLLMTextV1}, AvailableSlots: 0,
@@ -37,8 +37,8 @@ func TestOpenVerifyPrecheckRejectionIsReportedAndRetried(t *testing.T) {
 	if !builderclient.IsRetryable(err) {
 		t.Fatalf("a precheck refusal's reason can change, so the redelivery must be kept, got %v", err)
 	}
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("no handraise may be published after a refusal, published = %d", len(fixture.builder.published))
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("no handraise may be published after a refusal, published = %d", len(fixture.sender.handraises))
 	}
 
 	// Redelivering the same message once conditions recover has to run the precheck
@@ -52,8 +52,7 @@ func TestOpenVerifyPrecheckRejectionIsReportedAndRetried(t *testing.T) {
 	}
 	// Only the handraise matters here: output confirmation happens before the precheck
 	// and a redelivery confirms again, which is not what this test guards.
-	if len(fixture.builder.published) != 1 ||
-		fixture.builder.published[0].Subject != builderclient.NATSVerifierHandraiseSubject(fixture.taskID) {
-		t.Fatalf("exactly one handraise must follow the redelivery, published = %#v", fixture.builder.published)
+	if len(fixture.sender.handraises) != 1 {
+		t.Fatalf("exactly one handraise must follow the redelivery, published = %#v", fixture.sender.handraises)
 	}
 }

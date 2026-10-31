@@ -103,7 +103,7 @@ func revealPhaseWaitKey(taskID string, verifyRound uint64) string {
 
 // revealPhaseWaitTraceInterval damps the reveal wait to a periodic reminder.
 //
-// verifierWindowWait can print on every occurrence because a NATS redelivery is
+// verifierWindowWait can print on every occurrence because a Builder frame is
 // what drives it. This wait is driven by the poll loop instead, which asks once
 // a PollInterval (one second by default) and gets the same answer until a Keeper
 // event lands -- so an unmodulated line would be one per second for the whole

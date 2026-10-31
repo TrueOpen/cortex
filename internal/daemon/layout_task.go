@@ -17,6 +17,7 @@ import (
 func inferTaskFromRecords(task layout.TaskRecord, role layout.InferRecord, capability string) store.InferTask {
 	return store.InferTask{
 		TaskID:                 role.TaskID,
+		DispatchTicketHash:     codec.Hash(role.DispatchTicketHash),
 		SessionID:              task.SessionID,
 		OrderSequence:          task.OrderSequence,
 		AssignmentDigest:       codec.Hash(task.AssignmentDigest),
@@ -54,6 +55,7 @@ func inferTaskFromRecords(task layout.TaskRecord, role layout.InferRecord, capab
 func inferRecordFromTask(t store.InferTask, rec layout.InferRecord) layout.InferRecord {
 	return layout.InferRecord{
 		TaskID:                 t.TaskID,
+		DispatchTicketHash:     layout.StoredHash(t.DispatchTicketHash),
 		GenerationParamsDigest: layout.StoredHash(t.AssignmentDigest), // legacy mapping
 		WinnerConfirmHeight:    t.WinnerConfirmHeight,
 		InferDeadlineHeight:    rec.InferDeadlineHeight,

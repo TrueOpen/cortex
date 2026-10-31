@@ -5,6 +5,7 @@ admin:
 model_management:
   endpoint: 127.0.0.1:9090
   transport: grpc
+  max_concurrency: 1
 node:
   rpc_endpoint: http://127.0.0.1:26657
   rest_endpoint: http://127.0.0.1:1317
@@ -22,22 +23,7 @@ task_execution:
   input_resolver: nexus
 nexus:
   ingress_url: https://nexus.devnet.trueopen.xyz
-  nats_url: tls://nexus.devnet.trueopen.xyz:4222
-  # Seed file of this node's NATS user key (ed25519 nkey, generated on first
-  # start). Real mode requires it for a remote NATS; nats_creds_file is
-  # retired and refused in real mode (ADR-0016 P5).
-  nats_user_key_file: /etc/cortex/nats-user.nk
   auth_token_file: /etc/cortex/nexus.token
-  # JetStream stream Nexus publishes task frames to; devnet ships TRUEOPEN_TASK.
-  jetstream_stream: TRUEOPEN_TASK
-  # Integration shape stays strict like production. trusted_nats_dev is unsafe
-  # and rejected in real mode.
-  envelope_auth_mode: strict
-  # TTL stamped on outbound envelopes and the maximum accepted lifetime of an
-  # inbound one; must match the Nexus this node talks to.
-  envelope_ttl_ms: 30000
-  # Tolerated clock skew when judging inbound issued_at/expires_at.
-  envelope_clock_skew_ms: 2000
 tx:
   enabled: true
   max_fee_amount: 1000000
@@ -62,5 +48,35 @@ self_rescue:
   enabled: false
 challenge_verifier:
   enabled: false
+# Phase 1 direct dispatch (ADR-0038; cortex 详细设计 §4.2.0, §15). Real mode
+# refuses to start without it. Nothing here names an address: each Builder's
+# endpoint and TLS pin come from its on-chain service descriptor only.
+dispatch:
+  # Builder operators this node keeps a standing handraise and one stream
+  # with. At least one. Replace this placeholder with a BuilderSet member.
+  builders: [trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe]
+  # To remove a Builder, move it here and restart: the node withdraws (zero
+  # free slots), refuses its new tickets, waits for its accepted ones to
+  # finish, then closes the stream. Delete it once diagnostics say "retired".
+  retiring_builders: []
+  # 参数表 values every Builder shares; no built-in defaults.
+  evidence_retention_blocks: 201600
+  handraise:
+    heartbeat_ms: 10000
+    ttl_ms: 30000
+    min_change_interval_ms: 500
+  # Local floor per profile, "<model_id>@<profile_version>"; real mode needs
+  # one above zero for every supported profile.
+  min_price_bid:
+    "c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1": 1000
+  stream:
+    # Deployment settings, no defaults. A Builder must tolerate at least two
+    # missed probes: one Handler may hold the stream for handler_timeout_ms.
+    keepalive_ms: 15000
+    max_missed: 3
+  receipt_rescue_margin_blocks: 5
+  omission:
+    roster_grace_blocks: 20
+    challenge_margin_blocks: 5
 health:
   bind: 127.0.0.1:8081

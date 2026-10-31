@@ -128,49 +128,47 @@ type taskOrderDeadlinePolicy struct {
 }
 
 type taskOrderV3 struct {
-	SchemaVersion          uint32                    `json:"schema_version"`
-	ChainID                string                    `json:"chain_id"`
-	UserAddress            string                    `json:"user_address"`
-	SessionID              taskOrderBytes            `json:"session_id"`
-	OrderSequence          taskOrderUint64           `json:"order_sequence"`
-	ModelID                taskOrderBytes            `json:"model_id"`
-	ProfileVersion         uint32                    `json:"profile_version"`
-	TaskType               taskOrderTaskTypeValue    `json:"task_type"`
-	InputHash              taskOrderBytes            `json:"input_hash"`
-	InputSizeBytes         taskOrderUint64           `json:"input_size_bytes"`
-	InputBucket            uint32                    `json:"input_bucket"`
-	OutputBudgetBucket     uint32                    `json:"output_budget_bucket"`
-	GenerationParams       taskOrderGenerationParams `json:"generation_params"`
-	PriceBid               taskOrderAmount           `json:"price_bid"`
-	MaxFee                 taskOrderAmount           `json:"max_fee"`
-	AssignmentPriorityFee  taskOrderAmount           `json:"assignment_priority_fee"`
-	TxFeeReserve           taskOrderAmount           `json:"tx_fee_reserve"`
-	EarliestSubmitHeight   taskOrderUint64           `json:"earliest_submit_height"`
-	OrderExpireHeight      taskOrderUint64           `json:"order_expire_height"`
-	DeadlinePolicy         taskOrderDeadlinePolicy   `json:"deadline_policy"`
-	TimeoutBucketVersion   taskOrderUint64           `json:"timeout_bucket_version"`
-	SessionAnchorHeight    taskOrderUint64           `json:"session_anchor_height"`
-	SessionAnchorBlockHash taskOrderBytes            `json:"session_anchor_block_hash"`
-	BuilderSetID           string                    `json:"builder_set_id"`
-	BuilderSetHash         taskOrderBytes            `json:"builder_set_hash"`
-	PayloadMode            taskOrderPayloadModeValue `json:"payload_mode"`
-	InputKeyCommitment     taskOrderBytes            `json:"input_key_commitment"`
-	UserRecipientPubkey    taskOrderBytes            `json:"user_recipient_pubkey"`
+	SchemaVersion         uint32                    `json:"schema_version"`
+	ChainID               string                    `json:"chain_id"`
+	UserAddress           string                    `json:"user_address"`
+	SessionID             taskOrderBytes            `json:"session_id"`
+	OrderSequence         taskOrderUint64           `json:"order_sequence"`
+	ModelID               taskOrderBytes            `json:"model_id"`
+	ProfileVersion        uint32                    `json:"profile_version"`
+	TaskType              taskOrderTaskTypeValue    `json:"task_type"`
+	InputHash             taskOrderBytes            `json:"input_hash"`
+	InputSizeBytes        taskOrderUint64           `json:"input_size_bytes"`
+	InputBucket           uint32                    `json:"input_bucket"`
+	OutputBudgetBucket    uint32                    `json:"output_budget_bucket"`
+	GenerationParams      taskOrderGenerationParams `json:"generation_params"`
+	PriceBid              taskOrderAmount           `json:"price_bid"`
+	MaxFee                taskOrderAmount           `json:"max_fee"`
+	AssignmentPriorityFee taskOrderAmount           `json:"assignment_priority_fee"`
+	TxFeeReserve          taskOrderAmount           `json:"tx_fee_reserve"`
+	EarliestSubmitHeight  taskOrderUint64           `json:"earliest_submit_height"`
+	OrderExpireHeight     taskOrderUint64           `json:"order_expire_height"`
+	DeadlinePolicy        taskOrderDeadlinePolicy   `json:"deadline_policy"`
+	TimeoutBucketVersion  taskOrderUint64           `json:"timeout_bucket_version"`
+	SessionAnchorHeight   taskOrderUint64           `json:"session_anchor_height"`
+	BuilderSetID          string                    `json:"builder_set_id"`
+	BuilderSetHash        taskOrderBytes            `json:"builder_set_hash"`
+	PayloadMode           taskOrderPayloadModeValue `json:"payload_mode"`
+	InputKeyCommitment    taskOrderBytes            `json:"input_key_commitment"`
+	UserRecipientPubkey   taskOrderBytes            `json:"user_recipient_pubkey"`
 }
 
 type TaskOrderFacts struct {
-	ChainID                string
-	SessionID              string
-	OrderSequence          uint64
-	ModelID                string // canonical lowercase hex of the Hash32
-	ProfileVersion         uint32
-	Generation             *GenerationContext
-	InputHash              string
-	InputSizeBytes         uint64
-	SessionAnchorBlockHash string
-	BuilderSetID           string
-	BuilderSetHash         string
-	OrderExpireHeight      uint64
+	ChainID           string
+	SessionID         string
+	OrderSequence     uint64
+	ModelID           string // canonical lowercase hex of the Hash32
+	ProfileVersion    uint32
+	Generation        *GenerationContext
+	InputHash         string
+	InputSizeBytes    uint64
+	BuilderSetID      string
+	BuilderSetHash    string
+	OrderExpireHeight uint64
 
 	// SignatureScheme, UserSignature and SignatureChainID are the SignedOrderV2
 	// fields that sit beside the order in the proto carrier. They are empty for
@@ -193,7 +191,7 @@ type TaskOrderFacts struct {
 // carrier a real Builder publishes is the proto one - the user signs the frozen
 // TaskOrderV3 and Nexus forwards those exact bytes rather than re-encoding them
 // (nexus internal/ingress/service.go parseSignedOrderEnvelope) - so the JSON arm
-// is only reachable from the legacy order path and from scripts/testorder.
+// is only reachable from the legacy order path and from tests.
 func TaskOrderHashAndFactsEnvelope(value string) (codec.Hash, TaskOrderFacts, error) {
 	if strings.HasPrefix(value, "{") {
 		return TaskOrderHashAndFactsJSON(value)
@@ -236,10 +234,9 @@ func taskOrderFacts(order taskOrderV3) TaskOrderFacts {
 	return TaskOrderFacts{
 		ChainID: order.ChainID, SessionID: fmt.Sprintf("%x", []byte(order.SessionID)), OrderSequence: uint64(order.OrderSequence),
 		ModelID: hex.EncodeToString(order.ModelID), ProfileVersion: order.ProfileVersion, InputHash: fmt.Sprintf("%x", []byte(order.InputHash)),
-		Generation:             &generation,
-		InputSizeBytes:         uint64(order.InputSizeBytes),
-		SessionAnchorBlockHash: fmt.Sprintf("%x", []byte(order.SessionAnchorBlockHash)),
-		BuilderSetID:           order.BuilderSetID, BuilderSetHash: fmt.Sprintf("%x", []byte(order.BuilderSetHash)),
+		Generation:     &generation,
+		InputSizeBytes: uint64(order.InputSizeBytes),
+		BuilderSetID:   order.BuilderSetID, BuilderSetHash: fmt.Sprintf("%x", []byte(order.BuilderSetHash)),
 		OrderExpireHeight: uint64(order.OrderExpireHeight),
 	}
 }
@@ -274,8 +271,8 @@ func (order taskOrderV3) typed() TaskOrderV3 {
 		AssignmentPriorityFee: order.AssignmentPriorityFee.AtomicUnits, TxFeeReserve: order.TxFeeReserve.AtomicUnits,
 		EarliestSubmitHeight: uint64(order.EarliestSubmitHeight), OrderExpireHeight: uint64(order.OrderExpireHeight),
 		LatencyClass: uint32(order.DeadlinePolicy.LatencyClass), TimeoutBucketVersion: uint64(order.TimeoutBucketVersion),
-		SessionAnchorHeight: uint64(order.SessionAnchorHeight), SessionAnchorBlockHash: order.SessionAnchorBlockHash,
-		BuilderSetID: order.BuilderSetID, BuilderSetHash: order.BuilderSetHash,
+		SessionAnchorHeight: uint64(order.SessionAnchorHeight),
+		BuilderSetID:        order.BuilderSetID, BuilderSetHash: order.BuilderSetHash,
 		PayloadMode: uint32(order.PayloadMode), InputKeyCommitment: order.InputKeyCommitment, UserRecipientPubkey: order.UserRecipientPubkey,
 	}
 }

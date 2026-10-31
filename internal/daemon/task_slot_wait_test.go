@@ -65,17 +65,15 @@ func TestSlotWaitIsTracedWhenTheModelBudgetIsFull(t *testing.T) {
 	}
 
 	inferHash := codec.HashBytes([]byte("worker-task-waiting-for-the-slot"))
-	if err := runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
-		Type: ReconcilerEffectAssignment, TaskHash: inferHash, TaskID: "task-infer",
+	seedAssignedInfer(ctx, t, runner, ReconcilerEffect{
+		TaskHash: inferHash, TaskID: "task-infer",
 		Snapshot: chainclient.TaskSnapshot{Assignment: chainclient.AssignmentSnapshot{
 			TaskID: "task-infer", SessionID: "session-2", OrderSequence: chainclient.NewUint64String(1),
 			SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
 			InferDeadlineHeight:      chainclient.NewUint64String(100),
 			AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 		}},
-	}}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	// The admitted task is now blocked on the budget rather than on anything of
 	// its own. Hold it there long enough that a reported wait of zero could only

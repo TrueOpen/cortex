@@ -5,23 +5,19 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
-	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
-	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/worker"
-	"google.golang.org/protobuf/proto"
 )
 
 type fakeProfileReceiptRelay struct {
@@ -45,15 +41,11 @@ func (c *fakeProfileReceiptRelay) FinalizeTaskResult(ctx context.Context, endpoi
 
 func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	evidenceStore, err := evidence.NewStore(filepath.Join(t.TempDir(), "evidence"), db)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The Phase 1 source of every pre-record fact: a ticket accepted, its input
+	// committed by the Dispatcher, and the record observed on chain.
+	x, task, taskHash := seedDispatchedInfer(t)
+	rec := x.record(t)
+	db, evidenceStore := x.st, x.ev
 	packages, err := builderclient.NewFixtureOutputPackageStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -62,61 +54,34 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	_, binding := localInputServiceSigner(t)
 	stopAtRelay := errors.New("receipt captured before finalization")
 	data := &fakeProfileReceiptRelay{FakeClient: builderclient.NewFakeClient(), err: stopAtRelay}
-	input := []byte("resolved input")
-	sessionID := strings.Repeat("ab", 32)
-	signedOrder, _ := testSignedOrderProto(t, outputTestChainID, modelservice.FakeModelID, sessionID, 1, 230)
-	inputHash := codec.HashBytes(input)
-	signedOrder.Order.InputHash = inputHash[:]
-	signedOrder.Order.InputSizeBytes = uint64(len(input))
-	signedOrder.Order.GenerationParams.MaxOutputTokens = 1024
-	rawOrder, err := proto.Marshal(signedOrder)
+	// The order's generation parameters, which the record carries; the ticket's
+	// task_hash and the order's digest are the facts the receipt signs.
+	raw, err := dispatchwire.Raw(x.fx.order)
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskHash, orderFacts, err := nodewire.TaskOrderHashAndFactsEnvelope(hex.EncodeToString(rawOrder))
+	_, orderFacts, err := nodewire.TaskOrderHashAndFactsSignedOrderHex(hex.EncodeToString(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	generationDigest, err := orderFacts.Generation.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := layout.AdmissionBatch(ctx, db, sessionID, 1, layout.StoredHash(taskHash), layout.CandidateAdmission{
-		SchemaVersion: layout.CandidateAdmissionSchemaVersion, SignedOrder: rawOrder,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	task := store.InferTask{
-		TaskID: identity.TaskIDString(sessionID, 1), SessionID: sessionID, OrderSequence: 1,
-		OrderDigest: codec.HashBytes([]byte("order")), WorkerAddress: inputTestOperator,
-		BuilderOperatorAddress: inputTestBuilder, ModelID: modelservice.FakeModelID, ProfileVersion: 1,
-		Capability: modelservice.CapabilityLLMTextV1, InputDigest: codec.HashBytes(input),
-		WinnerConfirmHeight: 100, DeadlineHeight: 230, Stage: string(layout.StageQueued),
-	}
-	snapshot := chainclient.TaskSnapshot{Status: "ASSIGNED", CurrentContract: true, Assignment: chainclient.AssignmentSnapshot{
-		SessionID: task.SessionID, TaskID: task.TaskID, SelectedWorker: task.WorkerAddress,
-		AcceptedOrderPayloadHash: chainclient.HexHash(task.InputDigest),
-	}}
+	generation := *orderFacts.Generation
+	generationDigest := dpGenerationDigest(t, x.fx)
 	executor := newProductionInferExecutor(TaskRunnerConfig{
-		Store: db, Evidence: evidenceStore, FakeOutput: true, FakeBus: true,
-		LocalWorkerAddress: inputTestOperator, ModelServiceID: "fake-model-service", Model: modelservice.NewFakeService(),
+		Store: db, Evidence: evidenceStore, FakeOutput: true,
+		GenerationReader: generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
+			return generation.Clone(), nil
+		}),
+		LocalWorkerAddress: hrCortex, ModelServiceID: "fake-model-service", Model: modelservice.NewFakeService(),
 		Builder: builderclient.NewFakeClient(), TaskData: data, TaskDataAuth: auth, OutputPackages: packages,
 		ChainID: outputTestChainID, Signer: signing, SignerKeyRef: inputTestKeyRef,
 		SignerAddress: binding.ServiceAddress, SignerPubkey: binding.ServicePubkey,
-		TaskReader: staticKeeperTaskReader{snapshot: snapshot},
-		TaskFacts: taskfacts.ReaderFunc(func(context.Context, string) (taskfacts.Facts, error) {
-			return taskfacts.Facts{TaskID: task.TaskID, TaskReceiptFactsSnapshot: chainclient.TaskReceiptFactsSnapshot{
-				AcceptedTaskHash: chainclient.ProtoBytes32(taskHash[:]), GenerationParamsDigest: chainclient.ProtoBytes32(generationDigest[:]),
-			}}, nil
-		}),
+		TaskReader: streamLimitedTaskReader{},
 		ReceivingBuilder: worker.ReceivingBuilderFunc(func(context.Context, worker.ReceivingBuilderRef) (worker.BuilderEndpoint, error) {
-			return worker.BuilderEndpoint{OperatorAddress: inputTestBuilder, Endpoint: "https://builder.example",
+			return worker.BuilderEndpoint{OperatorAddress: rec.Builder, Endpoint: "https://builder.example",
 				ServicePubkey: binding.ServicePubkey, AuthorizationNonce: 1, CurrentHeight: inputTestHeight}, nil
 		}),
-		InputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
-			return input, nil
-		}),
 	}, func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error { return nil })
+	scope := codec.Hash(layout.DispatchEvidenceScope(layout.StoredHash(taskHash), rec.TicketHash))
 
 	if _, _, err := executor.RunInfer(ctx, taskHash, task); !errors.Is(err, stopAtRelay) {
 		t.Fatalf("RunInfer() error = %v, want receipt relay sentinel", err)
@@ -134,7 +99,7 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	if receipt.OutputLeafCount != 1 {
 		t.Fatalf("fake output should be one signed chunk, got %d", receipt.OutputLeafCount)
 	}
-	output, err := evidenceStore.ReadTaskKind(ctx, taskHash, "worker-output")
+	output, err := evidenceStore.ReadTaskKind(ctx, scope, "worker-output")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,19 +126,19 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 		}
 		return manifestBytes, artifacts
 	}
-	valueManifest, valueArtifacts := bundle(evidence.WorkerValueBundle(taskHash))
-	tokenManifest, tokenArtifacts := bundle(evidence.WorkerTokenBundle(taskHash))
+	valueManifest, valueArtifacts := bundle(evidence.WorkerValueBundle(scope))
+	tokenManifest, tokenArtifacts := bundle(evidence.WorkerTokenBundle(scope))
 	schemaHash := codec.HashWithDomain("CORTEX_FAKE_EVIDENCE_SCHEMA_V1", []byte(task.ModelID), codec.Uint64Bytes(uint64(task.ProfileVersion)))
 	fixture := evidenceFixture{
 		WorkerValues: valueArtifacts["worker_values"], ValueManifest: valueManifest, TokenManifest: tokenManifest,
 		InputTokenIDs: tokenArtifacts["input_token_ids"], GeneratedTokenIDs: tokenArtifacts["generated_token_ids"],
 		GenerationParams: tokenArtifacts["generation_params"],
-		Commitments: EvidenceCommitments{SessionID: task.SessionID, TaskID: task.TaskID, BuilderOperatorAddress: inputTestBuilder,
+		Commitments: EvidenceCommitments{SessionID: task.SessionID, TaskID: task.TaskID, BuilderOperatorAddress: rec.Builder,
 			Receipt: receipt, EvidenceSchemaHash: schemaHash.String(), Output: output,
 			OutputChunkLengths: []uint64{receipt.OutputSizeBytes}, RequiredTopK: fakeRequiredTopK,
 			MaxEncodedSizeBytes: map[nodewire.EvidenceKind]uint64{nodewire.EvidenceKindWorkerValueOpening: 1 << 30, nodewire.EvidenceKindWorkerTokenOpening: 1 << 30}},
 	}
-	confirmed, err := newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: fixture.objects()}).ConfirmWorkerEvidence(ctx, fixture.Commitments)
+	confirmed, err := confirmBothBundles(newEvidenceConfirmer(t, &evidenceTaskDataClient{objects: fixture.objects()}), fixture.Commitments)
 	if err != nil {
 		t.Fatalf("Verifier rejected fake Worker evidence: %v", err)
 	}
@@ -189,17 +154,17 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	if _, _, err := executor.RunInfer(ctx, taskHash, task); !errors.Is(err, stopAtFinalize) {
 		t.Fatalf("resume through first Fin: %v", err)
 	}
-	fin, err := evidenceStore.ReadTaskKind(ctx, taskHash, worker.OutputStreamFinKind)
+	fin, err := evidenceStore.ReadTaskKind(ctx, scope, worker.OutputStreamFinKind)
 	if err != nil || len(fin) == 0 {
 		t.Fatalf("signed Fin was not persisted: %v", err)
 	}
-	if _, err := evidenceStore.ReadTaskKind(ctx, taskHash, "worker-output-stream-stored"); err != nil {
+	if _, err := evidenceStore.ReadTaskKind(ctx, scope, "worker-output-stream-stored"); err != nil {
 		t.Fatalf("Fin did not reach STORED: %v", err)
 	}
 	if _, _, err := executor.RunInfer(ctx, taskHash, task); !errors.Is(err, stopAtFinalize) {
 		t.Fatalf("replay completed output: %v", err)
 	}
-	replay, err := evidenceStore.ReadTaskKind(ctx, taskHash, worker.OutputStreamFinKind)
+	replay, err := evidenceStore.ReadTaskKind(ctx, scope, worker.OutputStreamFinKind)
 	if err != nil || !bytes.Equal(fin, replay) {
 		t.Fatalf("Fin replay changed persisted bytes: %v", err)
 	}
@@ -213,4 +178,20 @@ func receiptCommitmentsForTest(items []builderclient.EvidenceCommitment) []nodew
 		out[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: root[:], EncodedSizeBytes: item.EncodedSizeBytes}
 	}
 	return out
+}
+
+type generationReaderFunc func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error)
+
+func (f generationReaderFunc) TaskGeneration(ctx context.Context, taskID string, hash codec.Hash) (nodewire.GenerationContext, error) {
+	return f(ctx, taskID, hash)
+}
+
+// streamLimitedTaskReader also serves the governed output stream limits, which
+// the Worker reads before it opens its output stream.
+type streamLimitedTaskReader struct {
+	staticKeeperTaskReader
+}
+
+func (streamLimitedTaskReader) OutputStreamLimits(context.Context) (chainclient.OutputStreamLimitsSnapshot, error) {
+	return chainclient.OutputStreamLimitsSnapshot{MinOutputStreamFrameBytes: 256, MaxOutputMMRLeaves: 65536}, nil
 }

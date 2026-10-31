@@ -18,7 +18,7 @@ func scanPage(rangeStart, height uint64, taskID string, hash codec.Hash) chaincl
 		ChainHeight: height, FinalizedHeight: height, LastPosition: chainclient.BlockEndPosition(height),
 		RangeStartHeight: rangeStart, RangeEndHeight: height, RangeComplete: true,
 		Events: []chainclient.KeeperEvent{
-			{Type: chainclient.KeeperEventAssignmentFailed, TaskID: taskID, SessionID: "session-1", OrderDigest: hash, Height: height},
+			{Type: chainclient.KeeperEventVerifyOpenDeadlineClosed, TaskID: taskID, SessionID: "session-1", OrderDigest: hash, Height: height},
 		},
 	}
 }
@@ -129,29 +129,4 @@ func TestWakeSourceIsAbsentOutsideThePoller(t *testing.T) {
 	if !ok || source != WakeTick {
 		t.Fatalf("WakeSourceFrom = %q, %v; want %q, true", source, ok, WakeTick)
 	}
-}
-
-// TestTaskRunnerWakesThePollerWhenAFrameOutrunsTheCursor pins the one place the
-// wake is raised from: a WORKER_ASSIGNMENT_NOTIFY naming a task whose local
-// record the scan has not written yet. The frame is still retried -- the wake
-// changes when the record appears, not whether this frame may proceed without
-// it.
-func TestTaskRunnerWakesThePollerWhenAFrameOutrunsTheCursor(t *testing.T) {
-	woken := make(chan WakeSource, 4)
-	runner := &TaskRunner{cfg: TaskRunnerConfig{
-		WakeKeeperPoll: func(source WakeSource) { woken <- source },
-	}}
-	runner.wakeKeeperPoll()
-	select {
-	case source := <-woken:
-		if source != WakeNotify {
-			t.Fatalf("wake source = %q, want %q", source, WakeNotify)
-		}
-	default:
-		t.Fatal("the runner did not ask for a scan")
-	}
-
-	// Unwired is the ordinary state in tests and without a poller, and must stay
-	// a no-op rather than a panic.
-	(&TaskRunner{}).wakeKeeperPoll()
 }

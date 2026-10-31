@@ -17,7 +17,7 @@ them in tests:
 | Boundary | What it is | Config keys |
 |---|---|---|
 | Keeper / chain | CometBFT node, RPC + REST | `node.rpc_endpoint`, `node.rest_endpoint`, `node.tls` |
-| Nexus | Builder ingress (connect-go) + NATS bus | `nexus.ingress_url`, `nexus.nats_url` |
+| Nexus | Builder ingress (connect-go) + DispatchStream | `nexus.ingress_url`, `dispatch.builders` |
 | Model service | vLLM, OpenAI-compatible HTTP | `model_management.endpoint` |
 | Signer | local keystore (`file://`) or remote HTTP | `local_identity.service_key_ref` |
 
@@ -91,11 +91,12 @@ down     stop every instance, leaving state intact
 status   process, /healthz, and /readyz for every instance
 diag     per-dependency readiness for every instance
 logs [N] tail the last N log lines of every instance
-smoke confirm    publish one order onto the SHARED bus, report the round trip
+smoke    read-only: /readyz and every Builder stream per node
 ```
 
-`smoke` requires the literal word `confirm` because it publishes onto a shared
-bus that other people are using.
+`smoke` publishes nothing: it fails unless every node answers `/readyz` 200
+with every configured `dispatch_stream:<builder>` row bound. It needs `jq`
+locally.
 
 ### 3.2 Environment file
 
@@ -106,9 +107,14 @@ Required — `render` refuses without them:
 
 ```
 CORTEX_CHAIN_ID  CORTEX_NODE_RPC  CORTEX_NODE_REST  CORTEX_KEEPER_API
-CORTEX_NEXUS_INGRESS  CORTEX_NEXUS_NATS
+CORTEX_NEXUS_INGRESS
 CORTEX_MODEL_ENDPOINT  CORTEX_MODEL_ID  CORTEX_MODEL_PROFILES  CORTEX_MODEL_SERVICE_ID
 CORTEX_RETENTION_POLICY_VERSION  CORTEX_MINIMUM_RETENTION_BLOCKS
+CORTEX_DISPATCH_BUILDERS  CORTEX_DISPATCH_EVIDENCE_RETENTION_BLOCKS
+CORTEX_DISPATCH_HEARTBEAT_MS  CORTEX_DISPATCH_TTL_MS  CORTEX_DISPATCH_MIN_CHANGE_INTERVAL_MS
+CORTEX_DISPATCH_MIN_PRICE_BID  CORTEX_DISPATCH_KEEPALIVE_MS  CORTEX_DISPATCH_KEEPALIVE_MAX_MISSED
+CORTEX_DISPATCH_RESCUE_MARGIN_BLOCKS  CORTEX_DISPATCH_ROSTER_GRACE_BLOCKS
+CORTEX_DISPATCH_CHALLENGE_MARGIN_BLOCKS
 CORTEX_NODE<i>_OPERATOR_ADDRESS        # one per node, i = 1..CORTEX_NODE_COUNT
 ```
 
@@ -123,8 +129,6 @@ Defaults worth knowing:
 
 ```
 CORTEX_MODE=real
-CORTEX_NEXUS_ENVELOPE_AUTH_MODE=strict
-CORTEX_NEXUS_JETSTREAM_STREAM=TRUEOPEN_TASK
 CORTEX_NEXUS_ALLOW_INSECURE_DESCRIPTOR=false
 ```
 
@@ -205,7 +209,7 @@ deployment.
 | `model_service` | vLLM is not answering, or a configured model id is not bound (see "vLLM" below) | yes, see "vLLM" below |
 | `keeper_identity` | operator bond is not ACTIVE / is JAILED | **no**, chain-side |
 | `model_support` | model support not declared on chain | **no**, chain-side |
-| `nexus` | ingress or NATS unreachable / auth refused | usually peer-side |
+| `dispatch_stream:<builder>` | Builder stream not bound (descriptor, TLS pin, keepalive) | usually peer-side |
 | `tx_broadcaster` | signer cannot sign Cosmos transactions | **optional**, ignore |
 
 `tx_broadcaster` is red on every `file://` keystore node and does not block

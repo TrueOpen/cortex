@@ -169,7 +169,7 @@ func TestResumedTaskClaimsNoFirstFrame(t *testing.T) {
 	if !resumed.firstFrameTraced {
 		t.Fatal("a resumed recorder must already consider its first frame reported")
 	}
-	if _, err := resumed.finish(context.Background(), []byte("enough text to cross the minimum")); err != nil {
+	if _, err := resumed.finish(context.Background(), []byte("enough text to cross the minimum"), 0); err != nil {
 		t.Fatal(err)
 	}
 	collected.absent(t, "output_first_frame")

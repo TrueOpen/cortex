@@ -135,16 +135,19 @@ func TestCommitBindsTheRunsOwnMetricMaterial(t *testing.T) {
 	state.OpenVerifyAccepted = true
 
 	result := verifyLocally(t, h, state)
-	revealLocally(t, h, state)
+	reveal := revealLocally(t, h, state)
 	receipt := publishedResultReceipt(t, h)
 
-	if !bytes.Equal(receipt.AggregateProofHash, result.MetricMaterial.AggregateProof.Hash[:]) {
-		t.Fatalf("the credential's aggregate_proof_hash %x is not the verify run's %s",
-			receipt.AggregateProofHash, result.MetricMaterial.AggregateProof.Hash)
+	if !bytes.Equal(receipt.AggregateProofHash, reveal.MetricMaterial.AggregateProof.Hash[:]) {
+		t.Fatalf("the credential's aggregate_proof_hash %x is not the reveal's %s",
+			receipt.AggregateProofHash, reveal.MetricMaterial.AggregateProof.Hash)
 	}
-	if !bytes.Equal(receipt.MetricRoot, result.MetricMaterial.Root[:]) {
-		t.Fatalf("the credential's metric_root %x is not the verify run's %s",
-			receipt.MetricRoot, result.MetricMaterial.Root)
+	if !bytes.Equal(receipt.MetricRoot, reveal.MetricMaterial.Root[:]) {
+		t.Fatalf("the credential's metric_root %x is not the reveal's %s",
+			receipt.MetricRoot, reveal.MetricMaterial.Root)
+	}
+	if !bytes.Equal(receipt.VerifierValueRoot, result.MetricMaterial.VerifierValueRoot[:]) {
+		t.Fatalf("the credential's verifier_value_root %x is not the committed %s", receipt.VerifierValueRoot, result.MetricMaterial.VerifierValueRoot)
 	}
 }
 

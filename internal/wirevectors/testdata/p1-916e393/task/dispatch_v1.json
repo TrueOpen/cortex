@@ -1,0 +1,2886 @@
+{
+  "builder_evidence_cases": [
+    {
+      "authority_note": "For tag 3, Task is INFER_PENDING with no accepted receipt; other scope and BuilderSet checks are valid. Keeper must enforce this stage fact.",
+      "authorization_nonce": 1,
+      "builder_operator": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "chain_id": "trueopen-phase1-vector-1",
+      "content_digest_hex": "7d1d36730dee87af5806bddbb197174a2a297893f99fc6aeb531a8b9511cd1c7",
+      "evidence_bytes_hex": "080212e805080112f0020a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349761a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b520012a20556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408322022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead3a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a40b47bccceba82945279d54e6590c0d80641f79f61981713fff1c7ccd62948684939a2e4f1cb4fb4444e90f95d75511ea1a8f7e0c3f530959f2a4d7808832b3296524d0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a18011af0020a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349761a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b520012a20556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408322092929292929292929292929292929292929292929292929292929292929292923a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a405e8f70971d3c7783c9e94be36c13d477c25155b41b88d6408cdb1d3cef4a3a7401ef53ddcfebf58aa3a884a9e2d867e5806e8c937214915935e212523b72da9e524d0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a1801",
+      "evidence_id_hex": "b1d8dffb15309031a4ad0e98fecea30207b02e5ae74e8587291206d5bd3753a5",
+      "fault_id_hex": "97af1df01fc2da6a5920f74c9af9132aad0f223339b6328317423fecdf32ac11",
+      "name": "typed_builder_evidence_tag_2",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+    },
+    {
+      "authority_note": "For tag 3, Task is INFER_PENDING with no accepted receipt; other scope and BuilderSet checks are valid. Keeper must enforce this stage fact.",
+      "authorization_nonce": 1,
+      "builder_operator": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "chain_id": "trueopen-phase1-vector-1",
+      "content_digest_hex": "78e4218db7d6cb8abe408b4296f6afd8eff148a0c2df402a63d34a314338e7b6",
+      "evidence_bytes_hex": "08021af702080112f0020a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349761a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b520012a20556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408322022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead3a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a40b47bccceba82945279d54e6590c0d80641f79f61981713fff1c7ccd62948684939a2e4f1cb4fb4444e90f95d75511ea1a8f7e0c3f530959f2a4d7808832b3296524d0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a18011802",
+      "evidence_id_hex": "4757e3a128c1912f3aed92d450b155adc3b8fdf834eb4c3b7ccb60601c99baea",
+      "fault_id_hex": "72bc576c4f85347665cc7dfff9c006d517a660bf082d28b30c2767f90ffc17a6",
+      "name": "typed_builder_evidence_tag_3",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+    }
+  ],
+  "notes": [
+    "All private keys used for test signatures are public fixture keys, never operational credentials.",
+    "Addresses in protobuf are canonical Bech32 strings; every canonical frame uses the decoded 20 bytes.",
+    "These are byte-projection vectors, not claims of successful funded Task admission.",
+    "Availability rosters filter an immutable full-pool order and never reseed it."
+  ],
+  "schema": "trueopen.dispatch.v1",
+  "vectors": [
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "775a7a978c78203bdf7dc8d37da79a11bbf08717c890a2cd683dad8305cf438c",
+      "domain": "TRUEOPEN_DISPATCH_INPUT_REQUEST_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "dispatch_accept_digest",
+          "type": "bytes",
+          "hex": "390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2"
+        }
+      ],
+      "message_name": "nexus.v1.DispatchInputRequestV1",
+      "name": "nexus_v1_dispatchinputrequestv1",
+      "preimage_hex": "0000000000000022545255454f50454e5f44495350415443485f494e5055545f524551554553545f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf0000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca70000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000000010000000000000020390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf1220db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca71a570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a20013220390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed22a403e6e8c92c2c2ddd74e234525e2486f422f999636e42274660e2443dd36729bd173ba9712a00925b3b18448d73369c061c0f457d425747e69d8c46ecccf8a036a",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 5,
+      "signature_hex": "3e6e8c92c2c2ddd74e234525e2486f422f999636e42274660e2443dd36729bd173ba9712a00925b3b18448d73369c061c0f457d425747e69d8c46ecccf8a036a"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "30b1f041e47d637bfaf04ffef9d60318508dcbb1dcb208fe7643f3352737e7e1",
+      "domain": "TRUEOPEN_DISPATCH_INPUT_RESPONSE_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c0",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "input_size_bytes",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "01010101",
+          "name": "input",
+          "type": "bytes"
+        },
+        {
+          "name": "chunk_index",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chunk_count",
+          "type": "uint32",
+          "value": 1
+        }
+      ],
+      "message_name": "nexus.v1.DispatchInputResponseV1",
+      "name": "nexus_v1_dispatchinputresponsev1",
+      "preimage_hex": "0000000000000023545255454f50454e5f44495350415443485f494e5055545f524553504f4e53455f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf0000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca70000000000000020167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c000000000000000080000000000000001000000000000000401010101000000000000000400000001000000000000000400000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf1220db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca71a20167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c020012a040101010130013801424080ce0792afb959026f52d9cabf771b8af371f531a3e62f246097a5cf4a5dff7b5bd69c7ed623ef0b2b50ca13089029e8515fc3e0d2ee5d3de39d7323a2abafcf",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 8,
+      "signature_hex": "80ce0792afb959026f52d9cabf771b8af371f531a3e62f246097a5cf4a5dff7b5bd69c7ed623ef0b2b50ca13089029e8515fc3e0d2ee5d3de39d7323a2abafcf"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "c605c86cbb648af8c39589254b4272f9bd94756f53d89ddc351caa88265179da",
+      "domain": "TRUEOPEN_DISPATCH_RESULT_HEADER_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "name": "schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-phase1-vector-1"
+            },
+            {
+              "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "5c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "name": "order_sequence",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "builder_address",
+              "type": "address"
+            },
+            {
+              "name": "reference_height",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "vrf_epoch",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "hex": "0e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e5",
+              "name": "vrf_output",
+              "type": "bytes"
+            },
+            {
+              "hex": "01010101",
+              "name": "vrf_proof",
+              "type": "bytes"
+            },
+            {
+              "name": "randomness_scheme",
+              "type": "enum",
+              "value": 1
+            },
+            {
+              "hex": "c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b8",
+              "name": "roster_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a",
+              "name": "handraise_root_digest",
+              "type": "bytes"
+            },
+            {
+              "name": "dispatch_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "rank",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+                  "name": "candidate_pool_snapshot_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 1
+                },
+                {
+                  "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                  "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                  "name": "operator_address",
+                  "type": "address"
+                }
+              ],
+              "name": "target",
+              "type": "frame"
+            },
+            {
+              "name": "accept_deadline_ms",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "hex": "167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c0",
+              "name": "input_hash",
+              "type": "bytes"
+            },
+            {
+              "name": "bound_change_height",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "name": "sticky_anchor_sequence",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "name": "sticky_run_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "builder_service_signature",
+              "type": "bytes",
+              "hex": "71787245fc1ab4f363d2ab844737ac7f8d1ba2d45ae8f25aca441920094c31e27ba690d051bcb52cb7a1aa5d78ec85abedfe2bf2653495d664570cdd6bc4d0bf"
+            }
+          ],
+          "name": "winner_ticket",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "schema_version",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-phase1-vector-1"
+            },
+            {
+              "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+              "name": "dispatch_ticket_hash",
+              "type": "bytes"
+            },
+            {
+              "fields": [
+                {
+                  "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+                  "name": "candidate_pool_snapshot_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 1
+                },
+                {
+                  "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                  "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                  "name": "operator_address",
+                  "type": "address"
+                }
+              ],
+              "name": "member",
+              "type": "frame"
+            },
+            {
+              "name": "service_authorization_nonce",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "name": "service_signature",
+              "type": "bytes",
+              "hex": "84f855d0aa86f7527ce770a066fcdae1d3b2e8861382367e3e94257f90e731626c6783a7a69229bad4decb992624e3b638353682920d6c457177ef6458523f89"
+            }
+          ],
+          "name": "accept",
+          "type": "frame"
+        },
+        {
+          "name": "record_status",
+          "type": "enum",
+          "value": 1
+        }
+      ],
+      "message_name": "nexus.v1.DispatchResultHeaderV1",
+      "name": "nexus_v1_dispatchresultheaderv1",
+      "preimage_hex": "0000000000000022545255454f50454e5f44495350415443485f524553554c545f4845414445525f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf00000000000002d40000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e71143497600000000000000205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad0000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000008000000000000000100000000000000200e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e50000000000000004010101010000000000000004000000010000000000000020c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b80000000000000020b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a0000000000000004000000010000000000000004000000010000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000000010000000000000020167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c00000000000000008000000000000000100000000000000080000000000000001000000000000000400000001000000000000004071787245fc1ab4f363d2ab844737ac7f8d1ba2d45ae8f25aca441920094c31e27ba690d051bcb52cb7a1aa5d78ec85abedfe2bf2653495d664570cdd6bc4d0bf00000000000001640000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349760000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca70000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001000000000000004084f855d0aa86f7527ce770a066fcdae1d3b2e8861382367e3e94257f90e731626c6783a7a69229bad4decb992624e3b638353682920d6c457177ef6458523f89000000000000000400000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf129b0408011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf222033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349762a205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad30013a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a50015a200e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e562040101010168017220c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b87a20b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a8001018801019201570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a980101a20120167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c0a80101b00101b80101ca014071787245fc1ab4f363d2ab844737ac7f8d1ba2d45ae8f25aca441920094c31e27ba690d051bcb52cb7a1aa5d78ec85abedfe2bf2653495d664570cdd6bc4d0bf1a9f0208011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf222033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349762a20db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca732570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a3801424084f855d0aa86f7527ce770a066fcdae1d3b2e8861382367e3e94257f90e731626c6783a7a69229bad4decb992624e3b638353682920d6c457177ef6458523f8920012a407af332ff6ce4fa8fb9b5fbbc74a1e3bcf9fd49456407423ae9fdda6d280abf07453bda038affc09669e17b55633363a1e65c038f854d119ee5cd07ca684cd56c",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 5,
+      "signature_hex": "7af332ff6ce4fa8fb9b5fbbc74a1e3bcf9fd49456407423ae9fdda6d280abf07453bda038affc09669e17b55633363a1e65c038f854d119ee5cd07ca684cd56c"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "1ec08382abe95998c5c992ee16ba77fa62f11a599c1047fdb64dd8430f138540",
+      "domain": "TRUEOPEN_DISPATCH_REVOKE_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "revoked_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "reason",
+          "type": "enum",
+          "value": 1
+        }
+      ],
+      "message_name": "nexus.v1.DispatchRevokeV1",
+      "name": "nexus_v1_dispatchrevokev1",
+      "preimage_hex": "000000000000001b545255454f50454e5f44495350415443485f5245564f4b455f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf0000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca700000000000000080000000000000001000000000000000400000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf1220db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7180128012240df2ba2f5bd6e715374df2d23784758b408a766d29d0a139ae0c6adc67d65564c60046233f4481f2536cd064e1d4d855a18e51c7c8fb25daff07aafdafadd2232",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 4,
+      "signature_hex": "df2ba2f5bd6e715374df2d23784758b408a766d29d0a139ae0c6adc67d65564c60046233f4481f2536cd064e1d4d855a18e51c7c8fb25daff07aafdafadd2232"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "5a14461c3545d3589499ad644b9251ed4b8f3e8b57075005f2c52b494e9969f2",
+      "domain": "TRUEOPEN_DISPATCH_ROSTER_REQUEST_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "requester",
+          "type": "address"
+        },
+        {
+          "name": "nonce",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "builder_operator",
+          "type": "address",
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1"
+        }
+      ],
+      "message_name": "nexus.v1.DispatchRosterRequestV1",
+      "name": "nexus_v1_dispatchrosterrequestv1",
+      "preimage_hex": "0000000000000023545255454f50454e5f44495350415443485f524f535445525f524551554553545f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf00000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001000000000000000800000000000000010000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a180120013218747275656f70656e2d7068617365312d766563746f722d313a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a2a409363d31ef29f931ee7074e09f71fb7231865c76f3e74bf8b630493213e28d37e530775aee1494cd15ec28a66ce1b87d360052a91c0da513174144890a7a7a5fb",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 5,
+      "signature_hex": "9363d31ef29f931ee7074e09f71fb7231865c76f3e74bf8b630493213e28d37e530775aee1494cd15ec28a66ce1b87d360052a91c0da513174144890a7a7a5fb"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "0d89866a96558ca509460c3371cddb0a77d2436937b3cb2876750a8c8050ae54",
+      "domain": "TRUEOPEN_DISPATCH_STREAM_BIND_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_operator",
+          "type": "address"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "cortex_operator",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "a312b3b416bfefb6f3b7fb6a2bb6067f3ef247f7e973f61d24242fd7ac6d8411",
+          "name": "stream_nonce",
+          "type": "bytes"
+        }
+      ],
+      "message_name": "nexus.v1.DispatchStreamBindingV1",
+      "name": "nexus_v1_dispatchstreambindingv1",
+      "preimage_hex": "0000000000000020545255454f50454e5f44495350415443485f53545245414d5f42494e445f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000000010000000000000020a312b3b416bfefb6f3b7fb6a2bb6067f3ef247f7e973f61d24242fd7ac6d8411",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a28013220a312b3b416bfefb6f3b7fb6a2bb6067f3ef247f7e973f61d24242fd7ac6d84113a404687a40eb5ddbedb859e39550d1104a6388b54bb47795811c48644c5db766b9469a1ce30b1dc2ebf9282a6271663a48fc80beea76effe08175fc602f8680fc48",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 7,
+      "signature_hex": "4687a40eb5ddbedb859e39550d1104a6388b54bb47795811c48644c5db766b9469a1ce30b1dc2ebf9282a6271663a48fc80beea76effe08175fc602f8680fc48"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "6f39480bac66396916941f1aaa09baddcb1c60e84dcf3fdbf086e81e6128f05e",
+      "domain": "TRUEOPEN_OPEN_VERIFY_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b5",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408",
+          "name": "infer_receipt_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "22431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead",
+          "name": "output_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "worker_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-phase1-vector-1"
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "builder_address",
+              "type": "address"
+            },
+            {
+              "name": "service_authorization_nonce",
+              "type": "uint64",
+              "value": 1
+            }
+          ],
+          "name": "binding",
+          "type": "frame"
+        }
+      ],
+      "message_name": "nexus.v1.OpenVerifyV1",
+      "name": "nexus_v1_openverifyv1",
+      "preimage_hex": "0000000000000017545255454f50454e5f4f50454e5f5645524946595f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349760000000000000020b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b50000000000000004000000010000000000000020556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408000000000000002022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead00000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000004c0000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349761a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b520012a20556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408322022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead3a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a40b47bccceba82945279d54e6590c0d80641f79f61981713fff1c7ccd62948684939a2e4f1cb4fb4444e90f95d75511ea1a8f7e0c3f530959f2a4d7808832b3296524d0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a1801",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 9,
+      "signature_hex": "b47bccceba82945279d54e6590c0d80641f79f61981713fff1c7ccd62948684939a2e4f1cb4fb4444e90f95d75511ea1a8f7e0c3f530959f2a4d7808832b3296"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "6846aa7d002dd881fafb9010c827e4d6ca1924472aac0f0eed6a20f14a23c08f",
+      "domain": "TRUEOPEN_RECORD_RESULT_NOTICE_V1",
+      "fields": [
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "name": "reject_code",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "name": "recorded_height",
+          "type": "uint64",
+          "value": 1
+        }
+      ],
+      "message_name": "nexus.v1.RecordResultNoticeV1",
+      "name": "nexus_v1_recordresultnoticev1",
+      "preimage_hex": "0000000000000020545255454f50454e5f5245434f52445f524553554c545f4e4f544943455f56310000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca700000000000000040000000100000000000000040000000100000000000000080000000000000001",
+      "protobuf_hex": "0a20db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca71001180120012a40166846b014bd09b9616355d6f7e486e93b1bc376532067cfc285391db8c31ee163f2bda9c5308861d9c35f04b5c3be2af0ab0bf75f270da991b2f3bd7430411a",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 5,
+      "signature_hex": "166846b014bd09b9616355d6f7e486e93b1bc376532067cfc285391db8c31ee163f2bda9c5308861d9c35f04b5c3be2af0ab0bf75f270da991b2f3bd7430411a"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "d21806f546ba6eb2ec239e82b8d41147a668bd7d181ab3ff35e21e368f1166a3",
+      "domain": "TRUEOPEN_VERIFIER_ASSIGNMENT_NOTIFY_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                  "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                  "name": "operator_address",
+                  "type": "address"
+                },
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 1
+                }
+              ],
+              "name": "element",
+              "type": "frame"
+            }
+          ],
+          "name": "verifiers",
+          "type": "frame"
+        },
+        {
+          "hex": "22431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead",
+          "name": "output_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "open_verify_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "commit_deadline_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "reveal_deadline_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "verify_deadline_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-phase1-vector-1"
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "builder_address",
+              "type": "address"
+            },
+            {
+              "name": "service_authorization_nonce",
+              "type": "uint64",
+              "value": 1
+            }
+          ],
+          "name": "binding",
+          "type": "frame"
+        }
+      ],
+      "message_name": "nexus.v1.VerifierAssignmentNotifyV1",
+      "name": "nexus_v1_verifierassignmentnotifyv1",
+      "preimage_hex": "0000000000000026545255454f50454e5f56455249464945525f41535349474e4d454e545f4e4f544946595f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976000000000000000400000001000000000000004c000000000000000400000001000000000000003800000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000040000000100000000000000080000000000000001000000000000002022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead00000000000000080000000000000001000000000000000800000000000000010000000000000008000000000000000100000000000000080000000000000001000000000000004c0000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976180122350a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a100118012a2022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead3001380140014801524036f7958d6fa6c83ab9466c76d17107bcd9ede5ce5a3d98e591c9a1d3f9b53f1a1a5203781ff800df93612409c045aa7e65dbcb243dee876c2a10dd927560094d5a4d0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a1801",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 10,
+      "signature_hex": "36f7958d6fa6c83ab9466c76d17107bcd9ede5ce5a3d98e591c9a1d3f9b53f1a1a5203781ff800df93612409c045aa7e65dbcb243dee876c2a10dd927560094d"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "4b69ac9284e117abef54931cb8b6b0f360b15208291ef9814e1c7ea0135ee6e0",
+      "domain": "TRUEOPEN_VERIFY_RESULT_SUBMITTED_NOTICE_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "9a42696f9fa84a4b1575ea9431e7c9b17a20328169694a78b7b58572d3b4f9fd",
+          "name": "commit_key",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "operator_address",
+          "type": "address"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        }
+      ],
+      "message_name": "nexus.v1.VerifyResultSubmittedNoticeV1",
+      "name": "nexus_v1_verifyresultsubmittednoticev1",
+      "preimage_hex": "000000000000002a545255454f50454e5f5645524946595f524553554c545f5355424d49545445445f4e4f544943455f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e71143497600000000000000040000000100000000000000209a42696f9fa84a4b1575ea9431e7c9b17a20328169694a78b7b58572d3b4f9fd00000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976180122209a42696f9fa84a4b1575ea9431e7c9b17a20328169694a78b7b58572d3b4f9fd2a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a30013a403a2da1c6007012e1baca0e229cdd304465ab67c7628ee6abee6a92a44ee235db05bd3d0d5dc701ccc3de07ad51bf71bbfa8a335cc93f6b4fc2b35d3ac4079d8b",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 7,
+      "signature_hex": "3a2da1c6007012e1baca0e229cdd304465ab67c7628ee6abee6a92a44ee235db05bd3d0d5dc701ccc3de07ad51bf71bbfa8a335cc93f6b4fc2b35d3ac4079d8b"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2",
+      "domain": "TRUEOPEN_DISPATCH_ACCEPT_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        }
+      ],
+      "message_name": "task.v1.DispatchAcceptV1",
+      "name": "task_v1_dispatchacceptv1",
+      "preimage_hex": "000000000000001b545255454f50454e5f44495350415443485f4143434550545f56310000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349760000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca70000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf222033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349762a20db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca732570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a3801424084f855d0aa86f7527ce770a066fcdae1d3b2e8861382367e3e94257f90e731626c6783a7a69229bad4decb992624e3b638353682920d6c457177ef6458523f89",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 8,
+      "signature_hex": "84f855d0aa86f7527ce770a066fcdae1d3b2e8861382367e3e94257f90e731626c6783a7a69229bad4decb992624e3b638353682920d6c457177ef6458523f89"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "9c9be77729199e1037e47e1adb9a0ac5720d775ae7e36320ddf6394a1ac8f2dc",
+      "domain": "TRUEOPEN_DISPATCH_RECORD_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_address",
+          "type": "address"
+        },
+        {
+          "name": "reference_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+          "name": "candidate_pool_snapshot_id",
+          "type": "bytes"
+        },
+        {
+          "name": "vrf_epoch",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "0e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e5",
+          "name": "vrf_output",
+          "type": "bytes"
+        },
+        {
+          "hex": "01010101",
+          "name": "vrf_proof",
+          "type": "bytes"
+        },
+        {
+          "name": "randomness_scheme",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "name": "bound_change_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "sticky_anchor_sequence",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "sticky_run_count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "bool": true,
+          "name": "sticky_applied",
+          "type": "bool"
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "name": "dispatch_round",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "hex": "b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a",
+                  "name": "handraise_root_digest",
+                  "type": "bytes"
+                },
+                {
+                  "hex": "c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b8",
+                  "name": "roster_hash",
+                  "type": "bytes"
+                },
+                {
+                  "fields": [
+                    {
+                      "name": "element_count",
+                      "type": "uint32",
+                      "value": 1
+                    },
+                    {
+                      "fields": [
+                        {
+                          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+                          "name": "dispatch_ticket_hash",
+                          "type": "bytes"
+                        },
+                        {
+                          "name": "rank",
+                          "type": "uint32",
+                          "value": 1
+                        },
+                        {
+                          "fields": [
+                            {
+                              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+                              "name": "candidate_pool_snapshot_id",
+                              "type": "bytes"
+                            },
+                            {
+                              "name": "slot",
+                              "type": "uint32",
+                              "value": 1
+                            },
+                            {
+                              "name": "slot_version",
+                              "type": "uint64",
+                              "value": 1
+                            },
+                            {
+                              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                              "name": "operator_address",
+                              "type": "address"
+                            }
+                          ],
+                          "name": "member",
+                          "type": "frame"
+                        },
+                        {
+                          "name": "outcome",
+                          "type": "enum",
+                          "value": 1
+                        },
+                        {
+                          "hex": "75c4d9b253dc84b622cad25556ef21ba11070a2265dd1743bae567f2b2a7b584",
+                          "name": "reject_digest_or_zero32",
+                          "type": "bytes"
+                        },
+                        {
+                          "name": "timeout_tier_or_zero",
+                          "type": "uint32",
+                          "value": 1
+                        }
+                      ],
+                      "name": "element",
+                      "type": "frame"
+                    }
+                  ],
+                  "name": "attempts",
+                  "type": "frame"
+                }
+              ],
+              "name": "element",
+              "type": "frame"
+            }
+          ],
+          "name": "rounds",
+          "type": "frame"
+        },
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        }
+      ],
+      "message_name": "task.v1.DispatchRecordV1",
+      "name": "task_v1_dispatchrecordv1",
+      "preimage_hex": "000000000000001b545255454f50454e5f44495350415443485f5245434f52445f56310000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e71143497600000000000000205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad0000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000008000000000000000100000000000000200e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e50000000000000004010101010000000000000004000000010000000000000008000000000000000100000000000000080000000000000001000000000000000400000001000000000000000101000000000000016800000000000000040000000100000000000001540000000000000004000000010000000000000020b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a0000000000000020c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b800000000000000f000000000000000040000000100000000000000dc0000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca70000000000000004000000010000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000002075c4d9b253dc84b622cad25556ef21ba11070a2265dd1743bae567f2b2a7b5840000000000000004000000010000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf222033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349762a205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad30013a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a50015a200e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e56204010101016801700178018001018801019201ec0108011220b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a1a20c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b822a3010a20db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca710011a570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a20012a2075c4d9b253dc84b622cad25556ef21ba11070a2265dd1743bae567f2b2a7b58430019a0120db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7a20140176cd2d6ebdb58fa9609c86002fc077c2a53cccb011d1d852d69680fc13e0d123a5bfde9d49e74893f8df4fb76e67bc43df5307011dc3cff8b8be4067c81c532",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 20,
+      "signature_hex": "176cd2d6ebdb58fa9609c86002fc077c2a53cccb011d1d852d69680fc13e0d123a5bfde9d49e74893f8df4fb76e67bc43df5307011dc3cff8b8be4067c81c532"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "28e4162739f98728cfcfd7635b34d6aa058486da9544bcdbb051535e035d51b9",
+      "domain": "TRUEOPEN_DISPATCH_REJECT_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+          "name": "dispatch_ticket_hash",
+          "type": "bytes"
+        },
+        {
+          "fields": [
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "reject_reason",
+          "type": "enum",
+          "value": 1
+        }
+      ],
+      "message_name": "task.v1.DispatchRejectV1",
+      "name": "task_v1_dispatchrejectv1",
+      "preimage_hex": "000000000000001b545255454f50454e5f44495350415443485f52454a4543545f56310000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349760000000000000020db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca70000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001000000000000000400000001",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf222033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349762a20db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca732570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a380140014a40c1adb1900abe221b2e6da5af204c4ecf40ac675e3f4a08ba223057db9e98481c7b199e2bd155143199dd9d3952d1ad5aa11c1044240a374c0f236b63a2fabd8d",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 9,
+      "signature_hex": "c1adb1900abe221b2e6da5af204c4ecf40ac675e3f4a08ba223057db9e98481c7b199e2bd155143199dd9d3952d1ad5aa11c1044240a374c0f236b63a2fabd8d"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "db4e5f784bb9eab970bd438c870569b93159586ae394915cc8aa6c700aeeaca7",
+      "domain": "TRUEOPEN_DISPATCH_TICKET_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "5c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_address",
+          "type": "address"
+        },
+        {
+          "name": "reference_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+          "name": "candidate_pool_snapshot_id",
+          "type": "bytes"
+        },
+        {
+          "name": "vrf_epoch",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "0e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e5",
+          "name": "vrf_output",
+          "type": "bytes"
+        },
+        {
+          "hex": "01010101",
+          "name": "vrf_proof",
+          "type": "bytes"
+        },
+        {
+          "name": "randomness_scheme",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b8",
+          "name": "roster_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a",
+          "name": "handraise_root_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "dispatch_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "rank",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "name": "target",
+          "type": "frame"
+        },
+        {
+          "name": "accept_deadline_ms",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c0",
+          "name": "input_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "bound_change_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "sticky_anchor_sequence",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "sticky_run_count",
+          "type": "uint32",
+          "value": 1
+        }
+      ],
+      "message_name": "task.v1.DispatchTicketV1",
+      "name": "task_v1_dispatchticketv1",
+      "preimage_hex": "000000000000001b545255454f50454e5f44495350415443485f5449434b45545f56310000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e71143497600000000000000205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad0000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000008000000000000000100000000000000200e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e50000000000000004010101010000000000000004000000010000000000000020c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b80000000000000020b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a0000000000000004000000010000000000000004000000010000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000800000000000000010000000000000020167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c00000000000000008000000000000000100000000000000080000000000000001000000000000000400000001",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf222033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349762a205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad30013a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a50015a200e6797a38ee44b389ab2ae6ec9f51ce733f6a877817a8c4a14c8d69aed7608e562040101010168017220c153fc65b67ab290079bf413121510975bc03b69c54fa991908c9b5b6d1ea9b87a20b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a8001018801019201570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a980101a20120167ad2bdbb7e761b2e31aeca07f3c478f4eebc0301dbb57aeaeca8b9cf0cd6c0a80101b00101b80101ca014071787245fc1ab4f363d2ab844737ac7f8d1ba2d45ae8f25aca441920094c31e27ba690d051bcb52cb7a1aa5d78ec85abedfe2bf2653495d664570cdd6bc4d0bf",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 25,
+      "signature_hex": "71787245fc1ab4f363d2ab844737ac7f8d1ba2d45ae8f25aca441920094c31e27ba690d051bcb52cb7a1aa5d78ec85abedfe2bf2653495d664570cdd6bc4d0bf"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "b6c101e08579bf00a0b2ee31c3375cead347463bc3d323f5317ef5a35d9add50",
+      "domain": "TRUEOPEN_DISPATCH_VRF_INPUT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "epoch",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "hex": "d8a9084fc12bdc5f546cf024ab60de36a9ba0876d07e5d9d754cc13a4e9b998d",
+          "name": "epoch_seed",
+          "type": "bytes"
+        },
+        {
+          "hex": "5c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 1
+        }
+      ],
+      "message_name": "task.v1.DispatchVrfInputV1",
+      "name": "task_v1_dispatchvrfinputv1",
+      "preimage_hex": "000000000000001e545255454f50454e5f44495350415443485f5652465f494e5055545f56310000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000000800000000000000010000000000000020d8a9084fc12bdc5f546cf024ab60de36a9ba0876d07e5d9d754cc13a4e9b998d00000000000000205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad00000000000000080000000000000001",
+      "protobuf_hex": "0a18747275656f70656e2d7068617365312d766563746f722d3110011a20d8a9084fc12bdc5f546cf024ab60de36a9ba0876d07e5d9d754cc13a4e9b998d22205c3a09bf22e12411b6af48dfe0b85c2d9d1181cd391e089574c8cf3ca1e5e4ad2801",
+      "signature_field": 0
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "b01297c79b67d9e6fd49528107d043bc2f1cbc42ab0d9ac41a7ae5192f55f67a",
+      "domain": "TRUEOPEN_HANDRAISE_ROOT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_address",
+          "type": "address"
+        },
+        {
+          "name": "root_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "root_version",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "leaf_count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "34e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010",
+          "name": "root",
+          "type": "bytes"
+        }
+      ],
+      "message_name": "task.v1.SignedHandraiseRootV1",
+      "name": "task_v1_signedhandraiserootv1",
+      "preimage_hex": "000000000000001a545255454f50454e5f48414e4452414953455f524f4f545f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f10000000000000008000000000000000100000000000000080000000000000001000000000000000400000001000000000000002034e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010",
+      "protobuf_hex": "0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a180120012801322034e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e80103a40f9b028bc754a0d219dae80465b2e3ed47441735146962464252b67bb567e310c7ff58764e6909e8c789d90b9a11b8b466ec5bf54b6cc7a97bd92b5ee58b617b8",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 7,
+      "signature_hex": "f9b028bc754a0d219dae80465b2e3ed47441735146962464252b67bb567e310c7ff58764e6909e8c789d90b9a11b8b466ec5bf54b6cc7a97bd92b5ee58b617b8"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc690",
+      "domain": "TRUEOPEN_STANDING_HANDRAISE_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_address",
+          "type": "address"
+        },
+        {
+          "fields": [
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "hex": "b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b5",
+                  "name": "model_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "profile_version",
+                  "type": "uint32",
+                  "value": 1
+                }
+              ],
+              "name": "element",
+              "type": "frame"
+            }
+          ],
+          "name": "profiles",
+          "type": "frame"
+        },
+        {
+          "name": "free_slot_count",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "issued_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "handraise_nonce",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        }
+      ],
+      "message_name": "task.v1.StandingHandraiseV1",
+      "name": "task_v1_standinghandraisev1",
+      "preimage_hex": "000000000000001e545255454f50454e5f5354414e44494e475f48414e4452414953455f56310000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f10000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000004800000000000000040000000100000000000000340000000000000020b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b500000000000000040000000100000000000000040000000100000000000000080000000000000001000000000000000800000000000000010000000000000008000000000000000100000000000000080000000000000001",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a22570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a2a240a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b51001300138014001480150015a40192e909108908e4e599644a78d43c5801d1cb75e5a073e67b5d91de34be496c24fb06de7dbc62f839b2252e98d0f7780c23f5028a07a4b11dd077b26c5151124",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 11,
+      "signature_hex": "192e909108908e4e599644a78d43c5801d1cb75e5a073e67b5d91de34be496c24fb06de7dbc62f839b2252e98d0f7780c23f5028a07a4b11dd077b26c5151124"
+    },
+    {
+      "contract_section": "Dispatch identity isolation",
+      "digest_hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+      "domain": "TRUEOPEN_TAKEOVER_ENTRY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "candidate_operator",
+          "type": "address"
+        },
+        {
+          "name": "bound_change_height_at_registration",
+          "type": "uint64",
+          "value": 100
+        }
+      ],
+      "name": "takeover_entry_candidate_a",
+      "preimage_hex": "000000000000001a545255454f50454e5f54414b454f5645525f454e5452595f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000000800000000000000070000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000064"
+    },
+    {
+      "contract_section": "Dispatch identity isolation",
+      "digest_hex": "059aa59d65ea263255a65271146f486f16e15375ac3a38cad2cc18dcc180d060",
+      "domain": "TRUEOPEN_TAKEOVER_ENTRY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "candidate_operator",
+          "type": "address"
+        },
+        {
+          "name": "bound_change_height_at_registration",
+          "type": "uint64",
+          "value": 101
+        }
+      ],
+      "name": "takeover_entry_rebound",
+      "preimage_hex": "000000000000001a545255454f50454e5f54414b454f5645525f454e5452595f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000000800000000000000070000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000065"
+    },
+    {
+      "contract_section": "Dispatch identity isolation",
+      "digest_hex": "273aee04d1f31d9ea4a0fa2a877ff4f4080e8554ca24cff48e3f1c6c6e146eb1",
+      "domain": "TRUEOPEN_TAKEOVER_ENTRY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "session_id",
+          "type": "bytes"
+        },
+        {
+          "name": "order_sequence",
+          "type": "uint64",
+          "value": 7
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "0202020202020202020202020202020202020202",
+          "name": "candidate_operator",
+          "type": "address"
+        },
+        {
+          "name": "bound_change_height_at_registration",
+          "type": "uint64",
+          "value": 100
+        }
+      ],
+      "name": "takeover_entry_candidate_b",
+      "preimage_hex": "000000000000001a545255454f50454e5f54414b454f5645525f454e5452595f56310000000000000018747275656f70656e2d7068617365312d766563746f722d310000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000080000000000000007000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000014020202020202020202020202020202020202020200000000000000080000000000000064"
+    },
+    {
+      "contract_section": "Dispatch identity isolation",
+      "digest_hex": "37215998b38c55d9b4b81582d26215eff54ac442df7f803a7abe0f6a98c1f9f2",
+      "domain": "TRUEOPEN_DISPATCH_RECORD_ENTRY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "entry_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "9c9be77729199e1037e47e1adb9a0ac5720d775ae7e36320ddf6394a1ac8f2dc",
+          "name": "dispatch_record_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2",
+          "name": "dispatch_accept_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "dispatch_entry",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f5245434f52445f454e5452595f56310000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000000400000001000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020222222222222222222222222222222222222222222222222222222222222222200000000000000209c9be77729199e1037e47e1adb9a0ac5720d775ae7e36320ddf6394a1ac8f2dc0000000000000020390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2"
+    },
+    {
+      "contract_section": "Dispatch identity isolation",
+      "digest_hex": "9866bd9111330fa29559ab288760c2cc3d5154e6d064f83684c2ca1a8e9c1495",
+      "domain": "TRUEOPEN_HANDRAISE_ROOT_LEAF_V1",
+      "fields": [
+        {
+          "hex": "da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc690",
+          "name": "standing_handraise_digest",
+          "type": "bytes"
+        },
+        {
+          "bool": true,
+          "name": "admitted",
+          "type": "bool"
+        },
+        {
+          "name": "admit_reject_reason",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "name": "builder_measured_rtt_ms_or_zero",
+          "type": "uint64",
+          "value": 0
+        }
+      ],
+      "name": "handraise_root_leaf_admitted",
+      "preimage_hex": "000000000000001f545255454f50454e5f48414e4452414953455f524f4f545f4c4541465f56310000000000000020da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc69000000000000000010100000000000000040000000100000000000000080000000000000000"
+    },
+    {
+      "contract_section": "Dispatch identity isolation",
+      "digest_hex": "c6a3910fa90b49a4b91fe4749f9be882737ce5e7081f498da9c48290bb91166b",
+      "domain": "TRUEOPEN_DISPATCH_ROSTER_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "reference_height",
+          "type": "uint64",
+          "value": 100
+        },
+        {
+          "hex": "6666666666666666666666666666666666666666666666666666666666666666",
+          "name": "candidate_pool_snapshot_id",
+          "type": "bytes"
+        },
+        {
+          "name": "member_count",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 3
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 1
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 1
+                },
+                {
+                  "bech32": "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8",
+                  "hex": "0f0e0d0c0b0a09080706050403020100a1b2c3d4",
+                  "name": "operator_address",
+                  "type": "address"
+                },
+                {
+                  "name": "candidate_weight",
+                  "type": "uint64",
+                  "value": 1
+                }
+              ],
+              "name": "member",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 3
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 1
+                },
+                {
+                  "bech32": "trueopen1zsf3yygspu8q6rqtpgysspcxq5zqxqsp050wj3",
+                  "hex": "14131211100f0e0d0c0b0a090807060504030201",
+                  "name": "operator_address",
+                  "type": "address"
+                },
+                {
+                  "name": "candidate_weight",
+                  "type": "uint64",
+                  "value": 5
+                }
+              ],
+              "name": "member",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "name": "slot",
+                  "type": "uint32",
+                  "value": 7
+                },
+                {
+                  "name": "slot_version",
+                  "type": "uint64",
+                  "value": 1
+                },
+                {
+                  "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+                  "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+                  "name": "operator_address",
+                  "type": "address"
+                },
+                {
+                  "name": "candidate_weight",
+                  "type": "uint64",
+                  "value": 2
+                }
+              ],
+              "name": "member",
+              "type": "frame"
+            }
+          ],
+          "name": "members",
+          "type": "frame"
+        }
+      ],
+      "name": "dispatch_roster",
+      "preimage_hex": "000000000000001b545255454f50454e5f44495350415443485f524f535445525f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000800000000000000640000000000000020666666666666666666666666666666666666666666666666666666666666666600000000000000040000000300000000000000fc00000000000000040000000300000000000000480000000000000004000000010000000000000008000000000000000100000000000000140f0e0d0c0b0a09080706050403020100a1b2c3d400000000000000080000000000000001000000000000004800000000000000040000000300000000000000080000000000000001000000000000001414131211100f0e0d0c0b0a0908070605040302010000000000000008000000000000000500000000000000480000000000000004000000070000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000002"
+    },
+    {
+      "contract_section": "Direct dispatch canonical signing projections",
+      "digest_hex": "26d1828de622aa22b72a763268bbc59599f9a6e70a33ab95fd824a2e26a99490",
+      "domain": "TRUEOPEN_OPEN_VERIFY_V1",
+      "fields": [
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b5",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408",
+          "name": "infer_receipt_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "9292929292929292929292929292929292929292929292929292929292929292",
+          "name": "output_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "worker_operator_address",
+          "type": "address"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "name": "chain_id",
+              "type": "string",
+              "utf8": "trueopen-phase1-vector-1"
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "builder_address",
+              "type": "address"
+            },
+            {
+              "name": "service_authorization_nonce",
+              "type": "uint64",
+              "value": 1
+            }
+          ],
+          "name": "binding",
+          "type": "frame"
+        }
+      ],
+      "message_name": "nexus.v1.OpenVerifyV1",
+      "name": "open_verify_conflicting_output",
+      "preimage_hex": "0000000000000017545255454f50454e5f4f50454e5f5645524946595f5631000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349760000000000000020b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b50000000000000004000000010000000000000020556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d4080000000000000020929292929292929292929292929292929292929292929292929292929292929200000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000004c0000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000080000000000000001",
+      "protobuf_hex": "0a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf122033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e7114349761a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b520012a20556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408322092929292929292929292929292929292929292929292929292929292929292923a2f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a40014a405e8f70971d3c7783c9e94be36c13d477c25155b41b88d6408cdb1d3cef4a3a7401ef53ddcfebf58aa3a884a9e2d867e5806e8c937214915935e212523b72da9e524d0a18747275656f70656e2d7068617365312d766563746f722d31122f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a1801",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_field": 9,
+      "signature_hex": "5e8f70971d3c7783c9e94be36c13d477c25155b41b88d6408cdb1d3cef4a3a7401ef53ddcfebf58aa3a884a9e2d867e5806e8c937214915935e212523b72da9e"
+    },
+    {
+      "digest_hex": "5de2d8eeafb915cd3f0a3be878f6eeffa3859fc488b4148726e3cfcd0151679c",
+      "domain": "TRUEOPEN_DISPATCH_CHALLENGE_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "challenge_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "name": "dispatch_round_or_zero",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "attempt_rank_or_zero",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "victim_operator_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "",
+          "name": "builder_address_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "dispatch_record_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "challenger_address",
+          "type": "address"
+        }
+      ],
+      "name": "dispatch_challenge_kind_1",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f4348414c4c454e47455f49445f56310000000000000018747275656f70656e2d7068617365312d766563746f722d310000000000000020333333333333333333333333333333333333333333333333333333333333333300000000000000040000000100000000000000040000000100000000000000040000000000000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1"
+    },
+    {
+      "digest_hex": "063c628fb0167ebe2bd9d7b37cfd615bf918f391c73df8ac0d98dc733d78b5a1",
+      "domain": "TRUEOPEN_DISPATCH_CHALLENGE_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "challenge_kind",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "name": "dispatch_round_or_zero",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "attempt_rank_or_zero",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "hex": "",
+          "name": "victim_operator_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "",
+          "name": "builder_address_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "dispatch_record_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "challenger_address",
+          "type": "address"
+        }
+      ],
+      "name": "dispatch_challenge_kind_2",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f4348414c4c454e47455f49445f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000400000002000000000000000400000001000000000000000400000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1"
+    },
+    {
+      "digest_hex": "9098a0db8c56005ac2bbce4ea6684113c34bf2757c8b080825d7ad3a41831278",
+      "domain": "TRUEOPEN_DISPATCH_CHALLENGE_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "challenge_kind",
+          "type": "enum",
+          "value": 3
+        },
+        {
+          "name": "dispatch_round_or_zero",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "name": "attempt_rank_or_zero",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "hex": "",
+          "name": "victim_operator_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "",
+          "name": "builder_address_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "dispatch_record_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "challenger_address",
+          "type": "address"
+        }
+      ],
+      "name": "dispatch_challenge_kind_3",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f4348414c4c454e47455f49445f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000400000003000000000000000400000000000000000000000400000003000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1"
+    },
+    {
+      "digest_hex": "1dbe2c3e83c00a4e0a8a46912fd916b4bf62fe1c8a92c07f7c2ed06086e3efe3",
+      "domain": "TRUEOPEN_DISPATCH_CHALLENGE_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "challenge_kind",
+          "type": "enum",
+          "value": 4
+        },
+        {
+          "name": "dispatch_round_or_zero",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "attempt_rank_or_zero",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "hex": "",
+          "name": "victim_operator_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "",
+          "name": "builder_address_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "0000000000000000000000000000000000000000000000000000000000000000",
+          "name": "dispatch_record_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "challenger_address",
+          "type": "address"
+        }
+      ],
+      "name": "dispatch_challenge_kind_4",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f4348414c4c454e47455f49445f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000400000004000000000000000400000001000000000000000400000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1"
+    },
+    {
+      "digest_hex": "4c686d0e3f779a4ad149f72a65f6089b719123bed795e06678471f9eb8dc5e4e",
+      "domain": "TRUEOPEN_DISPATCH_CHALLENGE_ID_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "challenge_kind",
+          "type": "enum",
+          "value": 5
+        },
+        {
+          "name": "dispatch_round_or_zero",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "name": "attempt_rank_or_zero",
+          "type": "uint32",
+          "value": 0
+        },
+        {
+          "hex": "",
+          "name": "victim_operator_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_address_or_empty",
+          "type": "bytes"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "dispatch_record_hash_or_zero32",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "challenger_address",
+          "type": "address"
+        }
+      ],
+      "name": "dispatch_challenge_kind_5",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f4348414c4c454e47455f49445f56310000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000000400000005000000000000000400000000000000000000000400000000000000000000000000000000000000141a642f0e3c3af545e7acbd38b07251b3990914f10000000000000020444444444444444444444444444444444444444444444444444444444444444400000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1"
+    },
+    {
+      "digest_hex": "7d1d36730dee87af5806bddbb197174a2a297893f99fc6aeb531a8b9511cd1c7",
+      "domain": "TRUEOPEN_BUILDER_EVIDENCE_CONTENT_V2",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "oneof_tag",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "message_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "26d1828de622aa22b72a763268bbc59599f9a6e70a33ab95fd824a2e26a99490",
+          "name": "lower_signing_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "6f39480bac66396916941f1aaa09baddcb1c60e84dcf3fdbf086e81e6128f05e",
+          "name": "higher_signing_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "builder_content_tag_2",
+      "preimage_hex": "0000000000000024545255454f50454e5f4255494c4445525f45564944454e43455f434f4e54454e545f5632000000000000000400000002000000000000000400000002000000000000000400000001000000000000002026d1828de622aa22b72a763268bbc59599f9a6e70a33ab95fd824a2e26a9949000000000000000206f39480bac66396916941f1aaa09baddcb1c60e84dcf3fdbf086e81e6128f05e"
+    },
+    {
+      "digest_hex": "b1d8dffb15309031a4ad0e98fecea30207b02e5ae74e8587291206d5bd3753a5",
+      "domain": "TRUEOPEN_BUILDER_EVIDENCE_ID_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_operator",
+          "type": "address"
+        },
+        {
+          "name": "evidence_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "scope_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "7d1d36730dee87af5806bddbb197174a2a297893f99fc6aeb531a8b9511cd1c7",
+          "name": "canonical_evidence_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "builder_evidence_id_tag_2",
+      "preimage_hex": "000000000000001f545255454f50454e5f4255494c4445525f45564944454e43455f49445f56320000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf00000000000000207d1d36730dee87af5806bddbb197174a2a297893f99fc6aeb531a8b9511cd1c7"
+    },
+    {
+      "digest_hex": "97af1df01fc2da6a5920f74c9af9132aad0f223339b6328317423fecdf32ac11",
+      "domain": "TRUEOPEN_BUILDER_FAULT_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_operator",
+          "type": "address"
+        },
+        {
+          "name": "evidence_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "scope_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "7d1d36730dee87af5806bddbb197174a2a297893f99fc6aeb531a8b9511cd1c7",
+          "name": "canonical_evidence_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "builder_fault_id_tag_2",
+      "preimage_hex": "0000000000000019545255454f50454e5f4255494c4445525f4641554c545f56320000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000001000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf00000000000000207d1d36730dee87af5806bddbb197174a2a297893f99fc6aeb531a8b9511cd1c7"
+    },
+    {
+      "digest_hex": "78e4218db7d6cb8abe408b4296f6afd8eff148a0c2df402a63d34a314338e7b6",
+      "domain": "TRUEOPEN_BUILDER_EVIDENCE_CONTENT_V2",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "name": "oneof_tag",
+          "type": "uint32",
+          "value": 3
+        },
+        {
+          "name": "message_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "6f39480bac66396916941f1aaa09baddcb1c60e84dcf3fdbf086e81e6128f05e",
+          "name": "signing_digest",
+          "type": "bytes"
+        },
+        {
+          "name": "violation",
+          "type": "enum",
+          "value": 2
+        }
+      ],
+      "name": "builder_content_tag_3",
+      "preimage_hex": "0000000000000024545255454f50454e5f4255494c4445525f45564944454e43455f434f4e54454e545f563200000000000000040000000200000000000000040000000300000000000000040000000100000000000000206f39480bac66396916941f1aaa09baddcb1c60e84dcf3fdbf086e81e6128f05e000000000000000400000002"
+    },
+    {
+      "digest_hex": "4757e3a128c1912f3aed92d450b155adc3b8fdf834eb4c3b7ccb60601c99baea",
+      "domain": "TRUEOPEN_BUILDER_EVIDENCE_ID_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_operator",
+          "type": "address"
+        },
+        {
+          "name": "evidence_kind",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "scope_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "78e4218db7d6cb8abe408b4296f6afd8eff148a0c2df402a63d34a314338e7b6",
+          "name": "canonical_evidence_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "builder_evidence_id_tag_3",
+      "preimage_hex": "000000000000001f545255454f50454e5f4255494c4445525f45564944454e43455f49445f56320000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000002000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002078e4218db7d6cb8abe408b4296f6afd8eff148a0c2df402a63d34a314338e7b6"
+    },
+    {
+      "digest_hex": "72bc576c4f85347665cc7dfff9c006d517a660bf082d28b30c2767f90ffc17a6",
+      "domain": "TRUEOPEN_BUILDER_FAULT_V2",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+          "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+          "name": "builder_operator",
+          "type": "address"
+        },
+        {
+          "name": "evidence_kind",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "scope_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "78e4218db7d6cb8abe408b4296f6afd8eff148a0c2df402a63d34a314338e7b6",
+          "name": "canonical_evidence_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "builder_fault_id_tag_3",
+      "preimage_hex": "0000000000000019545255454f50454e5f4255494c4445525f4641554c545f56320000000000000018747275656f70656e2d7068617365312d766563746f722d3100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f1000000000000000400000002000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002078e4218db7d6cb8abe408b4296f6afd8eff148a0c2df402a63d34a314338e7b6"
+    },
+    {
+      "contract_section": "Phase 1 consumer conformance",
+      "digest_hex": "70b92f7d293526f265ada450161a1d973460df2b4d05dfea416851203ee9095b",
+      "domain": "TRUEOPEN_VERIFIER_HANDRAISE_V1",
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "hex": "556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408",
+          "name": "infer_receipt_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "22431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead",
+          "name": "output_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b5",
+          "name": "model_id",
+          "type": "bytes"
+        },
+        {
+          "name": "profile_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "fields": [
+            {
+              "hex": "68f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a",
+              "name": "candidate_pool_snapshot_id",
+              "type": "bytes"
+            },
+            {
+              "name": "slot",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "name": "slot_version",
+              "type": "uint64",
+              "value": 1
+            },
+            {
+              "bech32": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+              "hex": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+              "name": "operator_address",
+              "type": "address"
+            }
+          ],
+          "name": "member",
+          "type": "frame"
+        },
+        {
+          "name": "duty",
+          "type": "enum",
+          "value": 2
+        },
+        {
+          "name": "service_authorization_nonce",
+          "type": "uint64",
+          "value": 1
+        },
+        {
+          "name": "expiry_height",
+          "type": "uint64",
+          "value": 2000
+        },
+        {
+          "hex": "",
+          "name": "recipient_pubkey",
+          "type": "bytes"
+        }
+      ],
+      "message_name": "task.v1.VerifierHandraiseV1",
+      "name": "task_v1_verifierhandraisev1",
+      "preimage_hex": "000000000000001e545255454f50454e5f56455249464945525f48414e4452414953455f56310000000000000004000000010000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf0000000000000004000000010000000000000020556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408000000000000002022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead0000000000000020b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b50000000000000004000000010000000000000060000000000000002068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a0000000000000004000000010000000000000008000000000000000100000000000000141a642f0e3c3af545e7acbd38b07251b3990914f100000000000000040000000200000000000000080000000000000001000000000000000800000000000007d00000000000000000",
+      "protobuf_hex": "08011218747275656f70656e2d7068617365312d766563746f722d311a2014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf20012a20556037c4501ae28884b6ae09ec7e81b4aec00a9209d486c081e74b428f60d408322022431a3e6a3d357d8e410b6389401d2f6bab54bfc3d9bf434080d67dbfe24ead3a20b18f96c5c38fa33364fcd4252edfeeb85f131eff5838936c4193af467f58a4b540014a570a2068f89adb3e96f536e4f34e8d2145381c18ffe6841d5c7a90fe372a194bed070a10011801222f747275656f70656e3172666a7a3772337538743635746561766835757471756a336b7776736a39383370336a636c7a5002580160d00f6a40c6f1af186304559665f9012fe9f1642643b2705cbeb3555d7c724746636204ff1f62b9a0f12dd3eadc5194f47aa4cec88d2f9eabf7a4ffa3c02cefaa3e401117",
+      "public_key_hex": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "signature_hex": "c6f1af186304559665f9012fe9f1642643b2705cbeb3555d7c724746636204ff1f62b9a0f12dd3eadc5194f47aa4cec88d2f9eabf7a4ffa3c02cefaa3e401117"
+    },
+    {
+      "contract_section": "Phase 1 consumer conformance",
+      "digest_hex": "9a16b8cff901962ff091adffb0b51effd38bc5498a82e8940df6d0dc387a9098",
+      "domain": "TRUEOPEN_HANDRAISE_ROOT_LEAF_V1",
+      "fields": [
+        {
+          "hex": "da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc690",
+          "name": "standing_handraise_digest",
+          "type": "bytes"
+        },
+        {
+          "bool": false,
+          "name": "admitted",
+          "type": "bool"
+        },
+        {
+          "name": "admit_reject_reason",
+          "type": "enum",
+          "value": 5
+        },
+        {
+          "name": "builder_measured_rtt_ms_or_zero",
+          "type": "uint64",
+          "value": 0
+        }
+      ],
+      "name": "handraise_root_leaf_pending_rotation",
+      "preimage_hex": "000000000000001f545255454f50454e5f48414e4452414953455f524f4f545f4c4541465f56310000000000000020da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc69000000000000000010000000000000000040000000500000000000000080000000000000000"
+    },
+    {
+      "contract_section": "Phase 1 consumer conformance",
+      "digest_hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+      "domain": "TRUEOPEN_DISPATCH_RECORD_ENTRY_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "entry_kind",
+          "type": "enum",
+          "value": 1
+        },
+        {
+          "hex": "14bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "33f1a382569171e2074fd3d53de747784a756544636a87be94ed84e711434976",
+          "name": "task_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "9c9be77729199e1037e47e1adb9a0ac5720d775ae7e36320ddf6394a1ac8f2dc",
+          "name": "dispatch_record_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2",
+          "name": "dispatch_accept_digest",
+          "type": "bytes"
+        }
+      ],
+      "name": "dispatch_entry_linked_record_accept",
+      "preimage_hex": "0000000000000021545255454f50454e5f44495350415443485f5245434f52445f454e5452595f56310000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000000400000001000000000000002014bc7aeea995cfb037517220d0e981df255def7318b07ac0cba6ad82e3ac7ccf000000000000002033f1a382569171e2074fd3d53de747784a756544636a87be94ed84e71143497600000000000000209c9be77729199e1037e47e1adb9a0ac5720d775ae7e36320ddf6394a1ac8f2dc0000000000000020390314d1894596c473fbbdbae753366a8f75ed1775cf24bff565a425f83e2ed2"
+    },
+    {
+      "contract_section": "Phase 1 consumer conformance",
+      "digest_hex": "bf2df2e339be8b9046084e3f490c8eddffc24d8f49fce84864b154d9628c05c0",
+      "domain": "TRUEOPEN_BATCH_RESULT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "batch_kind",
+          "type": "string",
+          "utf8": "DISPATCH_RECORD"
+        },
+        {
+          "name": "item_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+                  "name": "object_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "status",
+                  "type": "enum",
+                  "value": 1
+                }
+              ],
+              "name": "item",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+                  "name": "object_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "status",
+                  "type": "enum",
+                  "value": 2
+                }
+              ],
+              "name": "item",
+              "type": "frame"
+            }
+          ],
+          "name": "items",
+          "type": "frame"
+        }
+      ],
+      "name": "dispatch_batch_mixed_applied_noop",
+      "preimage_hex": "0000000000000018545255454f50454e5f42415443485f524553554c545f56310000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000000f44495350415443485f5245434f52440000000000000004000000020000000000000084000000000000000400000002000000000000003400000000000000204e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d000000000000000400000001000000000000003400000000000000202e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386000000000000000400000002"
+    },
+    {
+      "contract_section": "Phase 1 consumer conformance",
+      "digest_hex": "75117c41ccd9ed88ee7ca7b913c777b7e387378b6f574ed561b42e1a358044f4",
+      "domain": "TRUEOPEN_BATCH_RESULT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "batch_kind",
+          "type": "string",
+          "utf8": "DISPATCH_RECORD"
+        },
+        {
+          "name": "item_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+                  "name": "object_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "status",
+                  "type": "enum",
+                  "value": 2
+                }
+              ],
+              "name": "item",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+                  "name": "object_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "status",
+                  "type": "enum",
+                  "value": 2
+                }
+              ],
+              "name": "item",
+              "type": "frame"
+            }
+          ],
+          "name": "items",
+          "type": "frame"
+        }
+      ],
+      "name": "dispatch_batch_exact_replay",
+      "preimage_hex": "0000000000000018545255454f50454e5f42415443485f524553554c545f56310000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000000f44495350415443485f5245434f52440000000000000004000000020000000000000084000000000000000400000002000000000000003400000000000000204e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d000000000000000400000002000000000000003400000000000000202e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386000000000000000400000002"
+    },
+    {
+      "contract_section": "Phase 1 consumer conformance",
+      "digest_hex": "b1022a3a1494dcf508fbf70e6471f2f49cfeef84c53e9228d8bd97f6176a39a2",
+      "domain": "TRUEOPEN_BATCH_RESULT_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-phase1-vector-1"
+        },
+        {
+          "name": "batch_kind",
+          "type": "string",
+          "utf8": "DISPATCH_RECORD"
+        },
+        {
+          "name": "item_count",
+          "type": "uint32",
+          "value": 2
+        },
+        {
+          "fields": [
+            {
+              "name": "element_count",
+              "type": "uint32",
+              "value": 2
+            },
+            {
+              "fields": [
+                {
+                  "hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+                  "name": "object_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "status",
+                  "type": "enum",
+                  "value": 3
+                }
+              ],
+              "name": "item",
+              "type": "frame"
+            },
+            {
+              "fields": [
+                {
+                  "hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+                  "name": "object_id",
+                  "type": "bytes"
+                },
+                {
+                  "name": "status",
+                  "type": "enum",
+                  "value": 1
+                }
+              ],
+              "name": "item",
+              "type": "frame"
+            }
+          ],
+          "name": "items",
+          "type": "frame"
+        }
+      ],
+      "name": "dispatch_batch_independent_rejection",
+      "preimage_hex": "0000000000000018545255454f50454e5f42415443485f524553554c545f56310000000000000018747275656f70656e2d7068617365312d766563746f722d31000000000000000f44495350415443485f5245434f52440000000000000004000000020000000000000084000000000000000400000002000000000000003400000000000000204e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d000000000000000400000003000000000000003400000000000000202e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386000000000000000400000001"
+    }
+  ],
+  "vrf": {
+    "alpha_hex": "b6c101e08579bf00a0b2ee31c3375cead347463bc3d323f5317ef5a35d9add50",
+    "codec": "ecvrf_edwards25519_sha512_ell2_v1",
+    "private_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+    "proof_hex": "8643cd2095f34cbfe3d17b239c734c6f5049cc9ecd97d3c49611ead32984d012463ca6ffe3d414cf3cc512cd25056cd87ff39501cdd6fb9e35763b29112ad33f3a792636487a09480b9730566b85b305",
+    "public_key_hex": "197f6b23e16c8532c6abc838facd5ea789be0c76b2920334039bfa8b3d368d61",
+    "randomness_hex": "694ddc345aced301a355e3d9b5e4ac558e1d3eb270528c3203311e305b594899",
+    "reduction_context": "TRUEOPEN_DISPATCH_RANDOMNESS_V1"
+  },
+  "weighted_order": {
+    "chain_id": "trueopen-phase1-vector-1",
+    "max_attempts": 64,
+    "members": [
+      {
+        "slot": 1,
+        "weight": 1
+      },
+      {
+        "slot": 3,
+        "weight": 5
+      },
+      {
+        "slot": 7,
+        "weight": 2
+      }
+    ],
+    "order": [
+      7,
+      3,
+      1
+    ],
+    "randomness": "8888888888888888888888888888888888888888888888888888888888888888",
+    "reference_height": 100,
+    "task_id": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "handraise_merkle": {
+    "domain": "TRUEOPEN_HANDRAISE_MERKLE_V1",
+    "signed_root_vector": "task_v1_signedhandraiserootv1",
+    "cases": [
+      {
+        "name": "empty",
+        "standing_digests_hex": [],
+        "leaf_digests_hex": [],
+        "root_hex": "fa90d439563e428e5fb55a2d0d7af3237145c921992e70d02784c3bdfebdb549",
+        "proofs": []
+      },
+      {
+        "name": "single",
+        "standing_digests_hex": [
+          "da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc690"
+        ],
+        "leaf_digests_hex": [
+          "9866bd9111330fa29559ab288760c2cc3d5154e6d064f83684c2ca1a8e9c1495"
+        ],
+        "root_hex": "34e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010",
+        "proofs": [
+          {
+            "leaf_index": 0,
+            "siblings_hex": []
+          }
+        ]
+      },
+      {
+        "name": "odd_three",
+        "standing_digests_hex": [
+          "a8f80e0caf6657e2fbb04cda4465bb92d424c06bfa2ab598c342fb4096d8e652",
+          "d30a8362e25dd4d78fdea0148c42e95ccb34623139342dc4740cad5ef551b38c",
+          "da0d21711112304209a53320316dad0e63f50c62c98efcf1c19fce58ed9cc690"
+        ],
+        "leaf_digests_hex": [
+          "7b74369272ca1623128e0adf633510771d9cebbe37a03aff6860f44a731d2e11",
+          "e18af19fefdf75b69cfd618c7ba4fe4cb61d29f9960c093cb1c19d3a89d391e8",
+          "9866bd9111330fa29559ab288760c2cc3d5154e6d064f83684c2ca1a8e9c1495"
+        ],
+        "root_hex": "b58d3a34c776f14d90ee06192e0bedc87a6d6da0ab5fa128b6696475362ef19f",
+        "proofs": [
+          {
+            "leaf_index": 0,
+            "siblings_hex": [
+              "d506fd99b65476f16f1d22e4c6e680d2e0bbe8ba4473141e618ec7999e1c9037",
+              "34e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010"
+            ]
+          },
+          {
+            "leaf_index": 1,
+            "siblings_hex": [
+              "ab3292544ef21e4e6a00e0949ea57dc6d9fa9875bf648ed29bf126a547eef456",
+              "34e24171d240cab61ec9fcc4ff388d8737919fec23d86acd03c9dc7b3b7e8010"
+            ]
+          },
+          {
+            "leaf_index": 2,
+            "siblings_hex": [
+              "607ec4c6d8fe507e929d1f08863f00de1f7fb5bc376aa642219305809eb8b1c9"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "epoch_seed_derivation": {
+    "alpha_hex": "b6c101e08579bf00a0b2ee31c3375cead347463bc3d323f5317ef5a35d9add50",
+    "alpha_vector": "task_v1_dispatchvrfinputv1",
+    "beacon_height": 100,
+    "beacon_randomness_hex": "d8a9084fc12bdc5f546cf024ab60de36a9ba0876d07e5d9d754cc13a4e9b998d",
+    "beacon_verified": true,
+    "earliest_submit_height": 109,
+    "epoch": 1,
+    "epoch_length_blocks": 100,
+    "epoch_seed_hex": "d8a9084fc12bdc5f546cf024ab60de36a9ba0876d07e5d9d754cc13a4e9b998d",
+    "epoch_start_height": 100,
+    "note": "The fixture supplies a committed verified beacon R_h as the source precondition; it is not a fabricated height-zero or fallback seed.",
+    "vrf_proof_hex": "8643cd2095f34cbfe3d17b239c734c6f5049cc9ecd97d3c49611ead32984d012463ca6ffe3d414cf3cc512cd25056cd87ff39501cdd6fb9e35763b29112ad33f3a792636487a09480b9730566b85b305"
+  },
+  "batch_results": [
+    {
+      "accept_vector": "task_v1_dispatchacceptv1",
+      "batch_digest_hex": "bf2df2e339be8b9046084e3f490c8eddffc24d8f49fce84864b154d9628c05c0",
+      "dispatch_entry_vector": "dispatch_entry_linked_record_accept",
+      "name": "dispatch_batch_mixed_applied_noop",
+      "record_vector": "task_v1_dispatchrecordv1",
+      "results": [
+        {
+          "item_index": 0,
+          "object_id_hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+          "status": 1,
+          "reject_code": 0
+        },
+        {
+          "item_index": 1,
+          "object_id_hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+          "status": 2,
+          "reject_code": 0
+        }
+      ],
+      "takeover_entry_vector": "takeover_entry_candidate_a",
+      "response_protobuf_hex": "0a2412204e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d18010a26080112202e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc608838618021220bf2df2e339be8b9046084e3f490c8eddffc24d8f49fce84864b154d9628c05c0"
+    },
+    {
+      "accept_vector": "task_v1_dispatchacceptv1",
+      "batch_digest_hex": "75117c41ccd9ed88ee7ca7b913c777b7e387378b6f574ed561b42e1a358044f4",
+      "dispatch_entry_vector": "dispatch_entry_linked_record_accept",
+      "name": "dispatch_batch_exact_replay",
+      "record_vector": "task_v1_dispatchrecordv1",
+      "results": [
+        {
+          "item_index": 0,
+          "object_id_hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+          "status": 2,
+          "reject_code": 0
+        },
+        {
+          "item_index": 1,
+          "object_id_hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+          "status": 2,
+          "reject_code": 0
+        }
+      ],
+      "takeover_entry_vector": "takeover_entry_candidate_a",
+      "response_protobuf_hex": "0a2412204e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d18020a26080112202e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc60883861802122075117c41ccd9ed88ee7ca7b913c777b7e387378b6f574ed561b42e1a358044f4"
+    },
+    {
+      "accept_vector": "task_v1_dispatchacceptv1",
+      "batch_digest_hex": "b1022a3a1494dcf508fbf70e6471f2f49cfeef84c53e9228d8bd97f6176a39a2",
+      "dispatch_entry_vector": "dispatch_entry_linked_record_accept",
+      "name": "dispatch_batch_independent_rejection",
+      "record_vector": "task_v1_dispatchrecordv1",
+      "results": [
+        {
+          "item_index": 0,
+          "object_id_hex": "4e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d",
+          "status": 3,
+          "reject_code": 25
+        },
+        {
+          "item_index": 1,
+          "object_id_hex": "2e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc6088386",
+          "status": 1,
+          "reject_code": 0
+        }
+      ],
+      "takeover_entry_vector": "takeover_entry_candidate_a",
+      "response_protobuf_hex": "0a2612204e01c90de112729c095528551c0395744c5c0d0f8fb08682dc6f0c7438df809d180320190a26080112202e928a2b21c30b256cfa22257f7238c7be4e2eb8e45ff68e4023011dc608838618011220b1022a3a1494dcf508fbf70e6471f2f49cfeef84c53e9228d8bd97f6176a39a2"
+    }
+  ]
+}

@@ -79,7 +79,7 @@ func (r *NexusTaskInputResolver) ResolveTaskInput(ctx context.Context, ref TaskI
 	// reports its own.
 	var warm sync.WaitGroup
 	defer warm.Wait()
-	warm.Go(func() { _, _, _ = r.cfg.Auth.CommittedBusEnvelopeIdentity(ctx) })
+	warm.Go(func() { _, _, _ = r.cfg.Auth.CommittedServiceBinding(ctx) })
 	var input []byte
 	err := dialBuilder(ctx, r.cfg.Endpoints, builderOperator, func(ctx context.Context, endpoint BuilderEndpoint) error {
 		got, err := r.resolveFrom(ctx, endpoint, builderOperator, ref)

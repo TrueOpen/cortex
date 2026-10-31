@@ -33,7 +33,7 @@ func goldenTaskOrderJSON(t *testing.T) []byte {
 		"price_bid": map[string]any{"atomic_units": "3"}, "max_fee": map[string]any{"atomic_units": "1000"},
 		"assignment_priority_fee": map[string]any{"atomic_units": "50"}, "tx_fee_reserve": map[string]any{"atomic_units": "100"},
 		"earliest_submit_height": "20", "order_expire_height": "80", "deadline_policy": map[string]any{"latency_class": "DEADLINE_LATENCY_CLASS_STANDARD"},
-		"timeout_bucket_version": "6", "session_anchor_height": "10", "session_anchor_block_hash": b64(0x14),
+		"timeout_bucket_version": "6", "session_anchor_height": "10",
 		"builder_set_id": "7", "builder_set_hash": b64(0x15),
 		"payload_mode": "PAYLOAD_MODE_V1_PLAINTEXT", "input_key_commitment": b64(0x00),
 	}
@@ -49,7 +49,7 @@ func TestTaskOrderHashJSONRegression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TaskOrderHashJSON error = %v", err)
 	}
-	if got, want := hex.EncodeToString(digest[:]), "bda8affe5325905e747568ce644f2ce9be3a7a4b0d14c431c9610ecd2a59a2b4"; got != want {
+	if got, want := hex.EncodeToString(digest[:]), "4835a0628813e472b5b0530c9b1ef555913c939e44a89a0f77df7a3e11289a14"; got != want {
 		t.Fatalf("TaskOrderHashJSON = %s, want %s", got, want)
 	}
 }

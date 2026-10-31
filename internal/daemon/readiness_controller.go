@@ -18,7 +18,6 @@ type WorkloadReadiness struct {
 	Identity          diagnostics.DependencyStatus
 	ModelSupport      diagnostics.DependencyStatus
 	ModelService      diagnostics.DependencyStatus
-	Nexus             diagnostics.DependencyStatus
 	BuilderDescriptor diagnostics.DependencyStatus
 	TxBroadcaster     diagnostics.DependencyStatus
 	// Chain, Keeper and Store are probed on every pass. They used to be reported
@@ -32,22 +31,11 @@ type WorkloadReadiness struct {
 	// downtime is not ready to take new work, but it must keep consuming events
 	// so it can catch up -- so staleness gates activation here rather than
 	// stopping the poller.
-	ChainSync diagnostics.DependencyStatus
-	// EnvelopeAuth reports whether this node can authenticate inbound bus
-	// traffic right now. Construction success is not enough: an unreadable
-	// current-key view or an unwritable replay store makes every inbound frame
-	// unverifiable, and a node in that state must stop claiming it can take work.
-	EnvelopeAuth diagnostics.DependencyStatus
-	// NATSIdentity reports whether this node can still sign the on-chain binding
-	// it presents to NATS (ADR-0016 decision three). It gates the workload
-	// whenever the row is Configured -- a node that cannot sign its binding
-	// cannot reach the bus, so it must stop taking new work (see
-	// workloadDependenciesReady); on the creds/token path the row is optional and
-	// unconfigured, and gates nothing. The observability health map keeps this
-	// dependency optional because that map cannot see the configuration and so
-	// cannot make that distinction.
-	NATSIdentity      diagnostics.DependencyStatus
+	ChainSync         diagnostics.DependencyStatus
 	DependenciesReady bool
+	// Streams are the DispatchStream rows (S9). Reported, never gating
+	// Ready(): the streams run inside the workload (S9 Q4).
+	Streams []diagnostics.DependencyStatus
 }
 
 func (r WorkloadReadiness) Ready() bool {
@@ -60,20 +48,17 @@ func (r WorkloadReadiness) Ready() bool {
 // one: a dependency added to the struct and forgotten in one of those callers
 // is exactly how a boundary stops being reported without anyone noticing.
 func (r WorkloadReadiness) DependencyStatuses() []diagnostics.DependencyStatus {
-	return []diagnostics.DependencyStatus{
+	return append([]diagnostics.DependencyStatus{
 		r.Identity,
 		r.ModelSupport,
 		r.ModelService,
-		r.Nexus,
 		r.BuilderDescriptor,
-		r.EnvelopeAuth,
-		r.NATSIdentity,
 		r.TxBroadcaster,
 		r.Chain,
 		r.Keeper,
 		r.Store,
 		r.ChainSync,
-	}
+	}, r.Streams...)
 }
 
 type ReadinessControllerConfig struct {
@@ -190,13 +175,11 @@ func (c *ReadinessController) Run(ctx context.Context) error {
 			case err == nil || cleanShutdown:
 			case builderclient.IsRetryable(err):
 				// A retryable workload failure must not take the daemon down.
-				// The common case is a JetStream durable still bound to a
-				// previous instance of this operator, which the server releases
-				// on its own within tens of seconds. Deleting the consumer to
-				// force the issue would discard its ack position and replay the
-				// whole retention window, so the correct response is to wait and
-				// retry -- while /readyz reports the node as not serving, so a
-				// genuine double-start is visible rather than silent.
+				// A transport still bound to a previous instance of this
+				// operator is released on its own, so the correct response is
+				// to wait and retry -- while /readyz reports the node as not
+				// serving, so a genuine double-start is visible rather than
+				// silent.
 				if c.cfg.OnRetryableFailure != nil {
 					c.cfg.OnRetryableFailure(err)
 				}

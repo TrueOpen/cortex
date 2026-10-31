@@ -42,17 +42,7 @@ type signedOrderV2 struct {
 // caller cross-checks the surrounding payload against. The returned facts carry
 // SignatureScheme and UserSignature, which the JSON carrier cannot supply.
 func TaskOrderHashAndFactsSignedOrderHex(value string) (codec.Hash, TaskOrderFacts, error) {
-	if value == "" {
-		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("SignedOrderV2 carrier is empty")
-	}
-	if value != strings.ToLower(value) {
-		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("SignedOrderV2 carrier must be lowercase hex")
-	}
-	raw, err := hex.DecodeString(value)
-	if err != nil {
-		return codec.Hash{}, TaskOrderFacts{}, fmt.Errorf("SignedOrderV2 carrier must be lowercase hex: %w", err)
-	}
-	carrier, err := decodeSignedOrderV2(raw)
+	carrier, err := parseSignedOrderHex(value)
 	if err != nil {
 		return codec.Hash{}, TaskOrderFacts{}, err
 	}
@@ -60,10 +50,29 @@ func TaskOrderHashAndFactsSignedOrderHex(value string) (codec.Hash, TaskOrderFac
 	if err != nil {
 		return codec.Hash{}, TaskOrderFacts{}, err
 	}
-	facts := taskOrderFacts(carrier.order)
-	facts.SignatureScheme, facts.UserSignature = carrier.signatureScheme, hex.EncodeToString(carrier.userSignature)
-	facts.SignatureChainID = carrier.signatureChainID
-	return digest, facts, nil
+	return digest, carrier.facts(), nil
+}
+
+// parseSignedOrderHex decodes the lowercase-hex SignedOrderV2 carrier.
+func parseSignedOrderHex(value string) (signedOrderV2, error) {
+	if value == "" {
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 carrier is empty")
+	}
+	if value != strings.ToLower(value) {
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 carrier must be lowercase hex")
+	}
+	raw, err := hex.DecodeString(value)
+	if err != nil {
+		return signedOrderV2{}, fmt.Errorf("SignedOrderV2 carrier must be lowercase hex: %w", err)
+	}
+	return decodeSignedOrderV2(raw)
+}
+
+func (s signedOrderV2) facts() TaskOrderFacts {
+	facts := taskOrderFacts(s.order)
+	facts.SignatureScheme, facts.UserSignature = s.signatureScheme, hex.EncodeToString(s.userSignature)
+	facts.SignatureChainID = s.signatureChainID
+	return facts
 }
 
 func decodeSignedOrderV2(raw []byte) (signedOrderV2, error) {
@@ -197,8 +206,6 @@ func decodeTaskOrderV3(raw []byte) (taskOrderV3, error) {
 			return field.uint64((*uint64)(&order.TimeoutBucketVersion))
 		case 22:
 			return field.uint64((*uint64)(&order.SessionAnchorHeight))
-		case 23:
-			return field.assignBytes((*[]byte)(&order.SessionAnchorBlockHash))
 		case 24:
 			return field.assignString(&order.BuilderSetID)
 		case 25:

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -19,13 +17,11 @@ import (
 	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
-	"github.com/TrueOpen/cortex/internal/policy"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 	"github.com/TrueOpen/cortex/internal/txclient"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
 )
 
 type Config struct {
@@ -46,22 +42,23 @@ type Config struct {
 	// SignerPubkey is the compressed secp256k1 public key of the online service
 	// key, lower hex. Nexus derives the signer address from it, so a submission
 	// cannot be authenticated without it.
-	SignerPubkey        string
-	Signer              signer.DigestSigner
-	FakeOutput          bool
-	TrustedNATSDev      bool
-	PackageStore        builderclient.OutputPackageStore
-	NexusEnvelopeSigner builderclient.BusEnvelopeSigner
-	// EnvelopeTTL is the lifetime stamped on outbound envelopes. Zero keeps the
-	// envelope default.
-	EnvelopeTTL time.Duration
+	SignerPubkey string
+	Signer       signer.DigestSigner
+	FakeOutput   bool
+	PackageStore builderclient.OutputPackageStore
 	// ReceivingBuilder resolves the receiving Builder's endpoint and service
 	// key at one pinned chain height for output relay and confirmation
 	// verification.
 	ReceivingBuilder ReceivingBuilderProvider
-	// PreresolvedBuilders, when set, is a Task Builder resolution already in
-	// flight for this task; the first output stream open uses it.
-	PreresolvedBuilders *PreresolvedBuilders
+	// DispatchTicketHash is the ticket this responsibility executes (Phase 1,
+	// S4 InferRecord.DispatchTicketHash). The stream header, every chunk, the
+	// Fin and InferReceiptV3.dispatch_ticket_hash bind it.
+	DispatchTicketHash codec.Hash
+	// Dispatch gates delivery on the ticket's record (S5): frames and the Fin
+	// go out before it, the receipt and the evidence only after it, and
+	// nothing while it is paused. Nil only in tools and tests that pass a
+	// recorded event.
+	Dispatch DispatchGate
 	// TaskFacts reads TaskCoreState.accepted_task_hash and
 	// TaskAssignmentViewV1.generation_params_digest for the assignment being
 	// worked. Both are signed fields of the frozen InferReceiptV3 that no local
@@ -148,15 +145,13 @@ type producedOutput struct {
 	canonicalReceiptDigest  codec.Hash
 	receipt                 builderclient.SignedInferReceipt
 	workerValueEvidence     workerValueEvidenceInputs
-	subject                 string
 	outputCID               string
-	availablePayload        []byte
 	result                  InferResult
 }
 
 // outputDescriptor captures the immutable identities produced by one inference
 // pass. It is written as a separate artifact so that receipt construction and
-// the output-availability message can each be retried after a crash without
+// the output upload can each be retried after a crash without
 // re-running the model.
 type outputDescriptor struct {
 	JobID               string                  `json:"job_id"`
@@ -188,7 +183,6 @@ type InferOutputCheckpoint struct {
 type Persistence interface {
 	WriteEvidence(context.Context, EvidenceRecord) error
 	ReadArtifact(context.Context, string, string) ([]byte, error)
-	WriteBuilderOutbox(context.Context, OutboxRecord) error
 	CheckpointModelJob(context.Context, ModelJobCheckpoint) error
 	CheckpointInferReceipt(context.Context, InferReceiptCheckpoint) error
 	InferReceipts(context.Context, string) ([]InferReceiptCheckpoint, error)
@@ -197,7 +191,6 @@ type Persistence interface {
 	InferInput(context.Context, string) (InferInputCheckpoint, error)
 	StorageConfirmations(context.Context, string) ([]StorageConfirmationCheckpoint, error)
 	OutputStreamFrames(context.Context, string) ([]builderclient.OutputChunk, error)
-	BuilderMessage(context.Context, string) (BuilderMessageCheckpoint, error)
 	// CheckpointInferOutput persists the output, the model token-id and
 	// position-value material and the output
 	// descriptor for an inference pass together with the InferRecord finish reason
@@ -224,10 +217,6 @@ type InferInputCheckpoint struct {
 	Payload   []byte
 	CreatedAt time.Time
 }
-type BuilderMessageCheckpoint struct {
-	Digest, TaskID, Subject, Status string
-	Payload                         []byte
-}
 
 // StorageConfirmationCheckpoint is the durable record of one verified Builder
 // storage confirmation. SemanticHash is the content commitment for whichever
@@ -250,17 +239,6 @@ type EvidenceRecord struct {
 	Kind   string
 	Data   []byte
 	Ref    string
-}
-
-type OutboxRecord struct {
-	TaskID  string
-	Subject string
-	Payload []byte
-	Digest  codec.Hash
-	Status  string
-	// DedupID is a stable per-logical-event identifier used for transport-level
-	// deduplication. It must survive envelope regeneration.
-	DedupID string
 }
 
 type InferReceipt struct {
@@ -304,30 +282,6 @@ type ReceiptState struct {
 	SelfRescueTx        txclient.Observation
 }
 
-type WorkerHandraiseRequest struct {
-	TaskID                    string
-	SessionID                 string
-	OrderSequence             uint64
-	TaskHash                  codec.Hash
-	ModelID                   string
-	ProfileVersion            uint32
-	Member                    builderclient.CandidateMemberRefMessage
-	CurrentHeight             uint64
-	HandraiseExpireHeight     uint64
-	BuilderSelectionDigest    codec.Hash
-	ServiceAuthorizationNonce uint64
-	Precheck                  policy.WorkerPrecheckInput
-}
-
-type WorkerHandraiseResult struct {
-	Signed   bool
-	Decision policy.WorkerDecision
-	Payload  []byte
-	// DedupID is the stable transport dedup ID for this handraise. It survives
-	// envelope regeneration and must be used by any caller that republishes.
-	DedupID string
-}
-
 // crashAt invokes the configured crash hook, if any. It is a no-op in
 // production and returns any error the hook produces so the caller aborts.
 func (w *Worker) crashAt(point string) error {
@@ -345,62 +299,6 @@ func New(cfg Config) *Worker {
 
 func (w *Worker) HandleAssignmentAccepted(_ context.Context, _ chainclient.AssignmentAccepted) error {
 	return nil
-}
-
-func (w *Worker) EvaluateAndHandraise(ctx context.Context, req WorkerHandraiseRequest) (WorkerHandraiseResult, error) {
-	if err := validateWorkerHandraiseRequest(req); err != nil {
-		return WorkerHandraiseResult{Decision: policy.WorkerDecision{Accepted: false, RejectCode: canonicalTaskRejectCode(err)}}, nil
-	}
-	decision := policy.EvaluateWorkerPrecheck(req.Precheck)
-	if !decision.Accepted {
-		return WorkerHandraiseResult{Decision: decision}, nil
-	}
-	taskID, err := builderclient.CanonicalWireHash(req.TaskID, "task_id")
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	member, err := req.Member.Nodewire()
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	modelID, err := identity.ModelIDBytes(req.ModelID)
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	handraise := nodewire.WorkerHandraiseV1{
-		SchemaVersion: builderclient.WorkerHandraiseSchemaV1, ChainID: w.cfg.ChainID,
-		TaskID: taskID[:], TaskHash: append([]byte(nil), req.TaskHash[:]...),
-		ModelID: modelID, ProfileVersion: req.ProfileVersion, Member: member,
-		Duty:                      nodewire.DutyWorker,
-		ServiceAuthorizationNonce: req.ServiceAuthorizationNonce, ExpiryHeight: req.HandraiseExpireHeight,
-	}
-	wireDigest, err := nodewire.WorkerHandraiseSigningDigest(handraise)
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	serviceSignature, err := w.signDigest(ctx, wireDigest)
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	handraise.ServiceSignature = serviceSignature
-	message, err := builderclient.WorkerHandraiseProto(handraise)
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	subject := builderclient.NATSWorkerHandraiseSubject(req.TaskID)
-	payload, err := w.encodeNexusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindWorkerHandraise, ChainID: w.cfg.ChainID, Subject: subject,
-		SenderOperatorAddress: w.cfg.WorkerAddress, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: req.ServiceAuthorizationNonce,
-	}, message)
-	if err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	handraiseDedupID := builderclient.WorkerHandraiseDedupID(req.TaskID, hex.EncodeToString(wireDigest[:]))
-	if err := w.persistWorkerHandraise(ctx, req.TaskID, subject, payload, handraiseDedupID); err != nil {
-		return WorkerHandraiseResult{}, err
-	}
-	return WorkerHandraiseResult{Signed: true, Decision: decision, Payload: payload, DedupID: handraiseDedupID}, nil
 }
 
 func (w *Worker) HandleAssignmentFinalized(ctx context.Context, event chainclient.AssignmentFinalized) (InferResult, error) {
@@ -458,14 +356,36 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	if err != nil {
 		return InferResult{}, err
 	}
-	// Ensure descriptor and receipt from committed artifacts.
+	state, err := w.deliveryState(ctx, event)
+	if err != nil {
+		return InferResult{}, fmt.Errorf("read dispatch delivery state: %w", err)
+	}
+	if state.Paused {
+		return InferResult{}, fmt.Errorf("%w: %s", ErrDeliveryPaused, state.Reason)
+	}
+	// Frames and the Fin are pre-chain delivery to the dispatching Builder
+	// (W7-W11); only the receipt and the evidence wait for the record.
+	if err := w.ensureFinDelivered(ctx, event); err != nil {
+		return InferResult{}, err
+	}
+	if state.InferDeadlineHeight == 0 {
+		return InferResult{}, ErrAwaitingDispatchRecord
+	}
+	event.WinnerConfirmHeight, event.InferDeadlineHeight = state.RecordedHeight, state.InferDeadlineHeight
+	// Ensure descriptor and receipt from committed artifacts. The receipt's
+	// expiry_height is the chain's infer_deadline_height (S5 Q1).
 	_, result, err := w.ensureReceiptAndResult(ctx, event, output, tokenIDs, positionValues)
 	if err != nil {
 		return InferResult{}, err
 	}
+	if w.cfg.Dispatch != nil {
+		if err := w.cfg.Dispatch.ReceiptSigned(ctx, w.cfg.DispatchTicketHash, result.TaskDataReceipt); err != nil {
+			return InferResult{}, fmt.Errorf("hand the signed receipt to the dispatch record: %w", err)
+		}
+	}
 
-	// Ensure output is available to the Builder.
-	if err := w.ensureOutputAvailable(ctx, event, output, result); err != nil {
+	// Ensure the receipt is relayed and the output is stored on the Builder.
+	if err := w.ensureOutputUploaded(ctx, event, output, result); err != nil {
 		return InferResult{}, err
 	}
 
@@ -473,41 +393,28 @@ func (w *Worker) handleAssignmentFinalized(ctx context.Context, event chainclien
 	return result, nil
 }
 
-func (w *Worker) prepareOutput(ctx context.Context, event chainclient.AssignmentFinalized) (*producedOutput, error) {
+// produceOutput runs the inference and persists its artifacts and the model
+// job, and signs nothing but the output frames and their journal: the receipt
+// waits for the dispatch record (S5 Q1), and ensureReceiptAndResult builds it
+// from these durable artifacts.
+func (w *Worker) produceOutput(ctx context.Context, event chainclient.AssignmentFinalized) (output, tokenIDs, positionValues []byte, descriptor outputDescriptor, err error) {
 	if err := w.requireInferDependencies(); err != nil {
-		return nil, err
+		return nil, nil, nil, outputDescriptor{}, err
 	}
-	output, tokenIDs, positionValues, descriptor, err := w.runInferenceAndPersistArtifacts(ctx, event)
+	output, tokenIDs, positionValues, descriptor, err = w.runInferenceAndPersistArtifacts(ctx, event)
 	if err != nil {
-		return nil, err
-	}
-	receipt, result, err := w.buildAndPersistReceipt(ctx, event, descriptor, output, tokenIDs, positionValues)
-	if err != nil {
-		return nil, err
+		return nil, nil, nil, outputDescriptor{}, err
 	}
 	if err := w.persistModelServiceJob(ctx, descriptor.JobID, event.TaskID, "succeeded", "infer"); err != nil {
-		return nil, err
+		return nil, nil, nil, outputDescriptor{}, err
 	}
-	availablePayload, err := w.buildOutputAvailablePayload(ctx, event, descriptor.OutputHash)
-	if err != nil {
-		return nil, err
-	}
-	return &producedOutput{
-		event: event, jobID: descriptor.JobID, output: append([]byte(nil), output...),
-		tokenIDs: append([]byte(nil), tokenIDs...), positionValues: append([]byte(nil), positionValues...),
-		receipt: receipt, workerValueEvidence: workerValueEvidenceInputs{
-			EvidenceSchemaHash: w.cfg.EvidenceSchemaHash,
-			FinishReason:       descriptor.FinishReason,
-		},
-		subject:          builderclient.NATSOutputAvailableSubject(event.TaskID),
-		outputCID:        descriptor.OutputCID,
-		availablePayload: availablePayload,
-		result:           result,
-	}, nil
+	return output, tokenIDs, positionValues, descriptor, nil
 }
 
 func (w *Worker) requireInferDependencies() error {
 	switch {
+	case w.cfg.DispatchTicketHash == (codec.Hash{}):
+		return fmt.Errorf("the accepted dispatch_ticket_hash is required: every output frame, the Fin and the receipt bind it")
 	case w.cfg.Model == nil:
 		return fmt.Errorf("model client is required")
 	case w.cfg.Builder == nil:
@@ -687,7 +594,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			tasktrace.Int("output_size_bytes", len(output)), tasktrace.Int("finish_reason", int(resp.FinishReason)))
 	}
 
-	lengths, err := recorder.finish(ctx, output)
+	lengths, err := recorder.finish(ctx, output, resp.GeneratedTokenCount)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
@@ -843,7 +750,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
 
-	serviceAuthorizationNonce, _, err := w.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	serviceAuthorizationNonce, _, err := w.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
@@ -987,37 +894,6 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	return receipt, produced.result, nil
 }
 
-func (w *Worker) buildOutputAvailablePayload(ctx context.Context, event chainclient.AssignmentFinalized, outputHash codec.Hash) ([]byte, error) {
-	facts, err := w.taskFacts(ctx, event.TaskID)
-	if err != nil {
-		return nil, err
-	}
-	serviceAuthorizationNonce, _, err := w.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
-	if err != nil {
-		return nil, err
-	}
-	subject := builderclient.NATSOutputAvailableSubject(event.TaskID)
-	taskID, err := builderclient.CanonicalWireHash(event.TaskID, "task_id")
-	if err != nil {
-		return nil, err
-	}
-	// The availability hint proves nothing: output and task facts remain Keeper
-	// and task-data authorities the receiver reads for itself. task_hash binds
-	// the accepted order version this output belongs to.
-	available := &busv1.OutputAvailableV1{
-		TaskId:                taskID[:],
-		TaskHash:              append([]byte(nil), facts.AcceptedTaskHash...),
-		OutputHash:            append([]byte(nil), outputHash[:]...),
-		WorkerOperatorAddress: w.cfg.WorkerAddress,
-		PublishedAtUnixMs:     uint64(time.Now().UTC().UnixMilli()),
-	}
-	return w.encodeNexusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOutputAvailable, ChainID: w.cfg.ChainID, Subject: subject,
-		SenderOperatorAddress: w.cfg.WorkerAddress, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: serviceAuthorizationNonce,
-	}, available)
-}
-
 // traceGenerationRefusal prints one refused generation as a single greppable
 // line: the task, the fault class and code, every scalar the refusal measured,
 // and whatever extra the call site supplies.
@@ -1119,7 +995,11 @@ func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.As
 	// Only the submission moves. The receipt is still built and persisted first,
 	// because building it is local and observable to nobody; it is the relay that
 	// the ordering is about.
-	if err := w.ensureOutputStreamStored(ctx, event, receipt); err != nil {
+	commit, err := receiptCommit(receipt)
+	if err != nil {
+		return err
+	}
+	if err := w.ensureOutputStreamStored(ctx, event, commit); err != nil {
 		return err
 	}
 	// The relay target is the seam's single-Builder answer, not a member picked
@@ -1163,8 +1043,11 @@ func (w *Worker) relayReceiptAndUpload(ctx context.Context, event chainclient.As
 		}
 		finalized = append(finalized, builder.OperatorAddress)
 	}
-	if len(finalized) == 0 {
-		return errors.Join(failures...)
+	// The evidence has to reach ceil(2/3) of the Task Builder group (CD W11);
+	// below that the relay is retried, and the Builders already confirmed are
+	// skipped next time.
+	if err := evidenceFloorReached(len(finalized), len(builders), failures); err != nil {
+		return err
 	}
 	for _, failure := range failures {
 		// Reported, not returned: the task can proceed on the Builders that did
@@ -1332,31 +1215,6 @@ func verifyStorageConfirmation(c builderclient.StorageConfirmation, chainID stri
 	return digest, nil
 }
 
-func (w *Worker) encodeNexusMessage(input builderclient.UnsignedEnvelopeInput, payload proto.Message) ([]byte, error) {
-	// The configured TTL is what the peer accepts, so it has to be stamped here
-	// rather than left to the envelope default: a deployment agreeing a shorter
-	// window with its Nexus would otherwise keep emitting the default lifetime.
-	if input.ExpiresAt.IsZero() && w.cfg.EnvelopeTTL > 0 {
-		issuedAt := input.IssuedAt
-		if issuedAt.IsZero() {
-			issuedAt = time.Now().UTC()
-			input.IssuedAt = issuedAt
-		}
-		input.ExpiresAt = issuedAt.Add(w.cfg.EnvelopeTTL)
-	}
-	// Only a trusted transport posture may emit unsigned envelopes. FakeOutput
-	// says the inference output is synthetic; it says nothing about whether this
-	// node's identity is real. A fake-inference node still signs with its own
-	// current service key, and the receiver still verifies under
-	// TRUEOPEN_BUS_ENVELOPE_V2. Folding it into this condition made every
-	// fake-inference deployment emit unsigned envelopes that a strict Nexus
-	// drops outright, so a Worker on fake inference could never be assigned.
-	if w.cfg.TrustedNATSDev {
-		return builderclient.EncodeUnsignedBusMessage(input, payload, true)
-	}
-	return builderclient.EncodeAuthenticatedBusMessage(input, payload, w.cfg.NexusEnvelopeSigner)
-}
-
 func (w *Worker) persistModelServiceJob(ctx context.Context, jobID, taskID, status, intent string) error {
 	if w.cfg.Persistence == nil {
 		return nil
@@ -1388,20 +1246,6 @@ func (w *Worker) verifyReceiptSignature(ctx context.Context, receipt builderclie
 		return fmt.Errorf("verify receipt service signature: %w", err)
 	}
 	return nil
-}
-
-func (w *Worker) persistBuilderOutbox(ctx context.Context, taskID string, subject string, payload []byte, status string, dedupID string) error {
-	if w.cfg.Persistence == nil {
-		return nil
-	}
-	return w.cfg.Persistence.WriteBuilderOutbox(ctx, OutboxRecord{
-		TaskID:  taskID,
-		Subject: subject,
-		Payload: append([]byte(nil), payload...),
-		Digest:  codec.HashWithDomain("TRUEOPEN_BUILDER_OUTBOX_V1", []byte(subject), []byte(taskID), payload),
-		Status:  status,
-		DedupID: dedupID,
-	})
 }
 
 func (w *Worker) RecordReceipt(state ReceiptState) {
@@ -1504,9 +1348,8 @@ func validateAssignmentIdentity(event chainclient.AssignmentFinalized) error {
 	if event.OrderDigest == (codec.Hash{}) {
 		return fmt.Errorf("assignment order_digest is required")
 	}
-	if event.InferDeadlineHeight == 0 {
-		return fmt.Errorf("assignment infer_deadline_height is required")
-	}
+	// infer_deadline_height is not required here: before the record it does
+	// not exist (S5 Q1); the receipt waits for it (deliveryState).
 	if event.ModelID == "" || event.ProfileVersion == 0 || strings.TrimSpace(event.Capability) == "" {
 		return fmt.Errorf("assignment model id, profile version, and capability are required")
 	}
@@ -1527,69 +1370,6 @@ func (w *Worker) validateSnapshot(event chainclient.AssignmentFinalized, snapsho
 		return fmt.Errorf("snapshot selected_worker does not match event winner")
 	}
 	return nil
-}
-
-func validateWorkerHandraiseRequest(req WorkerHandraiseRequest) error {
-	if req.SessionID == "" {
-		return fmt.Errorf("worker handraise session_id is required")
-	}
-	if req.TaskHash == (codec.Hash{}) {
-		return fmt.Errorf("worker handraise task_hash is required")
-	}
-	if req.ModelID == "" || req.ProfileVersion == 0 || req.Member.CandidatePoolSnapshotID == "" ||
-		req.Member.SlotVersion == 0 || req.Member.OperatorAddress == "" {
-		return fmt.Errorf("worker handraise model, profile, and CandidatePool member are required")
-	}
-	if req.TaskID == "" {
-		return fmt.Errorf("worker handraise task_id is required")
-	}
-	// Unconditional, including at sequence 0. The guard used to read
-	// `req.OrderSequence != 0 &&`, treating zero as "the caller stated no
-	// sequence" - but zero is the first order of every session, so that made the
-	// session-opening order the one order whose task_id nothing checked, and a
-	// task_id derived from any other sequence got signed.
-	if req.TaskID != identity.TaskIDString(req.SessionID, req.OrderSequence) {
-		return fmt.Errorf("worker handraise task_id %q does not match canonical task id", req.TaskID)
-	}
-	// There is no payload_keyring_hash clause here and no field to hold one. The
-	// WorkerHandraise message and its signing preimage dropped the key: node's
-	// frozen WorkerHandraiseV1 and nexus's msgbus.WorkerHandraise have no such
-	// field, so a value carried on an inbound order reaches nothing this node
-	// signs.
-	if req.CurrentHeight == 0 || req.HandraiseExpireHeight == 0 || req.CurrentHeight > req.HandraiseExpireHeight {
-		return fmt.Errorf("worker handraise height window is invalid")
-	}
-	return nil
-}
-
-func canonicalTaskRejectCode(err error) string {
-	if err == nil {
-		return ""
-	}
-	return "L2_TASK_IDENTITY_MISSING"
-}
-
-func (w *Worker) persistWorkerHandraise(ctx context.Context, taskID string, subject string, payload []byte, dedupID string) error {
-	if w.cfg.Persistence == nil {
-		return nil
-	}
-	payloadHash := codec.HashBytes(payload)
-	if err := w.cfg.Persistence.WriteEvidence(ctx, EvidenceRecord{
-		TaskID: taskID,
-		Kind:   "worker-handraise",
-		Data:   append([]byte(nil), payload...),
-		Ref:    "sha256:" + fmt.Sprintf("%x", payloadHash[:]),
-	}); err != nil {
-		return err
-	}
-	return w.cfg.Persistence.WriteBuilderOutbox(ctx, OutboxRecord{
-		TaskID:  taskID,
-		Subject: subject,
-		Payload: append([]byte(nil), payload...),
-		Digest:  codec.HashWithDomain("TRUEOPEN_BUILDER_OUTBOX_V1", []byte(subject), []byte(taskID), payload),
-		Status:  "pending",
-		DedupID: dedupID,
-	})
 }
 
 func outputPackageHash(taskID, outputRef, tokenIDsRef, positionValuesRef string, outputHash codec.Hash) codec.Hash {
@@ -1658,11 +1438,11 @@ func (w *Worker) ensureOutput(ctx context.Context, event chainclient.AssignmentF
 		return output, tokenIDs, positionValues, nil
 	}
 	event.Input = input
-	produced, err := w.prepareOutput(ctx, event)
+	output, tokenIDs, positionValues, _, err = w.produceOutput(ctx, event)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return produced.output, produced.tokenIDs, produced.positionValues, nil
+	return output, tokenIDs, positionValues, nil
 }
 
 func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.AssignmentFinalized, output, tokenIDs, positionValues []byte) (builderclient.SignedInferReceipt, InferResult, error) {
@@ -1687,7 +1467,7 @@ func (w *Worker) ensureReceiptAndResult(ctx context.Context, event chainclient.A
 				if rootErr != nil {
 					return builderclient.SignedInferReceipt{}, InferResult{}, rootErr
 				}
-				if receipt.ChainID != w.cfg.ChainID || receipt.TaskID != event.TaskID || receipt.TaskHash != facts.AcceptedTaskHash.Hex() || receipt.WorkerOperatorAddress != w.cfg.WorkerAddress || receipt.GenerationParamsDigest != facts.GenerationParamsDigest.Hex() || receipt.OutputHash != root.String() || receipt.OutputSizeBytes != uint64(len(output)) || receipt.GeneratedTokenCount != descriptor.GeneratedTokenCount || receipt.OutputLeafCount != uint64(len(descriptor.OutputChunkLengths)) {
+				if receipt.ChainID != w.cfg.ChainID || receipt.TaskID != event.TaskID || receipt.TaskHash != facts.AcceptedTaskHash.Hex() || receipt.WorkerOperatorAddress != w.cfg.WorkerAddress || receipt.GenerationParamsDigest != facts.GenerationParamsDigest.Hex() || receipt.OutputHash != root.String() || receipt.OutputSizeBytes != uint64(len(output)) || receipt.GeneratedTokenCount != descriptor.GeneratedTokenCount || receipt.OutputLeafCount != uint64(len(descriptor.OutputChunkLengths)) || receipt.DispatchTicketHash != w.cfg.DispatchTicketHash.String() {
 					return builderclient.SignedInferReceipt{}, InferResult{}, fmt.Errorf("retained receipt differs from task or output artifacts")
 				}
 				result, rerr := w.resultFromReceipt(ctx, event.TaskID, receipt)
@@ -1781,7 +1561,7 @@ func (w *Worker) confirmedBuilders(ctx context.Context, event chainclient.Assign
 	if len(confirmations) == 0 {
 		return done, nil
 	}
-	_, currentHeight, err := w.cfg.TaskDataAuth.CommittedBusEnvelopeIdentity(ctx)
+	_, currentHeight, err := w.cfg.TaskDataAuth.CommittedServiceBinding(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read committed height for retained storage confirmation: %w", err)
 	}
@@ -1859,10 +1639,8 @@ func (w *Worker) confirmedBuilders(ctx context.Context, event chainclient.Assign
 	return done, nil
 }
 
-func (w *Worker) ensureOutputAvailable(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, result InferResult) error {
+func (w *Worker) ensureOutputUploaded(ctx context.Context, event chainclient.AssignmentFinalized, output []byte, result InferResult) error {
 	switch {
-	case w.cfg.Builder == nil:
-		return fmt.Errorf("builder client is required")
 	case w.cfg.TaskData == nil:
 		return fmt.Errorf("task data client is required")
 	case w.cfg.TaskDataAuth == nil:
@@ -1873,7 +1651,7 @@ func (w *Worker) ensureOutputAvailable(ctx context.Context, event chainclient.As
 
 	descriptor, err := w.loadOutputDescriptor(ctx, event.TaskID)
 	if err != nil {
-		return fmt.Errorf("output descriptor missing, cannot make output available: %w", err)
+		return fmt.Errorf("output descriptor missing, cannot upload output: %w", err)
 	}
 	outputHash, err := codec.OutputMMRRootFromLengths(output, descriptor.OutputChunkLengths)
 	if err != nil {
@@ -1882,13 +1660,6 @@ func (w *Worker) ensureOutputAvailable(ctx context.Context, event chainclient.As
 	if outputHash != descriptor.OutputHash {
 		return fmt.Errorf("output hash does not match descriptor")
 	}
-
-	availablePayload, err := w.buildOutputAvailablePayload(ctx, event, descriptor.OutputHash)
-	if err != nil {
-		return err
-	}
-	subject := builderclient.NATSOutputAvailableSubject(event.TaskID)
-	stableDedupID := event.SessionID + "|" + event.TaskID + "|" + hex.EncodeToString(outputHash[:])
 
 	// Repeat staging and finalization idempotently unless both complete signed
 	// confirmations still verify under their retained service identities.
@@ -1905,41 +1676,9 @@ func (w *Worker) ensureOutputAvailable(ctx context.Context, event chainclient.As
 			return err
 		}
 	}
-
-	// Hold: the first time this step runs, persist an outbox record. On a
-	// restart the record already exists and we skip the durable hold.
-	_, err = w.cfg.Persistence.BuilderMessage(ctx, stableDedupID)
-	if errors.Is(err, ErrCheckpointNotFound) {
-		if err := w.persistBuilderOutbox(ctx, event.TaskID, subject, availablePayload, "pending", stableDedupID); err != nil {
-			return err
-		}
-		if err := w.crashAt(CrashPointOutputAvailableHeld); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-
-	// Publish the OUTPUT_AVAILABLE message. The outbox record itself is the
-	// durable guard against duplicate publication; the Builder transport is
-	// expected to deduplicate on DedupID.
-	if err := w.cfg.Builder.Publish(ctx, builderclient.PublishRequest{
-		Subject: subject,
-		TaskID:  event.TaskID,
-		Payload: availablePayload,
-		DedupID: stableDedupID,
-	}); err != nil {
-		return err
-	}
-
-	w.cfg.Trace.Event("output_available_published",
-		tasktrace.Str("task", event.TaskID), tasktrace.Str("session", event.SessionID),
+	w.cfg.Trace.Event("output_uploaded",
+		tasktrace.Str("task", event.TaskID),
 		tasktrace.Hash("output_hash", outputHash),
-		tasktrace.Hex("task_hash", result.TaskDataReceipt.TaskHash),
-		tasktrace.Str("subject", subject), tasktrace.Str("dedup_id", stableDedupID),
-		tasktrace.Int("payload_bytes", len(availablePayload)))
-	if err := w.crashAt(CrashPointOutputAvailableReleased); err != nil {
-		return err
-	}
+		tasktrace.Bool("already_confirmed", confirmed))
 	return nil
 }

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
+
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
@@ -76,7 +78,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		NowHeight:  func() (uint64, error) { return 100, nil },
 		Treasury:   "treasury-1",
 		FeeDenom:   "utrueopen",
-		Outbox:     registrationOutbox{},
 		SelfTester: passingSelfTest,
 		Signer: func(context.Context, modelregistry.RegistrationMaterial) (string, error) {
 			return strings.Repeat("ab", 64), nil
@@ -116,13 +117,14 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 			Amount:              10,
 			GasLimit:            10,
 		},
-		Mode: modelregistry.SubmitViaBuilder,
+		Mode:   modelregistry.SubmitDirect,
+		DryRun: true,
 	})
 	if err != nil {
 		t.Fatalf("Register returned error: %v", err)
 	}
-	if registration.ManifestHash != manifest.Hash || registration.OutboxID == "" || registration.TxID != "" {
-		t.Fatalf("registration = %#v, want manifest hash and Builder outbox", registration)
+	if registration.ManifestHash != manifest.Hash || !registration.DryRun || registration.Material.SignedEnvelope == "" || registration.TxID != "" {
+		t.Fatalf("registration = %#v, want a signed dry-run registration", registration)
 	}
 	status, err := registry.Support(ctx, modelregistry.SupportRequest{ModelID: manifest.ModelID, Supported: true, DryRun: true})
 	if err != nil {
@@ -175,6 +177,7 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 	generation := generationfixture.New(t, taskID, assignment.ModelID, "E2E_ACCEPTED_TASK_HASH_V1")
 	evidenceSchemaHash := codec.Hash(fakeLockedProfile().Profile.VerificationProfile.EvidenceSchemaHash)
 	workerNode := worker.New(worker.Config{
+		DispatchTicketHash:          codec.HashWithDomain("TEST_DISPATCH_TICKET", []byte("fakes")),
 		WorkerAddress:               "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
 		ModelServiceID:              "fake-model-service",
 		Model:                       model,
@@ -192,7 +195,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		SignerKeyRef:                outputFixture.serviceKeyRef,
 		SignerPubkey:                outputFixture.servicePubkey,
 		Signer:                      outputFixture.signer,
-		NexusEnvelopeSigner:         testNexusEnvelopeSigner(),
 		EvidenceSchemaHash:          hex.EncodeToString(evidenceSchemaHash[:]),
 		ProfileEvidenceRequirements: builderclient.WorkerEvidenceRequirementsV3(),
 		RequiredTopK:                e2eRequiredTopK,
@@ -209,15 +211,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 	}
 	if !infer.Started {
 		t.Fatalf("infer = %#v, want a started responsibility", infer)
-	}
-	outputAvailableCount := 0
-	for _, req := range builder.Published {
-		if req.Subject == builderclient.NATSOutputAvailableSubject(taskID) {
-			outputAvailableCount++
-		}
-	}
-	if outputAvailableCount != 1 {
-		t.Fatalf("OUTPUT_AVAILABLE publishes = %d, want 1", outputAvailableCount)
 	}
 	if len(outputFixture.taskData.SubmittedInferReceipts) == 0 {
 		t.Fatalf("want a submitted infer receipt")
@@ -284,7 +277,6 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		VerifierAddress:           verifierAddress,
 		ModelServiceID:            "fake-model-service",
 		Model:                     model,
-		Builder:                   builder,
 		Persistence:               verifierPersistence{persistence},
 		ChainID:                   "chain-fake",
 		SignerAddress:             verifierAddress,
@@ -295,11 +287,8 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 		// envelope, so the handraise cannot be signed without it.
 		ServiceAuthorizationNonce: 23,
 		FakeOutput:                true,
-		// Fake inference does not make this node's identity fake: it still signs
-		// every outbound envelope. The Worker half of this rig (above) already
-		// supplied a signer; the Verifier half omitting one was the asymmetry
-		// that let the unsigned path survive.
-		NexusEnvelopeSigner: testNexusEnvelopeSigner(),
+		// The handraise goes to the Builder over the frame sender.
+		Sender: &recordingFrameSender{},
 		// The same frozen section 16.2 read the Worker half of this rig serves.
 		// generation_params_digest is a consensus value the verifier copies
 		// through, so the result credential refuses without this reader.
@@ -383,8 +372,8 @@ func TestFakeBackedLLMTextV1EndToEndFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleRevealPhaseStarted error = %v, want a complete result credential", err)
 	}
-	if !reveal.Published || reveal.ResultSigningDigest.IsZero() {
-		t.Fatalf("reveal = %#v, want a published credential with its own TRUEOPEN_RESULT_V1 digest", reveal)
+	if !reveal.Signed || reveal.ResultSigningDigest.IsZero() {
+		t.Fatalf("reveal = %#v, want a signed credential with its own TRUEOPEN_RESULT_V1 digest", reveal)
 	}
 	if reveal.ExpiryHeight != verifierState.RevealDeadlineHeight {
 		t.Fatalf("reveal expiry_height = %d, want the Keeper reveal deadline %d", reveal.ExpiryHeight, verifierState.RevealDeadlineHeight)
@@ -487,10 +476,10 @@ func TestFakeBackedFlowRejectsNonCanonicalAssignmentTaskID(t *testing.T) {
 	model := modelservice.NewFakeService()
 	builder := builderclient.NewFakeClient()
 	workerNode := worker.New(worker.Config{
+		DispatchTicketHash:        codec.HashWithDomain("TEST_DISPATCH_TICKET", []byte("fakes")),
 		WorkerAddress:             "worker-1",
 		ModelServiceID:            "fake-model-service",
 		Model:                     model,
-		Builder:                   builder,
 		InferDeadlineDeltaHeights: 20,
 		ChainID:                   "chain-fake",
 		SignerAddress:             "worker-1",
@@ -515,7 +504,7 @@ func TestFakeBackedFlowRejectsNonCanonicalAssignmentTaskID(t *testing.T) {
 		t.Fatalf("non-canonical task id accepted")
 	}
 	if len(builder.ValidatedPackages) != 0 || len(builder.SubmittedInferReceipts) != 0 ||
-		len(builder.UploadedTaskResults) != 0 || len(builder.Published) != 0 {
+		len(builder.UploadedTaskResults) != 0 {
 		t.Fatalf("builder/task-data effects emitted after non-canonical task id rejection")
 	}
 }
@@ -523,22 +512,6 @@ func TestFakeBackedFlowRejectsNonCanonicalAssignmentTaskID(t *testing.T) {
 func testDigestSigner() signer.DigestSigner {
 	return signer.DigestSignerFunc(func(_ context.Context, request signer.DigestRequest) ([]byte, error) {
 		return e2eCompactSignature(secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{0x51}, 32)), request.Digest), nil
-	})
-}
-
-func testNexusEnvelopeSigner() builderclient.BusEnvelopeSigner {
-	// Bound to the envelope, not a constant: a stub that returns fixed bytes
-	// regardless of what it was asked to sign cannot fail when the signing
-	// preimage changes, which is exactly how a wrong-preimage bug once reached
-	// main with every test green. These flows do not verify the signature, so the
-	// value need not be a real secp256k1 one - it only has to move when the
-	// digest moves.
-	return builderclient.BusEnvelopeSignerFunc(func(envelope builderclient.BusEnvelope) ([]byte, error) {
-		digest, err := builderclient.BusEnvelopeSignDigest(envelope)
-		if err != nil {
-			return nil, err
-		}
-		return append(append([]byte(nil), digest[:]...), digest[:]...), nil
 	})
 }
 
@@ -774,28 +747,11 @@ type e2ePersistence struct {
 	cleanupHeight        uint64
 	refs                 []string
 	byKind               map[string]string
-	builderMessages      map[string]worker.BuilderMessageCheckpoint
 	modelJobs            map[string]worker.ModelJobCheckpoint
 	inferReceipts        map[string]worker.InferReceiptCheckpoint
 	storageConfirmations map[string][]worker.StorageConfirmationCheckpoint
 	artifacts            map[string][]byte
 	builder              *builderclient.FakeClient
-}
-
-func (p *e2ePersistence) WriteBuilderOutbox(_ context.Context, record worker.OutboxRecord) error {
-	status := record.Status
-	if status == "" {
-		status = "pending"
-	}
-	if p.builderMessages == nil {
-		p.builderMessages = make(map[string]worker.BuilderMessageCheckpoint)
-	}
-	digest := fmt.Sprintf("%x", record.Digest[:])
-	p.builderMessages[digest] = worker.BuilderMessageCheckpoint{
-		Digest: digest, Subject: record.Subject, TaskID: record.TaskID,
-		Payload: append([]byte(nil), record.Payload...), Status: status,
-	}
-	return nil
 }
 
 func (p *e2ePersistence) WriteSettleMaterial(ctx context.Context, material verifier.SettleMaterial) error {
@@ -914,10 +870,6 @@ func (p workerPersistence) CheckpointInferOutput(ctx context.Context, taskID str
 	return nil
 }
 
-func (p workerPersistence) WriteBuilderOutbox(ctx context.Context, record worker.OutboxRecord) error {
-	return p.base.WriteBuilderOutbox(ctx, record)
-}
-
 func (p workerPersistence) CheckpointInferInput(context.Context, worker.InferInputCheckpoint) error {
 	return nil
 }
@@ -986,14 +938,6 @@ func (p workerPersistence) StorageConfirmations(_ context.Context, taskID string
 	return append([]worker.StorageConfirmationCheckpoint(nil), p.base.storageConfirmations[taskID]...), nil
 }
 
-func (p workerPersistence) BuilderMessage(_ context.Context, digest string) (worker.BuilderMessageCheckpoint, error) {
-	record, ok := p.base.builderMessages[digest]
-	if !ok {
-		return worker.BuilderMessageCheckpoint{}, worker.ErrCheckpointNotFound
-	}
-	return record, nil
-}
-
 type verifierPersistence struct {
 	base *e2ePersistence
 }
@@ -1042,12 +986,6 @@ func passingSelfTest(_ context.Context, manifest modelregistry.Manifest) (modelr
 	}, nil
 }
 
-type registrationOutbox struct{}
-
-func (registrationOutbox) WriteRegistration(_ context.Context, msg modelregistry.OutboxMessage) (string, error) {
-	return "outbox-" + msg.Material.ManifestHash, nil
-}
-
 func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageSummary {
 	return policy.OutputPackageSummary{
 		TaskID:            pkg.TaskID,
@@ -1061,3 +999,14 @@ func outputPackageSummary(pkg builderclient.OutputPackage) policy.OutputPackageS
 
 // e2eRequiredTopK is the locked Profile's required_top_k in this harness.
 const e2eRequiredTopK = 4
+
+// recordingFrameSender stands in for the Builder stream the Verifier sends its
+// handraise on.
+type recordingFrameSender struct {
+	handraises []*taskv1.VerifierHandraiseV1
+}
+
+func (s *recordingFrameSender) SendVerifierHandraise(_ context.Context, h *taskv1.VerifierHandraiseV1) error {
+	s.handraises = append(s.handraises, h)
+	return nil
+}

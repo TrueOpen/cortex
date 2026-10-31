@@ -34,11 +34,11 @@ func (syntheticEnvelopeIdentification) Identify(raw chainclient.RawChainEvent) c
 		SessionID: raw.Attributes["locator_session_id"],
 	}
 	switch raw.Attributes["synthetic_event"] {
-	case "assign_accepted":
-		identity.Type = chainclient.KeeperEventAssignAcceptedPendingRandomness
+	case "commit_accepted":
+		identity.Type = chainclient.KeeperEventCommitAccepted
 		identity.Known = true
-	case "assignment_finalized":
-		identity.Type = chainclient.KeeperEventAssignmentFinalized
+	case "worker_timeout":
+		identity.Type = chainclient.KeeperEventWorkerTimeout
 		identity.Known = true
 	}
 	return identity
@@ -50,16 +50,16 @@ func (syntheticEnvelopeIdentification) Identify(raw chainclient.RawChainEvent) c
 // encoding it has never seen, and the downstream taskHash-keyed effect is
 // identical. Nothing here reaches into handler internals.
 func TestReconcilerHandlesAlternativelyIdentifiedEventsIdentically(t *testing.T) {
-	const typedEvents = `[{"type":"task.v1.EventWorkerHandraisesAccepted","attributes":[{"key":"session_id","value":"session-1","index":true},{"key":"task_id","value":"task-1","index":true}]},` +
-		`{"type":"task.v1.EventWorkerAssignmentFinalized","attributes":[{"key":"session_id","value":"session-1","index":true},{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"worker-local","index":true}]}]`
-	const syntheticEvents = `[{"type":"` + syntheticEnvelopeABCIType + `","attributes":[{"key":"locator_session_id","value":"session-1","index":true},{"key":"locator_task_id","value":"task-1","index":true},{"key":"synthetic_event","value":"assign_accepted","index":true}]},` +
-		`{"type":"` + syntheticEnvelopeABCIType + `","attributes":[{"key":"locator_session_id","value":"session-1","index":true},{"key":"locator_task_id","value":"task-1","index":true},{"key":"synthetic_event","value":"assignment_finalized","index":true},{"key":"winner_worker","value":"worker-local","index":true}]}]`
+	const typedEvents = `[{"type":"task.v1.EventCommitAccepted","attributes":[{"key":"session_id","value":"session-1","index":true},{"key":"task_id","value":"task-1","index":true}]},` +
+		`{"type":"task.v1.EventWorkerTimeout","attributes":[{"key":"session_id","value":"session-1","index":true},{"key":"task_id","value":"task-1","index":true},{"key":"winner_worker","value":"worker-local","index":true}]}]`
+	const syntheticEvents = `[{"type":"` + syntheticEnvelopeABCIType + `","attributes":[{"key":"locator_session_id","value":"session-1","index":true},{"key":"locator_task_id","value":"task-1","index":true},{"key":"synthetic_event","value":"commit_accepted","index":true}]},` +
+		`{"type":"` + syntheticEnvelopeABCIType + `","attributes":[{"key":"locator_session_id","value":"session-1","index":true},{"key":"locator_task_id","value":"task-1","index":true},{"key":"synthetic_event","value":"worker_timeout","index":true},{"key":"winner_worker","value":"worker-local","index":true}]}]`
 
 	typed := applyIdentifiedBlock(t, nil, typedEvents)
 	synthetic := applyIdentifiedBlock(t, syntheticEnvelopeIdentification{}, syntheticEvents)
 
-	if len(typed.effects) != 1 || typed.effects[0].TaskID != "task-1" || typed.effects[0].Type != ReconcilerEffectAssignment {
-		t.Fatalf("message-name effects = %#v, want assignment for task-1", typed.effects)
+	if len(typed.effects) != 1 || typed.effects[0].TaskID != "task-1" || typed.effects[0].Type != ReconcilerEffectInferTerminal {
+		t.Fatalf("message-name effects = %#v, want infer terminal for task-1", typed.effects)
 	}
 	if len(synthetic.effects) != len(typed.effects) {
 		t.Fatalf("synthetic effects = %#v, want the same as %#v", synthetic.effects, typed.effects)

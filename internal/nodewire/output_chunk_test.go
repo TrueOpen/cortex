@@ -24,7 +24,8 @@ func TestOutputMMRAndChunkSigningPublishedVectors(t *testing.T) {
 			OutputHash  string   `json:"output_hash_hex"`
 		} `json:"mmr"`
 		ChunkSigning struct {
-			Cases []struct {
+			DispatchTicketHash string `json:"dispatch_ticket_hash_hex"`
+			Cases              []struct {
 				Seq      uint64 `json:"seq"`
 				Root     string `json:"mmr_root_hex"`
 				Digest   string `json:"digest_hex"`
@@ -74,14 +75,14 @@ func TestOutputMMRAndChunkSigningPublishedVectors(t *testing.T) {
 		}
 	}
 	for _, tc := range fixture.ChunkSigning.Cases {
-		preimage, err := nodewire.OutputChunkSigningPreimage(fixture.MMR.ChainID, decode(fixture.MMR.TaskHash), tc.Seq, decode(tc.Root))
+		preimage, err := nodewire.OutputChunkSigningPreimage(fixture.MMR.ChainID, decode(fixture.MMR.TaskHash), decode(fixture.ChunkSigning.DispatchTicketHash), tc.Seq, decode(tc.Root))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if tc.Preimage != "" && hex.EncodeToString(preimage) != tc.Preimage {
 			t.Fatal("chunk preimage differs")
 		}
-		digest, err := nodewire.OutputChunkSigningDigest(fixture.MMR.ChainID, decode(fixture.MMR.TaskHash), tc.Seq, decode(tc.Root))
+		digest, err := nodewire.OutputChunkSigningDigest(fixture.MMR.ChainID, decode(fixture.MMR.TaskHash), decode(fixture.ChunkSigning.DispatchTicketHash), tc.Seq, decode(tc.Root))
 		if err != nil || digest.String() != tc.Digest {
 			t.Fatalf("chunk %d digest %s: %v", tc.Seq, digest, err)
 		}
@@ -112,8 +113,13 @@ func TestOutputMMRAndChunkSigningPublishedVectors(t *testing.T) {
 			if tc.Root != "" {
 				root = tc.Root
 			}
-			digest, err := nodewire.OutputChunkSigningDigest(chainID, decode(taskHash), tc.Seq, decode(root))
-			if err != nil || digest.String() != tc.Digest || digest.String() == fixture.ChunkSigning.Cases[tc.Seq].Digest {
+			// wire 916e393 publishes these negative digest_hex values under the
+			// pre-ticket four-field chunk framing, so they cannot be reproduced
+			// once dispatch_ticket_hash is bound (the positive cases above are).
+			// What a negative row still proves is that the mutation moves the
+			// digest away from the accepted case.
+			digest, err := nodewire.OutputChunkSigningDigest(chainID, decode(taskHash), decode(fixture.ChunkSigning.DispatchTicketHash), tc.Seq, decode(root))
+			if err != nil || digest.String() == fixture.ChunkSigning.Cases[tc.Seq].Digest {
 				t.Fatalf("mutated digest %s: %v", digest, err)
 			}
 		})
@@ -122,14 +128,15 @@ func TestOutputMMRAndChunkSigningPublishedVectors(t *testing.T) {
 
 func TestOutputChunkSigningRejectsMalformedFields(t *testing.T) {
 	for _, tc := range []struct {
-		chain      string
-		task, root []byte
+		chain              string
+		task, ticket, root []byte
 	}{
-		{"chain", []byte("short"), make([]byte, 32)},
-		{"chain", make([]byte, 32), []byte("short")},
-		{string([]byte{0xff}), make([]byte, 32), make([]byte, 32)},
+		{"chain", []byte("short"), make([]byte, 32), make([]byte, 32)},
+		{"chain", make([]byte, 32), []byte("short"), make([]byte, 32)},
+		{"chain", make([]byte, 32), make([]byte, 32), []byte("short")},
+		{string([]byte{0xff}), make([]byte, 32), make([]byte, 32), make([]byte, 32)},
 	} {
-		if _, err := nodewire.OutputChunkSigningDigest(tc.chain, tc.task, 0, tc.root); err == nil {
+		if _, err := nodewire.OutputChunkSigningDigest(tc.chain, tc.task, tc.ticket, 0, tc.root); err == nil {
 			t.Fatal("malformed chunk signing input accepted")
 		}
 	}
@@ -142,11 +149,12 @@ func TestOutputFinSigningWireVectors(t *testing.T) {
 	}
 	var fixture struct {
 		Fin struct {
-			ChainID  string `json:"chain_id"`
-			TaskHash string `json:"task_hash_hex"`
-			FinalSeq uint64 `json:"final_seq"`
-			Root     string `json:"output_mmr_root_hex"`
-			Reasons  []struct {
+			ChainID            string `json:"chain_id"`
+			TaskHash           string `json:"task_hash_hex"`
+			DispatchTicketHash string `json:"dispatch_ticket_hash_hex"`
+			FinalSeq           uint64 `json:"final_seq"`
+			Root               string `json:"output_mmr_root_hex"`
+			Reasons            []struct {
 				Value  int32  `json:"value"`
 				Digest string `json:"digest_hex"`
 			} `json:"accepted_finish_reasons"`
@@ -174,26 +182,26 @@ func TestOutputFinSigningWireVectors(t *testing.T) {
 		return decoded
 	}
 	for _, reason := range fixture.Fin.Reasons {
-		preimage, err := nodewire.OutputFinSigningPreimage(fixture.Fin.ChainID, decode(fixture.Fin.TaskHash), fixture.Fin.FinalSeq, decode(fixture.Fin.Root), nodewire.FinishReasonV1(reason.Value))
+		preimage, err := nodewire.OutputFinSigningPreimage(fixture.Fin.ChainID, decode(fixture.Fin.TaskHash), decode(fixture.Fin.DispatchTicketHash), fixture.Fin.FinalSeq, decode(fixture.Fin.Root), nodewire.FinishReasonV1(reason.Value))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if reason.Value == int32(nodewire.FinishReasonV1EosToken) && hex.EncodeToString(preimage) != fixture.Fin.Preimage {
 			t.Fatal("Fin preimage differs")
 		}
-		digest, err := nodewire.OutputFinSigningDigest(fixture.Fin.ChainID, decode(fixture.Fin.TaskHash), fixture.Fin.FinalSeq, decode(fixture.Fin.Root), nodewire.FinishReasonV1(reason.Value))
+		digest, err := nodewire.OutputFinSigningDigest(fixture.Fin.ChainID, decode(fixture.Fin.TaskHash), decode(fixture.Fin.DispatchTicketHash), fixture.Fin.FinalSeq, decode(fixture.Fin.Root), nodewire.FinishReasonV1(reason.Value))
 		if err != nil || digest.String() != reason.Digest {
 			t.Fatalf("Fin reason %d digest %s: %v", reason.Value, digest, err)
 		}
 	}
 	for _, rejected := range fixture.Fin.Rejected {
-		if _, err := nodewire.OutputFinSigningDigest(fixture.Fin.ChainID, decode(fixture.Fin.TaskHash), fixture.Fin.FinalSeq, decode(fixture.Fin.Root), nodewire.FinishReasonV1(rejected.Value)); err == nil {
+		if _, err := nodewire.OutputFinSigningDigest(fixture.Fin.ChainID, decode(fixture.Fin.TaskHash), decode(fixture.Fin.DispatchTicketHash), fixture.Fin.FinalSeq, decode(fixture.Fin.Root), nodewire.FinishReasonV1(rejected.Value)); err == nil {
 			t.Fatalf("rejected finish reason %d accepted", rejected.Value)
 		}
 	}
 	base := fixture.Fin.Reasons[0].Digest
 	for _, mutation := range fixture.Fin.Mutations {
-		chainID, taskHash, finalSeq, root, reason := fixture.Fin.ChainID, fixture.Fin.TaskHash, fixture.Fin.FinalSeq, fixture.Fin.Root, nodewire.FinishReasonV1EosToken
+		chainID, taskHash, ticket, finalSeq, root, reason := fixture.Fin.ChainID, fixture.Fin.TaskHash, fixture.Fin.DispatchTicketHash, fixture.Fin.FinalSeq, fixture.Fin.Root, nodewire.FinishReasonV1EosToken
 		switch mutation.Field {
 		case "chain_id":
 			chainID = mutation.Value.(string)
@@ -205,10 +213,12 @@ func TestOutputFinSigningWireVectors(t *testing.T) {
 			root = mutation.ValueHex
 		case "finish_reason":
 			reason = nodewire.FinishReasonV1(int32(mutation.Value.(float64)))
+		case "dispatch_ticket_hash":
+			ticket = mutation.ValueHex
 		default:
 			t.Fatalf("unknown mutation field %q", mutation.Field)
 		}
-		digest, err := nodewire.OutputFinSigningDigest(chainID, decode(taskHash), finalSeq, decode(root), reason)
+		digest, err := nodewire.OutputFinSigningDigest(chainID, decode(taskHash), decode(ticket), finalSeq, decode(root), reason)
 		if err != nil || digest.String() != mutation.Digest || digest.String() == base {
 			t.Fatalf("Fin mutation %s digest %s: %v", mutation.Field, digest, err)
 		}

@@ -121,7 +121,7 @@ func TestFramesSignedBeforeTheStreamOpensAreSentInOrderOnce(t *testing.T) {
 	}
 	observeText(t, recorder, "frame two, after the open")
 	output := "frame zeroframe one, longerframe two, after the open"
-	if _, err := recorder.finish(context.Background(), []byte(output)); err != nil {
+	if _, err := recorder.finish(context.Background(), []byte(output), 0); err != nil {
 		t.Fatal(err)
 	}
 	sent := gated.sentSeqs()
@@ -157,7 +157,7 @@ func TestAFailedConcurrentOpenKeepsGeneratingAndJournaling(t *testing.T) {
 	defer recorder.release()
 	observeText(t, recorder, "frame zero")
 	observeText(t, recorder, "frame one")
-	if _, err := recorder.finish(context.Background(), []byte("frame zeroframe one")); err != nil {
+	if _, err := recorder.finish(context.Background(), []byte("frame zeroframe one"), 0); err != nil {
 		t.Fatalf("finish = %v, want success with the transport error kept", err)
 	}
 	if !errors.Is(recorder.transportErr, refused) {

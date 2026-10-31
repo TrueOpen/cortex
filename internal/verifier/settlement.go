@@ -25,12 +25,14 @@ type SettlementConfig struct {
 	Tx               txclient.Client
 	GasPayer         string
 	FeeCap           txclient.Coin
-	// CommitFeeCap bounds the commit exit specifically. The exit runs on every
-	// verify round of a real-mode node, so it is the one path whose per-tx cost
-	// an operator may want held below the general tx ceiling; deployment wiring
-	// narrows it with self_rescue.max_fee_amount. Zero falls back to FeeCap,
-	// which the broadcaster then checks against tx.max_fee_amount, so there is
-	// no configuration in which the exit submits with no cap at all.
+	// CommitFeeCap bounds the verify round's self-submissions: the commit, the
+	// result (SubmitVerifyResultDirect) and the data unavailable report. They
+	// run on every verify round of a real-mode node, so they are the paths
+	// whose per-tx cost an operator may want held below the general tx
+	// ceiling; deployment wiring narrows it with self_rescue.max_fee_amount.
+	// Zero falls back to FeeCap, which the broadcaster then checks against
+	// tx.max_fee_amount, so there is no configuration in which they submit
+	// with no cap at all.
 	CommitFeeCap  txclient.Coin
 	FeeGrant      string
 	Memo          string
@@ -179,6 +181,32 @@ func (m *SettlementManager) SubmitVerifyCommitDirect(ctx context.Context, in Dir
 		// two indistinguishable in the tx lifecycle records an operator reads
 		// to answer "which exit sent this".
 		MaterialDigest: codec.HashWithDomain("TRUEOPEN_VERIFIER_COMMIT_SELF_SUBMIT_MATERIAL_V1", []byte(in.TaskID), payload),
+		FeeCap:         m.cfg.CommitFeeCap,
+	})
+	if err != nil {
+		return SettlementObservation{}, err
+	}
+	return SettlementObservation{Submitted: true, Tx: tx}, nil
+}
+
+// SubmitVerifyResultDirect self-submits the signed result (CD §6.2 V15). The
+// result relay through the Task Builder is deferred (S7 Q7), so this is the
+// result's only exit; it shares the commit exit's operator checks and fee cap.
+func (m *SettlementManager) SubmitVerifyResultDirect(ctx context.Context, in DirectResultInput) (SettlementObservation, error) {
+	if strings.TrimSpace(in.TaskID) == "" || in.DeadlineHeight == 0 {
+		return SettlementObservation{}, fmt.Errorf("verify result self-submission requires a task id and the reveal deadline height")
+	}
+	if err := m.validateCortexOperator(txclient.MsgSubmitVerifyResult, in.Message); err != nil {
+		return SettlementObservation{}, err
+	}
+	payload, err := txclient.MarshalMessage(txclient.MsgSubmitVerifyResult, in.Message)
+	if err != nil {
+		return SettlementObservation{}, err
+	}
+	tx, err := m.submit(ctx, txclient.Request{
+		TaskID: in.TaskID, SessionID: in.SessionID, Kind: txclient.MsgSubmitVerifyResult, Payload: payload,
+		DeadlineHeight: in.DeadlineHeight,
+		MaterialDigest: codec.HashWithDomain("TRUEOPEN_VERIFIER_RESULT_SELF_SUBMIT_MATERIAL_V1", []byte(in.TaskID), payload),
 		FeeCap:         m.cfg.CommitFeeCap,
 	})
 	if err != nil {

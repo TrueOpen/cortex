@@ -20,6 +20,10 @@ import (
 func TestReceivingBuilderProviderRedirectsRelayUploadAndConfirmation(t *testing.T) {
 	h := newHarness(t)
 	event := finalizedTask()
+	// Output frames go to the dispatching Builder only (C1), so the Builder the
+	// provider names has to be the one that dispatched the ticket.
+	event.BuilderOperatorAddress = "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe"
+	h.snapshotReader.seedFrom(event)
 	otherPrivate := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{0x53}, 32))
 	otherPubkey := hex.EncodeToString(otherPrivate.PubKey().SerializeCompressed())
 	// The alternative Builder holds the task under the same identity, and signs

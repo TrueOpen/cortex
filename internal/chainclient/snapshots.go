@@ -115,6 +115,20 @@ type ServiceKeySnapshot struct {
 	AuthorizationNonce       Uint64String `json:"authorization_nonce"`
 	RevokedHeight            Uint64String `json:"revoked_height"`
 	Status                   string       `json:"status"`
+	// HasPendingRotation is set while a MsgRotateServiceKey replacement is
+	// registered but not yet active (wire PHASE1_CONTRACT "Delayed key
+	// cutover"). The current fields above stay authoritative until
+	// activation; Cortex stops taking new duty meanwhile (CD §8.4).
+	HasPendingRotation bool                              `json:"has_pending_rotation,omitempty"`
+	PendingRotation    PendingServiceKeyRotationSnapshot `json:"pending_rotation,omitempty"`
+}
+
+// PendingServiceKeyRotationSnapshot is hub.v1.PendingServiceKeyRotationState.
+type PendingServiceKeyRotationSnapshot struct {
+	RegisteredHeight       uint64 `json:"registered_height"`
+	EffectiveHeight        uint64 `json:"effective_height"`
+	OldMaterialCloseHeight uint64 `json:"old_material_close_height"`
+	NextAuthorizationNonce uint64 `json:"next_service_authorization_nonce"`
 }
 
 type ModelSnapshot struct {

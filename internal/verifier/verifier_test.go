@@ -28,7 +28,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/txclient"
-	bustaskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -56,8 +55,8 @@ func TestHandraiseOccursBeforeOpenVerifyAccepted(t *testing.T) {
 	if !result.Signed {
 		t.Fatalf("verifier handraise was not signed")
 	}
-	if len(h.builder.Published) != 1 {
-		t.Fatalf("published messages = %d, want handraise", len(h.builder.Published))
+	if len(h.sender.handraises) != 1 {
+		t.Fatalf("published messages = %d, want handraise", len(h.sender.handraises))
 	}
 	if h.model.VerifyCalls != 0 {
 		t.Fatalf("verify calls = %d, want no verify before open verify", h.model.VerifyCalls)
@@ -67,7 +66,7 @@ func TestHandraiseOccursBeforeOpenVerifyAccepted(t *testing.T) {
 func TestVerifierHandraisePersistsBeforePublishing(t *testing.T) {
 	h := newHarness(t)
 	events := []string{}
-	h.builder.Events = &events
+	h.sender.events = &events
 	h.persistence.events = &events
 	state := h.validTask()
 	state.OpenVerifyAccepted = false
@@ -92,28 +91,26 @@ func TestVerifierHandraisePersistsBeforePublishing(t *testing.T) {
 	if h.persistence.settle[0].Kind != "verifier-handraise" {
 		t.Fatalf("settle kind = %q, want verifier-handraise", h.persistence.settle[0].Kind)
 	}
-	wantSubject := builderclient.NATSVerifierHandraiseSubject(state.TaskID)
 	wantEvents := []string{
 		"evidence:verifier-handraise",
 		"settle:verifier-handraise",
-		"builder:publish",
+		"sender:verifier-handraise",
 	}
 	if strings.Join(events, "|") != strings.Join(wantEvents, "|") {
 		t.Fatalf("events = %#v, want %#v", events, wantEvents)
 	}
-	if len(h.builder.Published) != 1 || h.builder.Published[0].Subject != wantSubject {
-		t.Fatalf("published = %#v, want subject %q", h.builder.Published, wantSubject)
+	if len(h.sender.handraises) != 1 {
+		t.Fatalf("sent handraises = %d, want 1", len(h.sender.handraises))
 	}
-	envelope, err := builderclient.DecodeBusEnvelope(h.builder.Published[0].Payload)
+	handraise := h.sender.handraises[0]
+	persisted, err := proto.Marshal(handraise)
 	if err != nil {
-		t.Fatalf("decode verifier handraise envelope: %v", err)
+		t.Fatal(err)
 	}
-	var handraise bustaskv1.VerifierHandraiseV1
-	if err := envelope.DecodePayload(&handraise); err != nil {
-		t.Fatalf("decode verifier handraise payload: %v", err)
+	if !bytes.Equal(h.persistence.evidence[0].Data, persisted) {
+		t.Fatal("persisted handraise evidence is not the sent message")
 	}
-	if envelope.Kind != builderclient.KindVerifierHandraise || envelope.SenderOperatorAddress != fixtureVerifierAddress ||
-		handraise.GetSchemaVersion() != 1 || handraise.GetChainId() != h.verifier.cfg.ChainID ||
+	if handraise.GetSchemaVersion() != 1 || handraise.GetChainId() != h.verifier.cfg.ChainID ||
 		hex.EncodeToString(handraise.GetTaskId()) != state.TaskID ||
 		handraise.GetVerifyRound() != uint32(state.VerifyRound) ||
 		!bytes.Equal(handraise.GetInferReceiptHash(), state.InferReceiptHash[:]) ||
@@ -123,11 +120,22 @@ func TestVerifierHandraisePersistsBeforePublishing(t *testing.T) {
 		handraise.GetDuty() != 2 ||
 		handraise.GetServiceAuthorizationNonce() != h.verifier.cfg.ServiceAuthorizationNonce ||
 		handraise.GetExpiryHeight() != state.HandraiseExpiryHeight || len(handraise.GetServiceSignature()) != 64 {
-		t.Fatalf("verifier handraise = %#v", &handraise)
+		t.Fatalf("verifier handraise = %#v", handraise)
 	}
-	if envelope.SenderParticipantType != builderclient.ParticipantCortex ||
-		envelope.ServiceAuthorizationNonce != h.verifier.cfg.ServiceAuthorizationNonce {
-		t.Fatalf("verifier handraise envelope = %#v", envelope)
+}
+
+// A Verifier with no way to deliver a handraise must not sign one.
+func TestVerifierHandraiseRequiresFrameSender(t *testing.T) {
+	h := newHarness(t)
+	h.verifier.cfg.Sender = nil
+	state := h.validTask()
+	state.OpenVerifyAccepted = false
+
+	if _, err := h.verifier.EvaluateAndHandraise(context.Background(), state); err == nil {
+		t.Fatal("EvaluateAndHandraise error = nil, want the missing frame sender refused")
+	}
+	if len(h.persistence.evidence) != 0 || len(h.persistence.settle) != 0 {
+		t.Fatalf("side effects without a frame sender: evidence=%d settle=%d", len(h.persistence.evidence), len(h.persistence.settle))
 	}
 }
 
@@ -144,61 +152,8 @@ func TestVerifierHandraiseRejectDoesNotPersistOrPublish(t *testing.T) {
 	if result.Signed {
 		t.Fatalf("verifier handraise signed rejected state")
 	}
-	if len(h.persistence.evidence) != 0 || len(h.persistence.settle) != 0 || len(h.builder.Published) != 0 {
-		t.Fatalf("side effects on rejected handraise: evidence=%d settle=%d publish=%d", len(h.persistence.evidence), len(h.persistence.settle), len(h.builder.Published))
-	}
-}
-
-func TestVerifierHandraiseRequiresEnvelopeSignerOutsideFixtures(t *testing.T) {
-	h := newHarness(t)
-	h.verifier.cfg.NexusEnvelopeSigner = nil
-	h.verifier.cfg.FakeOutput = false
-	state := h.validTask()
-	state.OpenVerifyAccepted = false
-
-	_, err := h.verifier.EvaluateAndHandraise(context.Background(), state)
-	if !errors.Is(err, builderclient.ErrBusEnvelopeAuthenticationUnavailable) {
-		t.Fatalf("EvaluateAndHandraise error = %v, want envelope authentication unavailable", err)
-	}
-	if len(h.persistence.evidence) != 0 || len(h.persistence.settle) != 0 || len(h.builder.Published) != 0 {
-		t.Fatalf("side effects before authenticated envelope: evidence=%d settle=%d publish=%d", len(h.persistence.evidence), len(h.persistence.settle), len(h.builder.Published))
-	}
-}
-
-func TestTrustedNATSDevEncodesUnsignedVerifierEnvelope(t *testing.T) {
-	v := New(Config{TrustedNATSDev: true})
-	input := builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindVerifyResult, ChainID: "chain-A", Subject: builderclient.NATSVerifyResultSubject("task-1"),
-		SenderOperatorAddress: fixtureVerifierAddress, SenderParticipantType: builderclient.ParticipantCortex,
-		ServiceAuthorizationNonce: 11,
-	}
-	message, err := builderclient.ResultReceiptProto(nodewire.ResultReceiptV3{
-		SchemaVersion: nodewire.ResultReceiptSchemaVersionV3, ChainID: "chain-A", TaskID: bytes.Repeat([]byte{0xab}, 32),
-		VerifyRound: 1, VerifierOperatorAddress: fixtureVerifierAddress,
-		ServiceAuthorizationNonce:         11,
-		GenerationParamsDigest:            bytes.Repeat([]byte{0x01}, 32),
-		MetricRoot:                        bytes.Repeat([]byte{0x02}, 32),
-		MetricSummary:                     nodewire.MetricSummaryV1{FiniteCount: 1},
-		AggregateProofHash:                bytes.Repeat([]byte{0x03}, 32),
-		VerifierEvidenceBundleHash:        bytes.Repeat([]byte{0x04}, 32),
-		VerifierEvidenceManifestSizeBytes: 123,
-		Salt:                              bytes.Repeat([]byte{0x06}, 32),
-		ExpiryHeight:                      9, ServiceSignature: bytes.Repeat([]byte{0x05}, 64),
-		VerifierValueRoot: bytes.Repeat([]byte{0x07}, 32), MetricLeafCount: 1, VerifierEvidenceKeyCommitment: make([]byte, 32),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := v.encodeNexusMessage(input, message)
-	if err != nil {
-		t.Fatalf("encodeNexusMessage error = %v", err)
-	}
-	envelope, err := builderclient.DecodeBusEnvelope(encoded)
-	if err != nil {
-		t.Fatalf("DecodeBusEnvelope error = %v", err)
-	}
-	if len(envelope.Signature) != 0 || envelope.Subject != input.Subject {
-		t.Fatalf("trusted verifier envelope = %#v", envelope)
+	if len(h.persistence.evidence) != 0 || len(h.persistence.settle) != 0 || len(h.sender.handraises) != 0 {
+		t.Fatalf("side effects on rejected handraise: evidence=%d settle=%d publish=%d", len(h.persistence.evidence), len(h.persistence.settle), len(h.sender.handraises))
 	}
 }
 
@@ -215,7 +170,7 @@ func TestHandraiseRejectsAfterOpenVerifyAccepted(t *testing.T) {
 	if result.Signed {
 		t.Fatalf("verifier handraise signed after OpenVerify accepted")
 	}
-	if len(h.builder.Published) != 0 {
+	if len(h.sender.handraises) != 0 {
 		t.Fatalf("published handraise after OpenVerify accepted")
 	}
 	if result.Decision.RejectCode != "L4_OPEN_VERIFY_ALREADY_ACCEPTED" {
@@ -237,7 +192,7 @@ func TestHandraiseRejectsMissingTaskIdentityBeforeSigning(t *testing.T) {
 	if result.Signed {
 		t.Fatalf("verifier handraise signed without task identity")
 	}
-	if len(h.builder.Published) != 0 {
+	if len(h.sender.handraises) != 0 {
 		t.Fatalf("published handraise without task identity")
 	}
 	if result.Decision.RejectCode != "L2_TASK_IDENTITY_MISSING" {
@@ -267,8 +222,8 @@ func TestVerifierDoesNotSignHandraiseUntilOutputIsConfirmed(t *testing.T) {
 	if result.Decision.RejectCode != "L2_OUTPUT_PACKAGE_MISSING" {
 		t.Fatalf("reject code = %q, want L2_OUTPUT_PACKAGE_MISSING", result.Decision.RejectCode)
 	}
-	if len(h.persistence.evidence) != 0 || len(h.builder.Published) != 0 {
-		t.Fatalf("side effects on an unconfirmed output: evidence=%d publish=%d", len(h.persistence.evidence), len(h.builder.Published))
+	if len(h.persistence.evidence) != 0 || len(h.sender.handraises) != 0 {
+		t.Fatalf("side effects on an unconfirmed output: evidence=%d publish=%d", len(h.persistence.evidence), len(h.sender.handraises))
 	}
 
 	// A Builder client cannot substitute for the confirmation: there is no
@@ -496,8 +451,11 @@ func TestVerifyStoresEvidenceAndCommitMaterialsWithoutFullRevealInSettleInput(t 
 
 	result := verifyLocally(t, h, state)
 
-	if result.CommitHash == (codec.Hash{}) || result.ResultDigest == (codec.Hash{}) || result.Salt == (codec.Hash{}) {
+	if result.CommitHash == (codec.Hash{}) || result.Salt == (codec.Hash{}) || result.MetricMaterial.VerifierValueRoot.IsZero() {
 		t.Fatalf("missing commit materials: %#v", result)
+	}
+	if !result.ResultDigest.IsZero() {
+		t.Fatalf("result digest %s exists at commit time; the reveal payload is built only once the round is REVEALING", result.ResultDigest)
 	}
 	if len(h.persistence.evidence) != 4 {
 		t.Fatalf("evidence writes = %d, want V_i, reveal skeleton, commit receipt, confirmed delivery", len(h.persistence.evidence))
@@ -563,8 +521,8 @@ func TestVerifyNormalPathSelfSubmitsTheCommitAndPublishesNothing(t *testing.T) {
 	if len(h.persistence.settle) != 1 || !bytes.Equal(h.persistence.settle[0].Payload, requests[0].Payload) {
 		t.Fatalf("submitted payload differs from the persisted commit receipt")
 	}
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("published = %#v, want nothing: the commit path never reveals", h.builder.Published)
+	if len(*h.finalized) != 0 {
+		t.Fatalf("published = %#v, want nothing: the commit path never reveals", *h.finalized)
 	}
 }
 
@@ -800,8 +758,8 @@ func TestCommitHalfPublishesNoRevealAtAll(t *testing.T) {
 
 	result := verifyLocally(t, h, state)
 
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("bus publishes on the commit path = %d, want 0: %#v", len(h.builder.Published), h.builder.Published)
+	if len(*h.finalized) != 0 {
+		t.Fatalf("result credentials signed on the commit path = %d, want 0: %#v", len(*h.finalized), *h.finalized)
 	}
 	if !result.CommitDelivery.ChainAccepted {
 		t.Fatalf("delivery = %#v, want the commit itself to have landed", result.CommitDelivery)
@@ -811,8 +769,8 @@ func TestCommitHalfPublishesNoRevealAtAll(t *testing.T) {
 	// boundary rather than about an inability: the credential is complete, so a
 	// commit path that assembled one would have published it.
 	revealLocally(t, h, state)
-	if len(h.builder.Published) != 1 {
-		t.Fatalf("bus publishes after the reveal = %d, want exactly the result credential", len(h.builder.Published))
+	if len(*h.finalized) != 1 {
+		t.Fatalf("result credentials after the reveal = %d, want exactly one", len(*h.finalized))
 	}
 }
 
@@ -845,8 +803,8 @@ func TestRevealRefusesUntilThePhaseStarts(t *testing.T) {
 	if errors.Is(err, ErrResultReceiptInputUnavailable) {
 		t.Fatalf("error = %v, want the wait kept distinct from the frozen-input gap", err)
 	}
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("published = %#v, want nothing before the reveal phase opens", h.builder.Published)
+	if len(*h.finalized) != 0 {
+		t.Fatalf("published = %#v, want nothing before the reveal phase opens", *h.finalized)
 	}
 }
 
@@ -863,10 +821,10 @@ func TestRevealCredentialIsCompleteOnceTheMetricPipelineRuns(t *testing.T) {
 	h := newHarness(t)
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
-	result := verifyLocally(t, h, state)
+	verifyLocally(t, h, state)
 
 	reveal := revealLocally(t, h, state)
-	if !reveal.Published {
+	if !reveal.Signed {
 		t.Fatalf("reveal did not publish: %#v", reveal)
 	}
 	if reveal.ResultSigningDigest.IsZero() {
@@ -874,7 +832,7 @@ func TestRevealCredentialIsCompleteOnceTheMetricPipelineRuns(t *testing.T) {
 	}
 	// The three values this issue exists to produce, checked against the ones
 	// the verify run derived rather than merely against "not zero".
-	material := result.MetricMaterial
+	material := reveal.MetricMaterial
 	if material.Root.IsZero() || material.AggregateProof.Hash.IsZero() || material.LeafCount == 0 {
 		t.Fatalf("verify produced no metric material: %#v", material)
 	}
@@ -902,22 +860,19 @@ func TestRevealCredentialIsCompleteAfterVerifierRestart(t *testing.T) {
 
 	h.verifier = New(h.verifier.cfg)
 	reveal := revealLocally(t, h, state)
-	if !reveal.Published {
+	if !reveal.Signed {
 		t.Fatalf("reveal after restart did not publish: %#v", reveal)
 	}
 
 	// The restarted process must sign the SAME body, not merely some body: the
 	// commit already on chain is bound to this run's material.
 	receipt := publishedResultReceipt(t, h)
-	if !bytes.Equal(receipt.MetricRoot, before.MetricMaterial.Root[:]) {
-		t.Fatalf("metric_root after restart = %x, want the persisted %x", receipt.MetricRoot, before.MetricMaterial.Root[:])
+	if !bytes.Equal(receipt.VerifierValueRoot, before.MetricMaterial.VerifierValueRoot[:]) || !bytes.Equal(receipt.Salt, before.Salt[:]) {
+		t.Fatalf("receipt after restart carries root %x salt %x, want the committed %s and %s",
+			receipt.VerifierValueRoot, receipt.Salt, before.MetricMaterial.VerifierValueRoot, before.Salt)
 	}
-	if !bytes.Equal(receipt.AggregateProofHash, before.MetricMaterial.AggregateProof.Hash[:]) {
-		t.Fatalf("aggregate_proof_hash after restart = %x, want the persisted %x",
-			receipt.AggregateProofHash, before.MetricMaterial.AggregateProof.Hash[:])
-	}
-	if receipt.MetricSummary != before.MetricMaterial.Summary {
-		t.Fatalf("metric_summary after restart = %#v, want the persisted %#v", receipt.MetricSummary, before.MetricMaterial.Summary)
+	if !bytes.Equal(receipt.MetricRoot, reveal.MetricMaterial.Root[:]) || receipt.MetricSummary != reveal.MetricMaterial.Summary {
+		t.Fatal("the signed metric material differs from the material the reveal derived")
 	}
 }
 
@@ -951,8 +906,8 @@ func TestNoMetricMaterialStopsTheCommitNotJustTheReveal(t *testing.T) {
 	if len(h.tx.Requests()) != 0 {
 		t.Fatalf("tx requests = %#v, want nothing: a commit the chain cannot re-derive must not be submitted", h.tx.Requests())
 	}
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("published = %#v, want nothing", h.builder.Published)
+	if len(*h.finalized) != 0 {
+		t.Fatalf("published = %#v, want nothing", *h.finalized)
 	}
 }
 
@@ -1051,8 +1006,12 @@ func TestLateCurrentHeightRejectsVerifyBeforeModelCall(t *testing.T) {
 }
 
 type harness struct {
-	model       *countingModel
-	builder     *builderclient.FakeClient
+	model   *countingModel
+	builder *builderclient.FakeClient
+	sender  *recordingSender
+	// finalized holds every signed result credential the reveal handed to the
+	// evidence publisher, in order.
+	finalized   *[]nodewire.ResultReceiptV3
 	persistence *recordingPersistence
 	tx          *txclienttest.Fake
 	verifier    *Verifier
@@ -1064,12 +1023,17 @@ func newHarness(t *testing.T) harness {
 	builder := builderclient.NewFakeClient()
 	persistence := &recordingPersistence{}
 	tx := txclienttest.NewFake()
+	sender := &recordingSender{}
+	finalized := &[]nodewire.ResultReceiptV3{}
 	v := New(Config{
-		EvidencePublisher:         evidencePublisherStub{},
+		EvidencePublisher: evidencePublisherStub{publish: func(_ TaskState, receipt nodewire.ResultReceiptV3, _, _ []byte) error {
+			*finalized = append(*finalized, receipt)
+			return nil
+		}},
+		Sender:                    sender,
 		VerifierAddress:           fixtureVerifierAddress,
 		ModelServiceID:            "fake-model-service",
 		Model:                     model,
-		Builder:                   builder,
 		Persistence:               persistence,
 		ChainID:                   "chain-A",
 		SignerAddress:             "service-1",
@@ -1077,11 +1041,6 @@ func newHarness(t *testing.T) harness {
 		Signer:                    testDigestSigner(),
 		VerifyDeadlineDeltaHeight: 40,
 		FakeOutput:                true,
-		// A fake-inference node signs envelopes just the same: FakeOutput says the output
-		// is synthetic, not that this node's identity is fake. The harness must therefore
-		// provide a signer, or the test exercises an "unsigned" path that exists in no
-		// real deployment.
-		NexusEnvelopeSigner: testEnvelopeSigner(),
 		// The daemon does not publish the binding nonce into the task plane yet;
 		// the tests supply it so the frozen commit/result wires can be built.
 		ServiceAuthorizationNonce: 11,
@@ -1103,7 +1062,7 @@ func newHarness(t *testing.T) harness {
 		// credential at all.
 		ProfileReader: &fixtureProfileReader{profile: fixtureLockedProfile()},
 	})
-	return harness{model: model, builder: builder, persistence: persistence, tx: tx, verifier: v}
+	return harness{model: model, builder: builder, sender: sender, finalized: finalized, persistence: persistence, tx: tx, verifier: v}
 }
 
 // fixtureProfileReader serves one locked profile snapshot. Tests that need a
@@ -1197,15 +1156,6 @@ func testCommitSubmitter(tx txclient.Client) CommitSubmitter {
 // bytes for every request cannot tell a signature over the frozen body apart
 // from a signature over anything else, which is precisely why the retired
 // pre-freeze commit preimage survived the cutover unnoticed.
-// testEnvelopeSigner is a deterministic envelope signer: same origin as
-// testDigestSigner, returning a fixed signature of a legal length (64 bytes) for
-// cases that do not check signature content.
-func testEnvelopeSigner() builderclient.BusEnvelopeSigner {
-	return builderclient.BusEnvelopeSignerFunc(func(envelope builderclient.BusEnvelope) ([]byte, error) {
-		return fixtureSignature(codec.HashWithDomain("TEST_ENVELOPE_V1", []byte(envelope.MessageID))), nil
-	})
-}
-
 func testDigestSigner() signer.DigestSigner {
 	return signer.DigestSignerFunc(func(_ context.Context, req signer.DigestRequest) ([]byte, error) {
 		return fixtureSignature(req.Digest), nil
@@ -1311,8 +1261,7 @@ func (h harness) validTask() TaskState {
 		FutureBeaconID:              "proposer-vrf-epoch-12",
 		CommitDeadlineHeight:        260,
 		RevealDeadlineHeight:        300,
-		// TRUEOPEN_BUS_ENVELOPE_V1 fields 11 and 12. Every verifier-stage message is
-		// OPEN_VERIFY, so the admissible authority is the Task's locked reference.
+		// The Task's locked BuilderSet reference.
 	}
 }
 
@@ -1346,65 +1295,14 @@ func canonicalTaskID(sessionID string, orderSequence uint64) string {
 	return identity.TaskIDString(sessionID, orderSequence)
 }
 
-// publishedResultReceipt rebuilds the frozen result credential from the bytes
-// that actually went onto the bus.
-//
-// It decodes rather than reading a struct the production code handed back, for
-// the same reason frozenResultFromSubmitted exists: the assertion has to be
-// about what was PUBLISHED. A body that was assembled correctly and then
-// published as something else is precisely the failure a returned struct cannot
-// see.
+// publishedResultReceipt returns the signed result credential the reveal handed
+// to the evidence publisher, which is the body the node finalized and signed.
 func publishedResultReceipt(t *testing.T, h harness) nodewire.ResultReceiptV3 {
 	t.Helper()
-	if len(h.builder.Published) != 1 {
-		t.Fatalf("published messages = %d, want exactly the result credential", len(h.builder.Published))
+	if len(*h.finalized) != 1 {
+		t.Fatalf("finalized result credentials = %d, want exactly one", len(*h.finalized))
 	}
-	envelope, err := builderclient.DecodeBusEnvelope(h.builder.Published[0].Payload)
-	if err != nil {
-		t.Fatalf("DecodeBusEnvelope: %v", err)
-	}
-	var wire bustaskv1.ResultReceiptV3
-	if err := proto.Unmarshal(envelope.Payload, &wire); err != nil {
-		t.Fatalf("unmarshal published ResultReceiptV3: %v", err)
-	}
-	optional := func(value *uint32) nodewire.OptionalUint32 {
-		if value == nil {
-			return nodewire.OptionalUint32{}
-		}
-		return nodewire.PresentUint32(*value)
-	}
-	summary := wire.GetMetricSummary()
-	return nodewire.ResultReceiptV3{
-		SchemaVersion:             wire.GetSchemaVersion(),
-		ChainID:                   wire.GetChainId(),
-		TaskID:                    wire.GetTaskId(),
-		VerifyRound:               wire.GetVerifyRound(),
-		VerifierOperatorAddress:   wire.GetVerifierOperatorAddress(),
-		ServiceAuthorizationNonce: wire.GetServiceAuthorizationNonce(),
-		GenerationParamsDigest:    wire.GetGenerationParamsDigest(),
-		MetricRoot:                wire.GetMetricRoot(),
-		MetricSummary: nodewire.MetricSummaryV1{
-			FiniteCount:               summary.GetFiniteCount(),
-			MissingComparedCount:      summary.GetMissingComparedCount(),
-			MeanAbsLogprobDiffFP1e6:   summary.GetMeanAbsLogprobDiffFp_1E6(),
-			AbsLogprobDiffP95FP1e6:    summary.GetAbsLogprobDiffP95Fp_1E6(),
-			AbsLogprobDiffP99FP1e6:    summary.GetAbsLogprobDiffP99Fp_1E6(),
-			RankDeltaNonzeroRateFP1e6: summary.GetRankDeltaNonzeroRateFp_1E6(),
-			TopkJaccardMeanFP1e6:      optional(summary.TopkJaccardMeanFp_1E6),
-			UnionJSP99FP1e6:           optional(summary.UnionJsP99Fp_1E6),
-			ComparedTopkCount:         summary.GetComparedTopkCount(),
-			ComparedRankCount:         summary.GetComparedRankCount(),
-		},
-		AggregateProofHash:                wire.GetAggregateProofHash(),
-		VerifierEvidenceBundleHash:        wire.GetVerifierEvidenceBundleHash(),
-		VerifierEvidenceManifestSizeBytes: wire.GetVerifierEvidenceManifestSizeBytes(),
-		Salt:                              wire.GetSalt(),
-		ExpiryHeight:                      wire.GetExpiryHeight(),
-		ServiceSignature:                  wire.GetServiceSignature(),
-		VerifierValueRoot:                 wire.GetVerifierValueRoot(),
-		MetricLeafCount:                   wire.GetMetricLeafCount(),
-		VerifierEvidenceKeyCommitment:     wire.GetVerifierEvidenceKeyCommitment(),
-	}
+	return (*h.finalized)[0]
 }
 
 type countingModel struct {
@@ -1537,8 +1435,8 @@ func TestVerifyRefusesIncompleteResultBodyBeforeSigning(t *testing.T) {
 		t.Fatalf("signer saw %d digests %x, want exactly the commit digest: an incomplete frozen result body was signed",
 			len(digests), digests)
 	}
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("published = %#v, want nothing: the commit half never reveals", h.builder.Published)
+	if len(*h.finalized) != 0 {
+		t.Fatalf("published = %#v, want nothing: the commit half never reveals", *h.finalized)
 	}
 
 	// The reveal then adds exactly one more signature, over the frozen result
@@ -1764,8 +1662,8 @@ func TestVerifyWithoutATaskFactsReaderRefusesBeforeSigning(t *testing.T) {
 		!strings.Contains(err.Error(), "Keeper task facts reader") {
 		t.Fatalf("HandleRevealPhaseStarted error = %v, want the missing-reader refusal", err)
 	}
-	if len(h.builder.Published) != 0 {
-		t.Fatalf("published = %#v, want nothing without the consensus read", h.builder.Published)
+	if len(*h.finalized) != 0 {
+		t.Fatalf("published = %#v, want nothing without the consensus read", *h.finalized)
 	}
 }
 
@@ -1881,7 +1779,6 @@ func newHarnessWithProfileReader(t *testing.T, reader ProfileReader) harness {
 		VerifierAddress:           h.verifier.cfg.VerifierAddress,
 		ModelServiceID:            h.verifier.cfg.ModelServiceID,
 		Model:                     h.verifier.cfg.Model,
-		Builder:                   h.verifier.cfg.Builder,
 		Persistence:               h.verifier.cfg.Persistence,
 		ChainID:                   h.verifier.cfg.ChainID,
 		SignerAddress:             h.verifier.cfg.SignerAddress,
@@ -1889,16 +1786,14 @@ func newHarnessWithProfileReader(t *testing.T, reader ProfileReader) harness {
 		Signer:                    h.verifier.cfg.Signer,
 		VerifyDeadlineDeltaHeight: h.verifier.cfg.VerifyDeadlineDeltaHeight,
 		FakeOutput:                h.verifier.cfg.FakeOutput,
-		TrustedNATSDev:            h.verifier.cfg.TrustedNATSDev,
-		NexusEnvelopeSigner:       h.verifier.cfg.NexusEnvelopeSigner,
-		EnvelopeTTL:               h.verifier.cfg.EnvelopeTTL,
+		Sender:                    h.verifier.cfg.Sender,
 		TaskFacts:                 h.verifier.cfg.TaskFacts,
 		ServiceAuthorizationNonce: h.verifier.cfg.ServiceAuthorizationNonce,
 		ProfileReader:             reader,
 		CommitSubmitter:           h.verifier.cfg.CommitSubmitter,
 		EvidencePublisher:         h.verifier.cfg.EvidencePublisher,
 	})
-	return harness{model: h.model, builder: h.builder, persistence: h.persistence, tx: h.tx, verifier: v}
+	return harness{model: h.model, builder: h.builder, sender: h.sender, finalized: h.finalized, persistence: h.persistence, tx: h.tx, verifier: v}
 }
 
 // TestVerifierRejectsProfileRequiringUnsupportedEvidenceKind checks that a
@@ -1972,25 +1867,20 @@ func TestVerifierRejectsOversizedTrace(t *testing.T) {
 	}
 }
 
+// The B-level bound is enforced where the B level is read: the reveal
+// (ADR-0023). The commit half never fetches position values at all.
 func TestVerifierRejectsOversizedPositionValues(t *testing.T) {
-	h := newHarnessWithProfileReader(t, profileReaderStub{profile: profileWithRequiredEvidenceAndMaxSize(100, []int32{int32(nodewire.EvidenceKindWorkerValueOpening), int32(nodewire.EvidenceKindWorkerTokenOpening)})})
+	h := newHarness(t)
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
-	// Token-id material fits within the bound, position-value material exceeds it.
-	state.OutputPackage.TokenIDsRef = h.model.PutArtifactForTest(make([]byte, 50))
-	state.OutputPackage.PositionValuesRef = h.model.PutArtifactForTest(make([]byte, 101))
-	state.OutputPackage.PackageHash = codec.HashWithDomain(
-		"TRUEOPEN_OUTPUT_PACKAGE_V1",
-		[]byte(state.OutputPackage.TaskID),
-		[]byte(state.OutputPackage.OutputRef),
-		[]byte(state.OutputPackage.TokenIDsRef),
-		[]byte(state.OutputPackage.PositionValuesRef),
-		state.OutputPackage.OutputHash[:],
-	)
+	verifyLocally(t, h, state)
+	profile := fixtureLockedProfile()
+	profile.Profile.VerificationProfile.EvidenceSchema.RequiredInferEvidence[0].MaxEncodedSizeBytes = chainclient.Uint64String(1)
+	h.verifier.cfg.ProfileReader = &fixtureProfileReader{profile: profileWithHash(t, profile)}
 
-	_, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if err == nil || !errors.Is(err, modelservice.ErrArtifactSizeExceeded) {
-		t.Fatalf("expected size limit exceeded error, got: %v", err)
+	result, err := h.verifier.HandleRevealPhaseStarted(context.Background(), state)
+	if err == nil || !errors.Is(err, modelservice.ErrArtifactSizeExceeded) || result.Signed {
+		t.Fatalf("expected size limit exceeded error before signing, got: %+v, %v", result, err)
 	}
 }
 

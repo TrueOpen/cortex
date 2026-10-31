@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -12,10 +11,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/evidence"
-	"github.com/TrueOpen/cortex/internal/identity"
-	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/observability"
-	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
@@ -105,53 +101,6 @@ func requireTraceFields(t *testing.T, line string, fields ...string) {
 	}
 }
 
-// TestAdmittedOrderTracesTheTaskHashAndTheHandraiseItSigned covers the first two
-// milestones of a task on this node: what the signed order said, and what this
-// node signed in reply. Both are digests a Builder and Keeper derive
-// independently, so a handraise the chain does not recognize is diagnosable only
-// if the value this node used is recoverable from its own log.
-func TestAdmittedOrderTracesTheTaskHashAndTheHandraiseItSigned(t *testing.T) {
-	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	trace := &collectTrace{}
-	runner := NewTaskRunner(TaskRunnerConfig{
-		Store: db, Builder: &admissionBuilder{}, LocalWorkerAddress: "worker", ChainID: "chain",
-		FakeOutput: true, FakeBus: true,
-		ProfileCapabilities:  map[string]string{testModelID + "\x001": modelservice.CapabilityLLMTextV1},
-		HandraiseEligibility: staticEligibility{input: acceptingEligibility(), expiry: 100},
-		TaskDataAuth:         taskRunnerTaskDataAuth(t),
-		SignerAddress:        "service", SignerKeyRef: "key",
-		Signer: signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) {
-			return bytes.Repeat([]byte{1}, 64), nil
-		}),
-		Trace: trace.trace(),
-	})
-
-	message, taskHash := orderMessageWithSequence(t, 0)
-	if err := runner.HandleNexusMessage(ctx, message); err != nil {
-		t.Fatalf("HandleNexusMessage() error = %v", err)
-	}
-
-	requireTraceFields(t, trace.event(t, "order_broadcast"),
-		"task_hash="+taskHash.String(), `model="`+testModelID+`"`, "profile_version=1", "order_expire_height=")
-
-	handraise := trace.event(t, "worker_handraise")
-	admission, err := layout.GetCandidateAdmission(ctx, db, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatalf("GetCandidateAdmission() error = %v", err)
-	}
-	requireTraceFields(t, handraise,
-		"signed=true", "accepted=true",
-		"handraise_digest="+codec.HashBytes(admission.HandraisePayload).String(),
-		"task_hash="+taskHash.String())
-	requireTraceLevel(t, trace, "worker_handraise", slog.LevelInfo)
-}
-
 // TestOutputConfirmationAcceptsAnAbsentPackageHashAndNamesAnAbsentOutputHash
 // pins both halves of the §13 hard boundary (cortex-detailed-design.md:1032). A missing
 // package hash is the normal chain and must not refuse -- that refusal was what
@@ -203,63 +152,41 @@ func TestOutputConfirmerTracesWhatTheBuilderAnsweredAgainstTheCommitments(t *tes
 		"derived_receipt_hash=")
 }
 
-func TestInferStartedTraceIsErrorOnlyWhenInputResolutionFails(t *testing.T) {
-	trace := &collectTrace{}
-	wantErr := errors.New("builder input unavailable")
-	executor := newProductionInferExecutor(TaskRunnerConfig{
-		FakeOutput: true,
-		Trace:      trace.trace(),
-		InputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
-			return nil, wantErr
-		}),
-	}, nil)
-	taskHash := codec.HashBytes([]byte("task-hash"))
-	task := store.InferTask{
-		TaskID: "task-1", SessionID: "session-1", ModelID: testModelID, ProfileVersion: 1,
-		InputDigest: codec.HashBytes([]byte("input")), Stage: string(layout.StageQueued),
+func TestInferStartedTraceIsErrorOnlyWhenTheDispatchedInputIsMissing(t *testing.T) {
+	ctx := context.Background()
+	x, task, taskHash := seedDispatchedInfer(t)
+	// An evidence store that never received the Dispatcher's committed input.
+	empty, err := evidence.NewStore(filepath.Join(t.TempDir(), "evidence"), x.st)
+	if err != nil {
+		t.Fatal(err)
 	}
+	trace := &collectTrace{}
+	executor := newProductionInferExecutor(TaskRunnerConfig{
+		Store: x.st, Evidence: empty, FakeOutput: true, LocalWorkerAddress: hrCortex, Trace: trace.trace(),
+	}, func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error { return nil })
 
-	if _, _, err := executor.RunInfer(context.Background(), taskHash, task); !errors.Is(err, wantErr) {
-		t.Fatalf("RunInfer() error = %v, want %v", err, wantErr)
+	if _, _, err := executor.RunInfer(ctx, taskHash, task); err == nil || !strings.Contains(err.Error(), "is not committed under the task hash") {
+		t.Fatalf("RunInfer() error = %v, want the missing dispatched input", err)
 	}
 	requireTraceLevel(t, trace, "infer_started", slog.LevelError)
 }
 
-func TestInferStartedTraceIsInfoWhenInputResolutionSucceeds(t *testing.T) {
+func TestInferStartedTraceIsInfoWhenTheDispatchedInputIsCommitted(t *testing.T) {
 	ctx := context.Background()
-	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	evidenceStore, err := evidence.NewStore(filepath.Join(t.TempDir(), "evidence"), db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := []byte("resolved input")
+	x, task, taskHash := seedDispatchedInfer(t)
 	trace := &collectTrace{}
 	executor := newProductionInferExecutor(TaskRunnerConfig{
-		Store: db, Evidence: evidenceStore, FakeOutput: true, FakeBus: true,
-		LocalWorkerAddress: "worker-1", Trace: trace.trace(),
-		InputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
-			return input, nil
-		}),
+		Store: x.st, Evidence: x.ev, FakeOutput: true,
+		LocalWorkerAddress: hrCortex, Trace: trace.trace(),
+		TaskReader: streamLimitedTaskReader{},
 	}, func(context.Context, codec.Hash, store.InferTask, layout.Evidence) error { return nil })
-	sessionID := strings.Repeat("ab", 32)
-	taskHash := codec.HashBytes([]byte("task-hash"))
-	task := store.InferTask{
-		TaskID: identity.TaskIDString(sessionID, 1), SessionID: sessionID, OrderSequence: 1,
-		OrderDigest: codec.HashBytes([]byte("order")), WorkerAddress: "worker-1",
-		ModelID: testModelID, ProfileVersion: 1, Capability: modelservice.CapabilityLLMTextV1,
-		InputDigest: codec.HashBytes(input), DeadlineHeight: 10, Stage: string(layout.StageQueued),
-	}
 
 	if _, _, err := executor.RunInfer(ctx, taskHash, task); err == nil || err.Error() != "model client is required" {
-		t.Fatalf("RunInfer() error = %v, want the downstream model dependency after successful input resolution", err)
+		t.Fatalf("RunInfer() error = %v, want the downstream model dependency after the committed input was read", err)
 	}
 	requireTraceLevel(t, trace, "infer_started", slog.LevelInfo)
-	if line := trace.event(t, "infer_started"); !strings.Contains(line, `input_error=""`) {
-		t.Fatalf("infer_started = %q, want successful input resolution", line)
+	if line := trace.event(t, "infer_started"); !strings.Contains(line, `input_error=""`) || !strings.Contains(line, `input_source="local"`) {
+		t.Fatalf("infer_started = %q, want the input read locally from the Dispatcher's commit", line)
 	}
 }
 

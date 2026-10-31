@@ -7,12 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
-	busv1 "github.com/TrueOpen/cortex/proto/bus/v1"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 )
 
 // The handraise itself no longer needs to know which Builder to fetch from - per
@@ -27,7 +26,7 @@ import (
 // ORDER_BROADCAST. Without it, a V7a fetch has nothing left but "receiving Builder
 // operator is required" and no candidate address anywhere in the log.
 func TestOpenVerifyFallsBackToTheSendingBuilderForOutputConfirmation(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	if fixture.snapshot.Assignment.BuilderOperatorAddress != "" {
 		t.Fatal("test premise: the on-chain snapshot carries no Builder address")
 	}
@@ -43,56 +42,6 @@ func TestOpenVerifyFallsBackToTheSendingBuilderForOutputConfirmation(t *testing.
 		`source="open_verify+keeper"`, `builder="builder-1"`, "output_size_bytes=4096")
 }
 
-func TestBuilderRelayedOutputAvailableDoesNotBecomeTheDataReadyBuilder(t *testing.T) {
-	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
-	subject := builderclient.NATSOutputAvailableSubject(fixture.taskID)
-	frame, err := builderclient.EncodeUnsignedBusMessage(builderclient.UnsignedEnvelopeInput{
-		Kind: builderclient.KindOutputAvailable, ChainID: "chain", Subject: subject,
-		SenderOperatorAddress: "relay-builder", SenderParticipantType: builderclient.ParticipantBuilder,
-		ServiceAuthorizationNonce: envelopeTestAuthorizationNonce,
-	}, fixture.fullHint(), true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.runner.HandleNexusMessage(ctx, builderclient.NATSMessage{Subject: subject, Data: frame, JetStream: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	taskHash := codec.Hash(fixture.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
-	admission, err := layout.GetVerifierAdmission(ctx, fixture.runner.cfg.Store, layout.StoredHash(taskHash), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if admission.DataReadyBuilderOperator != "" {
-		t.Fatalf("Builder-relayed OUTPUT_AVAILABLE persisted data-ready Builder %q", admission.DataReadyBuilderOperator)
-	}
-
-	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
-		t.Fatal(err)
-	}
-	admission, err = layout.GetVerifierAdmission(ctx, fixture.runner.cfg.Store, layout.StoredHash(taskHash), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if admission.DataReadyBuilderOperator != "builder-1" {
-		t.Fatalf("data-ready Builder = %q, want OPEN_VERIFY sender builder-1", admission.DataReadyBuilderOperator)
-	}
-	taskHash, ready, _ := formalVerifyReadySnapshot(t, fixture)
-	if err := fixture.runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
-		Type: ReconcilerEffectVerifyReady, TaskHash: taskHash, TaskID: fixture.taskID, Snapshot: ready,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	task, err := layout.GetTaskRecord(ctx, fixture.runner.cfg.Store, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.BuilderOperatorAddress != "builder-1" {
-		t.Fatalf("formal responsibility Builder = %q, want OPEN_VERIFY sender builder-1", task.BuilderOperatorAddress)
-	}
-}
-
 // OPEN_VERIFY's authenticated sender is a data-ready Task Builder:
 // interface-and-topic-list.md §5.8 permits it only "when it holds the data the protocol requires
 // locally". QueryTask's assignment projection deliberately carries no Builder, so the
@@ -100,7 +49,7 @@ func TestBuilderRelayedOutputAvailableDoesNotBecomeTheDataReadyBuilder(t *testin
 // this node is formally selected.
 func TestVerifyReadyCarriesOpenVerifyBuilderReceiptAndSelectionBeacon(t *testing.T) {
 	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatalf("OpenVerify was refused: %v", err)
 	}
@@ -136,41 +85,9 @@ func TestVerifyReadyCarriesOpenVerifyBuilderReceiptAndSelectionBeacon(t *testing
 		`builder="builder-1"`, `infer_receipt_hash=`+wantReceipt.String())
 }
 
-func TestOpenVerifyBackfillsTheDataReadyBuilderAfterVerifyReady(t *testing.T) {
-	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
-		t.Fatal(err)
-	}
-	taskHash, ready, _ := formalVerifyReadySnapshot(t, fixture)
-	if err := fixture.runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{{
-		Type: ReconcilerEffectVerifyReady, TaskHash: taskHash, TaskID: fixture.taskID, Snapshot: ready,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	before, err := layout.GetTaskRecord(ctx, fixture.runner.cfg.Store, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before.BuilderOperatorAddress != "" {
-		t.Fatalf("Builder before OPEN_VERIFY = %q, want empty", before.BuilderOperatorAddress)
-	}
-
-	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
-		t.Fatal(err)
-	}
-	after, err := layout.GetTaskRecord(ctx, fixture.runner.cfg.Store, layout.StoredHash(taskHash))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.BuilderOperatorAddress != "builder-1" {
-		t.Fatalf("Builder after OPEN_VERIFY = %q, want builder-1", after.BuilderOperatorAddress)
-	}
-}
-
 func TestVerifyReadyDoesNotInheritABuilderFromDifferentReceiptFacts(t *testing.T) {
 	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +108,7 @@ func TestVerifyReadyDoesNotInheritABuilderFromDifferentReceiptFacts(t *testing.T
 	}
 }
 
-func formalVerifyReadySnapshot(t *testing.T, fixture *outputAvailableFixture) (codec.Hash, chainclient.TaskSnapshot, codec.Hash) {
+func formalVerifyReadySnapshot(t *testing.T, fixture *openVerifyFixture) (codec.Hash, chainclient.TaskSnapshot, codec.Hash) {
 	t.Helper()
 	ctx := context.Background()
 	taskHash := codec.Hash(fixture.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
@@ -218,53 +135,26 @@ func formalVerifyReadySnapshot(t *testing.T, fixture *outputAvailableFixture) (c
 	return taskHash, ready, seed
 }
 
-func TestCompletedOutputHintDoesNotTrustAnUnvalidatedOpenVerifySender(t *testing.T) {
-	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
-	if err := fixture.deliver(t, fixture.fullHint()); err != nil {
-		t.Fatal(err)
-	}
-	forged := fixture.openVerifyCall()
-	otherReceipt := codec.HashBytes([]byte("other-infer-receipt"))
-	forged.InferReceiptHash = append([]byte(nil), otherReceipt[:]...)
-	if err := fixture.deliverOpenVerify(t, forged); err == nil {
-		t.Fatal("completed candidacy accepted an OPEN_VERIFY that contradicts Keeper")
-	}
-
-	taskHash := codec.Hash(fixture.snapshot.Assignment.TaskReceiptFactsSnapshot.AcceptedTaskHash)
-	admission, err := layout.GetVerifierAdmission(ctx, fixture.runner.cfg.Store, layout.StoredHash(taskHash), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantReceipt := layout.StoredHashFromCodec(codec.Hash(fixture.snapshot.InferReceipt.InferReceiptHash))
-	if admission.DataReadyBuilderOperator != "" || admission.InferReceiptHash != wantReceipt {
-		t.Fatalf("completed admission trusted unvalidated sender facts: %#v", admission)
-	}
-}
-
 func TestOpenVerifyContradictionsNeverPersistTheDataReadyBuilder(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*outputAvailableFixture, *busv1.OpenVerifyV1)
+		mutate func(*openVerifyFixture, *nexusv1.OpenVerifyV1)
 	}{
-		{name: "missing task hash", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) { call.TaskHash = nil }},
-		{name: "wrong task hash with local record", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) {
+		{name: "missing task hash", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) { call.TaskHash = nil }},
+		{name: "wrong task hash with local record", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) {
 			wrong := codec.HashBytes([]byte("wrong-task-hash"))
 			call.TaskHash = append([]byte(nil), wrong[:]...)
 		}},
-		{name: "wrong model", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) {
+		{name: "wrong model", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) {
 			call.ModelId = bytes.Repeat([]byte{0x0f}, 32)
 		}},
-		{name: "wrong profile", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) { call.ProfileVersion = 2 }},
-		{name: "wrong round", mutate: func(_ *outputAvailableFixture, call *busv1.OpenVerifyV1) { call.VerifyRound = 2 }},
+		{name: "wrong profile", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) { call.ProfileVersion = 2 }},
+		{name: "wrong round", mutate: func(_ *openVerifyFixture, call *nexusv1.OpenVerifyV1) { call.VerifyRound = 2 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			fixture := newOutputAvailableFixture(t)
-			if err := fixture.deliver(t, fixture.fullHint()); err != nil {
-				t.Fatal(err)
-			}
+			fixture := newOpenVerifyFixture(t)
 			call := fixture.openVerifyCall()
 			test.mutate(fixture, call)
 			if err := fixture.deliverOpenVerify(t, call); err == nil {
@@ -288,7 +178,7 @@ func TestOpenVerifyContradictionsNeverPersistTheDataReadyBuilder(t *testing.T) {
 
 func TestVerifyReadySurfacesAMalformedVerifierAdmission(t *testing.T) {
 	ctx := context.Background()
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	taskHash, ready, _ := formalVerifyReadySnapshot(t, fixture)
 	if err := fixture.runner.cfg.Store.PutRaw(ctx, layout.VerifyCandidateKey(layout.StoredHash(taskHash), 1), []byte("{")); err != nil {
 		t.Fatal(err)

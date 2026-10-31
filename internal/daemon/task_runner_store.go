@@ -22,7 +22,7 @@ import (
 // before any merge is attempted, and the merge target is gone precisely because
 // nobody will read it again. Returning a plain error here reported one
 // successful infer round as failed and - far worse - aborted the caller mid-step,
-// which is how a Worker lost its OUTPUT_AVAILABLE publication. Callers treat
+// which is how a Worker lost the rest of its round. Callers treat
 // this as a no-op success; see commitManifest.
 var errInferCheckpointOrphaned = errors.New("infer checkpoint has no owning record")
 
@@ -38,6 +38,11 @@ func (r *TaskRunner) persistInferCheckpoint(ctx context.Context, taskHash codec.
 	}
 	if rec.TaskID == "" || rec.TaskID != checkpoint.TaskID {
 		return fmt.Errorf("owning infer task %x is no longer active: %w", taskHash, errInferCheckpointOrphaned)
+	}
+	// A stopped ticket's execution may still checkpoint after the next round
+	// of the task took the record: that round is not its owner (S6).
+	if rec.DispatchTicketHash != layout.StoredHash(checkpoint.DispatchTicketHash) {
+		return fmt.Errorf("infer task %x is owned by ticket %s, not %x: %w", taskHash, rec.DispatchTicketHash, checkpoint.DispatchTicketHash, errInferCheckpointOrphaned)
 	}
 	tr, err := layout.GetTaskRecord(ctx, r.cfg.Store, layout.StoredHash(taskHash))
 	if err != nil {

@@ -176,7 +176,7 @@ func TestMarshalKeeperMessageUsesProtoJSONFieldNames(t *testing.T) {
 				"schema_version", "chain_id", "task_id", "task_hash", "worker_operator_address",
 				"service_authorization_nonce", "generation_params_digest", "output_hash",
 				"output_size_bytes", "required_evidence_commitments", "expiry_height", "service_signature", "generated_token_count", "output_leaf_count",
-				"output_key_commitment", "worker_token_key_commitment", "worker_value_key_commitment", "ciphertext_output_root",
+				"output_key_commitment", "worker_token_key_commitment", "worker_value_key_commitment", "ciphertext_output_root", "dispatch_ticket_hash",
 			},
 		},
 		{

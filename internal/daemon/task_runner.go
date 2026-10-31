@@ -21,12 +21,9 @@ import (
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 	"github.com/TrueOpen/cortex/internal/txclient"
+	"github.com/TrueOpen/cortex/internal/verifier"
 	"github.com/TrueOpen/cortex/internal/worker"
 )
-
-type CandidateMemberReader interface {
-	CurrentCandidateMember(context.Context, string) (chainclient.CandidateMemberRefSnapshot, error)
-}
 
 // VerifierMemberReader is one window with two readings, and which one a caller
 // wants depends entirely on the phase it is in. The handraise path is bounded by
@@ -52,47 +49,27 @@ type TaskRunnerConfig struct {
 	// task-data plane. Nil falls back to addressing them by model-service ref,
 	// which only the fake model transport can serve.
 	EvidenceConfirmer EvidenceConfirmer
+	// GenerationReader serves the Worker the frozen generation parameters of
+	// the order it executes. The order now arrives with the dispatch ticket,
+	// which nothing records yet, so production leaves it nil and a non-fake
+	// Worker refuses to generate.
+	GenerationReader worker.GenerationReader
 	// VerifyCommitRelay hands the signed verify commit to the receiving Builder
 	// for relay. Optional: nil keeps the pre-relay behaviour (self-submit only).
-	VerifyCommitRelay          VerifyCommitRelay
-	FakeOutput, TrustedNATSDev bool
-	// FakeBus is a test-only seam and must never become configuration
-	// reachable. TrustedNATSDev only drops the envelope signature layer;
-	// FakeBus additionally passes verifyTaskOrder=false to
-	// validateNexusOrderBroadcast, which skips canonical TaskOrderV1 decoding,
-	// the task_hash-commits-signed_order check, and all eleven
-	// payload-matches-signed_order comparisons (task_runner_util.go:60-75). A
-	// deployment running with it set would accept an OrderBroadcast whose
-	// fields contradict the order its own Builder signed.
-	FakeBus bool
-	// WakeKeeperPoll asks the Keeper poller for a scan now. It is set after the
-	// poller is built, because the poller is built around this runner. Nil is
-	// the ordinary state in tests and in the fake-bus deployment, and costs
-	// nothing: the bus frame that would have woken the poller is retried on the
-	// bus instead, exactly as it was before.
-	//
-	// It carries no authority. The scan it asks for reads and validates the
-	// chain the same way a tick does, so a frame that lies about chain state
-	// buys nothing but one early scan.
-	WakeKeeperPoll func(WakeSource)
-	// AssignNotifyScanWait bounds how long a WORKER_ASSIGNMENT_NOTIFY for an
-	// assignment not yet recorded locally waits for the Keeper scan it asks
-	// for, instead of being refused into the bus redelivery delay. Zero
-	// defaults; negative disables the wait. See awaitAssignmentScan.
-	AssignNotifyScanWait           time.Duration
-	EnvelopeTTL, EnvelopeClockSkew time.Duration
-	HandraiseEligibility           HandraiseEligibility
-	NexusEnvelopeAuthenticator     builderclient.BusEnvelopeAuthenticator
-	NexusEnvelopeSigner            builderclient.BusEnvelopeSigner
-	ReceivingBuilder               worker.ReceivingBuilderProvider
+	VerifyCommitRelay VerifyCommitRelay
+	FakeOutput        bool
+	// VerifierSender delivers signed VerifierHandraises to Builders. Nil means
+	// this node has no delivery channel, and the Verifier refuses to sign.
+	VerifierSender       verifier.FrameSender
+	HandraiseEligibility HandraiseEligibility
+	ReceivingBuilder     worker.ReceivingBuilderProvider
 	// TaskFacts serves TaskCoreState.accepted_task_hash and
 	// TaskAssignmentViewV1.generation_params_digest to the Worker receipt path
 	// and the Verifier result path. Both are frozen signed fields with no local
 	// derivation, so both paths refuse when it is absent.
-	CandidateMemberReader CandidateMemberReader
-	TaskFacts             taskfacts.Reader
-	VerifierMemberReader  VerifierMemberReader
-	Tx                    txclient.Client
+	TaskFacts            taskfacts.Reader
+	VerifierMemberReader VerifierMemberReader
+	Tx                   txclient.Client
 	// TxProvider returns the CURRENT workload tx client, and it is what the
 	// verifier commit exit must use. The task runner is constructed before the
 	// Keeper confirms this node's service key, so Tx above is nil at
@@ -120,7 +97,6 @@ type TaskRunnerConfig struct {
 	MaxRetryDelay               time.Duration
 	ChainStatus                 ChainStatusReader
 	MaxRetryAttempts            int
-	MaxSessionAdmissions        int
 	InputResolver               TaskInputResolver
 	ProfileCapabilities         map[string]string
 	ProfileReader               KeeperProfileReader
@@ -132,11 +108,37 @@ type TaskRunnerConfig struct {
 	// advances past the event, so this callback is the only trace that one task
 	// diverged from Keeper authority.
 	OnQuarantinedEffect func(ReconcilerEffect, error)
+	// DispatchRecords receives dispatch_recorded effects after the runner lock
+	// is released (cortexd: the dispatch plane's link). Nil: the effects are
+	// traced only.
+	DispatchRecords DispatchRecordObserver
+	// DispatchEvents receives the other dispatch event effects (compensation,
+	// challenge opened/resolved) after the runner lock (cortexd:
+	// DispatchEventObservers{Dispatcher, OmissionWatcher} through the link).
+	// Nil: traced only.
+	DispatchEvents DispatchEventObserver
+	// ReleaseDispatchLease returns a recorded task's (task_id, WORKER) lease
+	// (cortexd: Dispatcher.ReleaseTaskLease). It is called under the runner
+	// lock, so it must not take it.
+	ReleaseDispatchLease func(ctx context.Context, taskID layout.StoredHash) error
+	// DispatchWaitInterval spaces re-runs of an infer waiting for its record
+	// or paused by a REJECTED notice. Default 1s.
+	DispatchWaitInterval time.Duration
 	// Trace reports every protocol milestone a task passes through, digests
 	// included. Nil is silent; cortexd supplies the sink that logs.
 	Trace          *tasktrace.Trace
 	InferExecutor  InferExecutor
 	VerifyExecutor VerifyExecutor
+	// VerifyCommitReader confirms this node's own commit row before the
+	// reveal reads B-level evidence (CD §6.2 V13–V14a).
+	VerifyCommitReader chainclient.VerifyCommitReader
+	// VerifyNotices queues VerifyResultSubmittedNoticeV1 on every Builder
+	// stream (V12, V15): cortexd's StreamFanout. Nil sends none.
+	VerifyNotices verifier.NoticeSender
+	// TaskBuilders is the frozen Task Builder order evidence is fetched from
+	// and MsgReportDataUnavailable's bitmap follows. Nil falls back to the
+	// task's receiving Builder alone.
+	TaskBuilders chainclient.SelectedTaskBuildersReader
 	// CrashHook, if non-nil, is forwarded to worker.Config and invoked at
 	// named durable-handoff points. Tests use it to simulate crashes between
 	// commits.
@@ -190,14 +192,11 @@ type VerifyExecutor interface {
 }
 
 type TaskRunner struct {
-	cfg          TaskRunnerConfig
-	wakeup       chan struct{}
-	mu           sync.Mutex
-	infer        map[codec.Hash]store.InferTask
-	verify       map[codec.Hash]store.VerifyTask
-	admitMu      sync.Mutex
-	sessions     map[string]sessionAdmission
-	sessionOrder []string
+	cfg    TaskRunnerConfig
+	wakeup chan struct{}
+	mu     sync.Mutex
+	infer  map[codec.Hash]store.InferTask
+	verify map[codec.Hash]store.VerifyTask
 	// slots is this node's entire model-execution budget, and it belongs to the
 	// runner rather than to one scheduling pass. It used to be created fresh
 	// inside every pass, which bounded the node only because passes could not
@@ -209,6 +208,9 @@ type TaskRunner struct {
 	// executor goroutine for right now. See claimInflight.
 	inflightMu sync.Mutex
 	inflight   map[responsibilityKey]struct{}
+	// cancels holds the cancel of each in-flight execution, so a stop reaches
+	// work already in the model (S6). Guarded by inflightMu.
+	cancels map[responsibilityKey]context.CancelFunc
 	// executions counts every executor goroutine this runner has started, across
 	// all passes. Run waits on it before returning so that a cancelled context
 	// still drains in-flight work rather than leaving a task mid-commit while the
@@ -233,59 +235,32 @@ type TaskRunner struct {
 	// process has been told to wait for a chain state. See traceChainWait.
 	waitMu     sync.Mutex
 	chainWaits map[string]uint64
-	// redriveMu guards handraiseRedrives, the task-rounds whose Verifier
-	// handraise is still owed an attempt because the transport that delivered
-	// the call will not deliver it again. See task_runner_handraise_redrive.go.
-	redriveMu         sync.Mutex
-	handraiseRedrives map[string]*verifierHandraiseRedrive
 	// handraiseMu serializes Verifier handraise attempts. Two attempts at one
 	// task-round must not overlap: the at-most-once claim only suppresses a
 	// duplicate once the first attempt has *completed* it, so overlapping
 	// attempts would both find the claim incomplete and both publish a
-	// candidacy. Two sources reach here independently - the inbox runner and the
-	// poll loop's re-drive - so ordering them is not optional.
+	// candidacy. On the direct stream only the poll loop's inbox drain reaches
+	// here (the VerifierStream handler records the call and returns); the lock
+	// still orders it against the legacy admitOpenVerify path tests drive and
+	// against overlapping passes.
 	//
 	// handraiseMu also guards handraiseBlockWaits, the per-task-round record of
 	// the block at which this round last refused with a chain-state wait. See
 	// repeatedHandraiseBlockWait.
 	handraiseMu         sync.Mutex
 	handraiseBlockWaits map[string]handraiseBlockWait
-	// orderRedriveMu guards orderRedrives, the broadcast orders this node
-	// refused because it was momentarily full and still owes an attempt. See
-	// task_runner_order_redrive.go.
-	orderRedriveMu sync.Mutex
-	orderRedrives  map[string]*workerOrderRedrive
-	// prefetches holds task inputs downloaded on WORKER_ASSIGNMENT_NOTIFY,
-	// before the chain assignment is recorded locally. Nil unless the
-	// production infer executor, which takes them, is in use. See
-	// prefetchAssignedInput.
-	prefetches *inputPrefetches
-	// keeperProgressMu guards keeperProgress, closed and replaced whenever the
-	// Keeper poller reports progress or effects land. See awaitAssignmentScan.
-	keeperProgressMu sync.Mutex
-	keeperProgress   chan struct{}
-}
-
-type sessionAdmission struct {
-	sequence uint64
-	taskHash codec.Hash
-}
-
-// SetKeeperPollWake closes the loop the constructor cannot: the Keeper poller
-// is built around this runner, so it can only be handed back afterwards. Until
-// it is -- and in every deployment that runs without a poller -- a frame that
-// outruns the cursor is retried on the bus alone, which is the behaviour this
-// shortens rather than replaces.
-func (r *TaskRunner) SetKeeperPollWake(wake func(WakeSource)) {
-	if r == nil {
-		return
-	}
-	r.cfg.WakeKeeperPoll = wake
+	// dispatchClaimHook, when set (tests only), runs in dispatch right after
+	// a responsibility's inflight claim succeeds and before the live record is
+	// re-checked against the pass's snapshot.
+	dispatchClaimHook func(responsibilityKey)
 }
 
 func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = time.Second
+	}
+	if cfg.DispatchWaitInterval <= 0 {
+		cfg.DispatchWaitInterval = time.Second
 	}
 	if cfg.VerifyDeadlineDeltaHeight == 0 {
 		cfg.VerifyDeadlineDeltaHeight = 40
@@ -311,12 +286,6 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 	if cfg.MaxRetryAttempts <= 0 {
 		cfg.MaxRetryAttempts = 120
 	}
-	if cfg.MaxSessionAdmissions <= 0 {
-		cfg.MaxSessionAdmissions = 4096
-	}
-	if cfg.AssignNotifyScanWait == 0 {
-		cfg.AssignNotifyScanWait = defaultAssignNotifyScanWait
-	}
 	if cfg.VerifyExecutor == nil && cfg.Model != nil && cfg.LocalVerifierAddress != "" {
 		cfg.VerifyExecutor = newProductionVerifyExecutor(cfg)
 	}
@@ -325,19 +294,12 @@ func NewTaskRunner(cfg TaskRunnerConfig) *TaskRunner {
 		wakeup:          make(chan struct{}, 1),
 		slots:           make(chan struct{}, int(cfg.MaxConcurrency)),
 		inflight:        make(map[responsibilityKey]struct{}),
-		sessions:        make(map[string]sessionAdmission),
+		cancels:         make(map[responsibilityKey]context.CancelFunc),
 		recoveryChecked: make(map[codec.Hash]struct{}),
 		chainWaits:      make(map[string]uint64),
-
-		handraiseRedrives: make(map[string]*verifierHandraiseRedrive),
-		orderRedrives:     make(map[string]*workerOrderRedrive),
 	}
 	if runner.cfg.InferExecutor == nil && cfg.Model != nil && cfg.LocalWorkerAddress != "" {
-		// Inputs are prefetched only for the production executor, the one
-		// consumer that takes them; with another executor they would only
-		// download and expire.
-		runner.prefetches = newInputPrefetches(cfg.Trace)
-		runner.cfg.InferExecutor = &productionInferExecutor{cfg: cfg, persist: runner.persistInferCheckpoint, prefetches: runner.prefetches}
+		runner.cfg.InferExecutor = &productionInferExecutor{cfg: cfg, persist: runner.persistInferCheckpoint}
 	}
 	return runner
 }
@@ -469,7 +431,6 @@ func (r *TaskRunner) Run(ctx context.Context) error {
 	// against them.
 	stop := func(err error) error {
 		r.executions.Wait()
-		r.prefetches.close()
 		if err == nil {
 			err = r.takeExecutionFailure()
 		}

@@ -92,19 +92,6 @@ func newNexusHTTPClient(base *http.Client, timeout time.Duration) *http.Client {
 	return client
 }
 
-// NewNexusHTTPClient builds the same kind of Nexus HTTP client the task-data client
-// uses: bounded timeouts, a same-origin redirect policy, and a transport pooled by
-// tls_pubkey_hash (see tlspin.go). Callers outside this package that send ordinary
-// HTTP requests to the same nexus ingress (natsidentity's sentinel fetch) use it, so
-// the pin is checked exactly as it is for task-data instead of each assembling its own
-// client. A timeout <= 0 means Nexus's default data timeout.
-func NewNexusHTTPClient(timeout time.Duration) *http.Client {
-	if timeout <= 0 {
-		timeout = nexusDataTimeout
-	}
-	return newNexusHTTPClient(nil, timeout)
-}
-
 func sameNexusOrigin(left, right *url.URL) bool {
 	if left == nil || right == nil {
 		return false
@@ -155,11 +142,10 @@ func Retryable(err error) error {
 }
 
 // permanentError marks a refusal that no redelivery can fix. Permanent is
-// already the default for an unmarked error, so this exists for one reason:
-// some inbox dispositions redeliver by subject rather than by classification
-// (outbox.verifierFrame), and against those the verdict has to be assertable
-// rather than merely implied. Marking it is how a handler says "acknowledge
-// this and surface it" instead of letting the frame NAK forever.
+// already the default for an unmarked error, so this exists for one reason: a
+// caller that would otherwise retry has to be able to read the verdict as
+// asserted rather than merely implied. Marking it is how a handler says
+// "acknowledge this and surface it" instead of being retried forever.
 type permanentError struct {
 	err error
 }

@@ -389,8 +389,14 @@ type ChatCompletionOutputUsage struct {
 	PromptTokens     int32                  `protobuf:"varint,1,opt,name=prompt_tokens,json=promptTokens,proto3" json:"prompt_tokens,omitempty"`
 	CompletionTokens int32                  `protobuf:"varint,2,opt,name=completion_tokens,json=completionTokens,proto3" json:"completion_tokens,omitempty"`
 	TotalTokens      int32                  `protobuf:"varint,3,opt,name=total_tokens,json=totalTokens,proto3" json:"total_tokens,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Input tokens served from the prefix cache for this request, included in
+	// prompt_tokens rather than added to it. Maps to OpenAI-compatible usage's
+	// prompt_tokens_details.cached_tokens; excludes cache writes. Must satisfy
+	// 0 <= cached_prompt_tokens <= prompt_tokens. Zero means no cache reads were
+	// reported. Reporting only: never enters commitments or on-chain billing.
+	CachedPromptTokens int32 `protobuf:"varint,4,opt,name=cached_prompt_tokens,json=cachedPromptTokens,proto3" json:"cached_prompt_tokens,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ChatCompletionOutputUsage) Reset() {
@@ -444,6 +450,13 @@ func (x *ChatCompletionOutputUsage) GetTotalTokens() int32 {
 	return 0
 }
 
+func (x *ChatCompletionOutputUsage) GetCachedPromptTokens() int32 {
+	if x != nil {
+		return x.CachedPromptTokens
+	}
+	return 0
+}
+
 var File_cortex_v1_chat_output_proto protoreflect.FileDescriptor
 
 const file_cortex_v1_chat_output_proto_rawDesc = "" +
@@ -471,11 +484,12 @@ const file_cortex_v1_chat_output_proto_rawDesc = "" +
 	"\bfunction\x18\x03 \x01(\v2\x1d.cortex.v1.OutputFunctionCallR\bfunction\"F\n" +
 	"\x12OutputFunctionCall\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
-	"\targuments\x18\x02 \x01(\tR\targuments\"\x90\x01\n" +
+	"\targuments\x18\x02 \x01(\tR\targuments\"\xc2\x01\n" +
 	"\x19ChatCompletionOutputUsage\x12#\n" +
 	"\rprompt_tokens\x18\x01 \x01(\x05R\fpromptTokens\x12+\n" +
 	"\x11completion_tokens\x18\x02 \x01(\x05R\x10completionTokens\x12!\n" +
-	"\ftotal_tokens\x18\x03 \x01(\x05R\vtotalTokensB1Z/github.com/TrueOpen/wire/gen/cortex/v1;cortexv1b\x06proto3"
+	"\ftotal_tokens\x18\x03 \x01(\x05R\vtotalTokens\x120\n" +
+	"\x14cached_prompt_tokens\x18\x04 \x01(\x05R\x12cachedPromptTokensB1Z/github.com/TrueOpen/wire/gen/cortex/v1;cortexv1b\x06proto3"
 
 var (
 	file_cortex_v1_chat_output_proto_rawDescOnce sync.Once

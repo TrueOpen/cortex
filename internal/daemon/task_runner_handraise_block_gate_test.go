@@ -14,14 +14,13 @@ import (
 // turning READY -- materializes at a block boundary, so every extra attempt
 // inside one block re-asks a question whose answer cannot have changed. The
 // re-drive has had that gate since it was written
-// (takeVerifierHandraiseRedrives); the inbound path had none, and three
-// independent sources drive the same task-round: OPEN_VERIFY is re-broadcast by
-// the Builder, the OUTPUT_AVAILABLE hint is NAKed and redelivered by JetStream
-// about once a second, and the re-drive fires on the poll interval. Measured on
+// (takeVerifierHandraiseRedrives); the inbound path had none, and independent
+// sources drive the same task-round: OPEN_VERIFY is re-sent by the Builder and
+// the re-drive fires on the poll interval. Measured on
 // trueopen-localnet-1: 28 verifier_window_pending lines and 29 Keeper receipt
 // queries across five blocks of one task.
 func TestVerifierHandraiseAsksTheChainOncePerBlockForOneTaskRound(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	window := &pendingVerifierWindow{}
 	fixture.runner.cfg.VerifierMemberReader = window
 	reader := &countingKeeperTaskReader{inner: fixture.runner.cfg.TaskReader}
@@ -46,10 +45,10 @@ func TestVerifierHandraiseAsksTheChainOncePerBlockForOneTaskRound(t *testing.T) 
 
 // The operator-facing half of the same gate. A suppressed attempt reports
 // nothing: the line it would print is the line the first frame of this block
-// already printed, and repeating it once per JetStream redelivery is what made
+// already printed, and repeating it once per redelivery is what made
 // a five-block wait look like a node in trouble.
 func TestVerifierHandraiseReportsOneWaitPerBlock(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.VerifierMemberReader = &pendingVerifierWindow{}
 	var diagnostics []TaskRunnerDiagnostic
 	fixture.runner.cfg.Diagnostic = func(diagnostic TaskRunnerDiagnostic) {
@@ -70,7 +69,7 @@ func TestVerifierHandraiseReportsOneWaitPerBlock(t *testing.T) {
 // window can have turned READY, so the work is redone there. Without this the
 // suppression would be indistinguishable from dropping the wait.
 func TestVerifierHandraiseRetriesOnTheNextBlock(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.VerifierMemberReader = &pendingVerifierWindow{}
 	height := &movingChainStatus{height: 10, chainID: "chain"}
 	fixture.runner.cfg.ChainStatus = height
@@ -91,33 +90,7 @@ func TestVerifierHandraiseRetriesOnTheNextBlock(t *testing.T) {
 	}
 }
 
-// Suppressing the work must not suppress the arming. OPEN_VERIFY is the one
-// trigger with no transport behind it, so it is the one that arms the local
-// re-drive -- and it frequently is not the first frame of its block, because
-// the JetStream hint for the same task-round arrives on its own schedule. A
-// gate that skipped the re-drive bookkeeping on a suppressed attempt would
-// trade a redundant Keeper query for the lost handraise PR #335 exists to
-// prevent.
-func TestVerifierHandraiseArmsTheRedriveEvenWhenTheBlockIsAlreadyAnswered(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
-	fixture.runner.cfg.VerifierMemberReader = &pendingVerifierWindow{}
-
-	if err := fixture.deliver(t, fixture.fullHint()); err == nil {
-		t.Fatal("the hint was admitted, want a wait")
-	}
-	if len(fixture.runner.handraiseRedrives) != 0 {
-		t.Fatalf("re-drives = %#v, want none armed by the JetStream hint", fixture.runner.handraiseRedrives)
-	}
-	if err := fixture.deliverOpenVerify(t, fixture.openVerifyCall()); err == nil {
-		t.Fatal("the call was admitted, want a wait")
-	}
-	pending, ok := fixture.runner.handraiseRedrives[chainWaitKey(fixture.taskID, 1)]
-	if !ok || pending.trigger.Kind != "OpenVerify" {
-		t.Fatalf("re-drives = %#v, want the suppressed OPEN_VERIFY still armed", fixture.runner.handraiseRedrives)
-	}
-}
-
-func countTraceEvents(fixture *outputAvailableFixture, event string) int {
+func countTraceEvents(fixture *openVerifyFixture, event string) int {
 	count := 0
 	for _, line := range fixture.trace.allLines() {
 		if strings.HasPrefix(line, "task trace event="+event+" ") {

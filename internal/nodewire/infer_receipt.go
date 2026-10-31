@@ -40,6 +40,7 @@ type InferReceiptV3 struct {
 	WorkerTokenKeyCommitment    []byte // Hash32, ZERO32 in plaintext
 	WorkerValueKeyCommitment    []byte // Hash32, ZERO32 in plaintext
 	CiphertextOutputRoot        []byte // Hash32, ZERO32 in plaintext
+	DispatchTicketHash          []byte // Hash32, the ticket the Worker accepted
 }
 
 // RequireWorkerEvidenceCommitmentsV3 checks that a V3 receipt carries exactly
@@ -58,7 +59,7 @@ func RequireWorkerEvidenceCommitmentsV3(items []EvidenceCommitmentV1) error {
 	return nil
 }
 
-// InferReceiptSigningPreimage frames the seventeen signed fields in schema
+// InferReceiptSigningPreimage frames the eighteen signed fields in schema
 // order; the evidence list enters through its hash.
 func InferReceiptSigningPreimage(receipt InferReceiptV3) ([]byte, error) {
 	if receipt.SchemaVersion != InferReceiptSchemaVersionV3 {
@@ -80,6 +81,7 @@ func InferReceiptSigningPreimage(receipt InferReceiptV3) ([]byte, error) {
 		{"task_hash", receipt.TaskHash},
 		{"generation_params_digest", receipt.GenerationParamsDigest},
 		{"output_hash", receipt.OutputHash},
+		{"dispatch_ticket_hash", receipt.DispatchTicketHash},
 	} {
 		if _, err := canonicalHash32(hash.name, hash.value); err != nil {
 			return nil, err
@@ -125,6 +127,7 @@ func InferReceiptSigningPreimage(receipt InferReceiptV3) ([]byte, error) {
 		hfields.Bytes(receipt.WorkerTokenKeyCommitment),
 		hfields.Bytes(receipt.WorkerValueKeyCommitment),
 		hfields.Bytes(receipt.CiphertextOutputRoot),
+		hfields.Bytes(receipt.DispatchTicketHash),
 	)
 }
 

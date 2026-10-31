@@ -133,6 +133,9 @@ type GenesisState struct {
 	TreasurySpendRecipientEpochs     []*TreasurySpendRecipientEpochState     `protobuf:"bytes,103,rep,name=treasury_spend_recipient_epochs,json=treasurySpendRecipientEpochs,proto3" json:"treasury_spend_recipient_epochs,omitempty"`
 	TreasurySpendEpochCleanupCursors []*TreasurySpendEpochCleanupCursorState `protobuf:"bytes,104,rep,name=treasury_spend_epoch_cleanup_cursors,json=treasurySpendEpochCleanupCursors,proto3" json:"treasury_spend_epoch_cleanup_cursors,omitempty"`
 	ModelSupportDeactivateCursors    []*ModelSupportDeactivateCursorState    `protobuf:"bytes,105,rep,name=model_support_deactivate_cursors,json=modelSupportDeactivateCursors,proto3" json:"model_support_deactivate_cursors,omitempty"`
+	BuilderCompensationAccounts      []*BuilderCompensationAccountState      `protobuf:"bytes,106,rep,name=builder_compensation_accounts,json=builderCompensationAccounts,proto3" json:"builder_compensation_accounts,omitempty"`
+	DispatchFaults                   []*DispatchFaultState                   `protobuf:"bytes,107,rep,name=dispatch_faults,json=dispatchFaults,proto3" json:"dispatch_faults,omitempty"`
+	PendingServiceKeyRotations       []*PendingServiceKeyRotationState       `protobuf:"bytes,109,rep,name=pending_service_key_rotations,json=pendingServiceKeyRotations,proto3" json:"pending_service_key_rotations,omitempty"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -587,11 +590,32 @@ func (x *GenesisState) GetModelSupportDeactivateCursors() []*ModelSupportDeactiv
 	return nil
 }
 
+func (x *GenesisState) GetBuilderCompensationAccounts() []*BuilderCompensationAccountState {
+	if x != nil {
+		return x.BuilderCompensationAccounts
+	}
+	return nil
+}
+
+func (x *GenesisState) GetDispatchFaults() []*DispatchFaultState {
+	if x != nil {
+		return x.DispatchFaults
+	}
+	return nil
+}
+
+func (x *GenesisState) GetPendingServiceKeyRotations() []*PendingServiceKeyRotationState {
+	if x != nil {
+		return x.PendingServiceKeyRotations
+	}
+	return nil
+}
+
 var File_hub_v1_genesis_proto protoreflect.FileDescriptor
 
 const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x11amino/amino.proto\x1a\x14gogoproto/gogo.proto\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xe0)\n" +
+	"\x14hub/v1/genesis.proto\x12\x06hub.v1\x1a\x11amino/amino.proto\x1a\x14gogoproto/gogo.proto\x1a\x13hub/v1/beacon.proto\x1a\x13hub/v1/bridge.proto\x1a\x14hub/v1/builder.proto\x1a\x1bhub/v1/candidate_pool.proto\x1a\x1ahub/v1/daily_support.proto\x1a\x15hub/v1/dispatch.proto\x1a\x1dhub/v1/emergency_freeze.proto\x1a\x12hub/v1/fault.proto\x1a hub/v1/model_profile_state.proto\x1a\x13hub/v1/params.proto\x1a!hub/v1/participant_identity.proto\x1a\x13hub/v1/reward.proto\x1a\x19hub/v1/service_bond.proto\x1a\x15hub/v1/treasury.proto\x1a\x10hub/v1/vrf.proto\"\xa9,\n" +
 	"\fGenesisState\x126\n" +
 	"\x06params\x18\x01 \x01(\v2\x13.hub.v1.HubParamsV2B\t\xc8\xde\x1f\x00\xa8\xe7\xb0*\x01R\x06params\x12F\n" +
 	"\vparams_meta\x18\x02 \x01(\v2\x1a.hub.v1.HubParamsMetaStateB\t\xc8\xde\x1f\x00\xa8\xe7\xb0*\x01R\n" +
@@ -655,7 +679,10 @@ const file_hub_v1_genesis_proto_rawDesc = "" +
 	"\x15treasury_spend_epochs\x18f \x03(\v2\x1f.hub.v1.TreasurySpendEpochStateB\x04\xc8\xde\x1f\x00R\x13treasurySpendEpochs\x12u\n" +
 	"\x1ftreasury_spend_recipient_epochs\x18g \x03(\v2(.hub.v1.TreasurySpendRecipientEpochStateB\x04\xc8\xde\x1f\x00R\x1ctreasurySpendRecipientEpochs\x12\x82\x01\n" +
 	"$treasury_spend_epoch_cleanup_cursors\x18h \x03(\v2,.hub.v1.TreasurySpendEpochCleanupCursorStateB\x04\xc8\xde\x1f\x00R treasurySpendEpochCleanupCursors\x12x\n" +
-	" model_support_deactivate_cursors\x18i \x03(\v2).hub.v1.ModelSupportDeactivateCursorStateB\x04\xc8\xde\x1f\x00R\x1dmodelSupportDeactivateCursorsJ\x04\b\x17\x10\x18R\x15builder_contributionsB&Z$github.com/TrueOpen/node/x/hub/typesb\x06proto3"
+	" model_support_deactivate_cursors\x18i \x03(\v2).hub.v1.ModelSupportDeactivateCursorStateB\x04\xc8\xde\x1f\x00R\x1dmodelSupportDeactivateCursors\x12q\n" +
+	"\x1dbuilder_compensation_accounts\x18j \x03(\v2'.hub.v1.BuilderCompensationAccountStateB\x04\xc8\xde\x1f\x00R\x1bbuilderCompensationAccounts\x12I\n" +
+	"\x0fdispatch_faults\x18k \x03(\v2\x1a.hub.v1.DispatchFaultStateB\x04\xc8\xde\x1f\x00R\x0edispatchFaults\x12o\n" +
+	"\x1dpending_service_key_rotations\x18m \x03(\v2&.hub.v1.PendingServiceKeyRotationStateB\x04\xc8\xde\x1f\x00R\x1apendingServiceKeyRotationsJ\x04\b\x17\x10\x18J\x04\bl\x10mR\x15builder_contributionsR\x12service_key_proofsB&Z$github.com/TrueOpen/node/x/hub/typesb\x06proto3"
 
 var (
 	file_hub_v1_genesis_proto_rawDescOnce sync.Once
@@ -732,6 +759,9 @@ var file_hub_v1_genesis_proto_goTypes = []any{
 	(*TreasurySpendRecipientEpochState)(nil),     // 58: hub.v1.TreasurySpendRecipientEpochState
 	(*TreasurySpendEpochCleanupCursorState)(nil), // 59: hub.v1.TreasurySpendEpochCleanupCursorState
 	(*ModelSupportDeactivateCursorState)(nil),    // 60: hub.v1.ModelSupportDeactivateCursorState
+	(*BuilderCompensationAccountState)(nil),      // 61: hub.v1.BuilderCompensationAccountState
+	(*DispatchFaultState)(nil),                   // 62: hub.v1.DispatchFaultState
+	(*PendingServiceKeyRotationState)(nil),       // 63: hub.v1.PendingServiceKeyRotationState
 }
 var file_hub_v1_genesis_proto_depIdxs = []int32{
 	1,  // 0: hub.v1.GenesisState.params:type_name -> hub.v1.HubParamsV2
@@ -794,11 +824,14 @@ var file_hub_v1_genesis_proto_depIdxs = []int32{
 	58, // 57: hub.v1.GenesisState.treasury_spend_recipient_epochs:type_name -> hub.v1.TreasurySpendRecipientEpochState
 	59, // 58: hub.v1.GenesisState.treasury_spend_epoch_cleanup_cursors:type_name -> hub.v1.TreasurySpendEpochCleanupCursorState
 	60, // 59: hub.v1.GenesisState.model_support_deactivate_cursors:type_name -> hub.v1.ModelSupportDeactivateCursorState
-	60, // [60:60] is the sub-list for method output_type
-	60, // [60:60] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	61, // 60: hub.v1.GenesisState.builder_compensation_accounts:type_name -> hub.v1.BuilderCompensationAccountState
+	62, // 61: hub.v1.GenesisState.dispatch_faults:type_name -> hub.v1.DispatchFaultState
+	63, // 62: hub.v1.GenesisState.pending_service_key_rotations:type_name -> hub.v1.PendingServiceKeyRotationState
+	63, // [63:63] is the sub-list for method output_type
+	63, // [63:63] is the sub-list for method input_type
+	63, // [63:63] is the sub-list for extension type_name
+	63, // [63:63] is the sub-list for extension extendee
+	0,  // [0:63] is the sub-list for field type_name
 }
 
 func init() { file_hub_v1_genesis_proto_init() }
@@ -811,6 +844,7 @@ func file_hub_v1_genesis_proto_init() {
 	file_hub_v1_builder_proto_init()
 	file_hub_v1_candidate_pool_proto_init()
 	file_hub_v1_daily_support_proto_init()
+	file_hub_v1_dispatch_proto_init()
 	file_hub_v1_emergency_freeze_proto_init()
 	file_hub_v1_fault_proto_init()
 	file_hub_v1_model_profile_state_proto_init()

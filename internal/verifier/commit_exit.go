@@ -5,10 +5,9 @@ package verifier
 // A Verifier that has signed one has three conceivable ways onto the chain, and
 // one of them is shut for good:
 //
-//   - The bus registers no VERIFY_COMMIT kind at all. interface-and-topic-list.md §5.3
-//     lists eight kinds and VERIFY_RESULT is the only verifier one, so there is
-//     no subject to publish a commit on -- see builderclient.NATSVerifyResultSubject
-//     for the one that does exist.
+//   - The Phase 0 bus never carried a VERIFY_COMMIT kind, and wire 916e393
+//     retires the bus altogether, so there is no subject to publish a commit
+//     on.
 //
 // The other two are the relay and self-submission, in that order. The relay is
 // nexus's unary ingress rpc SubmitVerifyCommit: it validates the whole request

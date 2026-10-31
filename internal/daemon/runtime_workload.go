@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/TrueOpen/cortex/internal/diagnostics"
 	"github.com/TrueOpen/cortex/internal/txclient"
 )
 
@@ -92,59 +91,4 @@ func (r *Runtime) workloadServiceAddress() (string, error) {
 		return "", fmt.Errorf("workload is not active: the Keeper has not confirmed this node's current service key")
 	}
 	return r.ServiceAddress, nil
-}
-
-// recordEnvelopeAuthFailure withdraws the nexus_envelope_auth dependency when
-// this node's own input to authentication fails: an unreadable current-key view.
-// It is deliberately not called for a missing,
-// invalid, expired or replayed signature - those are the sender's fault, and
-// letting a peer withdraw this node's readiness would hand it a denial of
-// service. Readiness returns on the next successful authentication.
-func (r *Runtime) recordEnvelopeAuthFailure(err error) {
-	if r == nil || err == nil {
-		return
-	}
-	r.workloadMu.Lock()
-	r.envelopeAuthError = err.Error()
-	r.workloadMu.Unlock()
-}
-
-// clearEnvelopeAuthFailure is called once authentication succeeds again.
-func (r *Runtime) clearEnvelopeAuthFailure() {
-	if r == nil {
-		return
-	}
-	r.workloadMu.Lock()
-	r.envelopeAuthError = ""
-	r.workloadMu.Unlock()
-}
-
-// envelopeAuthStatus reports the live dependency verdict. Construction success
-// alone is not readiness: a node whose Keeper view or replay store has failed
-// cannot authenticate anything and must stop claiming it can.
-func (r *Runtime) envelopeAuthStatus() diagnostics.DependencyStatus {
-	status := unprobed("nexus_envelope_auth", r.cfg.Nexus.NATSURL)
-	if !r.cfg.UsesRealDependencies() {
-		status.Ready = true
-		status.Error = ""
-		return status
-	}
-	r.workloadMu.RLock()
-	lastError := r.envelopeAuthError
-	r.workloadMu.RUnlock()
-	if r.cfg.Nexus.TrustedNATSDev() {
-		status.Ready = true
-		status.Error = ""
-		return status
-	}
-	switch {
-	case lastError != "":
-		status.Error = lastError
-	case r.Dependencies.NexusEnvelopeAuthenticator == nil || r.Dependencies.NexusEnvelopeSigner == nil:
-		status.Error = "canonical Nexus BusEnvelope signer and authenticator are required"
-	default:
-		status.Ready = true
-		status.Error = ""
-	}
-	return status
 }

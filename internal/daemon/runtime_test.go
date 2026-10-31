@@ -45,12 +45,10 @@ func TestBuildRuntimeKeepsOperatorControlPlaneWithoutKeeperIdentity(t *testing.T
 	keeper := missingIdentityKeeper{confirmationKeeperReader: confirmationKeeperReader{staticKeeperIdentityReader: readyKeeperIdentityReader()}}
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelClient:     modelservice.NewFakeService(),
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          keeper,
-		KeeperEvents:    emptyKeeperEvents{},
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelClient:  modelservice.NewFakeService(),
+		Keeper:       keeper,
+		KeeperEvents: emptyKeeperEvents{},
+		ChainStatus:  staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	})
 	if err != nil {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
@@ -78,12 +76,10 @@ func TestBuildRuntimeProductionTaskDataClientRefusesPlaintextEndpoint(t *testing
 	keeper := missingIdentityKeeper{confirmationKeeperReader: confirmationKeeperReader{staticKeeperIdentityReader: readyKeeperIdentityReader()}}
 
 	strict, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelClient:     modelservice.NewFakeService(),
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          keeper,
-		KeeperEvents:    emptyKeeperEvents{},
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelClient:  modelservice.NewFakeService(),
+		Keeper:       keeper,
+		KeeperEvents: emptyKeeperEvents{},
+		ChainStatus:  staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	})
 	if err != nil {
 		t.Fatalf("BuildRuntimeWithOptions() strict error = %v", err)
@@ -102,12 +98,10 @@ func TestBuildRuntimeProductionRefusesInsecureDescriptorOptIn(t *testing.T) {
 	cfg.Store.Path = filepath.Join(t.TempDir(), "insecure.kv")
 	keeper := missingIdentityKeeper{confirmationKeeperReader: confirmationKeeperReader{staticKeeperIdentityReader: readyKeeperIdentityReader()}}
 	if _, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelClient:     modelservice.NewFakeService(),
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          keeper,
-		KeeperEvents:    emptyKeeperEvents{},
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelClient:  modelservice.NewFakeService(),
+		Keeper:       keeper,
+		KeeperEvents: emptyKeeperEvents{},
+		ChainStatus:  staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	}); err == nil || !strings.Contains(err.Error(), "nexus.allow_insecure_descriptor must be false in real mode") {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v, want real mode refusal of allow_insecure_descriptor", err)
 	}
@@ -128,13 +122,11 @@ func TestBuildRuntimePreservesInjectedTaskDataClient(t *testing.T) {
 	injected := builderclient.NewFakeClient()
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelClient:     modelservice.NewFakeService(),
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		TaskDataClient:  injected,
-		Keeper:          keeper,
-		KeeperEvents:    emptyKeeperEvents{},
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelClient:    modelservice.NewFakeService(),
+		TaskDataClient: injected,
+		Keeper:         keeper,
+		KeeperEvents:   emptyKeeperEvents{},
+		ChainStatus:    staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	})
 	if err != nil {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
@@ -202,10 +194,6 @@ func TestBuildRuntimeRealModeConstructsKeeperConfirmedCosmosTxClient(t *testing.
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
@@ -234,16 +222,6 @@ func TestBuildRuntimeRealModeConstructsKeeperConfirmedCosmosTxClient(t *testing.
 	if !status.Ready {
 		t.Fatalf("tx_broadcaster = %#v", status)
 	}
-}
-
-func runtimeTestEnvelopeAuthenticator() builderclient.BusEnvelopeAuthenticator {
-	return builderclient.BusEnvelopeAuthenticatorFunc(func(context.Context, string, builderclient.BusEnvelope) error { return nil })
-}
-
-func runtimeTestEnvelopeSigner() builderclient.BusEnvelopeSigner {
-	return builderclient.BusEnvelopeSignerFunc(func(builderclient.BusEnvelope) ([]byte, error) {
-		return []byte("runtime-test-envelope-signature"), nil
-	})
 }
 
 type confirmationKeeperReader struct{ staticKeeperIdentityReader }
@@ -324,9 +302,6 @@ func TestBuildRuntimeFakeModeOpensStoreAndCreatesFakeDependencies(t *testing.T) 
 func TestBuildRuntimeRealModeUnavailableTransportReportsDiagnostic(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
-	cfg.Nexus.NATSUserKeyFile = filepath.Join(t.TempDir(), "nats-user.nk")
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{Keeper: readyKeeperIdentityReader()})
 	if err != nil {
@@ -356,9 +331,6 @@ func TestBuildRuntimeRealModeUnavailableTransportReportsDiagnostic(t *testing.T)
 func TestBuildRuntimeRealModeReportsModelServiceHealth(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
-	cfg.Nexus.NATSUserKeyFile = filepath.Join(t.TempDir(), "nats-user.nk")
 	cfg.ModelManagement.Endpoint = "127.0.0.1:19001" // a loopback name: real mode allows plaintext only on the same host; the dial still goes through bufnet
 	newDaemonGRPCTestServer(t, cfg.ModelManagement.Endpoint, &daemonModelManagementServer{healthy: true})
 
@@ -389,9 +361,7 @@ func TestBuildRuntimeRealModeLocalModelServiceSkipsGRPCHealthProbe(t *testing.T)
 	cfg.ModelManagement.MaxConcurrency = 4
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          readyKeeperIdentityReader(),
+		Keeper: readyKeeperIdentityReader(),
 	})
 	if err != nil {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
@@ -414,9 +384,6 @@ func TestBuildRuntimeRealModeLocalModelServiceSkipsGRPCHealthProbe(t *testing.T)
 func TestBuildRuntimeRealModeReportsUnhealthyModelService(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
-	cfg.Nexus.NATSUserKeyFile = filepath.Join(t.TempDir(), "nats-user.nk")
 	cfg.ModelManagement.Endpoint = "127.0.0.1:19002" // as above
 	newDaemonGRPCTestServer(t, cfg.ModelManagement.Endpoint, &daemonModelManagementServer{
 		healthy: false,
@@ -453,82 +420,21 @@ func TestBuildRuntimeRealModeReportsUnhealthyModelService(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeRealModeConstructsNexusPublisherAndSubscriber(t *testing.T) {
-	cfg := realConfig()
-	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
-	cfg.Nexus.NATSUserKeyFile = filepath.Join(t.TempDir(), "nats-user.nk")
-	cfg.Nexus.NATSURL = "tls://nexus.devnet.trueopen.xyz:4222"
-
-	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{Keeper: readyKeeperIdentityReader()})
-	if err != nil {
-		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := rt.Close(); err != nil {
-			t.Fatalf("Close() error = %v", err)
-		}
-	})
-
-	status, ok := rt.Dependencies.Diagnostics.Dependency("nexus")
-	if !ok {
-		t.Fatalf("missing nexus diagnostic")
-	}
-	if !status.Ready || status.Error != "" {
-		t.Fatalf("nexus status = %#v, want ready with concrete NATS publisher/subscriber", status)
-	}
-}
-
-func TestBuildRuntimeRealModeInjectedNexusPublisherIsReady(t *testing.T) {
-	cfg := realConfig()
-	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-
-	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          readyKeeperIdentityReader(),
-	})
-	if err != nil {
-		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := rt.Close(); err != nil {
-			t.Fatalf("Close() error = %v", err)
-		}
-	})
-
-	status, ok := rt.Dependencies.Diagnostics.Dependency("nexus")
-	if !ok {
-		t.Fatalf("missing nexus diagnostic")
-	}
-	if !status.Ready || status.Error != "" {
-		t.Fatalf("nexus status = %#v, want ready with injected publisher", status)
-	}
-}
-
-func TestRuntimeReadinessTracksNexusAndTxBroadcasterLoss(t *testing.T) {
+func TestRuntimeReadinessTracksTxBroadcasterLoss(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
 	signingClient, keeper := readyRuntimeServiceSigner(t)
 	cfg.LocalIdentity.ServiceKeyRef = "service.json"
-	nexusProbe := &controlledReadinessProbe{}
 	txProbe := &controlledReadinessProbe{}
-	nexusProbe.healthy.Store(true)
 	txProbe.healthy.Store(true)
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
 		ChainStatus:                 staticChainStatusReader{height: 200, chainID: cfg.ChainID},
-		NexusReadinessProbe:         nexusProbe,
 		TxReadinessProbe:            txProbe,
 	})
 	if err != nil {
@@ -536,28 +442,8 @@ func TestRuntimeReadinessTracksNexusAndTxBroadcasterLoss(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = rt.Close() })
 
-	if readiness := rt.CheckWorkloadReadiness(context.Background()); !readiness.Ready() || !readiness.Nexus.Ready || !readiness.TxBroadcaster.Ready {
+	if readiness := rt.CheckWorkloadReadiness(context.Background()); !readiness.Ready() || !readiness.TxBroadcaster.Ready {
 		t.Fatalf("initial readiness = %#v, want ready", readiness)
-	}
-	nexusProbe.healthy.Store(false)
-	readiness := rt.CheckWorkloadReadiness(context.Background())
-	if readiness.Ready() || readiness.Nexus.Ready || !readiness.TxBroadcaster.Ready {
-		t.Fatalf("Nexus-loss readiness = %#v", readiness)
-	}
-	if strings.Contains(readiness.Nexus.Error, cfg.Nexus.NATSURL) {
-		t.Fatalf("Nexus readiness error leaked endpoint: %q", readiness.Nexus.Error)
-	}
-	status, ok := rt.DiagnosticsSnapshot().Dependency("nexus")
-	// The reason carries the probe's own message now. It used to be exactly
-	// "nexus readiness probe failed", which is why 30 minutes of tx_broadcaster
-	// lines said nothing: the probe knew, and the record threw it away. What
-	// must still never appear is a credential - see
-	// TestDependencyReadinessScrubsCredentialsFromTheProbeReason.
-	if !ok || status.Ready || !strings.HasPrefix(status.Error, "nexus readiness probe failed") {
-		t.Fatalf("live Nexus diagnostic = %#v ok=%v", status, ok)
-	}
-	if !strings.Contains(status.Error, "dependency unavailable") {
-		t.Fatalf("live Nexus diagnostic = %#v, want the probe's own reason reported", status)
 	}
 
 	// tx loss is reported but does not hold the workload down. A selected
@@ -567,10 +453,9 @@ func TestRuntimeReadinessTracksNexusAndTxBroadcasterLoss(t *testing.T) {
 	// refusing the whole workload here would stop work that needs no
 	// transaction at all -- including on a node whose signer can never produce
 	// one (TestBuildRuntimeStartsWorkloadWithoutCosmosTxSigner).
-	nexusProbe.healthy.Store(true)
 	txProbe.healthy.Store(false)
-	readiness = rt.CheckWorkloadReadiness(context.Background())
-	if !readiness.Ready() || !readiness.Nexus.Ready {
+	readiness := rt.CheckWorkloadReadiness(context.Background())
+	if !readiness.Ready() {
 		t.Fatalf("tx-loss readiness = %#v, want ready with only the broadcaster degraded", readiness)
 	}
 	if readiness.TxBroadcaster.Ready {
@@ -579,28 +464,6 @@ func TestRuntimeReadinessTracksNexusAndTxBroadcasterLoss(t *testing.T) {
 	txProbe.healthy.Store(true)
 	if readiness = rt.CheckWorkloadReadiness(context.Background()); !readiness.Ready() {
 		t.Fatalf("recovered readiness = %#v, want ready", readiness)
-	}
-}
-
-// TestRuntimeTrustedNATSDevRefusedInRealMode verifies that a runtime configured
-// for the unsafe dev-only transport boundary is rejected when mode is real.
-func TestRuntimeTrustedNATSDevRefusedInRealMode(t *testing.T) {
-	cfg := realConfig()
-	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	cfg.Nexus.EnvelopeAuthMode = config.NexusEnvelopeAuthTrustedDev
-	cfg.Nexus.AuthTokenFile = filepath.Join(t.TempDir(), "nexus.token")
-	const secret = "runtime-trusted-token"
-	if err := os.WriteFile(cfg.Nexus.AuthTokenFile, []byte(secret+"\n"), 0o600); err != nil {
-		t.Fatalf("write token: %v", err)
-	}
-	signingClient, keeper := readyRuntimeServiceSigner(t)
-	cfg.LocalIdentity.ServiceKeyRef = "service.json"
-	if _, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelClient: modelservice.NewFakeService(), NexusPublisher: fakePublisher{}, NexusSubscriber: fakeSubscriber{},
-		TxClient: txclienttest.NewFake(), Keeper: keeper, SigningClient: signingClient, TrustInjectedSignerForTests: true,
-		ChainStatus: staticChainStatusReader{height: 200, chainID: cfg.ChainID},
-	}); err == nil || !strings.Contains(err.Error(), "nexus.envelope_auth_mode must not be trusted_nats_dev in real mode") {
-		t.Fatalf("BuildRuntimeWithOptions() error = %v, want real mode refusal of trusted_nats_dev", err)
 	}
 }
 
@@ -625,10 +488,6 @@ func TestBuildRuntimeStartsWorkloadWithoutCosmosTxSigner(t *testing.T) {
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		Keeper:                      confirmationKeeperReader{staticKeeperIdentityReader: keeper},
 		SigningClient:               incapableSigner{capable: false},
 		TrustInjectedSignerForTests: true,
@@ -650,7 +509,7 @@ func TestBuildRuntimeStartsWorkloadWithoutCosmosTxSigner(t *testing.T) {
 	if !strings.Contains(readiness.TxBroadcaster.Error, "signer cannot produce Cosmos transactions") {
 		t.Fatalf("tx_broadcaster status = %#v, want the signer's own reason", readiness.TxBroadcaster)
 	}
-	if !readiness.Identity.Ready || !readiness.ModelSupport.Ready || !readiness.Nexus.Ready {
+	if !readiness.Identity.Ready || !readiness.ModelSupport.Ready {
 		t.Fatalf("readiness = %#v, want every gating boundary ready", readiness)
 	}
 	// Activation succeeds with no tx client, and nothing pretends one exists:
@@ -684,11 +543,9 @@ func TestBuildRuntimeRealModeCreatesKeeperReconciler(t *testing.T) {
 	keeper := readyKeeperIdentityReader()
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelTransport:  fakeModelTransport{},
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          keeper,
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelTransport: fakeModelTransport{},
+		Keeper:         keeper,
+		ChainStatus:    staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	})
 	if err != nil {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
@@ -709,7 +566,7 @@ func TestBuildRuntimeRealModeCreatesKeeperReconciler(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeRealModeReconcilerEmitsAssignmentEffect(t *testing.T) {
+func TestBuildRuntimeRealModeReconcilerEmitsTaskHashKeyedEffect(t *testing.T) {
 	cfg := realConfig()
 	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
 	cfg.LocalIdentity.OperatorAddress = "node-local"
@@ -720,11 +577,9 @@ func TestBuildRuntimeRealModeReconcilerEmitsAssignmentEffect(t *testing.T) {
 	keeper.key.OperatorAddress = "node-local"
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelTransport:  fakeModelTransport{},
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          keeper,
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelTransport: fakeModelTransport{},
+		Keeper:         keeper,
+		ChainStatus:    staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 		TaskInputResolver: taskInputResolverFunc(func(context.Context, TaskInputRef) ([]byte, error) {
 			return []byte("reconciler test input"), nil
 		}),
@@ -741,13 +596,13 @@ func TestBuildRuntimeRealModeReconcilerEmitsAssignmentEffect(t *testing.T) {
 	rt.Reconciler.tasks = &staticKeeperTaskReader{snapshot: validTaskSnapshot("session-1", "task-1", taskHash)}
 
 	effects, err := rt.Reconciler.Apply(context.Background(), []chainclient.KeeperEvent{
-		{Type: chainclient.KeeperEventAssignmentFinalized, SessionID: "session-1", TaskID: "task-1", Height: 11, Worker: "worker-1"},
+		{Type: chainclient.KeeperEventWorkerTimeout, SessionID: "session-1", TaskID: "task-1", Height: 11},
 	})
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
-	if len(effects) != 1 || effects[0].Type != ReconcilerEffectAssignment || effects[0].TaskHash != taskHash {
-		t.Fatalf("effects = %#v, want task-hash-keyed assignment", effects)
+	if len(effects) != 1 || effects[0].Type != ReconcilerEffectInferTerminal || effects[0].TaskHash != taskHash {
+		t.Fatalf("effects = %#v, want a task-hash-keyed effect", effects)
 	}
 }
 
@@ -758,11 +613,9 @@ func TestBuildRuntimeRealModeIdentityMismatchKeepsChainSyncButDisablesWorkload(t
 	keeper.node.OperatorAddress = "trueopen1other"
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelTransport:  fakeModelTransport{},
-		NexusPublisher:  fakePublisher{},
-		NexusSubscriber: fakeSubscriber{},
-		Keeper:          keeper,
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+		ModelTransport: fakeModelTransport{},
+		Keeper:         keeper,
+		ChainStatus:    staticChainStatusReader{height: 200, chainID: cfg.ChainID},
 	})
 	if err != nil {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
@@ -799,33 +652,6 @@ func TestBuildRuntimeFakeModeDoesNotCreateKeeperReconciler(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeRealModeInvalidNexusURLReportsDiagnostic(t *testing.T) {
-	cfg := realConfig()
-	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	// When the runtime builds the NATS connection itself it generates the local user key
-	// at nats_user_key_file, so tests point it at a temp dir.
-	cfg.Nexus.NATSUserKeyFile = filepath.Join(t.TempDir(), "nats-user.nk")
-	cfg.Nexus.NATSURL = "http://127.0.0.1:4222" // a loopback address does not trigger real mode's tls:// requirement, leaving only the scheme error itself
-
-	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{Keeper: readyKeeperIdentityReader()})
-	if err != nil {
-		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := rt.Close(); err != nil {
-			t.Fatalf("Close() error = %v", err)
-		}
-	})
-
-	status, ok := rt.Dependencies.Diagnostics.Dependency("nexus")
-	if !ok {
-		t.Fatalf("missing nexus diagnostic")
-	}
-	if status.Ready || !strings.Contains(status.Error, "unsupported nexus nats url scheme") {
-		t.Fatalf("nexus status = %#v, want invalid NATS URL diagnostic", status)
-	}
-}
-
 func TestRuntimeCloseNilSafe(t *testing.T) {
 	var rt *Runtime
 	if err := rt.Close(); err != nil {
@@ -835,28 +661,6 @@ func TestRuntimeCloseNilSafe(t *testing.T) {
 	rt = &Runtime{}
 	if err := rt.Close(); err != nil {
 		t.Fatalf("empty Runtime Close() error = %v", err)
-	}
-}
-
-func TestRuntimeCloseClosesNexusTransports(t *testing.T) {
-	cfg := realConfig()
-	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	publisher := &closeTrackingPublisher{}
-	subscriber := &closeTrackingSubscriber{}
-
-	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		NexusPublisher:  publisher,
-		NexusSubscriber: subscriber,
-		Keeper:          readyKeeperIdentityReader(),
-	})
-	if err != nil {
-		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
-	}
-	if err := rt.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-	if !publisher.closed || !subscriber.closed {
-		t.Fatalf("closed publisher=%v subscriber=%v, want both closed", publisher.closed, subscriber.closed)
 	}
 }
 
@@ -872,10 +676,6 @@ func TestRuntimeRealModeFakeModelWiresFixtureDependencies(t *testing.T) {
 	taskData := builderclient.NewFakeClient()
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      confirmationKeeperReader{staticKeeperIdentityReader: identityReader},
 		SigningClient:               signingClient,
@@ -913,10 +713,6 @@ func TestBuildRuntimeNexusInputUsesInjectedTaskDataClientEverywhere(t *testing.T
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
 		TrustInjectedSignerForTests: true,
@@ -956,10 +752,6 @@ func TestBuildRuntimeNexusInputFailsClosedWithoutServiceKeyReader(t *testing.T) 
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		Keeper:                      heightOnlyTaskDataKeeper{},
 		SigningClient:               incapableSigner{capable: false},
 		TrustInjectedSignerForTests: true,
@@ -972,11 +764,6 @@ func TestBuildRuntimeNexusInputFailsClosedWithoutServiceKeyReader(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "read service keys") {
 		t.Fatalf("BuildRuntimeWithOptions() error = %v, want missing service-key reader rejection", err)
 	}
-}
-
-type closeTrackingPublisher struct {
-	fakePublisher
-	closed bool
 }
 
 type controlledReadinessProbe struct {
@@ -992,26 +779,6 @@ func (p *controlledReadinessProbe) Probe(ctx context.Context) error {
 	}
 	return nil
 }
-
-func (p *closeTrackingPublisher) Close() error {
-	p.closed = true
-	return nil
-}
-
-type closeTrackingSubscriber struct {
-	fakeSubscriber
-	closed bool
-}
-
-func (s *closeTrackingSubscriber) Close() error {
-	s.closed = true
-	return nil
-}
-
-var _ interface{ Close() error } = (*closeTrackingPublisher)(nil)
-var _ interface{ Close() error } = (*closeTrackingSubscriber)(nil)
-var _ builderclient.Publisher = (*closeTrackingPublisher)(nil)
-var _ builderclient.Subscriber = (*closeTrackingSubscriber)(nil)
 
 type daemonModelManagementServer struct {
 	cortexv1.UnimplementedModelManagementServiceServer
@@ -1324,17 +1091,12 @@ func TestWorkloadReadinessBlocksOnLocalServiceKey(t *testing.T) {
 		healthy := &controlledReadinessProbe{}
 		healthy.healthy.Store(true)
 		rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-			ModelClient:                modelservice.NewFakeService(),
-			NexusPublisher:             fakePublisher{},
-			NexusSubscriber:            fakeSubscriber{},
-			NexusEnvelopeAuthenticator: runtimeTestEnvelopeAuthenticator(),
-			NexusEnvelopeSigner:        runtimeTestEnvelopeSigner(),
-			TxClient:                   txclienttest.NewFake(),
-			Keeper:                     readyKeeperIdentityReader(),
-			ChainStatus:                staticChainStatusReader{height: 200, chainID: cfg.ChainID},
-			NexusReadinessProbe:        healthy,
-			TxReadinessProbe:           healthy,
-			SigningClient:              local,
+			ModelClient:      modelservice.NewFakeService(),
+			TxClient:         txclienttest.NewFake(),
+			Keeper:           readyKeeperIdentityReader(),
+			ChainStatus:      staticChainStatusReader{height: 200, chainID: cfg.ChainID},
+			TxReadinessProbe: healthy,
+			SigningClient:    local,
 		})
 		if err != nil {
 			t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
@@ -1459,32 +1221,6 @@ func TestChainProgressMakesACursorAboveTheTipVisible(t *testing.T) {
 	}
 }
 
-// The JetStream durable identity is the operator address alone. Duties used to
-// be folded into the prefix, which meant adding or removing a duty renamed
-// every durable: the old consumers were orphaned server-side and the new ones
-// restarted from DeliverAll, replaying the whole retention window. Duty
-// selection is now retired outright, so the only way a durable could still be
-// duty-shaped is a prefix built from something other than the operator address.
-func TestDurableIdentityIsTheOperatorAddressAlone(t *testing.T) {
-	const operator = "trueopen1operator"
-	subject := builderclient.NATSWorkerAssignmentSubject("*")
-
-	node := config.Config{LocalIdentity: config.LocalIdentityConfig{OperatorAddress: operator}}
-	workerName := builderclient.NATSDurableName(nexusDurablePrefix(node), subject)
-
-	// The old shape must produce a different name, or this test would pass
-	// without duties actually having been removed from the identity.
-	if legacy := builderclient.NATSDurableName(operator+"-WORKER", subject); legacy == workerName {
-		t.Fatalf("durable name %q is insensitive to its prefix", workerName)
-	}
-
-	// Different operators must still get different durables.
-	other := config.Config{LocalIdentity: config.LocalIdentityConfig{OperatorAddress: "trueopen1other"}}
-	if builderclient.NATSDurableName(nexusDurablePrefix(other), subject) == workerName {
-		t.Fatalf("durable name %q is shared across operators", workerName)
-	}
-}
-
 // togglingChainStatusReader flips between serving the configured chain and failing.
 type togglingChainStatusReader struct {
 	height  uint64
@@ -1512,10 +1248,6 @@ func TestReadinessReportsChainLossInsteadOfStartupConstant(t *testing.T) {
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
@@ -1574,10 +1306,6 @@ func TestReadinessReportsStoreLossWhenDatabaseIsClosed(t *testing.T) {
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
@@ -1615,10 +1343,6 @@ func TestReadinessReportsStoreNotReadyWhenReadOnly(t *testing.T) {
 
 	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
 		ModelClient:                 modelservice.NewFakeService(),
-		NexusPublisher:              fakePublisher{},
-		NexusSubscriber:             fakeSubscriber{},
-		NexusEnvelopeAuthenticator:  runtimeTestEnvelopeAuthenticator(),
-		NexusEnvelopeSigner:         runtimeTestEnvelopeSigner(),
 		TxClient:                    txclienttest.NewFake(),
 		Keeper:                      keeper,
 		SigningClient:               signingClient,
@@ -1644,71 +1368,6 @@ func TestReadinessReportsStoreNotReadyWhenReadOnly(t *testing.T) {
 	}
 }
 
-type probingPublisher struct {
-	fakePublisher
-	probes int
-}
-
-func (p *probingPublisher) Probe(context.Context) error {
-	p.probes++
-	return nil
-}
-
-type probingSubscriber struct {
-	fakeSubscriber
-}
-
-func (probingSubscriber) Probe(context.Context) error { return nil }
-
-// TestBuildRuntimeReportsOutboundPublishesWithoutHidingThePublisherProbe pins
-// both halves of the observability seam: the Builder client reports what it
-// sends, and the readiness path still holds the raw publisher. Wrapping the
-// value the runtime keeps would silently drop the Probe method and, with it,
-// the nexus dependency's live readiness check.
-func TestBuildRuntimeReportsOutboundPublishesWithoutHidingThePublisherProbe(t *testing.T) {
-	cfg := realConfig()
-	cfg.Store.Path = filepath.Join(t.TempDir(), "cortex.kv")
-	publisher := &probingPublisher{}
-	var completions []builderclient.PublishCompletion
-
-	rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-		ModelClient:     modelservice.NewFakeService(),
-		NexusPublisher:  publisher,
-		NexusSubscriber: probingSubscriber{},
-		Keeper:          missingIdentityKeeper{confirmationKeeperReader: confirmationKeeperReader{staticKeeperIdentityReader: readyKeeperIdentityReader()}},
-		KeeperEvents:    emptyKeeperEvents{},
-		ChainStatus:     staticChainStatusReader{height: 200, chainID: cfg.ChainID},
-		NexusPublishObserver: func(completion builderclient.PublishCompletion) {
-			completions = append(completions, completion)
-		},
-	})
-	if err != nil {
-		t.Fatalf("BuildRuntimeWithOptions() error = %v", err)
-	}
-	t.Cleanup(func() { _ = rt.Close() })
-
-	if err := rt.Dependencies.Builder.Publish(context.Background(), builderclient.PublishRequest{
-		Subject: builderclient.NATSVerifierHandraiseSubject("task-1"), TaskID: "task-1",
-		Payload: []byte("payload"), DedupID: "dedup-1",
-	}); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-	if len(completions) != 1 {
-		t.Fatalf("completions = %d, want 1", len(completions))
-	}
-
-	if rt.nexusProbe == nil {
-		t.Fatal("nexus readiness probe = nil; the observer hid the publisher's Probe method")
-	}
-	before := publisher.probes
-	if err := rt.nexusProbe.Probe(context.Background()); err != nil {
-		t.Fatalf("nexus probe: %v", err)
-	}
-	if publisher.probes != before+1 {
-		t.Fatalf("publisher probes = %d, want %d: the probe must reach the raw publisher", publisher.probes, before+1)
-	}
-}
-
 // The Verifier's output confirmer used to require deps.OutputPackages, which is
 // populated only under the fake model transport. On a node running a real model
 // transport it was therefore always nil, every OPEN_VERIFY was refused with
@@ -1728,10 +1387,8 @@ func TestBuildRuntimeConstructsTheOutputConfirmerWithoutASharedPackageStore(t *t
 			}
 
 			rt, err := BuildRuntimeWithOptions(context.Background(), cfg, RuntimeOptions{
-				NexusPublisher:  fakePublisher{},
-				NexusSubscriber: fakeSubscriber{},
-				TaskDataClient:  builderclient.NewFakeClient(),
-				Keeper:          readyKeeperIdentityReader(),
+				TaskDataClient: builderclient.NewFakeClient(),
+				Keeper:         readyKeeperIdentityReader(),
 			})
 			if err != nil {
 				t.Fatalf("BuildRuntimeWithOptions() error = %v", err)

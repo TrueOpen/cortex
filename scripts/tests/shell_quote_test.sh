@@ -30,16 +30,14 @@ fail() {
 	failures=$((failures + 1))
 }
 
-# A NATS URL with & and a value with an embedded single quote are the realistic
+# A URL with & and a value with an embedded single quote are the realistic
 # hostile shapes: sed-style escaping mangles the first and breaks on the second.
 CORTEX_MODEL_TRANSPORT="fake"
-CORTEX_NEXUS_ENVELOPE_AUTH_MODE="trusted_nats_dev"
-CORTEX_NEXUS_JETSTREAM_STREAM="TRUEOPEN_TASK"
 CORTEX_MODEL_ENDPOINT="http://user:pa&ss@127.0.0.1:8000/it's"
 CORTEX_TASK_INPUT_RESOLVER="fixture"
 CORTEX_TASK_FIXTURE_ROOT="/opt/cortex/fix tures"
 CORTEX_MODEL_MAX_CONCURRENCY="8"
-export CORTEX_MODEL_TRANSPORT CORTEX_NEXUS_ENVELOPE_AUTH_MODE CORTEX_MODEL_ENDPOINT CORTEX_NEXUS_JETSTREAM_STREAM
+export CORTEX_MODEL_TRANSPORT CORTEX_MODEL_ENDPOINT
 export CORTEX_TASK_INPUT_RESOLVER CORTEX_TASK_FIXTURE_ROOT CORTEX_MODEL_MAX_CONCURRENCY
 
 # Every forwarded override must be set above, or the coverage below is vacuous
@@ -93,7 +91,7 @@ case "$prefix" in
 *) echo "FAIL: could not extract the generated assignments from the remote command" >&2; exit 1 ;;
 esac
 
-for probe in CORTEX_MODEL_ENDPOINT CORTEX_TASK_FIXTURE_ROOT CORTEX_NEXUS_ENVELOPE_AUTH_MODE; do
+for probe in CORTEX_MODEL_ENDPOINT CORTEX_TASK_FIXTURE_ROOT CORTEX_TASK_INPUT_RESOLVER; do
 	expected=$(eval "printf '%s' \"\$$probe\"")
 	got=$(eval "$prefix printf '%s' \"\$$probe\"" 2>&1) || {
 		fail "generated assignments are not valid shell: $got"

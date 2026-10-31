@@ -13,77 +13,108 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// validateAcceptedWorkerEvidence rechecks the accepted receipt and both Worker
-// bundles before model scoring; the caller's confirmation is not a substitute
-// for this commitment boundary. It returns the Worker's value leaves, decoded
-// strictly under this task's binding.
-func (v *Verifier) validateAcceptedWorkerEvidence(ctx context.Context, state TaskState, profile chainclient.CurrentModelProfileSnapshot, limits map[nodewire.EvidenceKind]uint64, output []byte, evidence workerEvidenceArtifacts) error {
-	receipt := state.ConfirmedInferReceipt
-	if receipt == nil {
-		return fmt.Errorf("confirmed Worker InferReceiptV3 is required")
-	}
-	digest, err := builderclient.InferReceiptSigningDigest(*receipt)
+// ErrWorkerEvidenceInvalid marks Worker evidence that reproduces its
+// commitment but is not legal content (CD §6.2 V7b/V14b reason
+// WORKER_EVIDENCE_INVALID), as opposed to evidence that could not be had.
+var ErrWorkerEvidenceInvalid = errors.New("Worker evidence matches its commitment but is invalid")
+
+// validateWorkerTokenEvidence rechecks the accepted receipt and the A-level
+// bundle before the prefill (CD §6.2 V7a); the caller's confirmation is not a
+// substitute for this commitment boundary.
+func (v *Verifier) validateWorkerTokenEvidence(ctx context.Context, state TaskState, profile chainclient.CurrentModelProfileSnapshot, limits map[nodewire.EvidenceKind]uint64, output []byte, tokens workerTokenArtifacts) error {
+	receipt, err := v.acceptedWorkerReceipt(ctx, state, limits)
 	if err != nil {
 		return err
-	}
-	if digest != state.InferReceiptHash || receipt.TaskID != state.TaskID || receipt.ChainID != v.cfg.ChainID || receipt.WorkerOperatorAddress != state.WorkerAddress {
-		return fmt.Errorf("confirmed Worker receipt differs from accepted task facts")
-	}
-	facts, err := v.taskFacts(ctx, state.TaskID)
-	if err != nil {
-		return err
-	}
-	if receipt.TaskHash != hex.EncodeToString(facts.AcceptedTaskHash) || receipt.GenerationParamsDigest != hex.EncodeToString(facts.GenerationParamsDigest) {
-		return fmt.Errorf("confirmed Worker receipt differs from accepted generation or task hash")
 	}
 	if receipt.OutputHash != state.OutputPackage.OutputHash.String() || receipt.OutputSizeBytes != uint64(len(output)) || receipt.OutputLeafCount != uint64(len(state.ConfirmedOutputChunkLengths)) {
 		return fmt.Errorf("confirmed Worker receipt differs from output MMR size or leaf count")
 	}
-	if err := nodewire.RequireWorkerEvidenceCommitmentsV3(receiptCommitments(receipt.RequiredEvidenceCommitments)); err != nil {
-		return err
-	}
-	for _, committed := range receipt.RequiredEvidenceCommitments {
-		if committed.EncodedSizeBytes > limits[committed.EvidenceKind] {
-			return fmt.Errorf("Worker evidence of kind %d exceeds locked profile bound", committed.EvidenceKind)
-		}
-	}
-	input, err := nodewire.DecodeTokenIDs(evidence.inputTokenIDs)
+	input, err := nodewire.DecodeTokenIDs(tokens.inputTokenIDs)
 	if err != nil {
 		return err
 	}
-	generated, err := nodewire.DecodeTokenIDs(evidence.generatedTokenIDs)
+	generated, err := nodewire.DecodeTokenIDs(tokens.generatedTokenIDs)
 	if err != nil {
 		return err
 	}
-	receiptFacts := builderclient.WorkerEvidenceFacts{
+	facts := builderclient.WorkerEvidenceFacts{
 		ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash,
 		WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest,
 		OutputHash: state.OutputPackage.OutputHash, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount,
 		GeneratedTokenCount:    receipt.GeneratedTokenCount,
-		InputTokenIDsSizeBytes: uint64(len(evidence.inputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(evidence.generatedTokenIDs)),
-		WorkerValueRoot: evidence.workerValueRoot, WorkerValuesEncodedSizeBytes: uint64(len(evidence.workerValues)),
+		InputTokenIDsSizeBytes: uint64(len(tokens.inputTokenIDs)), GeneratedTokenIDsSizeBytes: uint64(len(tokens.generatedTokenIDs)),
 	}
-	if receiptFacts.EvidenceSchemaHash, err = keeperEvidenceSchemaHash(profile); err != nil {
+	if facts.EvidenceSchemaHash, err = keeperEvidenceSchemaHash(profile); err != nil {
 		return err
 	}
-	if receiptFacts.InputTokenIDsHash, err = nodewire.InputTokenIDsHash(input); err != nil {
+	if facts.InputTokenIDsHash, err = nodewire.InputTokenIDsHash(input); err != nil {
 		return err
 	}
-	if receiptFacts.GeneratedTokenIDsHash, err = nodewire.GeneratedTokenIDsHash(generated); err != nil {
+	if facts.GeneratedTokenIDsHash, err = nodewire.GeneratedTokenIDsHash(generated); err != nil {
 		return err
 	}
-	reason, err := builderclient.ConfirmWorkerEvidence(receiptFacts, receipt.RequiredEvidenceCommitments)
+	reason, err := builderclient.ConfirmWorkerTokenEvidence(facts, receipt.RequiredEvidenceCommitments[1])
 	if err != nil {
 		return err
 	}
 	if state.ConfirmedFinishReason != nodewire.FinishReasonV1Unspecified && reason != state.ConfirmedFinishReason {
 		return fmt.Errorf("Worker evidence finish reason differs from typed commitment")
 	}
-	// Last, with every commitment re-established: the output bytes must be the
+	// Last, with the commitment re-established: the output bytes must be the
 	// decode of the token ids this verifier is about to score (issue #35).
-	// Until here the text was bound to output_hash and the tokens to the
-	// A-level commitment, but nothing tied the two to each other.
 	return v.checkOutputDecodesFromTokens(ctx, state, generated, output)
+}
+
+// validateWorkerValueEvidence rechecks the B-level bundle against the same
+// receipt's value commitment, in REVEALING only (CD §6.2 V14a).
+func (v *Verifier) validateWorkerValueEvidence(ctx context.Context, state TaskState, profile chainclient.CurrentModelProfileSnapshot, limits map[nodewire.EvidenceKind]uint64, values workerValueArtifacts) error {
+	receipt, err := v.acceptedWorkerReceipt(ctx, state, limits)
+	if err != nil {
+		return err
+	}
+	facts := builderclient.WorkerEvidenceFacts{
+		ChainID: receipt.ChainID, TaskID: receipt.TaskID, AcceptedTaskHash: receipt.TaskHash,
+		WorkerOperatorAddress: receipt.WorkerOperatorAddress, GenerationParamsDigest: receipt.GenerationParamsDigest,
+		WorkerValueRoot: values.workerValueRoot, WorkerValuesEncodedSizeBytes: uint64(len(values.workerValues)),
+	}
+	if facts.EvidenceSchemaHash, err = keeperEvidenceSchemaHash(profile); err != nil {
+		return err
+	}
+	if uint64(len(values.workerLeaves)) != receipt.GeneratedTokenCount {
+		return fmt.Errorf("Worker values cover %d positions, not the signed generated_token_count %d", len(values.workerLeaves), receipt.GeneratedTokenCount)
+	}
+	return builderclient.ConfirmWorkerValueEvidence(facts, receipt.RequiredEvidenceCommitments[0])
+}
+
+// acceptedWorkerReceipt is the receipt checks both phases share.
+func (v *Verifier) acceptedWorkerReceipt(ctx context.Context, state TaskState, limits map[nodewire.EvidenceKind]uint64) (*builderclient.SignedInferReceipt, error) {
+	receipt := state.ConfirmedInferReceipt
+	if receipt == nil {
+		return nil, fmt.Errorf("confirmed Worker InferReceiptV3 is required")
+	}
+	digest, err := builderclient.InferReceiptSigningDigest(*receipt)
+	if err != nil {
+		return nil, err
+	}
+	if digest != state.InferReceiptHash || receipt.TaskID != state.TaskID || receipt.ChainID != v.cfg.ChainID || receipt.WorkerOperatorAddress != state.WorkerAddress {
+		return nil, fmt.Errorf("confirmed Worker receipt differs from accepted task facts")
+	}
+	facts, err := v.taskFacts(ctx, state.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	if receipt.TaskHash != hex.EncodeToString(facts.AcceptedTaskHash) || receipt.GenerationParamsDigest != hex.EncodeToString(facts.GenerationParamsDigest) {
+		return nil, fmt.Errorf("confirmed Worker receipt differs from accepted generation or task hash")
+	}
+	if err := nodewire.RequireWorkerEvidenceCommitmentsV3(receiptCommitments(receipt.RequiredEvidenceCommitments)); err != nil {
+		return nil, err
+	}
+	for _, committed := range receipt.RequiredEvidenceCommitments {
+		if committed.EncodedSizeBytes > limits[committed.EvidenceKind] {
+			return nil, fmt.Errorf("Worker evidence of kind %d exceeds locked profile bound", committed.EvidenceKind)
+		}
+	}
+	return receipt, nil
 }
 
 // checkOutputDecodesFromTokens refuses to score a Worker whose MMR-confirmed
@@ -114,8 +145,8 @@ func (v *Verifier) checkOutputDecodesFromTokens(ctx context.Context, state TaskS
 	if bytes.Equal(decoded, modelservice.CanonicalUTF8(output)) {
 		return nil
 	}
-	return fmt.Errorf("verifier evidence rejected: WORKER_EVIDENCE_FAULT: the confirmed output (%d bytes) is not the decode of the %d committed generated token ids (%d bytes)",
-		len(output), len(generated), len(decoded))
+	return fmt.Errorf("%w: verifier evidence rejected: WORKER_EVIDENCE_FAULT: the confirmed output (%d bytes) is not the decode of the %d committed generated token ids (%d bytes)",
+		ErrWorkerEvidenceInvalid, len(output), len(generated), len(decoded))
 }
 
 func receiptCommitments(items []builderclient.EvidenceCommitment) []nodewire.EvidenceCommitmentV1 {

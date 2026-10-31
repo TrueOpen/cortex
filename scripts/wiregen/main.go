@@ -18,14 +18,14 @@ import (
 
 // descriptorSHA256 pins the exact bytes the bindings were generated from.
 //
-// It is the `wire.binpb` asset of the wire v0.5.1 release, which wire's
-// contract workflow produces with `buf build`. The buf version is part of the
-// pin: a different one can lay the same contract out differently, and then the
-// checksum here is the only thing that would notice.
-const descriptorSHA256 = "d0726ab567377a84842f5a273db2ce8b508c86c2a7895aeae49197fd389bd6b4"
+// It is `buf build` (buf v1.71.0, the version wire's contract workflow pins)
+// of wire commit 916e3936355cb787f6e82509619f55c6b5aad7e2, the Phase 1
+// candidate contract (wire#49). That commit is not a release; re-pin to the
+// release asset once it is tagged.
+const descriptorSHA256 = "ad68a72183f458830515a8d2f161c2f4f7801eeb4ce68f32bfc4d1ddefbe2467"
 
 func main() {
-	descriptor := flag.String("descriptor", "proto/testdata/wire-v0.5.1.binpb", "pinned wire descriptor")
+	descriptor := flag.String("descriptor", "proto/testdata/wire-916e393.binpb", "pinned wire descriptor")
 	out := flag.String("out", "bin/.chain-bindings", "empty scratch output directory")
 	flag.Parse()
 	data, err := os.ReadFile(*descriptor)
@@ -67,7 +67,7 @@ func main() {
 		// which is how the .proto here and the copy an SDK reads could drift.
 		// wire withholds it, so its fields are not frozen yet -- that changes
 		// nothing about generation, only about the compatibility promise.
-		if strings.HasPrefix(name, "hub/v1/") || strings.HasPrefix(name, "task/v1/") || strings.HasPrefix(name, "shared/v1/") || strings.HasPrefix(name, "bus/v1/") || strings.HasPrefix(name, "cortex/v1/") || name == "nexus/v1/ingress.proto" {
+		if strings.HasPrefix(name, "hub/v1/") || strings.HasPrefix(name, "task/v1/") || strings.HasPrefix(name, "shared/v1/") || strings.HasPrefix(name, "cortex/v1/") || name == "nexus/v1/ingress.proto" {
 			add(name)
 		}
 	}

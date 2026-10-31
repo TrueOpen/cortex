@@ -327,3 +327,30 @@ func openTestStore(t *testing.T) *Store {
 	})
 	return s
 }
+
+func TestScanPrefixFromStartsAtLowerBoundAndStaysInPrefix(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "cortex.kv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, k := range []string{"p/1", "p/2", "p/3", "q/0", "o/9"} {
+		if err := s.PutRaw(ctx, []byte(k), []byte(k)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	if err := s.ScanPrefixFrom(ctx, []byte("p/"), []byte("p/2"), func(k, v []byte) error {
+		got = append(got, string(k))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "p/2,p/3" {
+		t.Fatalf("got %v", got)
+	}
+	if err := s.ScanPrefixFrom(ctx, []byte("p/"), []byte("o/0"), func(_, _ []byte) error { return nil }); err == nil {
+		t.Fatal("a start key outside the prefix must be refused")
+	}
+}

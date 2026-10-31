@@ -1,0 +1,211 @@
+{
+  "account": {
+    "private_key": "0101010101010101010101010101010101010101010101010101010101010101"
+  },
+  "cases": [
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgDepositSession\",\"value\":{\"amount\":{\"atomic_units\":\"1000\"},\"session_id\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\",\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgDepositSession msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgDepositSession(TypeValue value,string type)TypeValue(string session_id,TypeValueAmount amount,string signer_address)TypeValueAmount(string atomic_units)",
+      "hash_struct": "1e5068fd80f88a348878896b3868ca2e02ed6deb29bbcb29b6a1e77230fb2132",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/task/MsgDepositSession",
+          "value": {
+            "amount": {
+              "atomic_units": "1000"
+            },
+            "session_id": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "deposit",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "24a7578aeb87201d4f147c5eedcd7d8790cf565011b9f64510a18126c0b7ae9e",
+      "signature_65": "ba8124ddc32a9acfb1497f0bea099a9f9bab46cd023d8058c0d043cb8086fac9407e2f76d472936d32cc72e5a713deb5b7ac5a8b66ae650645e806fb12fc5bc71c",
+      "signing_digest": "445b78dcf53b4aa32951c00581b7c6ac50ca2640d044ef73fc68863e11bb553e",
+      "signer": "account"
+    },
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgWithdrawSession\",\"value\":{\"amount\":{\"amount\":{\"atomic_units\":\"1000\"}},\"session_id\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\",\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgWithdrawSession msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgWithdrawSession(TypeValue value,string type)TypeValue(string session_id,string signer_address,TypeValueAmount amount)TypeValueAmount(TypeValueAmountAmount amount)TypeValueAmountAmount(string atomic_units)",
+      "hash_struct": "aa5c6c79dcaaf395247b4039c150ca46a57b70387ecfb6c79ad61f832c449737",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/task/MsgWithdrawSession",
+          "value": {
+            "amount": {
+              "amount": {
+                "atomic_units": "1000"
+              }
+            },
+            "session_id": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "withdraw_amount",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "27f12295c5321286e92d25ab67631e19fe148313bba6e4162768f8c6874141b6",
+      "signature_65": "7475a11e8b36c5675a72a7441d12e21a4b67f8d518a663b58aefe9d367145106554db2cf1674fc5024c6a3271fe19de7a3f8c70a2f4db01ca6473247add212461c",
+      "signing_digest": "fa3426737eb48ec6e31bab777528c16947064847243e52ed9a6c83b4f5a6e2d9",
+      "signer": "account"
+    },
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/task/MsgWithdrawSession\",\"value\":{\"close\":true,\"session_id\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=\",\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgWithdrawSession msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgWithdrawSession(TypeValue value,string type)TypeValue(string session_id,string signer_address,bool close)",
+      "hash_struct": "5848e453514c29665c52f8490486c2e840032b711cae2c6eca53ae042c6b8bf0",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/task/MsgWithdrawSession",
+          "value": {
+            "close": true,
+            "session_id": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "close",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "38732db0ceb45bd04aa2aa557d8f5d1fb5a4a7c824622eea3f9951309ee8d688",
+      "signature_65": "430b47058d7a8fd298b1751553c065d2103fa0e9dd4b648a817cb9cc34bd4ec50de4106286ce0875222344cefe15400b3be27f6df5570fce30beac3ca5d23a4e1b",
+      "signing_digest": "1ffb6f0311cc5d4e356fdab9763f6e718ca3dcace5fd57eb80cd943d7440c6be",
+      "signer": "account"
+    },
+    {
+      "canonical_amino_json": "{\"account_number\":\"7\",\"chain_id\":\"trueopen-golden-1\",\"fee\":{\"amount\":[{\"amount\":\"12345\",\"denom\":\"uusdc\"}],\"gas\":\"200000\"},\"memo\":\"\",\"msgs\":[{\"type\":\"trueopen/x/hub/MsgFundBuilderCompensation\",\"value\":{\"amount\":{\"atomic_units\":\"1000\"},\"builder_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\",\"signer_address\":\"trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz\"}}],\"sequence\":\"9\"}",
+      "domain": {
+        "chain_id": "424242",
+        "name": "Cosmos Web3",
+        "salt": "0",
+        "verifying_contract": "cosmos",
+        "version": "1.0.0"
+      },
+      "domain_separator": "9dda411ee733964ed5bf9c8f8ed7405d65711cf9ab24f0c73fedf4112d4d3d45",
+      "encode_type": "Tx(string account_number,string chain_id,Fee fee,string memo,string sequence,TypeMsgFundBuilderCompensation msg0)Coin(string denom,string amount)Fee(Coin[] amount,string gas)TypeMsgFundBuilderCompensation(TypeValue value,string type)TypeValue(string builder_address,TypeValueAmount amount,string signer_address)TypeValueAmount(string atomic_units)",
+      "hash_struct": "3578f327be8f53034b4dba8ac4633668044b45738855b4d60a1e975ba0eb6474",
+      "message": {
+        "account_number": "7",
+        "chain_id": "trueopen-golden-1",
+        "fee": {
+          "amount": [
+            {
+              "amount": "12345",
+              "denom": "uusdc"
+            }
+          ],
+          "gas": "200000"
+        },
+        "memo": "",
+        "msg0": {
+          "type": "trueopen/x/hub/MsgFundBuilderCompensation",
+          "value": {
+            "amount": {
+              "atomic_units": "1000"
+            },
+            "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+            "signer_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz"
+          }
+        },
+        "sequence": "9"
+      },
+      "name": "fund_builder",
+      "recovered_address": "1a642f0e3c3af545e7acbd38b07251b3990914f1",
+      "sha256": "ae6b836e7db3cc0c79452b84d717fd5543dc508318f2ea61fd01be4142daf2d1",
+      "signature_65": "38c57aae69076125676fb9fb74342f8c3684c7ef6438b70b75b34c642612e2fd2a91592a5f9ddaa48789b24e3bc0a85dca1f5e7b8d4454d06ddd5a0413728d291c",
+      "signing_digest": "b63bdcdb4227750746ad9370007861c6e4e43c2198d6df7a0b557b69d583cbca",
+      "signer": "account"
+    }
+  ],
+  "negative_cases": [
+    {
+      "expected": "reject",
+      "name": "missing_action"
+    },
+    {
+      "expected": "reject",
+      "name": "both_actions"
+    },
+    {
+      "expected": "reject",
+      "name": "close_false"
+    },
+    {
+      "expected": "reject",
+      "name": "close_null"
+    },
+    {
+      "expected": "reject",
+      "name": "close_empty_object"
+    }
+  ],
+  "notes": [
+    "All private keys are public fixture keys; never use them operationally.",
+    "Withdraw Amino flattens the selected oneof: amount retains its WithdrawAmountV1 object; close is boolean true. Missing/both actions, close false/null/{} are rejected. Native protobuf CLOSE remains CloseSessionV1.",
+    "Types, field order, canonical Amino and wallet signatures are frozen together; transaction authorization remains owner-only."
+  ],
+  "schema": "trueopen.session-funding-amino.v1"
+}

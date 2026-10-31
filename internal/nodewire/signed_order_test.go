@@ -62,8 +62,8 @@ func TestSignedOrderCarrierPreservesFacts(t *testing.T) {
 	want := TaskOrderFacts{
 		ChainID: "trueopen-test-1", SessionID: strings.Repeat("12", 32), OrderSequence: 7,
 		ModelID: strings.Repeat("16", 32), ProfileVersion: 3, InputHash: strings.Repeat("13", 32),
-		InputSizeBytes: 99, SessionAnchorBlockHash: strings.Repeat("14", 32),
-		BuilderSetID: "7", BuilderSetHash: strings.Repeat("15", 32), OrderExpireHeight: 80,
+		InputSizeBytes: 99,
+		BuilderSetID:   "7", BuilderSetHash: strings.Repeat("15", 32), OrderExpireHeight: 80,
 		SignatureScheme: fixture.SignatureScheme, UserSignature: fixture.UserSignatureHex,
 	}
 	facts.Generation = nil // Generation is asserted independently for both carriers.

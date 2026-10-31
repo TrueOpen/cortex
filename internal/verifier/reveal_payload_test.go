@@ -78,9 +78,8 @@ func TestVerifyCommitsWhenTheSampleValueArtifactIsAJSONEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleOpenVerifyAccepted error = %v, want a signed commit over a JSON sample-value artifact", err)
 	}
-	if !result.Started || result.CommitHash.IsZero() || len(result.ResultReveal) == 0 {
-		t.Fatalf("verify produced no commit material: started=%v commit_hash=%x reveal=%dB",
-			result.Started, result.CommitHash, len(result.ResultReveal))
+	if !result.Started || result.CommitHash.IsZero() {
+		t.Fatalf("verify produced no commit material: started=%v commit_hash=%x", result.Started, result.CommitHash)
 	}
 	if len(result.CommitWire.ServiceSignature) == 0 {
 		t.Fatal("commit wire carries no service signature; the commit was never signed")
@@ -92,7 +91,8 @@ func TestVerifyCommitsWhenTheSampleValueArtifactIsAJSONEnvelope(t *testing.T) {
 	if !containsString(h.model.fetchedRefs, envelopeSampleValueRef) {
 		t.Fatalf("sample-value ref was never fetched; fetched %v", h.model.fetchedRefs)
 	}
-	if bytes.Contains(result.ResultReveal, envelope) {
+	reveal := revealLocally(t, h, state)
+	if bytes.Contains(reveal.ResultReveal, envelope) {
 		t.Fatal("the reveal embeds the sample-value envelope; the end of §9 keeps per-token values out of the normal Msg payload")
 	}
 }
@@ -115,7 +115,8 @@ func TestResultRevealIsTheVerifierResultPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleOpenVerifyAccepted error = %v", err)
 	}
-	metricSummaryHash, err := nodewire.MetricSummaryHash(result.MetricMaterial.Summary)
+	reveal := revealLocally(t, h, state)
+	metricSummaryHash, err := nodewire.MetricSummaryHash(reveal.MetricMaterial.Summary)
 	if err != nil {
 		t.Fatalf("MetricSummaryHash error = %v", err)
 	}
@@ -134,20 +135,20 @@ func TestResultRevealIsTheVerifierResultPayload(t *testing.T) {
 		VerifierOperatorAddress:           fixtureVerifierAddress,
 		InferReceiptHash:                  state.InferReceiptHash,
 		VerifierValueRoot:                 result.MetricMaterial.VerifierValueRoot,
-		MetricRoot:                        result.MetricMaterial.Root,
-		MetricLeafCount:                   uint32(result.MetricMaterial.LeafCount),
+		MetricRoot:                        reveal.MetricMaterial.Root,
+		MetricLeafCount:                   uint32(reveal.MetricMaterial.LeafCount),
 		MetricSummaryHash:                 metricSummaryHash,
-		AggregateProofHash:                result.MetricMaterial.AggregateProof.Hash,
+		AggregateProofHash:                reveal.MetricMaterial.AggregateProof.Hash,
 		ProfileExecutionSnapshotHash:      codec.Hash(facts.ProfileExecutionSnapshotHash),
 		GenerationParamsDigest:            codec.Hash(facts.GenerationParamsDigest),
-		VerifierEvidenceBundleHash:        evidencebundle.Hash(result.EvidenceManifest),
-		VerifierEvidenceManifestSizeBytes: uint64(len(result.EvidenceManifest)),
+		VerifierEvidenceBundleHash:        evidencebundle.Hash(reveal.EvidenceManifest),
+		VerifierEvidenceManifestSizeBytes: uint64(len(reveal.EvidenceManifest)),
 	})
 	if err != nil {
 		t.Fatalf("CanonicalVerifierResultPayload error = %v", err)
 	}
-	if !bytes.Equal(result.ResultReveal, want) {
-		t.Fatalf("result reveal = %x\nwant the VerifierResult payload %x", result.ResultReveal, want)
+	if !bytes.Equal(reveal.ResultReveal, want) {
+		t.Fatalf("result reveal = %x\nwant the VerifierResult payload %x", reveal.ResultReveal, want)
 	}
 	// The V3 commit binds verifier_value_root and the salt, not the payload.
 	wantCommit, err := nodewire.ResultCommitmentHash(nodewire.ResultCommitmentV3{

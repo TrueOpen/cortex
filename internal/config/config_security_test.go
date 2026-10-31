@@ -5,16 +5,12 @@ import (
 	"testing"
 )
 
-// The deployment security baseline (monorepo 20-service-design/deployment-security-baseline) and the ADR-0016
-// transition state, as checked in real mode: NATS over tls:// with a creds file, https
-// on the node ports, and TLS required for a model service on another host. The
-// integration / fake modes are unchanged.
+// The deployment security baseline (monorepo 20-service-design/deployment-security-baseline),
+// as checked in real mode: https on the node ports, and TLS required for a model
+// service on another host. The integration / fake modes are unchanged.
 
 func hardenedRealConfig() Config {
 	cfg := validRealConfig()
-	cfg.Nexus.NATSURL = "tls://nats.example:4222"
-	cfg.Nexus.NATSUserKeyFile = "/etc/cortex/nats-user.nk"
-	cfg.Nexus.NATSCAFile = "/etc/cortex/nats-ca.pem"
 	cfg.Node.RPCEndpoint = "https://node.example:26657"
 	cfg.Node.RESTEndpoint = "https://node.example:1317"
 	cfg.ModelManagement.Endpoint = "model.example:9090"
@@ -31,9 +27,6 @@ func TestRealModeAcceptsAHardenedConfig(t *testing.T) {
 
 func TestRealModeAllowsLoopbackNodeAndModelServiceInPlaintext(t *testing.T) {
 	cfg := hardenedRealConfig()
-	cfg.Nexus.NATSURL = "nats://127.0.0.1:4222" // same-host NATS in plaintext + token is allowed
-	cfg.Nexus.NATSCredsFile = ""
-	cfg.Nexus.AuthTokenFile = "/tmp/token"
 	cfg.Node.RPCEndpoint = "http://127.0.0.1:26657"
 	cfg.Node.RESTEndpoint = "http://localhost:1317"
 	cfg.ModelManagement.Endpoint = "127.0.0.1:9090"
@@ -49,11 +42,6 @@ func TestRealModeRefusesWeakTransportSettings(t *testing.T) {
 		mutate func(*Config)
 		want   string
 	}{
-		{"plaintext nats", func(c *Config) { c.Nexus.NATSURL = "nats://nats.example:4222" }, "nexus.nats_url must use tls://"},
-		{"remote nats without ca file", func(c *Config) { c.Nexus.NATSCAFile = "" }, "nexus.nats_ca_file"},
-		{"creds file with a served address", func(c *Config) {
-			c.Nexus.NATSURL, c.Nexus.NATSCAFile, c.Nexus.NATSCredsFile = "", "", "/etc/cortex/nats.creds"
-		}, "nexus.nats_creds_file is retired"},
 		{"plaintext remote rpc", func(c *Config) { c.Node.RPCEndpoint = "http://node.example:26657" }, "node.rpc_endpoint"},
 		{"plaintext remote rest", func(c *Config) { c.Node.RESTEndpoint = "http://node.example:1317" }, "node.rest_endpoint"},
 		{"remote model service without tls", func(c *Config) { c.ModelManagement.TLS = ModelServiceTLSConfig{} }, "model_management.tls"},
@@ -71,23 +59,6 @@ func TestRealModeRefusesWeakTransportSettings(t *testing.T) {
 				t.Fatalf("Validate = %v, want an error naming %s", err, tc.want)
 			}
 		})
-	}
-}
-
-// With the on-chain identity the NATS address and certificate may come from a
-// Builder's sentinel (interface-and-topic-list §4.12): leaving both unset is a valid
-// real-mode config. Whether the Builder then serves a certificate is checked when
-// connecting, and a remote server with none is refused there. A configured remote
-// address still needs a configured certificate (the case above).
-func TestRealModeTakesNATSAddressAndCertificateFromSentinel(t *testing.T) {
-	cfg := hardenedRealConfig()
-	cfg.Nexus.NATSURL, cfg.Nexus.NATSCAFile = "", ""
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("real mode without nats_url and nats_ca_file rejected: %v", err)
-	}
-	cfg.Nexus.NATSUserKeyFile = ""
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "nexus.nats_url is required unless nexus.nats_user_key_file") {
-		t.Fatalf("Validate = %v, want nats_url required without the on-chain identity", err)
 	}
 }
 
@@ -109,7 +80,6 @@ func TestRealModeHasNoPlaintextExemptionForRemoteModelService(t *testing.T) {
 func TestIntegrationModeKeepsPlaintextTransports(t *testing.T) {
 	cfg := validRealConfig()
 	cfg.Mode = ModeIntegration
-	cfg.Nexus.NATSURL = "nats://127.0.0.1:4222"
 	cfg.Nexus.AuthTokenFile = "/tmp/token"
 	cfg.Nexus.AllowInsecureDescriptor = true
 	cfg.Node.RPCEndpoint = "http://node.example:26657"
@@ -132,16 +102,13 @@ store:
 signer:
   uri: file:///tmp/cortex/signer.key
 `)
-	t.Setenv("CORTEX_NEXUS_NATS_CA_FILE", "/etc/cortex/nats-ca.pem")
-	t.Setenv("CORTEX_NEXUS_NATS_CREDS_FILE", "/etc/cortex/nats.creds")
 	t.Setenv("CORTEX_MODEL_SERVICE_TLS_PUBKEY_HASH", strings.Repeat("cd", 32))
 	cfg, err := LoadFileWithOverrides(path, nil)
 	if err != nil {
 		t.Fatalf("LoadFile: %v", err)
 	}
-	if cfg.Nexus.NATSCAFile != "/etc/cortex/nats-ca.pem" || cfg.Nexus.NATSCredsFile != "/etc/cortex/nats.creds" ||
-		cfg.ModelManagement.TLS.PubkeyHash != strings.Repeat("cd", 32) {
-		t.Fatalf("environment not applied: nexus=%+v model=%+v", cfg.Nexus, cfg.ModelManagement.TLS)
+	if cfg.ModelManagement.TLS.PubkeyHash != strings.Repeat("cd", 32) {
+		t.Fatalf("environment not applied: model=%+v", cfg.ModelManagement.TLS)
 	}
 }
 
@@ -201,7 +168,6 @@ func TestNodeTLSRefusesBadSettings(t *testing.T) {
 func TestNodeTLSWithPlaintextEndpointIsRefusedInIntegrationMode(t *testing.T) {
 	cfg := validRealConfig()
 	cfg.Mode = ModeIntegration
-	cfg.Nexus.NATSURL = "nats://127.0.0.1:4222"
 	cfg.Nexus.AuthTokenFile = "/tmp/token"
 	cfg.Nexus.AllowInsecureDescriptor = true
 	cfg.Node.RPCEndpoint = "http://node.example:26657"

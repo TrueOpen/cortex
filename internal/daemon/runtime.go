@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -17,12 +18,10 @@ import (
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/diagnostics"
 	"github.com/TrueOpen/cortex/internal/modelservice"
-	"github.com/TrueOpen/cortex/internal/natsidentity"
 	"github.com/TrueOpen/cortex/internal/observability"
 	"github.com/TrueOpen/cortex/internal/signer"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
-	"github.com/TrueOpen/cortex/internal/store/once"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
 	"github.com/TrueOpen/cortex/internal/tasktrace"
 	"github.com/TrueOpen/cortex/internal/txclient"
@@ -88,28 +87,24 @@ type Runtime struct {
 	signerProofValidUntil time.Time
 	signerProofValid      bool
 	workloadTxFactory     func(string) txclient.Client
-	nexusProbe            ReadinessProbe
 	txProbe               ReadinessProbe
-	// natsIdentity is the on-chain identity binding this machine uses to join NATS
-	// (ADR-0016 decision three). It exists only when real mode configured
-	// nats_user_key_file and the runtime builds the NATS connection itself; on a node
-	// using creds/token it is nil.
-	natsIdentity      *natsidentity.Binder
-	natsIdentityProbe ReadinessProbe
-	builderDirectory  *builderdirectory.Resolver
-	builderMembers    *builderdirectory.Membership
-	// envelopeAuthError is the last failure of this node's own authentication
-	// inputs, guarded by workloadMu.
-	envelopeAuthError string
-	closers           []interface{ Close() error }
-	diagnosticsMu     sync.RWMutex
-	diagnostics       diagnostics.Diagnostics
+	builderDirectory      *builderdirectory.Resolver
+	builderMembers        *builderdirectory.Membership
+	closers               []interface{ Close() error }
+	diagnosticsMu         sync.RWMutex
+	diagnostics           diagnostics.Diagnostics
 	// chainProgress is the last Keeper poll's view of the durable cursor and
 	// the chain tip. It starts unknown so a node that has not polled yet does
 	// not look caught up.
 	chainProgressMu    sync.RWMutex
 	chainProgress      ChainProgress
 	chainProgressKnown bool
+
+	// Dispatch is one DispatchStream per configured Builder (S9); nil when
+	// dispatch.builders is empty or the mode wires no real dependencies.
+	Dispatch *DispatchStreams
+	// lastReady is the last CheckWorkloadReadiness verdict.
+	lastReady atomic.Bool
 }
 
 // ObserveChainProgress records what the last Keeper poll saw. The poller calls
@@ -179,18 +174,14 @@ func (r *Runtime) chainSyncStatus() diagnostics.DependencyStatus {
 }
 
 type RuntimeOptions struct {
-	ModelClient                modelservice.Client
-	ModelTransport             modelservice.Transport
-	NexusPublisher             builderclient.Publisher
-	NexusSubscriber            builderclient.Subscriber
-	TaskDataClient             builderclient.TaskDataClient
-	NexusEnvelopeAuthenticator builderclient.BusEnvelopeAuthenticator
-	NexusEnvelopeSigner        builderclient.BusEnvelopeSigner
-	TxClient                   txclient.Client
-	Keeper                     KeeperClient
-	KeeperEvents               KeeperEventClient
-	ChainStatus                ChainStatusReader
-	SigningClient              signer.Signer
+	ModelClient    modelservice.Client
+	ModelTransport modelservice.Transport
+	TaskDataClient builderclient.TaskDataClient
+	TxClient       txclient.Client
+	Keeper         KeeperClient
+	KeeperEvents   KeeperEventClient
+	ChainStatus    ChainStatusReader
+	SigningClient  signer.Signer
 	// TrustInjectedSignerForTests explicitly bypasses Keeper public-key proof
 	// for test doubles. Production callers must leave it false.
 	TrustInjectedSignerForTests bool
@@ -198,16 +189,7 @@ type RuntimeOptions struct {
 	// BuilderDirectory overrides the descriptor resolver built from config so
 	// tests can supply their own HTTP client. Production callers leave it nil.
 	BuilderDirectory *builderdirectory.Resolver
-	// NATSSentinel overrides the AUTH sentinel source built from the Builder
-	// ingress so tests need no ingress to serve one. Production callers leave it
-	// nil and the sentinel is fetched from the chosen Builder.
-	NATSSentinel        natsidentity.SentinelSource
-	NexusReadinessProbe ReadinessProbe
-	TxReadinessProbe    ReadinessProbe
-	// NexusPublishObserver reports every outbound bus publish this node makes.
-	// cortexd supplies the one that logs; a nil observer leaves the send path
-	// exactly as it was.
-	NexusPublishObserver func(builderclient.PublishCompletion)
+	TxReadinessProbe ReadinessProbe
 	// TaskTraceObserver receives the per-task protocol trace lines, digests
 	// included (see TaskTrace). cortexd supplies the one that logs; nil is
 	// silent. The runtime hands the same trace to the output confirmer it
@@ -313,8 +295,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 	txClient := opts.TxClient
 	// Build the signer once. A local key file would otherwise be decrypted on
 	// every construction site, and the password read as many times. It is built
-	// before the NATS connections because the chain identity binding below signs
-	// with it.
+	// before anything that signs with it.
 	signingClient := opts.SigningClient
 	if signingClient == nil && cfg.UsesRealDependencies() {
 		signingClient, err = signer.Open(cfg.Signer.URI, signer.OpenOptions{
@@ -334,120 +315,21 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		}
 	}
 
-	// These two are assembled further down, but the sentinel source has to be handed
-	// to the Binder here: declare them early and let the accessor functions read them
-	// on the first connect, by which time they have long since taken shape.
 	var builderMembers *builderdirectory.Membership
 	var builderEndpointResolver BuilderEndpointResolver
 
-	// Joining NATS with the on-chain identity (ADR-0016 decision three): as long as at
-	// least one connection is built by the runtime it has to carry the identity; only
-	// when both are injected test doubles is there no connection to attach one to. This
-	// section is fail-closed - once nats_user_key_file is configured the binding must
-	// really be made, never quietly falling back to creds/token.
-	var natsIdentity *natsidentity.Binder
-	if (opts.NexusPublisher == nil || opts.NexusSubscriber == nil) && cfg.UsesRealDependencies() &&
-		strings.TrimSpace(cfg.Nexus.NATSUserKeyFile) != "" {
-		serviceKeys, ok := keeperClient.(natsidentity.ServiceKeyReader)
-		if !ok {
-			return failRuntime(fmt.Errorf("nats chain identity requires a Keeper client that can read service keys"))
-		}
-		userKey, created, err := natsidentity.LoadOrCreateUserKey(cfg.Nexus.NATSUserKeyFile)
-		if err != nil {
-			return failRuntime(err)
-		}
-		// An operator-mode nats-server requires CONNECT to carry a user JWT its own account
-		// can verify before it asks the auth callback, so the credential also needs the AUTH
-		// sentinel (public material) served by a Builder ingress.
-		sentinel := opts.NATSSentinel
-		if sentinel == nil {
-			sentinel, err = natsidentity.NewIngressSentinelSource(natsSentinelIngress{
-				operator:  strings.TrimSpace(cfg.Nexus.BuilderOperatorAddress),
-				members:   func() *builderdirectory.Membership { return builderMembers },
-				endpoints: func() BuilderEndpointResolver { return builderEndpointResolver },
-				transport: builderclient.TaskDataTransport{
-					AllowInsecureEndpoint: cfg.Nexus.AllowInsecureDescriptor,
-					DowngradeEndpointTLS:  cfg.Nexus.DowngradeDescriptorTLS,
-				},
-			}, nil)
-			if err != nil {
-				return failRuntime(err)
-			}
-		}
-		natsIdentity, err = natsidentity.New(natsidentity.Config{
-			ServiceKeys: serviceKeys, Signer: signingClient,
-			ChainID: cfg.ChainID, OperatorAddress: strings.TrimSpace(cfg.LocalIdentity.OperatorAddress),
-			ServiceKeyRef: strings.TrimSpace(cfg.LocalIdentity.ServiceKeyRef), UserKey: userKey,
-			Sentinel: sentinel,
-		})
-		if err != nil {
-			return failRuntime(err)
-		}
-		if created {
-			pub, _ := userKey.PublicKey()
-			slog.Info("generated nats user key", "file", cfg.Nexus.NATSUserKeyFile, "public_key", pub)
-		}
-	}
-	// An explicit nil interface: a nil *Binder stored in an interface is no longer nil,
-	// and the creds/token path would be taken for a configured on-chain identity.
-	var chainIdentity builderclient.ChainIdentityProvider
-	if natsIdentity != nil {
-		chainIdentity = natsIdentity
-	}
-
-	// The two NATS connections are built here: the identity binding has to exist before
-	// them. The connections themselves are lazy (they dial on first use), so deferring
-	// their construction changes nothing observable.
-	var publisher builderclient.Publisher
-	var publisherErr error
-	if opts.NexusPublisher != nil {
-		publisher = opts.NexusPublisher
-	} else if cfg.UsesRealDependencies() {
-		publisher, publisherErr = builderclient.NewNATSPublisherWithAuth(nexusNATSAuth(cfg, token, chainIdentity))
-	}
-	var subscriber builderclient.Subscriber
-	var subscriberErr error
-	if opts.NexusSubscriber != nil {
-		subscriber = opts.NexusSubscriber
-	} else if cfg.UsesRealDependencies() {
-		subscriber, subscriberErr = builderclient.NewNATSSubscriberWithAuth(nexusNATSAuth(cfg, token, chainIdentity), cfg.Nexus.JetStreamStream, nexusDurablePrefix(cfg))
-	}
-	constructed = append(constructed, publisher, subscriber)
-
 	deps, err := BuildDependencies(cfg, DependencyOptions{
-		ModelClient:                opts.ModelClient,
-		ModelTransport:             transport,
-		NexusPublisher:             publisher,
-		NexusSubscriber:            subscriber,
-		NexusEnvelopeAuthenticator: opts.NexusEnvelopeAuthenticator,
-		NexusEnvelopeSigner:        opts.NexusEnvelopeSigner,
-		NexusToken:                 token,
-		TaskDataClient:             taskDataClient,
-		TxClient:                   txClient,
-		Keeper:                     keeperClient,
-		NexusPublishObserver:       opts.NexusPublishObserver,
+		ModelClient:    opts.ModelClient,
+		ModelTransport: transport,
+		TaskDataClient: taskDataClient,
+		TxClient:       txClient,
+		Keeper:         keeperClient,
 	})
 	if err != nil {
 		return failRuntime(err)
 	}
 	if transportErr != nil {
 		applyDependencyError(&deps, "model_service", transportErr.Error())
-	}
-	// A runtime without a Binder has no binding to judge: downgrade this line to
-	// optional-not-configured. Otherwise the readiness gate stays stuck on a dependency
-	// that will never be probed.
-	if natsIdentity == nil {
-		setDependencyStatus(&deps, diagnostics.DependencyStatus{
-			Name:     natsIdentityDependency,
-			Endpoint: diagnostics.RedactEndpoint(cfg.Nexus.NATSURL),
-			Optional: true,
-		})
-	}
-	if publisherErr != nil {
-		applyDependencyError(&deps, "nexus", publisherErr.Error())
-	}
-	if subscriberErr != nil {
-		applyDependencyError(&deps, "nexus", subscriberErr.Error())
 	}
 	keeperEvents := opts.KeeperEvents
 	if keeperEvents == nil && cfg.UsesRealDependencies() {
@@ -675,58 +557,6 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		}
 	}
 
-	// Nexus BusEnvelope authentication. Without this the workload dependency can
-	// only be satisfied by an injected test double, which is what kept real-mode
-	// nodes from ever activating. trusted_nats_dev deliberately builds neither:
-	// there the NATS transport and its subject ACL are the boundary, and the
-	// envelopes on that bus are unsigned by design.
-	//
-	// A construction failure takes the workload out of readiness rather than
-	// killing startup: the node stays observable and diagnosable, which is what
-	// the design asks of this dependency.
-	envelopeSigner := opts.NexusEnvelopeSigner
-	envelopeAuthenticator := opts.NexusEnvelopeAuthenticator
-	var envelopeAuthErrors []string
-	// The runtime is built below, so the failure sink is late bound: an
-	// authentication failure caused by this node's own dependencies has to reach
-	// the diagnostics of a runtime that does not exist yet.
-	var envelopeRuntime *Runtime
-	reportEnvelopeAuthOutcome := func(err error) {
-		switch {
-		case envelopeRuntime == nil:
-		case err == nil:
-			envelopeRuntime.clearEnvelopeAuthFailure()
-		default:
-			envelopeRuntime.recordEnvelopeAuthFailure(err)
-		}
-	}
-	if cfg.UsesRealDependencies() && !cfg.Nexus.TrustedNATSDev() && envelopeAuthenticator == nil {
-		serviceKeys, ok := deps.Keeper.(envelopeServiceKeyReader)
-		switch {
-		case !ok:
-			envelopeAuthErrors = append(envelopeAuthErrors,
-				"nexus.envelope_auth_mode strict requires a Keeper client that can read service keys")
-		case builderMembers == nil:
-			envelopeAuthErrors = append(envelopeAuthErrors,
-				"nexus.envelope_auth_mode strict requires a Keeper client that can read the current BuilderSet")
-		default:
-			envelopeAuthenticator, err = NewBusEnvelopeAuthenticator(BusEnvelopeAuthenticatorConfig{
-				ChainID:             cfg.ChainID,
-				Keeper:              serviceKeys,
-				Members:             builderMembers,
-				PeerOperatorAddress: cfg.Nexus.BuilderOperatorAddress,
-				TTL:                 cfg.Nexus.EnvelopeTTL(),
-				ClockSkew:           cfg.Nexus.EnvelopeClockSkew(),
-				OnDependencyOutcome: reportEnvelopeAuthOutcome,
-				StoreOnce:           once.New(db),
-			})
-			if err != nil {
-				envelopeAuthenticator = nil
-				envelopeAuthErrors = append(envelopeAuthErrors, err.Error())
-			}
-		}
-	}
-
 	runtime := &Runtime{
 		Store:                       db,
 		Dependencies:                deps,
@@ -743,9 +573,6 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		signingClient:               signingClient,
 		trustInjectedSignerForTests: opts.TrustInjectedSignerForTests,
 		workloadTxFactory:           workloadTxFactory,
-		nexusProbe:                  firstReadinessProbe(opts.NexusReadinessProbe, nexusReadinessProbe(publisher, subscriber)),
-		natsIdentity:                natsIdentity,
-		natsIdentityProbe:           natsIdentityReadinessProbe(natsIdentity),
 		txProbe:                     firstReadinessProbe(opts.TxReadinessProbe, cosmosTxCapableProbe(signingClient, readinessProbeFrom(deps.Tx))),
 		closers:                     runtimeClosers(constructed...),
 		builderDirectory:            builderDirectory,
@@ -753,7 +580,6 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		BuilderEndpoints:            builderEndpointResolver,
 		SelectedTaskBuilders:        selectedTaskBuildersReader(keeperClient),
 	}
-	envelopeRuntime = runtime
 	if cfg.UsesRealDependencies() {
 		gate, err := newManifestGate(cfg, keeperClient)
 		if err != nil {
@@ -761,34 +587,15 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		}
 		runtime.manifestGate = gate
 	}
-	runtime.setDiagnosticsSnapshot(deps.Diagnostics)
-	// The outbound signer resolves its identity from the activated workload, so
-	// it can only be built once the runtime exists.
-	if cfg.UsesRealDependencies() && !cfg.Nexus.TrustedNATSDev() && envelopeSigner == nil {
-		envelopeSigner, err = NewBusEnvelopeSigner(BusEnvelopeSignerConfig{
-			Signer:         signingClient,
-			KeyRef:         cfg.LocalIdentity.ServiceKeyRef,
-			ServiceAddress: runtime.workloadServiceAddress,
-		})
+	if cfg.UsesRealDependencies() && cfg.Dispatch.Enabled() {
+		streams, err := newRuntimeDispatchStreams(cfg, runtime)
 		if err != nil {
-			envelopeSigner = nil
-			envelopeAuthErrors = append(envelopeAuthErrors, err.Error())
+			_ = runtime.Close()
+			return nil, err
 		}
+		runtime.Dispatch = streams
 	}
-	runtime.Dependencies.NexusEnvelopeSigner = envelopeSigner
-	runtime.Dependencies.NexusEnvelopeAuthenticator = envelopeAuthenticator
-	switch {
-	case len(envelopeAuthErrors) > 0:
-		// Both constructions can fail for different reasons, and an operator
-		// needs the first cause as much as the last one. The reason is also kept
-		// on the runtime so the live status below does not replace it with a
-		// generic message on the next readiness pass.
-		reason := strings.Join(envelopeAuthErrors, "; ")
-		runtime.envelopeAuthError = reason
-		applyDependencyError(&runtime.Dependencies, "nexus_envelope_auth", reason)
-	case envelopeSigner != nil && envelopeAuthenticator != nil:
-		setDependencyReady(&runtime.Dependencies, "nexus_envelope_auth")
-	}
+	runtime.setDiagnosticsSnapshot(deps.Diagnostics)
 	runtime.setDiagnosticsSnapshot(runtime.Dependencies.Diagnostics)
 	if cfg.UsesRealDependencies() {
 		readiness := runtime.CheckWorkloadReadiness(ctx)

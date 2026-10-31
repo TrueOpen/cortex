@@ -55,6 +55,15 @@ func (c *KeeperABCIClient) CurrentCandidateMember(ctx context.Context, operatorA
 	if err != nil {
 		return CandidateMemberRefSnapshot{}, err
 	}
+	return c.CurrentCandidateMemberAt(ctx, operatorAddress, height)
+}
+
+// CurrentCandidateMemberAt is CurrentCandidateMember pinned to height, which
+// must have come from CommittedHeight.
+func (c *KeeperABCIClient) CurrentCandidateMemberAt(ctx context.Context, operatorAddress string, height uint64) (CandidateMemberRefSnapshot, error) {
+	if height == 0 {
+		return CandidateMemberRefSnapshot{}, fmt.Errorf("candidate member query height is required")
+	}
 	// Pinned to height throughout, so an order admitted in the same block as
 	// another reuses its answer. Only a found member is kept.
 	return memoPinned(ctx, c, pinnedReadKey{kind: "current_candidate_member", args: operatorAddress, height: height}, func(ctx context.Context) (CandidateMemberRefSnapshot, error) {
@@ -120,7 +129,7 @@ func (c *KeeperABCIClient) VerifierCandidateMember(ctx context.Context, taskID s
 // have returned inside the interval.
 //
 // Nothing verify signs comes from here: keeper-interface-contract.md §4.1 puts
-// CandidateMemberRefV1 in WorkerHandraiseV1/VerifierHandraiseV1 alone, and the
+// CandidateMemberRefV1 in VerifierHandraiseV1 alone, and the
 // §5.14 VerifyCommitV1 / ResultReceiptV1 / FullResultRevealV1 bodies carry no
 // member. The values serve identity checks on a responsibility the Keeper
 // snapshot already established.

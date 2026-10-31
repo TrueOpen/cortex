@@ -2,8 +2,10 @@
 // vectors to the tests that check this repository's digests against them.
 //
 // It exists because those vectors are consumed from more than one package --
-// internal/keepercontract derives three Hub domains and internal/chainclient
-// derives a fourth -- and a copy per package would be 80 KB of duplicated
+// internal/keepercontract derives three Hub domains, internal/chainclient
+// derives a fourth, and internal/dispatchwire pins every Phase 1 dispatch
+// digest, signature, inclusion proof and ticket VRF check to
+// task/dispatch_v1.json -- and a copy per package would be 80 KB of duplicated
 // fixture whose two halves could silently drift apart. The bytes are embedded
 // rather than read from disk so a caller's working directory cannot change
 // which file is checked.
@@ -27,15 +29,17 @@ import (
 	"fmt"
 )
 
-// WireVersion names the wire release the embedded files were copied from.
+// WireVersion names the wire version the embedded files were copied from. It
+// is the go.mod pseudo-version of the Phase 1 candidate contract, which is not
+// a release yet.
 // Raising the go.mod dependency without recopying these is a drift this
 // constant makes visible in a diff.
-const WireVersion = "v0.5.1"
+const WireVersion = "v0.5.2-0.20261029083751-916e3936355c"
 
 // WireCommit is the wire commit the embedded files were copied from.
-const WireCommit = "1c9db9b8d45baf28f2963357a963b1403cb4886c"
+const WireCommit = "916e3936355cb787f6e82509619f55c6b5aad7e2"
 
-//go:embed testdata/v051
+//go:embed testdata/p1-916e393
 var released embed.FS
 
 // vectorSet is one embedded copy of wire's testdata and the checksum of the
@@ -48,8 +52,8 @@ type vectorSet struct {
 }
 
 var releasedSet = vectorSet{
-	fs: released, dir: "testdata/v051", version: WireVersion,
-	manifestSum: "6394c8e98fb48ff4556b9431abc363d125311b70ea7bd90b35d6129ab685fd36",
+	fs: released, dir: "testdata/p1-916e393", version: WireVersion,
+	manifestSum: "e2a53f71d2080479e3e2e79f675ffdb3438a0e91cbfd57072d762128367d8c27",
 }
 
 // File returns exact released fixture bytes after checking their provenance.
@@ -145,4 +149,96 @@ func HubDomain(domain string) (HubDomainVector, error) {
 		}
 	}
 	return HubDomainVector{}, fmt.Errorf("wire %s publishes no vector for %s", WireVersion, domain)
+}
+
+// dispatchManifestPath is the Phase 1 dispatch signing table inside wire's
+// release manifest.
+const dispatchManifestPath = "task/dispatch_v1.json"
+
+// DispatchVector is one row of wire's task/dispatch_v1.json signing table.
+type DispatchVector struct {
+	Name         string `json:"name"`
+	MessageName  string `json:"message_name"`
+	Domain       string `json:"domain"`
+	ProtobufHex  string `json:"protobuf_hex"`
+	PreimageHex  string `json:"preimage_hex"`
+	DigestHex    string `json:"digest_hex"`
+	SignatureHex string `json:"signature_hex"`
+	PublicKeyHex string `json:"public_key_hex"`
+}
+
+// DispatchVectors returns the rows of task/dispatch_v1.json that carry a
+// protobuf message, after the provenance check File performs. Rows that only
+// publish a derived digest (entry, roster, challenge and evidence digests) have
+// no message to convert and are left to the tests of their own producers.
+func DispatchVectors() ([]DispatchVector, error) {
+	data, err := File(dispatchManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	return parseDispatchVectors(data)
+}
+
+// parseDispatchVectors keeps the rows that carry a message. A row with only
+// one of message_name/protobuf_hex is malformed and fails the whole file
+// rather than being silently dropped.
+func parseDispatchVectors(data []byte) ([]DispatchVector, error) {
+	var file struct {
+		Vectors []DispatchVector `json:"vectors"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("decode wire dispatch vectors: %w", err)
+	}
+	var out []DispatchVector
+	for _, v := range file.Vectors {
+		hasName, hasBytes := v.MessageName != "", v.ProtobufHex != ""
+		if hasName != hasBytes {
+			return nil, fmt.Errorf("wire %s dispatch vector %s is half populated (message_name=%q, protobuf_hex set=%v)",
+				WireVersion, v.Name, v.MessageName, hasBytes)
+		}
+		if hasName {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("wire %s publishes no dispatch message vectors", WireVersion)
+	}
+	return out, nil
+}
+
+// DispatchVectorByName returns one message row of task/dispatch_v1.json. A
+// missing row is an error, never a zero value.
+func DispatchVectorByName(name string) (DispatchVector, error) {
+	rows, err := DispatchVectors()
+	if err != nil {
+		return DispatchVector{}, err
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return row, nil
+		}
+	}
+	return DispatchVector{}, fmt.Errorf("wire %s publishes no dispatch vector %s", WireVersion, name)
+}
+
+// DispatchSection decodes one top-level section of task/dispatch_v1.json
+// (for example "vrf", "handraise_merkle" or "epoch_seed_derivation") into
+// target. A missing section is an error.
+func DispatchSection(section string, target any) error {
+	data, err := File(dispatchManifestPath)
+	if err != nil {
+		return err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("decode wire dispatch vectors: %w", err)
+	}
+	raw, ok := doc[section]
+	if !ok {
+		return fmt.Errorf("wire %s dispatch vectors have no %s section", WireVersion, section)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("decode wire dispatch section %s: %w", section, err)
+	}
+	return nil
 }

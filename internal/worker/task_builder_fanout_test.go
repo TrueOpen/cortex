@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 // taskBuilderSet is the three Task Builders of one task, each with its own
@@ -121,8 +123,8 @@ func TestWorkerEvidenceReachesEveryTaskBuilder(t *testing.T) {
 }
 
 // One Builder being down must not take the task with it. The protocol wants the
-// material on all three, but it only needs one to drive verification, and that
-// is the floor the single-Builder path already ran at.
+// material on all three, but the floor is ceil(2/3) of the group (CD W11): with
+// three Builders, two finalized are enough and the third is retried.
 func TestWorkerFinalizesOnTheRemainingTaskBuildersWhenOneFails(t *testing.T) {
 	h := newHarness(t)
 	event := finalizedTask()
@@ -167,5 +169,22 @@ func TestWorkerFinalizesOnTheRemainingTaskBuildersWhenOneFails(t *testing.T) {
 	}
 	if got := confirmationsFor(h.persistence.confirmations, down.OperatorAddress); got != 3 {
 		t.Fatalf("the recovered Builder stored %d confirmations, want 3", got)
+	}
+}
+
+// M6: with two of three Task Builders down the evidence is below ceil(2/3):
+// the relay is retried, never reported done.
+func TestWorkerRetriesWhenTwoOfThreeTaskBuildersAreDown(t *testing.T) {
+	h := newHarness(t)
+	event := finalizedTask()
+	set := withTaskBuilderSet(t, h)
+	h.taskData.finalizeEndpointErrors = map[string]error{
+		set.endpoints[1].Endpoint: builderclient.Retryable(fmt.Errorf("Task Builder is offline")),
+		set.endpoints[2].Endpoint: builderclient.Retryable(fmt.Errorf("Task Builder is offline")),
+	}
+	h.seedPreparedOutput(t, event)
+	_, err := New(h.worker.cfg).HandleAssignmentFinalized(context.Background(), event)
+	if !builderclient.IsRetryable(err) {
+		t.Fatalf("err = %v, want retryable below the ceil(2/3) floor", err)
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/builderdirectory"
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/natsidentity"
 	"github.com/TrueOpen/cortex/internal/worker"
 )
 
@@ -343,95 +342,4 @@ func endpointFailure(operator string, descriptorErr error, reason string) error 
 		return fmt.Errorf("resolve Builder %s endpoint: %s: %w", operator, reason, descriptorErr)
 	}
 	return fmt.Errorf("resolve Builder %s endpoint: %s", operator, reason)
-}
-
-// natsSentinelIngress answers "which Builders may be asked for the NATS AUTH
-// sentinel" (natsidentity.BuilderIngressResolver).
-//
-// Who is chosen: with nexus.builder_operator_address configured it is that one alone
-// - config may only narrow the range this node accepts, never widen it - and without
-// it every member of the active on-chain BuilderSet is offered in order, so
-// consensus answers rather than a local file. A sentinel is public material and the
-// one any live Builder hands over gets through the gate an operator-mode server puts
-// at CONNECT, while the real identity is still decided by the on-chain binding inside
-// auth_token; so a member being offline or serving no sentinel eliminates only itself
-// (in integration the first member's genesis descriptor is exactly a plaintext
-// endpoint nobody listens on, while nexus1 in the same set serves normally).
-//
-// Which origin is dialled: the same policy as the task-data client
-// (TaskDataTransport), so an endpoint that descriptor resolution would refuse cannot
-// be dialled from here either - the reason for that refusal travels out as this
-// candidate's Err and into the summary error.
-type natsSentinelIngress struct {
-	operator string
-	// members / endpoints are accessor functions rather than values: the Binder has to
-	// be assembled before the NATS connection exists, while the BuilderSet and the
-	// endpoint resolver take shape further down in runtime assembly. The sentinel is
-	// fetched on the first (re)connect, by which time both are in place.
-	members   func() *builderdirectory.Membership
-	endpoints func() BuilderEndpointResolver
-	transport builderclient.TaskDataTransport
-}
-
-func (r natsSentinelIngress) ResolveIngresses(ctx context.Context) ([]natsidentity.BuilderIngress, error) {
-	operators, err := r.builders(ctx)
-	if err != nil {
-		return nil, err
-	}
-	endpoints := r.endpoints()
-	if endpoints == nil {
-		return nil, fmt.Errorf("resolve Builder ingress for the nats sentinel: endpoint resolver is unavailable")
-	}
-	candidates := make([]natsidentity.BuilderIngress, 0, len(operators))
-	for _, operator := range operators {
-		candidates = append(candidates, r.candidate(ctx, endpoints, operator))
-	}
-	return candidates, nil
-}
-
-// candidate resolves one candidate. A failed resolve is not an overall failure: the
-// reason stays in Err for the sentinel source to summarise, and the next candidate
-// is tried as usual.
-func (r natsSentinelIngress) candidate(ctx context.Context, endpoints BuilderEndpointResolver, operator string) natsidentity.BuilderIngress {
-	endpoint, err := endpoints.ResolveBuilderEndpoint(ctx, operator)
-	if err != nil {
-		return natsidentity.BuilderIngress{Operator: operator, Err: err}
-	}
-	parsed, err := builderclient.ParseNexusEndpoint(endpoint.Endpoint)
-	if err != nil {
-		return natsidentity.BuilderIngress{Operator: operator, Err: fmt.Errorf("ingress %q: %w", endpoint.Endpoint, err)}
-	}
-	if r.transport.DowngradeEndpointTLS {
-		parsed = parsed.WithoutTLS()
-	}
-	if parsed.Plaintext && !r.transport.AllowInsecureEndpoint {
-		return natsidentity.BuilderIngress{Operator: operator, Err: fmt.Errorf("ingress %s is plaintext: set nexus.allow_insecure_descriptor to accept it", parsed.DialURI)}
-	}
-	return natsidentity.BuilderIngress{Operator: operator, Endpoint: parsed.DialURI, TLSPubkeyHash: endpoint.TLSPubkeyHash}
-}
-
-// builders gives the candidate order: narrowed to one by config, otherwise the
-// member order of the active on-chain BuilderSet.
-func (r natsSentinelIngress) builders(ctx context.Context) ([]string, error) {
-	if operator := strings.TrimSpace(r.operator); operator != "" {
-		return []string{operator}, nil
-	}
-	members := r.members()
-	if members == nil {
-		return nil, fmt.Errorf("pick a Builder for the nats sentinel: the current BuilderSet is unreadable and nexus.builder_operator_address is not set")
-	}
-	set, err := members.Current(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pick a Builder for the nats sentinel: %w", err)
-	}
-	operators := make([]string, 0, len(set.Builders))
-	for _, builder := range set.Builders {
-		if operator := strings.TrimSpace(builder); operator != "" {
-			operators = append(operators, operator)
-		}
-	}
-	if len(operators) == 0 {
-		return nil, fmt.Errorf("pick a Builder for the nats sentinel: the current BuilderSet has no active builder")
-	}
-	return operators, nil
 }

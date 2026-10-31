@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/modelregistry"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 )
 
 type ReconcilerOptions struct {
@@ -59,7 +61,6 @@ type Reconciler struct {
 type ReconcilerEffectType string
 
 const (
-	ReconcilerEffectAssignment  ReconcilerEffectType = "assignment"
 	ReconcilerEffectVerifyReady ReconcilerEffectType = "verify_ready"
 	// ReconcilerEffectRevealReady opens the reveal responsibility of a verify
 	// task whose reveal phase the chain has started. It carries the Keeper
@@ -72,6 +73,14 @@ const (
 	ReconcilerEffectEvidenceRetention ReconcilerEffectType = "evidence_retention"
 	ReconcilerEffectChallengeOpened   ReconcilerEffectType = "challenge_opened"
 	ReconcilerEffectChallengeClosed   ReconcilerEffectType = "challenge_closed"
+	// ReconcilerEffectDispatchRecorded is a committed dispatch_recorded event,
+	// handed to the Dispatcher (S5, CD §5.2 W6).
+	ReconcilerEffectDispatchRecorded ReconcilerEffectType = "dispatch_recorded"
+	// ReconcilerEffectDispatchEvent is any other Phase 1 dispatch event a
+	// consumer acts on (S6: compensation claimed, paid, rebutted; S8:
+	// challenge opened, resolved), handed over as a hint outside the runner
+	// lock.
+	ReconcilerEffectDispatchEvent ReconcilerEffectType = "dispatch_event"
 )
 
 // ReconcilerEffect is an ephemeral, replayable instruction to the infer and
@@ -80,7 +89,7 @@ const (
 // snapshot below - and is the sole idempotency key; no effect queue or dedup row
 // is persisted by the reconciler. It is NOT the accepted order payload digest:
 // TaskRecord.AssignmentOrderDigest holds that other field, and conflating the
-// two is what made the winner refuse every WORKER_ASSIGNMENT_NOTIFY.
+// two once made the winning Worker refuse its own assignment.
 type ReconcilerEffect struct {
 	TaskHash         codec.Hash
 	TaskID           string
@@ -99,6 +108,12 @@ type ReconcilerEffect struct {
 	NextCleanupHeight uint64
 	Event             chainclient.KeeperEvent
 	Snapshot          chainclient.TaskSnapshot
+	// Dispatch is the dispatch_recorded fact, copied out of the attributes
+	// before canonicalisation. Only ReconcilerEffectDispatchRecorded sets it;
+	// TaskHash is zero for it (the Dispatcher keys by ticket and task id).
+	Dispatch DispatchRecordedFact
+	// DispatchEvent is set by ReconcilerEffectDispatchEvent only.
+	DispatchEvent DispatchEventFact
 }
 
 // ReconcileFromKeeperQuery rebuilds reconciler effects for a set of events by
@@ -142,6 +157,29 @@ func (r *Reconciler) Apply(ctx context.Context, events []chainclient.KeeperEvent
 				r.quarantine(&event, fmt.Sprintf("recognized Keeper event %s has no explicit disposition", event.Type))
 				continue
 			}
+		}
+
+		// dispatch_recorded needs no Task snapshot here: the Dispatcher re-reads
+		// it through QueryDispatchRecord, the authority for the record (W6).
+		if event.Type == chainclient.KeeperEventDispatchRecorded {
+			fact, err := dispatchRecordedFact(event)
+			if err != nil {
+				r.quarantine(&event, err.Error())
+				continue
+			}
+			out = append(out, ReconcilerEffect{TaskID: event.TaskID, Type: ReconcilerEffectDispatchRecorded, Event: canonicalEffectEvent(event), Dispatch: fact})
+			continue
+		}
+		// The compensation and challenge events likewise: their consumers
+		// re-read the authoritative Query.
+		if dispatchEventTypes[event.Type] {
+			fact, err := dispatchEventFact(event)
+			if err != nil {
+				r.quarantine(&event, err.Error())
+				continue
+			}
+			out = append(out, ReconcilerEffect{TaskID: event.TaskID, Type: ReconcilerEffectDispatchEvent, Event: canonicalEffectEvent(event), DispatchEvent: fact})
+			continue
 		}
 
 		authoritative, snapshot, assignmentDigest, err := r.authoritativeTaskEvent(ctx, event)
@@ -265,8 +303,6 @@ func canonicalEffectEvent(event chainclient.KeeperEvent) chainclient.KeeperEvent
 
 func reconcilerEffectFor(eventType chainclient.KeeperEventType) (ReconcilerEffectType, bool) {
 	switch eventType {
-	case chainclient.KeeperEventAssignmentFinalized:
-		return ReconcilerEffectAssignment, true
 	// Both events admit the verify responsibility, and on the live chain only the
 	// second one is ever emitted. task writes the selected Verifier set in
 	// EndBlock as EventVerifierAssignmentFinalized, carrying
@@ -291,15 +327,14 @@ func reconcilerEffectFor(eventType chainclient.KeeperEventType) (ReconcilerEffec
 	case chainclient.KeeperEventRevealPhaseStarted:
 		return ReconcilerEffectRevealReady, true
 	// Keeper accepting the infer receipt releases nothing, because the Worker
-	// responsibility does not end there. Three steps come after the receipt is
-	// relayed: the output upload, the durable Builder storage confirmation, and
-	// the OUTPUT_AVAILABLE publication (`ensureOutputAvailable` in
-	// internal/worker). The receipt reaches the chain roughly a second before
-	// the last of them, so treating this event as ReconcilerEffectInferTerminal
-	// deleted the infer record from under the executor still running: the next
-	// checkpoint hit store.ErrNotFound, the whole step returned, and
-	// OUTPUT_AVAILABLE was never published for that round - permanently, since
-	// the deleted record was also the only carrier of a restart obligation.
+	// responsibility does not end there. Steps come after the receipt is
+	// relayed: the output upload and the durable Builder storage confirmation
+	// (`ensureOutputUploaded` in internal/worker). The receipt reaches the chain
+	// before the last of them, so treating this event as
+	// ReconcilerEffectInferTerminal would delete the infer record from under the
+	// executor still running: the next checkpoint hits store.ErrNotFound, the
+	// step returns, and the upload is never finished - permanently, since the
+	// deleted record is also the only carrier of a restart obligation.
 	// It is now a projection (keeperEventDispositionFor), and nothing leaks:
 	// a completed infer record is inert (`loadActiveTasks` skips a succeeded
 	// stage) and TaskTerminalBatch deletes both records when the task settles,
@@ -312,8 +347,7 @@ func reconcilerEffectFor(eventType chainclient.KeeperEventType) (ReconcilerEffec
 		chainclient.KeeperEventWorkerRevealDeadlineClosed,
 		chainclient.KeeperEventRevealDeadlineClosed:
 		return ReconcilerEffectVerifyTerminal, true
-	case chainclient.KeeperEventAssignmentFailed,
-		chainclient.KeeperEventSettleAccepted,
+	case chainclient.KeeperEventSettleAccepted,
 		chainclient.KeeperEventDeadlineSwept,
 		chainclient.KeeperEventVerifyOpenDeadlineClosed:
 		return ReconcilerEffectTaskTerminal, true
@@ -355,9 +389,6 @@ func (r *Reconciler) authoritativeTaskEvent(ctx context.Context, event chainclie
 		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper task identity does not match event %s/%s", event.SessionID, event.TaskID)
 	}
 	event.SessionID = assignment.SessionID
-	if event.Type == chainclient.KeeperEventAssignmentFinalized && event.Worker != "" && assignment.SelectedWorker != event.Worker {
-		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper selected worker %q does not match event worker %q", assignment.SelectedWorker, event.Worker)
-	}
 	if event.ModelID != "" && event.ModelID != assignment.ModelID {
 		return chainclient.KeeperEvent{}, chainclient.TaskSnapshot{}, codec.Hash{}, fmt.Errorf("Keeper model %q does not match event model %q", assignment.ModelID, event.ModelID)
 	}
@@ -504,10 +535,17 @@ func keeperEventDispositionFor(eventType chainclient.KeeperEventType) (keeperEve
 		return keeperEventFSMTransition, true
 	}
 	switch eventType {
-	case chainclient.KeeperEventProtocolProjection, chainclient.KeeperEventAssignAcceptedPendingRandomness,
+	case chainclient.KeeperEventDispatchRecorded,
+		chainclient.KeeperEventDispatchCompensationClaimed,
+		chainclient.KeeperEventDispatchCompensationPaid,
+		chainclient.KeeperEventDispatchCompensationRebutted,
+		chainclient.KeeperEventDispatchChallengeOpened,
+		chainclient.KeeperEventDispatchChallengeResolved:
+		return keeperEventFSMTransition, true
+	case chainclient.KeeperEventProtocolProjection,
 		// The two "the chain took your submission" events, and neither one ends
-		// the responsibility that produced it: a Worker still has to upload the
-		// output and publish OUTPUT_AVAILABLE after the receipt is accepted,
+		// the responsibility that produced it: a Worker still has to upload and
+		// finalize the output after the receipt is accepted,
 		// exactly as a Verifier still owes a reveal after its commit is.
 		chainclient.KeeperEventInferReceiptAccepted,
 		chainclient.KeeperEventCommitAccepted,
@@ -722,4 +760,37 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// dispatchRecordedFact reads one dispatch_recorded event. Every Hash32 must be
+// present and the infer deadline must lie after the record height; anything
+// else is quarantined, never retried.
+func dispatchRecordedFact(e chainclient.KeeperEvent) (DispatchRecordedFact, error) {
+	hash := func(name, value string) (layout.StoredHash, error) {
+		raw, err := hex.DecodeString(value)
+		if err != nil || len(raw) != 32 {
+			return layout.StoredHash{}, fmt.Errorf("%s requires %s as Hash32", e.Type, name)
+		}
+		return layout.StoredHash(raw), nil
+	}
+	var f DispatchRecordedFact
+	var err error
+	if f.TaskID, err = hash("task_id", e.TaskID); err != nil {
+		return f, err
+	}
+	if f.SessionID, err = hash("session_id", e.SessionID); err != nil {
+		return f, err
+	}
+	if f.TicketHash, err = hash("dispatch_ticket_hash", chainclient.CanonicalEventHash32(e.Attributes["dispatch_ticket_hash"])); err != nil {
+		return f, err
+	}
+	if f.RecordHash, err = hash("dispatch_record_hash", chainclient.CanonicalEventHash32(e.Attributes["dispatch_record_hash"])); err != nil {
+		return f, err
+	}
+	f.Height, f.OrderSequence, f.Winner, f.InferDeadline = e.Height, e.OrderSequence, e.Worker, e.InferDeadlineHeight
+	f.Builder = strings.TrimSpace(e.Attributes["builder"])
+	if f.Builder == "" || f.Winner == "" || f.InferDeadline <= f.Height {
+		return f, fmt.Errorf("%s requires builder, winner_worker and an infer_deadline after the record height", e.Type)
+	}
+	return f, nil
 }

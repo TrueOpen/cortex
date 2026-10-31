@@ -213,16 +213,6 @@ func readCanonicalField(data []byte) ([]byte, []byte, error) {
 	return data[start:end], data[end:], nil
 }
 
-type PublishRequest struct {
-	Subject string
-	TaskID  string
-	Payload []byte
-	// DedupID is a stable per-logical-event identifier used for transport-level
-	// deduplication. It must be the same for every emission of the same logical
-	// event, even if the outer envelope is rebuilt with a fresh message_id/nonce.
-	DedupID string
-}
-
 // TaskDataMetadata is the boundary metadata a Builder reports for one task-data
 // object. SignedInferReceipt and AcceptedReceiptHash are OUTPUT-only: they are
 // the target-state contract's replacement for the deleted OutputRef object, so
@@ -350,7 +340,9 @@ type TaskDataClient interface {
 	SubmitVerifyResult(context.Context, string, SubmitVerifyResultRequest) (VerifyRelayAck, error)
 }
 
+// Client is the Builder-facing surface the Worker and Verifier share. The
+// Phase 0 bus Publish is retired with wire 916e393; Builder-bound messages now
+// travel on the per-Builder DispatchStream (internal/dispatchstream).
 type Client interface {
 	ValidateOutputPackage(context.Context, OutputPackage) error
-	Publish(context.Context, PublishRequest) error
 }

@@ -39,7 +39,7 @@ func (p *pendingVerifierWindow) FrozenVerifierWindowMember(context.Context, stri
 // find out nothing was wrong. The wait now has its own milestone and its own
 // diagnostic, so a stalled window is legible as a stalled window.
 func TestVerifierWindowStillFrozenIsTracedAsAWaitNotAFailure(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	window := &pendingVerifierWindow{}
 	fixture.runner.cfg.VerifierMemberReader = window
 	var diagnostics []TaskRunnerDiagnostic
@@ -53,8 +53,8 @@ func TestVerifierWindowStillFrozenIsTracedAsAWaitNotAFailure(t *testing.T) {
 	}
 	// Waiting is not handraising: nothing is signed or published while the draw
 	// this node would be joining does not exist.
-	if len(fixture.builder.published) != 0 {
-		t.Fatalf("published = %#v, want nothing before the window is READY", fixture.builder.published)
+	if len(fixture.sender.handraises) != 0 {
+		t.Fatalf("published = %#v, want nothing before the window is READY", fixture.sender.handraises)
 	}
 	requireTraceFields(t, fixture.trace.event(t, "verifier_window_pending"),
 		`task="`+fixture.taskID+`"`, "verify_round=1", "waits=1", "current_height=10")
@@ -75,10 +75,10 @@ func TestVerifierWindowStillFrozenIsTracedAsAWaitNotAFailure(t *testing.T) {
 // It counts blocks, not frames. Every source that drives one task-round is
 // gated to one attempt per block (repeatedHandraiseBlockWait), so a rising
 // count is a rising number of blocks the Beacon has been missing for -- which
-// is the quantity that distinguishes the two, and which a redelivery rate that
-// depends on JetStream backoff never was.
+// is the quantity that distinguishes the two, and which a redelivery rate never
+// was.
 func TestVerifierWindowWaitCountsTheBlocksItHasBeenWaiting(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.VerifierMemberReader = &pendingVerifierWindow{}
 	height := &movingChainStatus{height: 10, chainID: "chain"}
 	fixture.runner.cfg.ChainStatus = height
@@ -107,7 +107,7 @@ func TestVerifierWindowWaitCountsTheBlocksItHasBeenWaiting(t *testing.T) {
 // wait is one named chain state, not a blanket for everything this query can
 // answer.
 func TestVerifierWindowQueryFailureIsStillReportedAsAFailure(t *testing.T) {
-	fixture := newOutputAvailableFixture(t)
+	fixture := newOpenVerifyFixture(t)
 	fixture.runner.cfg.VerifierMemberReader = brokenVerifierWindow{}
 	var diagnostics []TaskRunnerDiagnostic
 	fixture.runner.cfg.Diagnostic = func(diagnostic TaskRunnerDiagnostic) {

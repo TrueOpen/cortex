@@ -23,37 +23,36 @@ const (
 // TaskOrderV3 is in schema field-number order. The four amounts are canonical
 // unsigned decimal atomic units, as in V2.
 type TaskOrderV3 struct {
-	SchemaVersion          uint32
-	ChainID                string
-	UserAddress            string // canonical Bech32; framed as address bytes
-	SessionID              []byte // Hash32
-	OrderSequence          uint64
-	ModelID                []byte // Hash32
-	ProfileVersion         uint32
-	TaskType               uint32
-	InputHash              []byte // Hash32
-	InputSizeBytes         uint64
-	InputBucket            uint32
-	OutputBudgetBucket     uint32
-	GenerationParams       GenerationParamsV1
-	PriceBid               string
-	MaxFee                 string
-	AssignmentPriorityFee  string
-	TxFeeReserve           string
-	EarliestSubmitHeight   uint64
-	OrderExpireHeight      uint64
-	LatencyClass           uint32 // deadline_policy
-	TimeoutBucketVersion   uint64
-	SessionAnchorHeight    uint64
-	SessionAnchorBlockHash []byte // Hash32
-	BuilderSetID           string
-	BuilderSetHash         []byte // Hash32
-	PayloadMode            uint32
-	InputKeyCommitment     []byte // Hash32, ZERO32 in plaintext
-	UserRecipientPubkey    []byte // empty in plaintext
+	SchemaVersion         uint32
+	ChainID               string
+	UserAddress           string // canonical Bech32; framed as address bytes
+	SessionID             []byte // Hash32
+	OrderSequence         uint64
+	ModelID               []byte // Hash32
+	ProfileVersion        uint32
+	TaskType              uint32
+	InputHash             []byte // Hash32
+	InputSizeBytes        uint64
+	InputBucket           uint32
+	OutputBudgetBucket    uint32
+	GenerationParams      GenerationParamsV1
+	PriceBid              string
+	MaxFee                string
+	AssignmentPriorityFee string
+	TxFeeReserve          string
+	EarliestSubmitHeight  uint64
+	OrderExpireHeight     uint64
+	LatencyClass          uint32 // deadline_policy
+	TimeoutBucketVersion  uint64
+	SessionAnchorHeight   uint64
+	BuilderSetID          string
+	BuilderSetHash        []byte // Hash32
+	PayloadMode           uint32
+	InputKeyCommitment    []byte // Hash32, ZERO32 in plaintext
+	UserRecipientPubkey   []byte // empty in plaintext
 }
 
-// TaskOrderV3Hash is the V3 task hash over the 28 top-level fields.
+// TaskOrderV3Hash is the V3 task hash over the 27 top-level fields.
 func TaskOrderV3Hash(order TaskOrderV3) (codec.Hash, error) {
 	if order.SchemaVersion != TaskOrderSchemaVersionV3 || order.ChainID == "" || !utf8.ValidString(order.ChainID) ||
 		order.ProfileVersion == 0 || order.InputSizeBytes == 0 || order.OutputBudgetBucket == 0 ||
@@ -66,7 +65,7 @@ func TaskOrderV3Hash(order TaskOrderV3) (codec.Hash, error) {
 		value []byte
 	}{
 		{"session_id", order.SessionID}, {"model_id", order.ModelID}, {"input_hash", order.InputHash},
-		{"session_anchor_block_hash", order.SessionAnchorBlockHash}, {"builder_set_hash", order.BuilderSetHash},
+		{"builder_set_hash", order.BuilderSetHash},
 	} {
 		if _, err := canonicalHash32(hash.name, hash.value); err != nil {
 			return codec.Hash{}, err
@@ -119,7 +118,7 @@ func TaskOrderV3Hash(order TaskOrderV3) (codec.Hash, error) {
 	fields = append(fields,
 		hfields.Uint64(order.EarliestSubmitHeight), hfields.Uint64(order.OrderExpireHeight), hfields.Frame(hfields.Uint32(order.LatencyClass)),
 		hfields.Uint64(order.TimeoutBucketVersion), hfields.Uint64(order.SessionAnchorHeight),
-		hfields.Bytes(order.SessionAnchorBlockHash), hfields.String(order.BuilderSetID), hfields.Bytes(order.BuilderSetHash),
+		hfields.String(order.BuilderSetID), hfields.Bytes(order.BuilderSetHash),
 		hfields.Uint32(order.PayloadMode), hfields.Bytes(order.InputKeyCommitment), hfields.Bytes(order.UserRecipientPubkey),
 	)
 	return hfields.Digest(DomainTaskOrderV3, fields...)

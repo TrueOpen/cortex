@@ -113,10 +113,23 @@ func (c *KeeperABCIClient) Params(ctx context.Context) (ParamsSnapshot, error) {
 }
 
 func (c *KeeperABCIClient) CortexNode(ctx context.Context, operatorAddress string) (CortexNodeSnapshot, error) {
+	return c.cortexNodeAt(ctx, operatorAddress, 0)
+}
+
+// CortexNodeAt is CortexNode pinned to height, which must have come from
+// CommittedHeight.
+func (c *KeeperABCIClient) CortexNodeAt(ctx context.Context, operatorAddress string, height uint64) (CortexNodeSnapshot, error) {
+	if height == 0 {
+		return CortexNodeSnapshot{}, fmt.Errorf("Cortex node query height is required")
+	}
+	return c.cortexNodeAt(ctx, operatorAddress, height)
+}
+
+func (c *KeeperABCIClient) cortexNodeAt(ctx context.Context, operatorAddress string, height uint64) (CortexNodeSnapshot, error) {
 	operatorAddress = strings.TrimSpace(operatorAddress)
 	request := &hubv1.QueryCortexNodeRequest{OperatorAddress: operatorAddress}
 	var response hubv1.QueryCortexNodeResponse
-	if err := c.query(ctx, hubQuery+"CortexNode", 0, request, &response); err != nil {
+	if err := c.query(ctx, hubQuery+"CortexNode", height, request, &response); err != nil {
 		return CortexNodeSnapshot{}, err
 	}
 	node := response.Node
@@ -152,10 +165,23 @@ func (c *KeeperABCIClient) CortexNode(ctx context.Context, operatorAddress strin
 }
 
 func (c *KeeperABCIClient) ServiceBond(ctx context.Context, operatorAddress string) (ServiceBondSnapshot, error) {
+	return c.serviceBondAt(ctx, operatorAddress, 0)
+}
+
+// ServiceBondAt is ServiceBond pinned to height, which must have come from
+// CommittedHeight.
+func (c *KeeperABCIClient) ServiceBondAt(ctx context.Context, operatorAddress string, height uint64) (ServiceBondSnapshot, error) {
+	if height == 0 {
+		return ServiceBondSnapshot{}, fmt.Errorf("service bond query height is required")
+	}
+	return c.serviceBondAt(ctx, operatorAddress, height)
+}
+
+func (c *KeeperABCIClient) serviceBondAt(ctx context.Context, operatorAddress string, height uint64) (ServiceBondSnapshot, error) {
 	operatorAddress = strings.TrimSpace(operatorAddress)
 	request := &hubv1.QueryServiceBondRequest{OperatorAddress: operatorAddress}
 	var response hubv1.QueryServiceBondResponse
-	if err := c.query(ctx, hubQuery+"ServiceBond", 0, request, &response); err != nil {
+	if err := c.query(ctx, hubQuery+"ServiceBond", height, request, &response); err != nil {
 		return ServiceBondSnapshot{}, err
 	}
 	if response.Bond == nil {
@@ -292,7 +318,7 @@ func serviceKeySnapshotFromWire(binding *hubv1.CurrentServiceKeyViewV1) (Service
 			return ServiceKeySnapshot{}, fmt.Errorf("Keeper current Builder service key status %d is unsupported", binding.GetBuilderServiceKeyStatus())
 		}
 	}
-	return ServiceKeySnapshot{
+	snapshot := ServiceKeySnapshot{
 		ParticipantType:          participant,
 		OperatorAddress:          binding.OperatorAddress,
 		ServiceAddress:           binding.ServiceAddress,
@@ -300,7 +326,17 @@ func serviceKeySnapshotFromWire(binding *hubv1.CurrentServiceKeyViewV1) (Service
 		AuthorizationNonce:       Uint64String(binding.ServiceAuthorizationNonce),
 		CurrentDescriptorVersion: Uint64String(binding.CurrentDescriptorVersion),
 		Status:                   status,
-	}, nil
+	}
+	if p := binding.GetPendingRotation(); p != nil {
+		snapshot.HasPendingRotation = true
+		snapshot.PendingRotation = PendingServiceKeyRotationSnapshot{
+			RegisteredHeight:       p.GetRegisteredHeight(),
+			EffectiveHeight:        p.GetEffectiveHeight(),
+			OldMaterialCloseHeight: p.GetOldMaterialCloseHeight(),
+			NextAuthorizationNonce: p.GetNextServiceAuthorizationNonce(),
+		}
+	}
+	return snapshot, nil
 }
 
 func (c *KeeperABCIClient) Task(ctx context.Context, sessionID, taskID string) (TaskSnapshot, error) {
@@ -568,6 +604,23 @@ func (c *KeeperABCIClient) CommittedModelSupportScope(ctx context.Context, opera
 	if err != nil {
 		return CommittedModelSupportScope{}, err
 	}
+	return c.modelSupportScopeMemo(ctx, operatorAddress, modelID, version, height)
+}
+
+// ModelSupportScopeAt is CommittedModelSupportScope pinned to height, which
+// must have come from CommittedHeight.
+func (c *KeeperABCIClient) ModelSupportScopeAt(ctx context.Context, operatorAddress, modelID, profileVersion string, height uint64) (CommittedModelSupportScope, error) {
+	version, err := canonicalProfileVersionUint32(profileVersion)
+	if err != nil {
+		return CommittedModelSupportScope{}, err
+	}
+	if height == 0 {
+		return CommittedModelSupportScope{}, fmt.Errorf("model support scope query height is required")
+	}
+	return c.modelSupportScopeMemo(ctx, operatorAddress, modelID, version, height)
+}
+
+func (c *KeeperABCIClient) modelSupportScopeMemo(ctx context.Context, operatorAddress, modelID string, version uint32, height uint64) (CommittedModelSupportScope, error) {
 	operatorAddress, modelID = strings.TrimSpace(operatorAddress), strings.TrimSpace(modelID)
 	// Every query below is pinned to height, so the whole scope is a pure
 	// function of its arguments and the height: an order admitted in the same

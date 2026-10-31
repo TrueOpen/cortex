@@ -16,13 +16,15 @@ import (
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 )
 
-// confirmedTask is a non-fake verify input whose Worker evidence, receipt,
-// generation params and output are all mutually consistent, the way the
-// daemon's Nexus confirmer hands them over.
-func confirmedTask(t *testing.T, h harness) TaskState {
+// confirmedTaskWithValues is a non-fake verify input whose Worker evidence,
+// receipt, generation params and output are all mutually consistent, the way
+// the daemon's Nexus confirmer hands them over. The B-level worker_values are
+// returned beside it: ADR-0023 hands them over only in REVEALING.
+func confirmedTaskWithValues(t *testing.T, h harness) (TaskState, []byte) {
 	t.Helper()
 	ctx := context.Background()
 	h.verifier.cfg.FakeOutput = false
+	h.verifier.cfg.ResultSubmitter = testResultSubmitter(h.tx)
 	profile := fixtureLockedProfile()
 	requiredTopK := profile.Profile.RequiredTopK
 	state := h.validTask()
@@ -109,6 +111,7 @@ func confirmedTask(t *testing.T, h harness) TaskState {
 		TaskHash: hex.EncodeToString(accepted[:]), WorkerOperatorAddress: state.WorkerAddress, ServiceAuthorizationNonce: 1,
 		GenerationParamsDigest: paramsDigest.String(), OutputHash: outputHash.String(), OutputSizeBytes: uint64(len(output)),
 		OutputLeafCount: 1, GeneratedTokenCount: uint64(len(ids.Generated)), RequiredEvidenceCommitments: commitments, ExpiryHeight: 1000,
+		DispatchTicketHash: strings.Repeat("42", 32),
 	}
 	receiptHash, err := builderclient.InferReceiptSigningDigest(receipt)
 	if err != nil {
@@ -121,8 +124,15 @@ func confirmedTask(t *testing.T, h harness) TaskState {
 	state.ConfirmedOutput = output
 	state.ConfirmedOutputChunkLengths = []uint64{uint64(len(output))}
 	state.ConfirmedInputTokenIDs, state.ConfirmedGeneratedTokenIDs = inputIDs, generatedIDs
-	state.ConfirmedWorkerValues, state.ConfirmedGenerationParams = workerValues, rawParams
+	state.ConfirmedGenerationParams = rawParams
 	state.ConfirmedInferReceipt, state.ConfirmedFinishReason = &receipt, result.FinishReason
+	return state, workerValues
+}
+
+// confirmedTask is the commit-phase input: A-level only (ADR-0023).
+func confirmedTask(t *testing.T, h harness) TaskState {
+	t.Helper()
+	state, _ := confirmedTaskWithValues(t, h)
 	return state
 }
 
@@ -146,27 +156,6 @@ func TestConfirmedEvidenceRefusalsStopBeforeThePrefill(t *testing.T) {
 		mutate func(*TaskState, *harness)
 		want   string
 	}{
-		// A well-formed worker_values artifact with one logprob moved: it
-		// decodes, so only the value commitment can catch it.
-		"tampered worker_values": {func(s *TaskState, h *harness) {
-			taskID, _ := hex.DecodeString(s.TaskID)
-			accepted := fixtureTaskAcceptedTaskHash(s.TaskID)
-			binding := nodewire.WorkerValueBindingV1{ChainID: h.verifier.cfg.ChainID, TaskID: taskID, AcceptedTaskHash: accepted[:],
-				WorkerOperatorAddress: s.WorkerAddress, RequiredTopK: fixtureLockedProfile().Profile.RequiredTopK}
-			leaves, err := nodewire.DecodeWorkerValues(binding, s.ConfirmedWorkerValues)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for i := range leaves {
-				if leaves[i].Finite {
-					leaves[i].LogprobFP1e6--
-					break
-				}
-			}
-			if s.ConfirmedWorkerValues, err = nodewire.EncodeWorkerValues(binding, leaves); err != nil {
-				t.Fatal(err)
-			}
-		}, "commitment"},
 		"tampered generated token id": {func(s *TaskState, _ *harness) {
 			s.ConfirmedGeneratedTokenIDs = append([]byte(nil), s.ConfirmedGeneratedTokenIDs...)
 			s.ConfirmedGeneratedTokenIDs[len(s.ConfirmedGeneratedTokenIDs)-1] ^= 1
@@ -185,7 +174,6 @@ func TestConfirmedEvidenceRefusalsStopBeforeThePrefill(t *testing.T) {
 			h.verifier.cfg.ProfileReader = &fixtureProfileReader{profile: profileWithHash(t, profile)}
 		}, "bound"},
 		"missing token bundle":  {func(s *TaskState, _ *harness) { s.ConfirmedGeneratedTokenIDs = nil }, "incomplete"},
-		"missing value bundle":  {func(s *TaskState, _ *harness) { s.ConfirmedWorkerValues = nil }, "incomplete"},
 		"missing params":        {func(s *TaskState, _ *harness) { s.ConfirmedGenerationParams = nil }, "incomplete"},
 		"finish reason differs": {func(s *TaskState, _ *harness) { s.ConfirmedFinishReason = nodewire.FinishReasonV1StopToken }, "finish reason"},
 	} {
@@ -240,8 +228,8 @@ func TestVerifierRestartRestoresTheCommittedRootAndCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	if source.MetricMaterial.VerifierValueRoot != first.MetricMaterial.VerifierValueRoot ||
-		source.MetricMaterial.LeafCount != first.MetricMaterial.LeafCount || source.MetricMaterial.Root != first.MetricMaterial.Root {
-		t.Fatalf("restored material = %+v, want the pre-restart root and count", source.MetricMaterial)
+		len(source.verifierLeaves) != len(first.verifierLeaves) || source.selectedIndex != first.selectedIndex {
+		t.Fatalf("restored commit state = %+v, want the pre-restart root and leaves", source)
 	}
 	taskID, _ := hex.DecodeString(state.TaskID)
 	accepted := fixtureTaskAcceptedTaskHash(state.TaskID)

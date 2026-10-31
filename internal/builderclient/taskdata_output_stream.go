@@ -28,6 +28,10 @@ type OutputChunk struct {
 	WorkerSignature     []byte
 	Attachment          []byte
 	AttachmentSignature []byte
+	// CumulativeGeneratedTokens is generated tokens through this chunk,
+	// non-decreasing within an attempt. Unsigned; the Builder uses it only for
+	// the pre-record forwarding cap (C2: the Worker never throttles).
+	CumulativeGeneratedTokens uint64
 }
 
 // ReplayChunks preserves the exact signed frame boundaries for reconnects.
@@ -41,21 +45,20 @@ type OutputStreamRequest struct {
 	// OutputStreamHeaderDigest for this task, independent of Auth.
 	HeaderSignature []byte
 	ReplayChunks    []OutputChunk
+	// DispatchTicketHash is the accepted ticket: the header, every chunk and
+	// the Fin carry it, and every Worker signature on the stream binds it.
+	DispatchTicketHash codec.Hash
 }
 
-// OutputStreamHeaderDigest is the digest a Worker signs to open its output
-// stream: the plaintext OutputStreamHeaderV2 for this task, with attempt 0,
+// OutputStreamHeaderDigest is the digest a Worker signs to open its plaintext
+// output stream for taskHash and the accepted ticket: OutputStreamHeaderV2 with
 // stream_instance 1, no recipient key and ZERO32 key slots.
-func OutputStreamHeaderDigest(chainID, taskHash string) (codec.Hash, error) {
+func OutputStreamHeaderDigest(chainID, taskHash string, ticket codec.Hash) (codec.Hash, error) {
 	raw, err := taskDataHash("task_hash", taskHash)
 	if err != nil {
 		return codec.Hash{}, err
 	}
-	zero := make([]byte, 32)
-	return nodewire.OutputStreamHeaderSigningDigest(nodewire.OutputStreamHeaderV2{
-		ChainID: chainID, TaskHash: raw, Attempt: 0, StreamInstance: 1,
-		OutputKeyCommitment: zero, KeyPackageHash: zero,
-	})
+	return nodewire.PlaintextOutputStreamHeaderDigest(chainID, [32]byte(raw), ticket)
 }
 
 // OutputStreamResult proves STORED output only. FinalizeTaskResult publishes it.
@@ -102,7 +105,7 @@ func validateOutputStreamRequest(request OutputStreamRequest) error {
 	if err := validateSignedTaskDataRequest(request.Auth, "UploadTaskOutputStream", digest); err != nil {
 		return err
 	}
-	if _, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash); err != nil {
+	if _, err := OutputStreamHeaderDigest(request.Auth.ChainID, request.TaskHash, request.DispatchTicketHash); err != nil {
 		return err
 	}
 	return validateCompactSignature(request.HeaderSignature)
@@ -111,6 +114,7 @@ func validateOutputStreamRequest(request OutputStreamRequest) error {
 type outputStreamState struct {
 	mmr    *codec.MMR
 	chunks []OutputChunk
+	tokens uint64
 	closed bool
 	failed bool
 }
@@ -133,6 +137,9 @@ func (s *outputStreamState) append(chunk OutputChunk) error {
 	if err := validateCompactSignature(chunk.WorkerSignature); err != nil {
 		return err
 	}
+	if chunk.CumulativeGeneratedTokens < s.tokens {
+		return fmt.Errorf("output chunk %d cumulative_generated_tokens %d is below %d; it is non-decreasing within an attempt", chunk.Seq, chunk.CumulativeGeneratedTokens, s.tokens)
+	}
 	if err := s.mmr.Append(chunk.Text); err != nil {
 		return err
 	}
@@ -142,6 +149,7 @@ func (s *outputStreamState) append(chunk OutputChunk) error {
 	}
 	chunk.Text = append([]byte(nil), chunk.Text...)
 	chunk.WorkerSignature = append([]byte(nil), chunk.WorkerSignature...)
+	s.tokens = chunk.CumulativeGeneratedTokens
 	s.chunks = append(s.chunks, chunk)
 	return nil
 }
@@ -182,6 +190,7 @@ type connectOutputStream struct {
 	cancellationDone chan struct{}
 	chainID          string
 	taskHash         string
+	ticket           codec.Hash
 	// heldOnOpen is how many leading frames the Builder reported holding when the
 	// stream opened; outputStreamPrefix has checked its root against ours.
 	heldOnOpen uint64
@@ -223,7 +232,7 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 	streamCtx, cancel := context.WithCancelCause(ctx)
 	stream := client.UploadTaskOutputStream(streamCtx)
 	c.authorize(stream.RequestHeader())
-	s := &connectOutputStream{outputStreamState: state, stream: stream, ctx: streamCtx, cancel: cancel, timeout: c.outputIOTimeout, chainID: request.Auth.ChainID, taskHash: request.TaskHash, endpoint: endpoint}
+	s := &connectOutputStream{outputStreamState: state, stream: stream, ctx: streamCtx, cancel: cancel, timeout: c.outputIOTimeout, chainID: request.Auth.ChainID, taskHash: request.TaskHash, ticket: request.DispatchTicketHash, endpoint: endpoint}
 	fail := func(err error) (TaskOutputStream, error) { _ = s.Close(); return nil, err }
 	// Send(nil) starts Connect's HTTP request without writing a message. It
 	// initializes the request-body pipe before a timer can close its write side.
@@ -238,8 +247,9 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 	zero := make([]byte, 32)
 	header := &nexusv1.OutputStreamHeaderV2{
 		TaskHash: ToIngressHash32(request.TaskHash), SessionId: ToIngressHash32(request.SessionID), TaskId: ToIngressHash32(request.TaskID), RequestAuth: taskDataRequestAuthToProto(request.Auth),
-		Attempt: 0, StreamInstance: 1, OutputKeyCommitment: zero, KeyPackageHash: zero,
-		WorkerSignature: append([]byte(nil), request.HeaderSignature...),
+		StreamInstance: 1, OutputKeyCommitment: zero, KeyPackageHash: zero,
+		WorkerSignature:    append([]byte(nil), request.HeaderSignature...),
+		DispatchTicketHash: append([]byte(nil), request.DispatchTicketHash[:]...),
 	}
 	if err := s.send(&nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Header{Header: header}}); err != nil {
 		return fail(err)
@@ -255,7 +265,7 @@ func (c *ConnectTaskDataClient) OpenTaskOutputStream(ctx context.Context, endpoi
 	s.short = response.GetProgress().LastFrameShort
 	s.heldOnOpen = count
 	for _, chunk := range state.chunks[count:] {
-		if err := s.send(outputChunkFrame(chunk)); err != nil {
+		if err := s.send(outputChunkFrame(chunk, s.ticket)); err != nil {
 			return fail(err)
 		}
 	}
@@ -327,8 +337,12 @@ func (c *ConnectTaskDataClient) UploadTaskOutputStream(ctx context.Context, endp
 	return stream.Finish(fin)
 }
 
-func outputChunkFrame(chunk OutputChunk) *nexusv1.UploadTaskOutputStreamRequest {
-	return &nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Chunk{Chunk: &nexusv1.OutputChunkV1{Seq: chunk.Seq, Text: chunk.Text, MmrRoot: chunk.MMRRoot[:], WorkerSignature: chunk.WorkerSignature}}}
+func outputChunkFrame(chunk OutputChunk, ticket codec.Hash) *nexusv1.UploadTaskOutputStreamRequest {
+	return &nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Chunk{Chunk: &nexusv1.OutputChunkV1{
+		Seq: chunk.Seq, Text: chunk.Text, MmrRoot: chunk.MMRRoot[:], WorkerSignature: chunk.WorkerSignature,
+		CumulativeGeneratedTokens: chunk.CumulativeGeneratedTokens,
+		DispatchTicketHash:        append([]byte(nil), ticket[:]...),
+	}}}
 }
 
 func classifyOutputStreamError(err error) error {
@@ -404,25 +418,26 @@ func (s *connectOutputStream) SendChunk(chunk OutputChunk) error {
 	if err := s.append(chunk); err != nil {
 		return err
 	}
-	return s.send(outputChunkFrame(chunk))
+	return s.send(outputChunkFrame(chunk, s.ticket))
 }
 
-func outputFinFrame(chainID, taskHash string, root codec.Hash, count uint64, fin OutputFin) (*nexusv1.UploadTaskOutputStreamRequest, error) {
+func outputFinFrame(chainID, taskHash string, ticket, root codec.Hash, count uint64, fin OutputFin) (*nexusv1.UploadTaskOutputStreamRequest, error) {
 	parsedTaskHash, err := parseLowerHexHash(taskHash, "task_hash")
 	if err != nil {
 		return nil, err
 	}
-	if _, err := nodewire.OutputFinSigningDigest(chainID, parsedTaskHash[:], count-1, root[:], fin.FinishReason); err != nil {
+	if _, err := nodewire.OutputFinSigningDigest(chainID, parsedTaskHash[:], ticket[:], count-1, root[:], fin.FinishReason); err != nil {
 		return nil, err
 	}
 	if err := validateCompactSignature(fin.WorkerSignature); err != nil {
 		return nil, err
 	}
 	frame := &nexusv1.OutputFinV1{
-		FinalSeq:        count - 1,
-		OutputMmrRoot:   root[:],
-		FinishReason:    taskv1.FinishReasonV1(fin.FinishReason),
-		WorkerSignature: append([]byte(nil), fin.WorkerSignature...),
+		FinalSeq:           count - 1,
+		OutputMmrRoot:      root[:],
+		FinishReason:       taskv1.FinishReasonV1(fin.FinishReason),
+		WorkerSignature:    append([]byte(nil), fin.WorkerSignature...),
+		DispatchTicketHash: append([]byte(nil), ticket[:]...),
 	}
 	return &nexusv1.UploadTaskOutputStreamRequest{Frame: &nexusv1.UploadTaskOutputStreamRequest_Fin{Fin: frame}}, nil
 }
@@ -433,7 +448,7 @@ func (s *connectOutputStream) Finish(fin OutputFin) (OutputStreamResult, error) 
 	}
 	defer func() { _ = s.Close() }()
 	root, count := s.mmr.Root(), s.mmr.LeafCount()
-	frame, err := outputFinFrame(s.chainID, s.taskHash, root, count, fin)
+	frame, err := outputFinFrame(s.chainID, s.taskHash, s.ticket, root, count, fin)
 	if err != nil {
 		return OutputStreamResult{}, err
 	}

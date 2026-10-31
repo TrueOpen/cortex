@@ -235,22 +235,22 @@ func TestAuthenticatorBindsExpiryToTheServedHeight(t *testing.T) {
 	}
 }
 
-// CommittedBusEnvelopeIdentity feeds TRUEOPEN_BUS_ENVELOPE_V1 fields 7 and 14. Field
-// 14, source_snapshot_height, is the sender's own chain view: the block Keeper
+// CommittedServiceBinding returns the nonce and this node's own chain view:
+// the block Keeper
 // served the binding at, and not that height plus the task-data request window
 // the very same read also produces. Returning the expiry would overstate the
 // sender's view by ExpiryBlocks, which is exactly the slack a receiver's
 // freshness bound must not be handed.
-func TestCommittedBusEnvelopeIdentityReturnsTheServedHeightNotTheRequestExpiry(t *testing.T) {
+func TestCommittedServiceBindingReturnsTheServedHeightNotTheRequestExpiry(t *testing.T) {
 	cfg, keys := newAuthTestConfig(t)
 	keys.served = 4321
 	auth, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	nonce, height, err := auth.CommittedBusEnvelopeIdentity(context.Background())
+	nonce, height, err := auth.CommittedServiceBinding(context.Background())
 	if err != nil {
-		t.Fatalf("CommittedBusEnvelopeIdentity: %v", err)
+		t.Fatalf("CommittedServiceBinding: %v", err)
 	}
 	if nonce != keys.binding.AuthorizationNonce.Uint64() {
 		t.Fatalf("service_authorization_nonce = %d, want the binding's %d",

@@ -12,7 +12,7 @@ const bareHash32 = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d
 
 // A Hash32 carried as a string on the IngressAPI is "0x" followed by 64
 // lowercase hex characters. Everywhere else in this node the same value stays
-// bare: it is a NATS subject component, a store key, and an input to signature
+// bare: it is a store key and an input to signature
 // preimages, none of which wire respelled. So the prefix belongs at the
 // boundary and nowhere else, which is what these tests hold in place.
 

@@ -68,7 +68,7 @@ func TestRunStartsNewlyAdmittedTaskWhileAnEarlierTaskIsStillRunning(t *testing.T
 	}
 
 	inferHash := codec.HashBytes([]byte("newly-admitted-worker-task"))
-	admission := ReconcilerEffect{Type: ReconcilerEffectAssignment, TaskHash: inferHash, TaskID: "task-infer", Snapshot: chainclient.TaskSnapshot{
+	admission := ReconcilerEffect{TaskHash: inferHash, TaskID: "task-infer", Snapshot: chainclient.TaskSnapshot{
 		Assignment: chainclient.AssignmentSnapshot{
 			TaskID: "task-infer", SessionID: "session-2", OrderSequence: chainclient.NewUint64String(1),
 			SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
@@ -76,9 +76,7 @@ func TestRunStartsNewlyAdmittedTaskWhileAnEarlierTaskIsStillRunning(t *testing.T
 			AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 		},
 	}}
-	if err := runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{admission}); err != nil {
-		t.Fatal(err)
-	}
+	seedAssignedInfer(ctx, t, runner, admission)
 
 	select {
 	case taskID := <-inferStarted:
@@ -209,7 +207,7 @@ func TestRunStillBoundsConcurrentExecutionsAcrossPasses(t *testing.T) {
 	<-running
 
 	secondHash := codec.HashBytes([]byte("second-infer"))
-	admission := ReconcilerEffect{Type: ReconcilerEffectAssignment, TaskHash: secondHash, TaskID: "task-second", Snapshot: chainclient.TaskSnapshot{
+	admission := ReconcilerEffect{TaskHash: secondHash, TaskID: "task-second", Snapshot: chainclient.TaskSnapshot{
 		Assignment: chainclient.AssignmentSnapshot{
 			TaskID: "task-second", SessionID: "session-2", OrderSequence: chainclient.NewUint64String(1),
 			SelectedWorker: "worker-1", ModelID: testModelID, ProfileVersion: chainclient.NewProfileVersion(1),
@@ -217,9 +215,7 @@ func TestRunStillBoundsConcurrentExecutionsAcrossPasses(t *testing.T) {
 			AcceptedOrderPayloadHash: chainclient.HexHash(codec.HashBytes([]byte("input"))),
 		},
 	}}
-	if err := runner.ApplyReconcilerEffects(ctx, []ReconcilerEffect{admission}); err != nil {
-		t.Fatal(err)
-	}
+	seedAssignedInfer(ctx, t, runner, admission)
 	select {
 	case id := <-entered:
 		t.Fatalf("%q entered the model while the single slot was held", id)

@@ -331,7 +331,8 @@ const (
 	VerifyRoundV1 ProtoUint32 = 1
 )
 
-// Frozen task.v1.EvidenceKind value names. UNSPECIFIED is never written.
+// Frozen task.v1.EvidenceKind value names. UNSPECIFIED is written only by
+// MsgReportDataUnavailable (report_data_unavailable.go).
 const (
 	EvidenceKindWorkerValueOpening    = "EVIDENCE_KIND_WORKER_VALUE_OPENING"
 	EvidenceKindVerifierValueOpening  = "EVIDENCE_KIND_VERIFIER_VALUE_OPENING"
@@ -385,6 +386,8 @@ type InferReceiptMessage struct {
 	WorkerTokenKeyCommitment ProtoBytes32 `json:"worker_token_key_commitment"`
 	WorkerValueKeyCommitment ProtoBytes32 `json:"worker_value_key_commitment"`
 	CiphertextOutputRoot     ProtoBytes32 `json:"ciphertext_output_root"`
+	// DispatchTicketHash is field 19: the ticket the Worker accepted.
+	DispatchTicketHash ProtoBytes32 `json:"dispatch_ticket_hash"`
 }
 
 // SubmitInferReceiptMessage mirrors task.v1.MsgSubmitInferReceipt.
@@ -504,6 +507,9 @@ func MarshalMessage(kind Kind, value any) ([]byte, error) {
 }
 
 func ValidateMessagePayload(kind Kind, payload []byte) error {
+	if isDispatchKind(kind) {
+		return validateDispatchPayload(kind, payload)
+	}
 	var target any
 	switch kind {
 	case MsgRegisterModelProfile:
@@ -518,6 +524,8 @@ func ValidateMessagePayload(kind Kind, payload []byte) error {
 		target = &SubmitVerifyCommitMessage{}
 	case MsgSubmitVerifyResult:
 		target = &SubmitVerifyResultMessage{}
+	case MsgReportDataUnavailable:
+		target = &ReportDataUnavailableMessage{}
 	case MsgSettleTask:
 		target = &SettleTaskMessage{}
 	case MsgSweepDeadline:
@@ -545,6 +553,8 @@ func ValidateMessagePayload(kind Kind, payload []byte) error {
 	case *SubmitVerifyCommitMessage:
 		return validateMessageType(kind, *value)
 	case *SubmitVerifyResultMessage:
+		return validateMessageType(kind, *value)
+	case *ReportDataUnavailableMessage:
 		return validateMessageType(kind, *value)
 	case *SettleTaskMessage:
 		return validateMessageType(kind, *value)
@@ -630,6 +640,12 @@ func validateMessageType(kind Kind, value any) error {
 			return messageTypeMismatch(kind)
 		}
 		return validateSubmitVerifyResult(m)
+	case MsgReportDataUnavailable:
+		m, ok := value.(ReportDataUnavailableMessage)
+		if !ok {
+			return messageTypeMismatch(kind)
+		}
+		return validateReportDataUnavailable(m)
 	case MsgSettleTask:
 		m, ok := value.(SettleTaskMessage)
 		if !ok {
@@ -756,10 +772,14 @@ func validateSubmitInferReceipt(m SubmitInferReceiptMessage) error {
 		{"task_hash", r.TaskHash.Hex()},
 		{"generation_params_digest", r.GenerationParamsDigest.Hex()},
 		{"output_hash", r.OutputHash.Hex()},
+		{"dispatch_ticket_hash", r.DispatchTicketHash.Hex()},
 	} {
 		if err := validateHashHex(field.hex); err != nil {
 			return fmt.Errorf("infer receipt %s: %w", field.name, err)
 		}
+	}
+	if r.DispatchTicketHash.Hex() == zeroHash32Hex {
+		return fmt.Errorf("infer receipt dispatch_ticket_hash must be the accepted ticket, not ZERO32")
 	}
 	if r.ServiceAuthorizationNonce == 0 || r.ExpiryHeight == 0 || r.OutputLeafCount == 0 {
 		return fmt.Errorf("infer receipt service_authorization_nonce, expiry_height and output_leaf_count are required")

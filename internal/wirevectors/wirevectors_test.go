@@ -36,7 +36,7 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// Every v0.5.1 file this repository derives must be registered in the
+// Every 916e393 file this repository derives must be registered in the
 // release manifest.
 func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{
@@ -54,6 +54,7 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		"task/builder_confirmation_v1.json",
 		"task/canonical_json_v1.json",
 		"task/task_domains_v1.json",
+		"task/dispatch_v1.json",
 		"hub/model_id_v1.json",
 		"hub/model_manifest_v4.json",
 		"hub/model_profile_canonical_v3.json",
@@ -64,7 +65,7 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		}
 	}
 	if _, err := File("task/infer_receipt_v2.json"); err == nil {
-		t.Fatal("File() error = nil for a file wire v0.5.1 does not publish")
+		t.Fatal("File() error = nil for a file wire 916e393 does not publish")
 	}
 }
 
@@ -78,5 +79,41 @@ func TestManifestIsServedOnlyWithItsPinnedChecksum(t *testing.T) {
 	tampered.manifestSum = strings.Repeat("0", 64)
 	if _, err := tampered.file("manifest.json"); err == nil {
 		t.Fatal("a manifest that does not match its pinned checksum was served")
+	}
+}
+
+func TestDispatchVectorsLoadSignedRows(t *testing.T) {
+	rows, err := DispatchVectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"task_v1_dispatchticketv1": false, "task_v1_standinghandraisev1": false, "nexus_v1_dispatchstreambindingv1": false}
+	for _, r := range rows {
+		if r.MessageName == "" || r.ProtobufHex == "" {
+			t.Fatalf("row %s carries no protobuf message", r.Name)
+		}
+		if _, ok := want[r.Name]; ok {
+			want[r.Name] = r.DigestHex != "" && r.SignatureHex != "" && r.PublicKeyHex != ""
+		}
+	}
+	for name, ok := range want {
+		if !ok {
+			t.Fatalf("vector %s missing or incomplete", name)
+		}
+	}
+}
+
+func TestParseDispatchVectorsRefusesHalfPopulatedRows(t *testing.T) {
+	for name, doc := range map[string]string{
+		"name without bytes": `{"vectors":[{"name":"a","message_name":"task.v1.X","digest_hex":"00"}]}`,
+		"bytes without name": `{"vectors":[{"name":"a","protobuf_hex":"08","digest_hex":"00"}]}`,
+	} {
+		if _, err := parseDispatchVectors([]byte(doc)); err == nil {
+			t.Fatalf("%s: half-populated row accepted", name)
+		}
+	}
+	rows, err := parseDispatchVectors([]byte(`{"vectors":[{"name":"d","digest_hex":"00"},{"name":"m","message_name":"task.v1.X","protobuf_hex":"08"}]}`))
+	if err != nil || len(rows) != 1 || rows[0].Name != "m" {
+		t.Fatalf("rows=%v err=%v", rows, err)
 	}
 }

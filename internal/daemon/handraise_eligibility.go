@@ -9,7 +9,6 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
-	"github.com/TrueOpen/cortex/internal/identity"
 	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/policy"
 )
@@ -22,7 +21,6 @@ type KeeperHandraiseEligibilityConfig struct {
 	OperatorAddress     string
 	ModelServiceID      string
 	VerifyDeadlineDelta uint64
-	SelfRescueGasBudget uint64
 }
 
 type KeeperHandraiseReader interface {
@@ -45,33 +43,6 @@ func NewKeeperHandraiseEligibility(cfg KeeperHandraiseEligibilityConfig) Handrai
 	return keeperHandraiseEligibility{cfg: cfg}
 }
 
-func (e keeperHandraiseEligibility) Worker(ctx context.Context, candidate WorkerHandraiseCandidate) (policy.WorkerPrecheckInput, uint64, error) {
-	// order_sequence 0 is a session's first order, not a missing field - see
-	// validateNexusOrderBroadcast for why a zero check has nothing to detect. The
-	// identity equation is what binds the sequence, and it applies at zero too.
-	if candidate.SessionID == "" || candidate.TaskID != identity.TaskIDString(candidate.SessionID, candidate.OrderSequence) {
-		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("Worker handraise candidate identity is not canonical")
-	}
-	if candidate.ModelID == "" || candidate.ProfileVersion == 0 || strings.TrimSpace(candidate.Capability) == "" || candidate.DeadlineHeight == 0 {
-		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("Worker handraise model, profile, capability, and deadline are required")
-	}
-	height, support, supportState, freshnessWindow, capacityRef, availableSlots, err := e.facts(ctx, candidate.ModelID, candidate.ProfileVersion, candidate.Capability, "WORKER")
-	if err != nil {
-		return policy.WorkerPrecheckInput{}, 0, err
-	}
-	input := policy.WorkerPrecheckInput{
-		ChainSynced: true, CurrentHeight: height, SupportState: supportState,
-		SupportLastConfirmedHeight: support.LastRefreshHeight.Uint64(), SupportFreshnessWindow: freshnessWindow, Profile: candidate.Capability,
-		SupportedProfiles: []string{candidate.Capability}, AvailableSlots: availableSlots, CapacitySnapshotRef: capacityRef,
-		P30ColdStartCandidate:  supportState == policy.SupportDeclaredBootstrap,
-		SelfRescueGasAvailable: e.cfg.SelfRescueGasBudget > 0, SelfRescueGasBudgetNanoTRUEOPEN: e.cfg.SelfRescueGasBudget,
-	}
-	if candidate.DeadlineHeight <= height {
-		return policy.WorkerPrecheckInput{}, 0, fmt.Errorf("Worker handraise deadline %d is not above current height %d", candidate.DeadlineHeight, height)
-	}
-	return input, candidate.DeadlineHeight, nil
-}
-
 func (e keeperHandraiseEligibility) Verifier(ctx context.Context, candidate VerifierHandraiseCandidate) (policy.VerifierPrecheckInput, error) {
 	if candidate.TaskID == "" || candidate.SessionID == "" || candidate.ModelID == "" || candidate.ProfileVersion == 0 || strings.TrimSpace(candidate.Capability) == "" || candidate.WorkerAddress == "" || candidate.OpenHeight == 0 {
 		return policy.VerifierPrecheckInput{}, fmt.Errorf("Verifier handraise identity, model, profile, capability, worker, and open height are required")
@@ -79,6 +50,17 @@ func (e keeperHandraiseEligibility) Verifier(ctx context.Context, candidate Veri
 	height, support, supportState, freshnessWindow, _, availableSlots, err := e.facts(ctx, candidate.ModelID, candidate.ProfileVersion, candidate.Capability, "VERIFIER")
 	if err != nil {
 		return policy.VerifierPrecheckInput{}, err
+	}
+	// A registered but not yet active service-key rotation stops new duty
+	// (CD §8.4) -- the same chain fact the standing handraise gates read. For
+	// this round it is a fact, not a moment, so the refusal is permanent; only
+	// a failed read is retryable.
+	key, err := e.cfg.Keeper.CurrentServiceKey(ctx, chainclient.ParticipantTypeCortexNode, e.cfg.OperatorAddress, height)
+	if err != nil {
+		return policy.VerifierPrecheckInput{}, builderclient.Retryable(fmt.Errorf("query Keeper current service key for handraise: %w", err))
+	}
+	if key.HasPendingRotation {
+		return policy.VerifierPrecheckInput{}, fmt.Errorf("Cortex service key rotation is pending (effective at height %d); no new Verifier duty until it activates", key.PendingRotation.EffectiveHeight)
 	}
 	return policy.VerifierPrecheckInput{
 		ChainSynced: true, CurrentHeight: height, SupportState: supportState,
@@ -234,10 +216,9 @@ func (e keeperHandraiseEligibility) facts(ctx context.Context, modelID string, p
 	// now", and that answer changes the moment a task finishes.
 	//
 	// Left unmarked they were permanent verdicts, and a permanent verdict is the
-	// harshest disposition in the pipeline: the inbox records admissionRefused
-	// for the frame, the envelope's replay claim stays consumed, and the Verifier
-	// re-drive drops the round (updateVerifierHandraiseRedrive re-arms on a
-	// retryable refusal and on nothing else). A node that was briefly full
+	// harshest disposition in the pipeline: the frame is refused for good and
+	// the OPEN_VERIFY inbox marks the round refused (verifierInbox.settle keeps a
+	// round owed on a retryable refusal and on nothing else). A node that was briefly full
 	// therefore refused the round for good and went quiet.
 	//
 	// The capability MISMATCH below stays unmarked, deliberately: a model service

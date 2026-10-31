@@ -44,7 +44,7 @@ func outputConfirmationMaterial(
 	traceRoot := codec.HashWithDomain("TRACE", []byte(pkg.TaskID))
 	receipt, _, err := builderclient.BuildInferReceipt(builderclient.InferReceiptFacts{
 		ChainID: chainID, TaskID: pkg.TaskID, TaskHash: hex.EncodeToString(pkg.ReceiptHash[:]),
-		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 13,
+		WorkerOperatorAddress: worker, ServiceAuthorizationNonce: 13, DispatchTicketHash: strings.Repeat("42", 32),
 		GenerationParamsDigest: hexHash(codec.HashWithDomain("GENERATION", []byte(pkg.TaskID))),
 		OutputHash:             pkg.OutputHash, OutputSizeBytes: outputConfirmationSizeBytes, OutputLeafCount: 1,
 		RequiredEvidenceCommitments: []builderclient.EvidenceCommitment{{
@@ -551,7 +551,7 @@ func TestNexusOutputConfirmerReadsTheOutputWhenNoPackageStoreIsConfigured(t *tes
 	// Both consumers of a confirmed package have to accept this shape, or the
 	// confirmation is useless: the Verifier validates it and then feeds its
 	// summary to the L0-L4 precheck.
-	if err := builderclient.NewNexusClient(nil).ValidateOutputPackage(context.Background(), pkg); err != nil {
+	if err := builderclient.NewNexusClient().ValidateOutputPackage(context.Background(), pkg); err != nil {
 		t.Fatalf("ValidateOutputPackage: %v", err)
 	}
 	summary := outputPackageSummary(pkg)
@@ -649,7 +649,7 @@ func TestNexusOutputConfirmerConfirmsWithNoCanonicalPackageHash(t *testing.T) {
 	}
 	// The confirmed package still has to satisfy both of its consumers with the
 	// package hash absent, or nothing downstream can use it.
-	if err := builderclient.NewNexusClient(nil).ValidateOutputPackage(context.Background(), pkg); err != nil {
+	if err := builderclient.NewNexusClient().ValidateOutputPackage(context.Background(), pkg); err != nil {
 		t.Fatalf("ValidateOutputPackage with no package hash: %v", err)
 	}
 }

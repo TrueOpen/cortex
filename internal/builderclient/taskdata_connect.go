@@ -670,9 +670,11 @@ func signedInferReceiptToProto(receipt SignedInferReceipt) *taskv1.InferReceiptV
 	generation, _ := hex.DecodeString(receipt.GenerationParamsDigest)
 	output, _ := hex.DecodeString(receipt.OutputHash)
 	signature, _ := hex.DecodeString(receipt.ServiceSignature)
+	ticket, _ := hex.DecodeString(receipt.DispatchTicketHash)
 	zero := make([]byte, 32)
 	result := &taskv1.InferReceiptV3{SchemaVersion: receipt.SchemaVersion, ChainId: receipt.ChainID, TaskId: taskID, TaskHash: taskHash, WorkerOperatorAddress: receipt.WorkerOperatorAddress, ServiceAuthorizationNonce: receipt.ServiceAuthorizationNonce, GenerationParamsDigest: generation, OutputHash: output, OutputSizeBytes: receipt.OutputSizeBytes, OutputLeafCount: receipt.OutputLeafCount, ExpiryHeight: receipt.ExpiryHeight, ServiceSignature: signature, GeneratedTokenCount: receipt.GeneratedTokenCount,
-		OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero}
+		OutputKeyCommitment: zero, WorkerTokenKeyCommitment: zero, WorkerValueKeyCommitment: zero, CiphertextOutputRoot: zero,
+		DispatchTicketHash: ticket}
 	for _, item := range receipt.RequiredEvidenceCommitments {
 		result.RequiredEvidenceCommitments = append(result.RequiredEvidenceCommitments, &taskv1.EvidenceCommitmentV1{EvidenceKind: sharedv1.EvidenceKind(item.EvidenceKind), EvidenceHashOrRoot: append([]byte(nil), item.EvidenceHashOrRoot[:]...), EncodedSizeBytes: item.EncodedSizeBytes})
 	}
@@ -690,7 +692,7 @@ func signedInferReceiptFromProto(wire *taskv1.InferReceiptV3) (SignedInferReceip
 			return SignedInferReceipt{}, fmt.Errorf("infer receipt %s must be ZERO32 while only PLAINTEXT is accepted", name)
 		}
 	}
-	receipt := SignedInferReceipt{SchemaVersion: wire.SchemaVersion, ChainID: wire.ChainId, TaskID: hex.EncodeToString(wire.TaskId), TaskHash: hex.EncodeToString(wire.TaskHash), WorkerOperatorAddress: wire.WorkerOperatorAddress, ServiceAuthorizationNonce: wire.ServiceAuthorizationNonce, GenerationParamsDigest: hex.EncodeToString(wire.GenerationParamsDigest), OutputHash: hex.EncodeToString(wire.OutputHash), OutputSizeBytes: wire.OutputSizeBytes, OutputLeafCount: wire.OutputLeafCount, ExpiryHeight: wire.ExpiryHeight, ServiceSignature: hex.EncodeToString(wire.ServiceSignature), GeneratedTokenCount: wire.GeneratedTokenCount}
+	receipt := SignedInferReceipt{SchemaVersion: wire.SchemaVersion, ChainID: wire.ChainId, TaskID: hex.EncodeToString(wire.TaskId), TaskHash: hex.EncodeToString(wire.TaskHash), WorkerOperatorAddress: wire.WorkerOperatorAddress, ServiceAuthorizationNonce: wire.ServiceAuthorizationNonce, GenerationParamsDigest: hex.EncodeToString(wire.GenerationParamsDigest), OutputHash: hex.EncodeToString(wire.OutputHash), OutputSizeBytes: wire.OutputSizeBytes, OutputLeafCount: wire.OutputLeafCount, ExpiryHeight: wire.ExpiryHeight, ServiceSignature: hex.EncodeToString(wire.ServiceSignature), GeneratedTokenCount: wire.GeneratedTokenCount, DispatchTicketHash: hex.EncodeToString(wire.DispatchTicketHash)}
 	for _, item := range wire.RequiredEvidenceCommitments {
 		if item == nil || len(item.EvidenceHashOrRoot) != 32 {
 			return SignedInferReceipt{}, fmt.Errorf("infer evidence commitment has invalid hash")
