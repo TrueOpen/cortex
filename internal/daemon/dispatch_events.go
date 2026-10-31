@@ -30,8 +30,8 @@ type DispatchEventFact struct {
 	Challenger  string
 }
 
-// DispatchEventObserver consumes DispatchEventFacts (S9 wires
-// TaskRunnerConfig.DispatchEvents, a DispatchEventObservers fan-out of the
+// DispatchEventObserver consumes DispatchEventFacts
+// (TaskRunnerConfig.DispatchEvents: a DispatchEventObservers fan-out of the
 // Dispatcher and the OmissionWatcher).
 type DispatchEventObserver interface {
 	ObserveDispatchEvent(context.Context, DispatchEventFact) error

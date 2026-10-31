@@ -37,7 +37,7 @@ func TestDispatchSweepReleasesAnAcceptThatWasNeverSent(t *testing.T) {
 	if rec.State != layout.DispatchAcceptUnsent {
 		t.Fatalf("record = %+v, want accept-unsent", rec)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); held {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); held {
 		t.Fatal("an accept never sent before the deadline releases its lease (C4)")
 	}
 	if x.hr.notifications() <= notified {
@@ -100,10 +100,10 @@ func TestDispatchRestartResumesTheStoredAcceptAndReleasesOrphanLeases(t *testing
 	}
 	x.a.setFail(nil)
 	x.open() // restart
-	if held, _ := layout.HasWorkerLease(ctx, x.st, orphan.TicketHash); held {
+	if held, _ := hasWorkerLease(ctx, x.st, orphan.TicketHash); held {
 		t.Fatal("a lease with no accepted ticket is released at start")
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); !held {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); !held {
 		t.Fatal("the accepted ticket keeps its lease")
 	}
 	if err := x.handle(ctx); err != nil {
@@ -142,7 +142,7 @@ func TestDispatchSweepKeepsAnAcceptOfUnknownFate(t *testing.T) {
 	if rec.State != layout.DispatchAccepted {
 		t.Fatalf("record = %+v: an accept that may have been sent is never released as unsent", rec)
 	}
-	if held, _ := layout.HasWorkerLease(context.Background(), x.st, rec.TicketHash); !held {
+	if held, _ := hasWorkerLease(context.Background(), x.st, rec.TicketHash); !held {
 		t.Fatal("it keeps its lease")
 	}
 	msgs := x.a.messages()

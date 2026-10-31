@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
@@ -76,7 +77,11 @@ type rosterSource struct {
 func (s rosterSource) GetDispatchRoster(ctx context.Context, builder string, req *nexusv1.GetDispatchRosterRequest) (*nexusv1.GetDispatchRosterResponse, error) {
 	ep, err := s.endpoints.ResolveBuilderEndpoint(ctx, builder)
 	if err != nil {
-		return nil, err
+		if builderclient.IsRetryable(err) || chainclient.IsRetryable(err) {
+			// This node could not read the chain: not the Builder's miss.
+			return nil, fmt.Errorf("%w: Builder %s descriptor: %w", ErrRosterSourceLocal, builder, err)
+		}
+		return nil, err // no or an invalid descriptor: the Builder's miss
 	}
 	if ep.Source != BuilderEndpointSourceDescriptor {
 		return nil, fmt.Errorf("Builder %s endpoint came from %s; rosters are read from the on-chain descriptor only", builder, ep.Source)

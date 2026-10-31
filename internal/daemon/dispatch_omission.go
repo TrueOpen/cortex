@@ -47,6 +47,11 @@ type OmissionRoots interface {
 
 var _ OmissionRoots = (*StandingHandraiser)(nil)
 
+// ErrRosterSourceLocal marks a DispatchRosterSource failure on this node's
+// side (it could not read the Builder's descriptor from the chain). It is
+// retried and never counted as the Builder's roster miss.
+var ErrRosterSourceLocal = errors.New("roster source: local failure")
+
 // DispatchRosterSource calls GetDispatchRoster on builder's IngressAPI (S9
 // adapts builderEndpoints + ConnectTaskDataClient.GetDispatchRoster).
 type DispatchRosterSource interface {
@@ -436,6 +441,9 @@ func (w *OmissionWatcher) fetchRosters(ctx context.Context, c layout.OmissionCas
 		if ctxErr := ctx.Err(); err != nil && ctxErr != nil {
 			return nil, nil, ctxErr
 		}
+		if errors.Is(err, ErrRosterSourceLocal) {
+			return nil, nil, err // this node's failure: never a roster miss
+		}
 		if err == nil {
 			if rounds, err = w.checkRosters(resp, rec); err == nil {
 				return rounds, nil, nil
@@ -446,6 +454,13 @@ func (w *OmissionWatcher) fetchRosters(ctx context.Context, c layout.OmissionCas
 	return nil, errors.Join(misses...), nil
 }
 
+// checkRosters binds a GetDispatchRoster response to the chain. The response
+// is not run through dispatch.ValidateMessage: the connect client hands over
+// decoded messages, not the raw bytes, and wire has no table for the response
+// itself. Every part this node relies on is bound instead: each round's roster
+// must hash (dispatchwire.RosterHash, over its canonical encoding) to the
+// record's roster_hash, and its handraise root must digest to the round's
+// bound root. Anything else in the response is ignored.
 func (w *OmissionWatcher) checkRosters(resp *nexusv1.GetDispatchRosterResponse, rec chainclient.DispatchRecordSnapshot) (map[uint32]*nexusv1.DispatchRosterRoundV1, error) {
 	if len(resp.GetDispatchRecordHash()) != 0 && !bytes.Equal(resp.GetDispatchRecordHash(), rec.RecordHash) {
 		return nil, fmt.Errorf("roster answers another record")

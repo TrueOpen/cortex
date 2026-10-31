@@ -107,7 +107,7 @@ func TestHandraiseRootIsVerifiedAgainstTheSendLogAndHeld(t *testing.T) {
 	if held, _ := x.h.HeldRootDigests(ctx, hrBuilderA); len(held) != 1 {
 		t.Fatal("deduplicated by digest")
 	}
-	if a, ok := x.h.Admission(hrBuilderA); !ok || !a.Admitted || len(x.alerts) != 0 {
+	if a, ok := x.h.lastAdmission(hrBuilderA); !ok || !a.Admitted || len(x.alerts) != 0 {
 		t.Fatalf("admission %+v %v, alerts %v", a, ok, x.alerts)
 	}
 }
@@ -195,11 +195,11 @@ func TestHandraiseRootOrderAdmissionAndAlerts(t *testing.T) {
 		t.Fatalf("want exactly one not-admitted alert on the transition, got %+v", x.alerts)
 	}
 	r199 := deliver(199, 7, admittedLeaf(mine)) // older, arrives late
-	if a, _ := x.h.Admission(hrBuilderA); a.RootHeight != 200 || a.RootVersion != 2 || a.Admitted {
+	if a, _ := x.h.lastAdmission(hrBuilderA); a.RootHeight != 200 || a.RootVersion != 2 || a.Admitted {
 		t.Fatalf("an older root must not replace the newest view: %+v", a)
 	}
 	r201 := deliver(201, 0, admittedLeaf(mine))
-	if a, _ := x.h.Admission(hrBuilderA); !a.Admitted || a.RootHeight != 201 {
+	if a, _ := x.h.lastAdmission(hrBuilderA); !a.Admitted || a.RootHeight != 201 {
 		t.Fatalf("admission after recovery: %+v", a)
 	}
 	held, err := x.h.HeldRootDigests(ctx, hrBuilderA)
@@ -274,7 +274,7 @@ func TestHandraiseRootNotAdmittedAlertSurvivesACrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	x.open()
-	if a, ok := x.h.Admission(hrBuilderA); !ok || a.RootHeight != 300 || a.Admitted {
+	if a, ok := x.h.lastAdmission(hrBuilderA); !ok || a.RootHeight != 300 || a.Admitted {
 		t.Fatalf("admission is seeded from the store: %+v %v", a, ok)
 	}
 	if got := alertKinds(x); !slices.Equal(got, []string{AlertHandraiseNotAdmitted}) {

@@ -35,7 +35,7 @@ func TestDispatchInputIsStagedVerifiedAndStartsInference(t *testing.T) {
 	}
 	// The refused chunk reset the staging (N1): nothing staged survives it,
 	// so the consistent re-send starts over.
-	if chunks, _ := layout.DispatchInputChunks(ctx, x.st, layout.StoredHash(x.fx.ticketHash())); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, x.st, layout.StoredHash(x.fx.ticketHash())); len(chunks) != 0 {
 		t.Fatalf("%d chunks survived a refused chunk", len(chunks))
 	}
 	if err := x.d.HandleInputResponse(ctx, hrBuilderA, tail); err != nil {
@@ -66,10 +66,10 @@ func TestDispatchInputIsStagedVerifiedAndStartsInference(t *testing.T) {
 	if !rec.InputCommitted {
 		t.Fatal("input committed is recorded")
 	}
-	if open, _ := layout.OpenDispatches(ctx, x.st); len(open) != 0 {
+	if open, _ := openDispatches(ctx, x.st); len(open) != 0 {
 		t.Fatal("a ticket with committed input is no longer open")
 	}
-	if chunks, _ := layout.DispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
 		t.Fatal("chunks are dropped once the input is committed")
 	}
 	if err := x.d.HandleInputResponse(ctx, hrBuilderA, tail); err != nil || len(x.infer.starts()) != 1 {
@@ -94,7 +94,7 @@ func TestDispatchInputThatDoesNotMatchIsDiscardedAndAskedAgain(t *testing.T) {
 	if rec.InputChunkCount != 0 || rec.InputRequestedAtUnixMs != 0 || rec.InputCommitted {
 		t.Fatalf("record = %+v: the bad input is forgotten and asked for again", rec)
 	}
-	if chunks, _ := layout.DispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
 		t.Fatal("bad chunks are deleted")
 	}
 	if _, err := x.ev.ReadTaskKind(ctx, codec.Hash(x.fx.taskHash()), string(layout.ArtifactTaskInput)); err == nil {

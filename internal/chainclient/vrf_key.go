@@ -18,21 +18,12 @@ type VrfKeySnapshot struct {
 	AuthorizationNonce uint64
 }
 
-// BuilderVrfKey reads a Builder's registered dispatch VRF key from the latest
-// committed state (hub.v1.Query/VrfKey, participant_type BUILDER: zero would
-// select the Validator registry). Standing handraise gate H1 needs it to be
-// readable, and dispatchwire.TicketContext.BuilderVRFPubKey is its active key.
-// There is deliberately no by-epoch read: wire's PHASE1_CONTRACT has none.
-func (c *KeeperABCIClient) BuilderVrfKey(ctx context.Context, operatorAddress string) (VrfKeySnapshot, error) {
-	height, err := c.CommittedHeight(ctx)
-	if err != nil {
-		return VrfKeySnapshot{}, err
-	}
-	return c.BuilderVrfKeyAt(ctx, operatorAddress, height)
-}
-
-// BuilderVrfKeyAt is BuilderVrfKey pinned to height, which must have come
-// from CommittedHeight, so it can be read beside other facts at that height.
+// BuilderVrfKeyAt reads a Builder's registered dispatch VRF key at height,
+// which must have come from CommittedHeight, so it can be read beside other
+// facts at that height (hub.v1.Query/VrfKey, participant_type BUILDER: zero
+// would select the Validator registry). Standing handraise gate H1 needs it to
+// be readable, and dispatchwire.TicketContext.BuilderVRFPubKey is its active
+// key. There is deliberately no by-epoch read: wire's PHASE1_CONTRACT has none.
 func (c *KeeperABCIClient) BuilderVrfKeyAt(ctx context.Context, operatorAddress string, height uint64) (VrfKeySnapshot, error) {
 	if height == 0 {
 		return VrfKeySnapshot{}, fmt.Errorf("Builder VRF key query height is required")

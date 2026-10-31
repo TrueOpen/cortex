@@ -55,7 +55,7 @@ func TestValidateDispatchMillisecondsFitADuration(t *testing.T) {
 func TestValidateDispatchTimingsAreAllOrNothing(t *testing.T) {
 	cfg := validConfig()
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("an absent dispatch block stays valid until S9 requires it: %v", err)
+		t.Fatalf("outside real mode an absent dispatch block is valid: %v", err)
 	}
 	cfg.Dispatch.Handraise.HeartbeatMS = 10_000
 	err := cfg.Validate()

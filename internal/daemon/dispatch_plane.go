@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
@@ -158,20 +159,26 @@ func checkRootRetention(retention uint64, p chainclient.DispatchParamsSnapshot) 
 }
 
 func (p *DispatchPlane) runStreams(ctx context.Context) error {
+	// Every failure here is retryable: a chain blip, or a root retention the
+	// operator still has to raise, must not take the daemon down; the
+	// readiness controller restarts the workload on its next tick (S9 Q7).
 	height, err := p.cfg.DispatchChain.CommittedHeight(ctx)
 	if err != nil {
-		return fmt.Errorf("dispatch plane: committed height: %w", err)
+		return builderclient.Retryable(fmt.Errorf("dispatch plane: committed height: %w", err))
 	}
 	params, err := p.cfg.DispatchChain.DispatchParamsAt(ctx, height)
 	if err != nil {
-		return fmt.Errorf("dispatch plane: dispatch params: %w", err)
+		return builderclient.Retryable(fmt.Errorf("dispatch plane: dispatch params: %w", err))
 	}
 	if err := checkRootRetention(p.cfg.Dispatch.EvidenceRetentionBlocks, params); err != nil {
-		return err
+		return builderclient.Retryable(err)
 	}
 	s := p.cfg.Streams
 	var wg sync.WaitGroup
 	for b, sess := range s.sessions {
+		if s.isRetired(b) {
+			continue // closed for good; delete it from dispatch.retiring_builders
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -187,6 +194,8 @@ func (p *DispatchPlane) runStreams(ctx context.Context) error {
 		}()
 	}
 	wg.Wait()
+	// Every stream left is retired: stay up with the rest of the workload.
+	<-ctx.Done()
 	return ctx.Err()
 }
 

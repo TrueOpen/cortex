@@ -35,7 +35,7 @@ func TestGetDispatchRoster(t *testing.T) {
 		t.Fatalf("roster = %v, %v", resp, err)
 	}
 	missing := newTaskDataTestServer(t, &rosterHandler{notFound: true})
-	if _, err := newTestTaskDataClient(missing.Client(), "").GetDispatchRoster(context.Background(), missing.URL, req); !IsRosterNotFound(err) || IsRetryable(err) {
+	if _, err := newTestTaskDataClient(missing.Client(), "").GetDispatchRoster(context.Background(), missing.URL, req); connect.CodeOf(err) != connect.CodeNotFound || IsRetryable(err) {
 		t.Fatalf("not found: %v", err)
 	}
 	if _, err := newTestTaskDataClient(ok.Client(), "").GetDispatchRoster(context.Background(), ok.URL, &nexusv1.GetDispatchRosterRequest{}); err == nil {

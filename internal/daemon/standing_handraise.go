@@ -105,15 +105,10 @@ var errHandraiseEnqueue = errors.New("enqueue standing handraise")
 // recovery ends with a fresh handraise to each, CD §7.3 step 6), and seeds
 // each Builder's admission view from its newest retained root.
 //
-// S9 wiring: each Session's Config.OnBound must call Rebound, and the
-// handraiser needs the Sessions as enqueuers. Build the Sessions first with
-// a late-bound OnBound that loads the handraiser from an atomic.Pointer and
-// nil-checks it, then pass the Sessions here and store the result:
-//
-//	var hr atomic.Pointer[StandingHandraiser]
-//	OnBound: func(b string) { if h := hr.Load(); h != nil { h.Rebound(b) } }
-//	...
-//	hr.Store(h)
+// Each Session's Config.OnBound must call Rebound, and the handraiser needs
+// the Sessions as enqueuers, so the Sessions are built first with a
+// late-bound OnBound (dispatchRouter.onBound loads the handraiser from an
+// atomic.Pointer) and NewDispatchPlane binds the result.
 func NewStandingHandraiser(ctx context.Context, cfg StandingHandraiseConfig) (*StandingHandraiser, error) {
 	var missing []string
 	for name, absent := range map[string]bool{
@@ -210,7 +205,8 @@ func (h *StandingHandraiser) Notify() {
 }
 
 // Rebound requests a fresh handraise to builder. It is the
-// dispatchstream.Config.OnBound of that Builder's session (S9 wiring). A new
+// dispatchstream.Config.OnBound of that Builder's session (through
+// dispatchRouter.onBound). A new
 // binding also ends any enqueue backoff: the next attempt goes out at once.
 func (h *StandingHandraiser) Rebound(builder string) {
 	h.mu.Lock()

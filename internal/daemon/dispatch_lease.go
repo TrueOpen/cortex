@@ -117,7 +117,7 @@ func (l *DispatchLeases) FreeSlots() (uint32, bool) {
 
 // WithLeaseSlots is the lease-backed HandraiseLocal.FreeSlots(ctx) (Q10, Q18):
 // H3 comes from the ledger while base still decides readiness, so base not
-// ready keeps the offer at zero. S9 wires it as the StandingHandraiser's Local.
+// ready keeps the offer at zero. It is the StandingHandraiser's Local.
 func WithLeaseSlots(base HandraiseLocal, leases *DispatchLeases) HandraiseLocal {
 	return leaseSlotsLocal{HandraiseLocal: base, leases: leases}
 }

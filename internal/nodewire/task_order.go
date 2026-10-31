@@ -191,7 +191,7 @@ type TaskOrderFacts struct {
 // carrier a real Builder publishes is the proto one - the user signs the frozen
 // TaskOrderV3 and Nexus forwards those exact bytes rather than re-encoding them
 // (nexus internal/ingress/service.go parseSignedOrderEnvelope) - so the JSON arm
-// is only reachable from the legacy order path and from scripts/testorder.
+// is only reachable from the legacy order path and from tests.
 func TaskOrderHashAndFactsEnvelope(value string) (codec.Hash, TaskOrderFacts, error) {
 	if strings.HasPrefix(value, "{") {
 		return TaskOrderHashAndFactsJSON(value)

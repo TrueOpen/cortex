@@ -99,7 +99,7 @@ func TestDispatchStateTransitionsAndOpenIndex(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if open, err := OpenDispatches(ctx, s); err != nil || len(open) != 2 {
+	if open, err := openDispatches(ctx, s); err != nil || len(open) != 2 {
 		t.Fatalf("open = %d, %v", len(open), err)
 	}
 	if _, err := UpdateDispatch(ctx, s, a.TicketHash, func(r *DispatchRecord) error { r.InputCommitted = true; return nil }); err != nil {
@@ -108,7 +108,7 @@ func TestDispatchStateTransitionsAndOpenIndex(t *testing.T) {
 	if _, err := UpdateDispatch(ctx, s, b.TicketHash, func(r *DispatchRecord) error { r.State = DispatchAcceptUnsent; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if open, _ := OpenDispatches(ctx, s); len(open) != 0 {
+	if open, _ := openDispatches(ctx, s); len(open) != 0 {
 		t.Fatalf("committed input and unsent accepts are not open, got %d", len(open))
 	}
 	if _, err := UpdateDispatch(ctx, s, b.TicketHash, func(r *DispatchRecord) error { r.State = DispatchAccepted; return nil }); !errors.Is(err, ErrConflict) {
@@ -185,7 +185,7 @@ func TestWorkerLeasesAreBoundedByCapacity(t *testing.T) {
 	if n, err := CountWorkerLeases(ctx, s); err != nil || n != 2 {
 		t.Fatalf("count = %d, %v", n, err)
 	}
-	if held, err := HasWorkerLease(ctx, s, hash("a")); err != nil || !held {
+	if held, err := hasWorkerLease(ctx, s, hash("a")); err != nil || !held {
 		t.Fatalf("held a = %v, %v", held, err)
 	}
 	if released, err := ReleaseWorkerLease(ctx, s, hash("a")); err != nil || !released {
@@ -206,32 +206,32 @@ func TestWorkerLeasesAreBoundedByCapacity(t *testing.T) {
 func TestDispatchInputChunksAreWriteOnce(t *testing.T) {
 	ctx := context.Background()
 	s := openTestLayout(t)
-	if stored, err := PutDispatchInputChunk(ctx, s, hash("t"), 1, []byte("bb")); err != nil || !stored {
+	if stored, err := putDispatchInputChunk(ctx, s, hash("t"), 1, []byte("bb")); err != nil || !stored {
 		t.Fatalf("first = %v, %v", stored, err)
 	}
-	if stored, err := PutDispatchInputChunk(ctx, s, hash("t"), 1, []byte("bb")); err != nil || stored {
+	if stored, err := putDispatchInputChunk(ctx, s, hash("t"), 1, []byte("bb")); err != nil || stored {
 		t.Fatalf("duplicate = %v, %v", stored, err)
 	}
-	if _, err := PutDispatchInputChunk(ctx, s, hash("t"), 1, []byte("xx")); !errors.Is(err, ErrConflict) {
+	if _, err := putDispatchInputChunk(ctx, s, hash("t"), 1, []byte("xx")); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed chunk: err = %v", err)
 	}
-	if _, err := PutDispatchInputChunk(ctx, s, hash("t"), 0, []byte("aa")); err != nil {
+	if _, err := putDispatchInputChunk(ctx, s, hash("t"), 0, []byte("aa")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PutDispatchInputChunk(ctx, s, hash("u"), 0, []byte("cc")); err != nil {
+	if _, err := putDispatchInputChunk(ctx, s, hash("u"), 0, []byte("cc")); err != nil {
 		t.Fatal(err)
 	}
-	chunks, err := DispatchInputChunks(ctx, s, hash("t"))
+	chunks, err := dispatchInputChunks(ctx, s, hash("t"))
 	if err != nil || len(chunks) != 2 || string(chunks[0]) != "aa" || string(chunks[1]) != "bb" {
 		t.Fatalf("chunks = %q, %v", chunks, err)
 	}
-	if err := DeleteDispatchInputChunks(ctx, s, hash("t")); err != nil {
+	if err := deleteDispatchInputChunks(ctx, s, hash("t")); err != nil {
 		t.Fatal(err)
 	}
-	if chunks, _ := DispatchInputChunks(ctx, s, hash("t")); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, s, hash("t")); len(chunks) != 0 {
 		t.Fatal("chunks of t must be gone")
 	}
-	if chunks, _ := DispatchInputChunks(ctx, s, hash("u")); len(chunks) != 1 {
+	if chunks, _ := dispatchInputChunks(ctx, s, hash("u")); len(chunks) != 1 {
 		t.Fatal("another ticket's chunks are untouched")
 	}
 }
@@ -276,7 +276,7 @@ func TestStageDispatchInputChunkIsBoundedAndCounted(t *testing.T) {
 	if got, _ := GetDispatchRecord(ctx, s, rec.TicketHash); got.InputStagedBytes != 4 || got.InputChunksReceived != 1 {
 		t.Fatalf("a refused chunk changes nothing: %+v", got)
 	}
-	if chunks, _ := DispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 1 {
+	if chunks, _ := dispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 1 {
 		t.Fatalf("a refused chunk is not stored: %d chunks", len(chunks))
 	}
 	for i, c := range []string{"0123", "89"} {
@@ -299,7 +299,7 @@ func TestStageDispatchInputChunkIsBoundedAndCounted(t *testing.T) {
 	if got.InputChunkCount != 0 || got.InputChunksReceived != 0 || got.InputStagedBytes != 0 {
 		t.Fatalf("reset = %+v", got)
 	}
-	if chunks, _ := DispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 0 {
 		t.Fatal("reset drops the chunks")
 	}
 }
@@ -340,7 +340,7 @@ func TestDispatchTerminalStatesDropStagedInput(t *testing.T) {
 	if _, err := UpdateDispatchDroppingInput(ctx, s, rec.TicketHash, func(r *DispatchRecord) error { r.State = DispatchSuperseded; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if chunks, _ := DispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, s, rec.TicketHash); len(chunks) != 0 {
 		t.Fatal("superseded drops its chunks")
 	}
 	b := dispatchRec("b")
@@ -356,7 +356,7 @@ func TestDispatchTerminalStatesDropStagedInput(t *testing.T) {
 	if _, err := PutDispatchRevoke(ctx, s, b.TicketHash, b.TaskID, b.Builder, []byte("revoke")); err != nil {
 		t.Fatal(err)
 	}
-	if chunks, _ := DispatchInputChunks(ctx, s, b.TicketHash); len(chunks) != 0 {
+	if chunks, _ := dispatchInputChunks(ctx, s, b.TicketHash); len(chunks) != 0 {
 		t.Fatal("a revoke drops the chunks")
 	}
 }

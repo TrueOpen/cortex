@@ -100,7 +100,7 @@ func TestRecordNoticeRejectedPausesDeliveryOnly(t *testing.T) {
 	if got.State != layout.DispatchPendingClaim || len(got.RecordNotice) == 0 {
 		t.Fatalf("record = %+v", got)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); !held || x.infer.stopped(rec.TicketHash) {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); !held || x.infer.stopped(rec.TicketHash) {
 		t.Fatal("a REJECTED notice only pauses delivery: the lease is kept and inference continues (CD §8.6)")
 	}
 	if err := x.d.HandleFrame(ctx, hrBuilderA, &nexusv1.DispatchStreamFrameV1{Message: &nexusv1.DispatchStreamFrameV1_RecordResult{RecordResult: n}}); err != nil {
@@ -140,10 +140,10 @@ func TestRecordNoticeRecordedIsConfirmedOnChain(t *testing.T) {
 	if got.State != layout.DispatchRecorded || got.RecordedHeight != 120 || got.InferDeadlineHeight != 150 || got.WinnerTicketHash != rec.TicketHash {
 		t.Fatalf("record = %+v", got)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); held {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); held {
 		t.Fatal("the ticket key is released after the record")
 	}
-	if held, _ := layout.HasWorkerTaskLease(ctx, x.st, rec.TaskID); !held {
+	if held, _ := hasWorkerTaskLease(ctx, x.st, rec.TaskID); !held {
 		t.Fatal("the lease moved to (task_id, WORKER)")
 	}
 	if n, _ := layout.CountWorkerLeases(ctx, x.st); n != 1 {
@@ -210,7 +210,7 @@ func TestAnotherTicketRecordedPausesThisOne(t *testing.T) {
 	if got.State != layout.DispatchPendingClaim {
 		t.Fatalf("state = %s: another ticket won; S6 claims at D_ticket", got.State)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); !held {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); !held {
 		t.Fatal("the lease is S6's to release")
 	}
 }
@@ -228,7 +228,7 @@ func TestRecordedTicketWithForeignTaskHashIsAConflict(t *testing.T) {
 	if got := x.record(t); got.State != layout.DispatchConflict {
 		t.Fatalf("state = %s", got.State)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); held || !x.infer.stopped(rec.TicketHash) {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); held || !x.infer.stopped(rec.TicketHash) {
 		t.Fatal("a conflict fails closed: inference stopped, lease released")
 	}
 	if err := x.d.ObserveDispatchRecorded(ctx, x.fact(120, 150)); err == nil || builderclient.IsRetryable(err) {
@@ -263,7 +263,7 @@ func TestRecordBeforeInputStillStartsInferenceWithTheDeadline(t *testing.T) {
 	if err := x.d.ObserveDispatchRecorded(ctx, x.fact(120, 150)); err != nil {
 		t.Fatal(err)
 	}
-	if open, _ := layout.OpenDispatches(ctx, x.st); len(open) != 1 {
+	if open, _ := openDispatches(ctx, x.st); len(open) != 1 {
 		t.Fatal("a recorded ticket keeps fetching its input")
 	}
 	if err := x.handle(ctx); err != nil {

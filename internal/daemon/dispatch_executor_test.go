@@ -192,7 +192,7 @@ func TestDispatcherReleasesARecordedTaskLease(t *testing.T) {
 	if err := x.d.ReleaseTaskLease(ctx, rec.TaskID); err != nil {
 		t.Fatal(err)
 	}
-	if held, _ := layout.HasWorkerTaskLease(ctx, x.st, rec.TaskID); held {
+	if held, _ := hasWorkerTaskLease(ctx, x.st, rec.TaskID); held {
 		t.Fatal("the (task_id, WORKER) lease is released")
 	}
 	if free, _ := x.leases.FreeSlots(); free != 2 || x.hr.notifications() != before+1 {

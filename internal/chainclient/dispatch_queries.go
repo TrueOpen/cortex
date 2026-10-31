@@ -32,15 +32,6 @@ type DispatchEpochSnapshot struct {
 	Verified bool
 }
 
-// DispatchEpoch is DispatchEpochAt the latest committed height.
-func (c *KeeperABCIClient) DispatchEpoch(ctx context.Context, earliestSubmitHeight uint64) (DispatchEpochSnapshot, error) {
-	height, err := c.CommittedHeight(ctx)
-	if err != nil {
-		return DispatchEpochSnapshot{}, err
-	}
-	return c.DispatchEpochAt(ctx, earliestSubmitHeight, height)
-}
-
 // DispatchEpochAt reads, at height (which must have come from
 // CommittedHeight), the Hub epoch length and the beacon at the start of the
 // epoch earliestSubmitHeight falls in. A beacon that is missing, placeholder,
@@ -201,17 +192,8 @@ type WorkerLiabilityParamsSnapshot struct {
 	ObjectiveForgerySlashBps uint32
 }
 
-// WorkerLiabilityParams is WorkerLiabilityParamsAt the latest committed height.
-func (c *KeeperABCIClient) WorkerLiabilityParams(ctx context.Context) (WorkerLiabilityParamsSnapshot, error) {
-	height, err := c.CommittedHeight(ctx)
-	if err != nil {
-		return WorkerLiabilityParamsSnapshot{}, err
-	}
-	return c.WorkerLiabilityParamsAt(ctx, height)
-}
-
-// WorkerLiabilityParamsAt reads them at height, which must have come from
-// CommittedHeight.
+// WorkerLiabilityParamsAt reads the Worker liability params at height, which
+// must have come from CommittedHeight.
 func (c *KeeperABCIClient) WorkerLiabilityParamsAt(ctx context.Context, height uint64) (WorkerLiabilityParamsSnapshot, error) {
 	if height == 0 {
 		return WorkerLiabilityParamsSnapshot{}, fmt.Errorf("liability params query height is required")

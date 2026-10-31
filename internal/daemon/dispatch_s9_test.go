@@ -3,12 +3,17 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/TrueOpen/cortex/internal/builderclient"
+	"github.com/TrueOpen/cortex/internal/builderdirectory"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/txclient"
 	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
+	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
 )
 
 func TestStandingHandraiseWithdrawsOnceFromARetiringBuilder(t *testing.T) {
@@ -95,5 +100,54 @@ func TestOmissionWatcherAcceptsASubmitterAndRuns(t *testing.T) {
 		Chain: nil, Roots: nil, Rosters: nil, Store: nil}
 	if _, err := NewOmissionWatcher(cfg); err == nil {
 		t.Fatal("an incomplete config is still refused")
+	}
+}
+
+type rosterResolver struct{ err error }
+
+func (r rosterResolver) ResolveBuilderEndpoint(context.Context, string) (BuilderEndpoint, error) {
+	return BuilderEndpoint{}, r.err
+}
+
+type failingRosterClient struct{}
+
+func (failingRosterClient) GetDispatchRoster(context.Context, string, *nexusv1.GetDispatchRosterRequest) (*nexusv1.GetDispatchRosterResponse, error) {
+	return nil, errors.New("not reached")
+}
+
+// A descriptor this node cannot read is its own failure; a Builder without a
+// valid descriptor is the Builder's roster miss.
+func TestRosterSourceSeparatesLocalFailuresFromBuilderMisses(t *testing.T) {
+	ctx := context.Background()
+	local := rosterSource{endpoints: rosterResolver{err: builderclient.Retryable(errors.New("rpc down"))}, client: failingRosterClient{}}
+	if _, err := local.GetDispatchRoster(ctx, hrBuilderA, nil); !errors.Is(err, ErrRosterSourceLocal) {
+		t.Fatalf("unreadable chain = %v, want a local failure", err)
+	}
+	missing := rosterSource{endpoints: rosterResolver{err: fmt.Errorf("%w: %s", builderdirectory.ErrNoCurrentDescriptor, hrBuilderA)}, client: failingRosterClient{}}
+	if _, err := missing.GetDispatchRoster(ctx, hrBuilderA, nil); err == nil || errors.Is(err, ErrRosterSourceLocal) {
+		t.Fatalf("no descriptor = %v, want a Builder miss", err)
+	}
+}
+
+type localFailRosters struct{}
+
+func (localFailRosters) GetDispatchRoster(context.Context, string, *nexusv1.GetDispatchRosterRequest) (*nexusv1.GetDispatchRosterResponse, error) {
+	return nil, fmt.Errorf("%w: chain unreadable", ErrRosterSourceLocal)
+}
+
+func TestOmissionNeverCountsALocalRosterFailureAsAMiss(t *testing.T) {
+	x := newOmission(t, omLeaf(2, 250, "m"))
+	x.w.cfg.Rosters = localFailRosters{}
+	x.observe()
+	for _, h := range []uint64{201, 206} {
+		x.chain.mu.Lock()
+		x.chain.height = h
+		x.chain.mu.Unlock()
+		if err := x.w.Sweep(context.Background()); !errors.Is(err, ErrRosterSourceLocal) {
+			t.Fatalf("sweep at %d = %v, want the local failure", h, err)
+		}
+	}
+	if len(x.tx.requests()) != 0 || x.state().RosterMissSince != 0 {
+		t.Fatalf("a local failure was taken for a roster miss: %+v", x.state())
 	}
 }

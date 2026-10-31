@@ -31,7 +31,11 @@ func vsHandraise(t *testing.T, expiry uint64) *taskv1.VerifierHandraiseV1 {
 		},
 		Duty: sharedv1.Duty_DUTY_VERIFIER, ServiceAuthorizationNonce: 7, ExpiryHeight: expiry,
 	}
-	if err := dispatchwire.SignVerifierHandraise(context.Background(), h, hrSigner(hrCortexKey)); err != nil {
+	d, err := dispatchwire.Digest(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.ServiceSignature, err = hrSigner(hrCortexKey)(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
 	return h

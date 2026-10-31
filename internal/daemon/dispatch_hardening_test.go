@@ -20,7 +20,7 @@ import (
 
 func (x *dispatchHarness) leaseHeld(t *testing.T) bool {
 	t.Helper()
-	held, err := layout.HasWorkerLease(context.Background(), x.st, layout.StoredHash(x.fx.ticketHash()))
+	held, err := hasWorkerLease(context.Background(), x.st, layout.StoredHash(x.fx.ticketHash()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestDispatchRejectedNewRoundSupersedesNothing(t *testing.T) {
 	if err != nil || prev.State != layout.DispatchAccepted || x.infer.stopped(old) {
 		t.Fatalf("old round = %+v, %v: a rejected round supersedes nothing", prev, err)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, old); !held {
+	if held, _ := hasWorkerLease(ctx, x.st, old); !held {
 		t.Fatal("the old round keeps its lease")
 	}
 }
@@ -292,7 +292,7 @@ func TestDispatchInputIsBoundedAndCounted(t *testing.T) {
 func TestDispatchRevokeAndSupersedeDropStagedInput(t *testing.T) {
 	ctx := context.Background()
 	chunks := func(x *dispatchHarness, ticket layout.StoredHash) int {
-		c, err := layout.DispatchInputChunks(ctx, x.st, ticket)
+		c, err := dispatchInputChunks(ctx, x.st, ticket)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -477,7 +477,7 @@ func TestDispatchRefusedChunkResetsTheStaging(t *testing.T) {
 			if rec.InputChunkCount != 0 || rec.InputChunksReceived != 0 || rec.InputStagedBytes != 0 || rec.InputRequestedAtUnixMs != 0 {
 				t.Fatalf("record = %+v: the staging is reset and input asked for again", rec)
 			}
-			if chunks, _ := layout.DispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
+			if chunks, _ := dispatchInputChunks(ctx, x.st, rec.TicketHash); len(chunks) != 0 {
 				t.Fatal("staged chunks are dropped")
 			}
 			for i, p := range [][]byte{in[:40], in[40:]} {

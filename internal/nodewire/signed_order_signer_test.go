@@ -22,7 +22,7 @@ func TestSignedOrderSignerRecoversTheSigningAccount(t *testing.T) {
 	wallet := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{1}, 32))
 	delegate := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{2}, 32))
 	var err error
-	if order.UserAddress, err = EVMAccountAddress("trueopen", wallet.PubKey().SerializeUncompressed()); err != nil {
+	if order.UserAddress, err = evmAccountAddress("trueopen", wallet.PubKey().SerializeUncompressed()); err != nil {
 		t.Fatal(err)
 	}
 	walletRaw, err := CanonicalOperatorAddressBytes("user_address", order.UserAddress)
@@ -49,7 +49,7 @@ func TestSignedOrderSignerRecoversTheSigningAccount(t *testing.T) {
 	if err := VerifySignedOrderEnvelope(carrier(wallet), 0, "uusdc"); err != nil {
 		t.Fatalf("the wallet branch must still verify: %v", err)
 	}
-	delegateAddr, err := EVMAccountAddress("trueopen", delegate.PubKey().SerializeUncompressed())
+	delegateAddr, err := evmAccountAddress("trueopen", delegate.PubKey().SerializeUncompressed())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSignedOrderSignerRecoversTheSigningAccount(t *testing.T) {
 	if _, err := SignedOrderSigner(carrier(wallet), 0, ""); err == nil {
 		t.Fatal("the fee denomination is part of the signed domain and is required")
 	}
-	if _, err := EVMAccountAddress("trueopen", wallet.PubKey().SerializeCompressed()); err == nil {
+	if _, err := evmAccountAddress("trueopen", wallet.PubKey().SerializeCompressed()); err == nil {
 		t.Fatal("only the 65-byte uncompressed point derives an EVM account")
 	}
 }
@@ -82,7 +82,7 @@ func TestParseSignedOrderAnswersOnce(t *testing.T) {
 	}
 	wallet := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{1}, 32))
 	var err error
-	if order.UserAddress, err = EVMAccountAddress("trueopen", wallet.PubKey().SerializeUncompressed()); err != nil {
+	if order.UserAddress, err = evmAccountAddress("trueopen", wallet.PubKey().SerializeUncompressed()); err != nil {
 		t.Fatal(err)
 	}
 	walletRaw, err := CanonicalOperatorAddressBytes("user_address", order.UserAddress)

@@ -46,7 +46,7 @@ func TestDispatchRecordObservationStates(t *testing.T) {
 	if await, _ := AwaitingRecordDispatches(ctx, s); len(await) != 0 {
 		t.Fatal("a recorded ticket no longer awaits")
 	}
-	if open, _ := OpenDispatches(ctx, s); len(open) != 1 {
+	if open, _ := openDispatches(ctx, s); len(open) != 1 {
 		t.Fatal("a recorded ticket keeps fetching its input")
 	}
 	if _, staged, err := StageDispatchInputChunk(ctx, s, a.TicketHash, 0, 1, []byte("0123456789")); err != nil || !staged {
@@ -89,7 +89,7 @@ func TestDispatchRecordObservationStates(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if open, _ := OpenDispatches(ctx, s); len(open) != 1 {
+	if open, _ := openDispatches(ctx, s); len(open) != 1 {
 		t.Fatal("a conflicted ticket holds no duty and fetches nothing")
 	}
 }
@@ -107,10 +107,10 @@ func TestWorkerLeaseRebindsToTheTaskKey(t *testing.T) {
 	if n, _ := CountWorkerLeases(ctx, s); n != 1 {
 		t.Fatalf("count = %d: the slot moves, it is not added", n)
 	}
-	if held, _ := HasWorkerLease(ctx, s, hash("t1")); held {
+	if held, _ := hasWorkerLease(ctx, s, hash("t1")); held {
 		t.Fatal("the ticket key is gone")
 	}
-	if held, _ := HasWorkerTaskLease(ctx, s, hash("task")); !held {
+	if held, _ := hasWorkerTaskLease(ctx, s, hash("task")); !held {
 		t.Fatal("the task key holds it")
 	}
 	if moved, err := RebindWorkerLease(ctx, s, hash("t1"), hash("task")); err != nil || moved {

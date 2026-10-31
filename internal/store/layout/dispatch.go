@@ -597,8 +597,8 @@ func OpenDispatchEntries(ctx context.Context, s *store.Store) ([]DispatchOpenEnt
 	return out, err
 }
 
-// OpenDispatches returns tickets holding a duty whose input is not committed.
-func OpenDispatches(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
+// openDispatches returns tickets holding a duty whose input is not committed.
+func openDispatches(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
 	tickets, err := scanHashes(ctx, s, []byte(dispatchOpenPrefix))
 	if err != nil {
 		return nil, err
@@ -744,8 +744,8 @@ func ReleaseWorkerTaskLeaseOf(ctx context.Context, s *store.Store, taskID, ticke
 	return released, nil
 }
 
-// HasWorkerTaskLease reports whether taskID holds a post-record lease.
-func HasWorkerTaskLease(ctx context.Context, s *store.Store, taskID StoredHash) (bool, error) {
+// hasWorkerTaskLease reports whether taskID holds a post-record lease.
+func hasWorkerTaskLease(ctx context.Context, s *store.Store, taskID StoredHash) (bool, error) {
 	_, err := s.GetRaw(ctx, WorkerTaskLeaseKey(taskID))
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -768,8 +768,8 @@ func DispatchEvidenceScope(taskHash, ticket StoredHash) StoredHash {
 	return out
 }
 
-// HasWorkerLease reports whether ticket holds a pre-record lease.
-func HasWorkerLease(ctx context.Context, s *store.Store, ticket StoredHash) (bool, error) {
+// hasWorkerLease reports whether ticket holds a pre-record lease.
+func hasWorkerLease(ctx context.Context, s *store.Store, ticket StoredHash) (bool, error) {
 	_, err := s.GetRaw(ctx, WorkerTicketLeaseKey(ticket))
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -898,9 +898,9 @@ func ResetDispatchInput(ctx context.Context, s *store.Store, ticket StoredHash) 
 	})
 }
 
-// PutDispatchInputChunk stores chunk index of ticket's input once: identical
+// putDispatchInputChunk stores chunk index of ticket's input once: identical
 // bytes are a no-op (stored=false), different bytes ErrConflict.
-func PutDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredHash, index uint32, data []byte) (bool, error) {
+func putDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredHash, index uint32, data []byte) (bool, error) {
 	stored := false
 	err := s.ApplyBatch(ctx, func(b *store.Batch) error {
 		key := DispatchInputChunkKey(ticket, index)
@@ -923,8 +923,8 @@ func PutDispatchInputChunk(ctx context.Context, s *store.Store, ticket StoredHas
 	return stored, nil
 }
 
-// DispatchInputChunks returns ticket's stored chunks by index.
-func DispatchInputChunks(ctx context.Context, s *store.Store, ticket StoredHash) (map[uint32][]byte, error) {
+// dispatchInputChunks returns ticket's stored chunks by index.
+func dispatchInputChunks(ctx context.Context, s *store.Store, ticket StoredHash) (map[uint32][]byte, error) {
 	prefix := dispatchInputTicketPrefix(ticket)
 	out := map[uint32][]byte{}
 	err := s.ScanPrefix(ctx, prefix, func(key, value []byte) error {
@@ -937,8 +937,8 @@ func DispatchInputChunks(ctx context.Context, s *store.Store, ticket StoredHash)
 	return out, err
 }
 
-// DeleteDispatchInputChunks drops every chunk of ticket.
-func DeleteDispatchInputChunks(ctx context.Context, s *store.Store, ticket StoredHash) error {
+// deleteDispatchInputChunks drops every chunk of ticket.
+func deleteDispatchInputChunks(ctx context.Context, s *store.Store, ticket StoredHash) error {
 	return s.ApplyBatch(ctx, func(b *store.Batch) error {
 		return deletePrefixedKeysInBatch(b, dispatchInputTicketPrefix(ticket))
 	})

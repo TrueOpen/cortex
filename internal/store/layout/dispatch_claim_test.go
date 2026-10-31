@@ -41,7 +41,7 @@ func TestDispatchClaimStates(t *testing.T) {
 	if w, _ := AwaitingRecordDispatches(ctx, s); len(w) != 0 {
 		t.Fatal("settled at D_ticket: no longer awaiting")
 	}
-	if o, _ := OpenDispatches(ctx, s); len(o) != 0 {
+	if o, _ := openDispatches(ctx, s); len(o) != 0 {
 		t.Fatal("a claimable ticket fetches no input")
 	}
 	if err := set(func(r *DispatchRecord) { r.ClaimWindowCloseHeight = 180 }); !errors.Is(err, ErrConflict) {
@@ -100,7 +100,7 @@ func TestDeleteDispatchRecordOnlyWhenSettledAndFree(t *testing.T) {
 	if _, err := ReleaseWorkerLease(ctx, s, a.TicketHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PutDispatchInputChunk(ctx, s, a.TicketHash, 0, []byte("left over")); err != nil {
+	if _, err := putDispatchInputChunk(ctx, s, a.TicketHash, 0, []byte("left over")); err != nil {
 		t.Fatal(err)
 	}
 	if err := DeleteDispatchRecord(ctx, s, a.TicketHash); err != nil {
@@ -112,7 +112,7 @@ func TestDeleteDispatchRecordOnlyWhenSettledAndFree(t *testing.T) {
 	if r, _ := DispatchRecordsForTask(ctx, s, a.TaskID); len(r) != 0 {
 		t.Fatal("task index gone")
 	}
-	if c, _ := DispatchInputChunks(ctx, s, a.TicketHash); len(c) != 0 {
+	if c, _ := dispatchInputChunks(ctx, s, a.TicketHash); len(c) != 0 {
 		t.Fatal("input gone")
 	}
 	if g, _ := CollectableDispatchTickets(ctx, s, StoredHash{}, 10); len(g) != 0 {

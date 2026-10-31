@@ -27,9 +27,11 @@ The repository is useful in two modes:
 - Keeper is the chain-facing event/query boundary. The daemon reads finalized
   CometBFT blocks, applies each block idempotently, then advances one durable
   last-processed height after every relevant effect succeeds.
-- Nexus is the Builder publish/subscribe boundary. The current NATS boundary
-  includes concrete publish and subscribe adapters with dedup IDs, URL
-  validation, retryable transport errors, and JetStream redelivery.
+- Nexus is the Builder boundary. Phase 1 dispatch runs one direct
+  `IngressAPI.DispatchStream` per Builder in `dispatch.builders`, dialled only
+  at the Builder's on-chain service descriptor (endpoint and TLS pin), with
+  persisted cursors, acks, keepalive and reconnect. Task data and receipts use
+  the same ingress over unary calls.
 - The model-management service is the LLM execution boundary. Cortex supports
   fake, gRPC, and local in-process adapter modes.
 - Pebble stores only restart-critical local state: signed handraise candidates,
@@ -357,25 +359,19 @@ Core sections:
   protected in transit by verified TLS and end to end by semantic hashes and
   signatures; there is no application-layer encryption or payload key-store
   setting.
-- `nexus`: Builder ingress, NATS URL, shared HTTP bearer-token file, and
-  subscription subjects. Task-data endpoints come from per-task Builder
-  descriptors rather than a static credential or endpoint fallback.
-- `nexus.envelope_auth_mode`: `strict` (the default) or `trusted_nats_dev`.
-  `strict` signs every outbound `trueopen.*` BusEnvelope with this node's current
-  Cortex service key and requires a valid signature on every inbound envelope,
-  verified against the sender's current on-chain service key. `trusted_nats_dev`
-  treats the authenticated NATS transport plus its publish/subscribe ACL as the
-  authentication boundary, publishes unsigned envelopes, and is reported as the
-  `UNSAFE_TRUSTED_TRANSPORT` security warning. The Nexus that ships today does
-  not sign BusEnvelopes, so a `strict` node rejects every inbound Builder
-  message and takes no work; devnet deployments must use `trusted_nats_dev`
-  until that upstream gap closes. See
-  `docs/operations/cortexd-real-mode.md`.
-- `nexus.envelope_ttl_ms` (default 30000) and `nexus.envelope_clock_skew_ms`
-  (default 2000): the TTL stamped on outbound envelopes, the maximum accepted
-  lifetime of an inbound one, and the tolerated clock skew when judging inbound
-  `issued_at`/`expires_at`. These are deployment config, not chain governance
-  parameters, and must be kept consistent between Nexus and Cortex.
+- `nexus`: Builder ingress and the shared HTTP bearer-token file. Task-data
+  endpoints come from per-task Builder descriptors rather than a static
+  credential or endpoint fallback. The NATS bus settings are retired: a config
+  or environment that still sets one is refused at startup.
+- `dispatch`: Phase 1 direct dispatch, required in real mode. `builders` lists
+  the Builder operators this node keeps a standing handraise and one
+  DispatchStream with (`retiring_builders` removes one on restart). The
+  handraise timings, `evidence_retention_blocks`, a `min_price_bid` above zero
+  per supported profile, and the stream's `keepalive_ms` and `max_missed` have
+  no built-in default; with `tx.enabled`, `receipt_rescue_margin_blocks` and
+  `omission.*` are required too. Without `tx.enabled` the node submits no
+  compensation claim, receipt rescue or omission challenge. Each stream is a
+  `dispatch_stream:<builder>` readiness row; `/readyz` needs at least one bound.
 - `tx`: fee, gas, retry, inclusion, and Keeper-confirmation settings.
 - `evidence` and `store`: durable local evidence root and Pebble `path`.
 - `signer`: HTTP signer endpoint exposing only the current online service key.
@@ -437,8 +433,9 @@ bin/cortexctl --admin-socket /var/run/cortex/cortexd.sock diagnostics --format j
 ```
 
 Real mode starts workload runners only when the required external boundaries are
-ready. Otherwise JetStream retains unacknowledged delivery work, active local
-responsibilities remain in Pebble, and diagnostics report the configuration error.
+ready. Otherwise no Builder stream runs (unacknowledged stream frames are
+replayed from their cursors on reconnect), active local responsibilities
+remain in Pebble, and diagnostics report the configuration error.
 
 Keeper accepted events remain authoritative. Nexus delivery alone does not
 start Worker or Verifier jobs without accepted Keeper effects.
@@ -547,7 +544,7 @@ bin/cortexctl earnings status --format json
 
 The compact store has no durable generic task queue or failed-row requeue
 surface. Operators should use diagnostics, structured task logs, Keeper state,
-and JetStream consumer state; active infer/verify responsibilities are restored
+and the `dispatch_stream:<builder>` rows; active infer/verify responsibilities are restored
 automatically and terminal responsibilities are deleted.
 
 Evidence retention:
@@ -582,20 +579,13 @@ also remains gated on Nexus merging current Cortex service-key authorization,
 including the generic method/body/nonce/height-bound auth path for
 `SubmitInferReceipt`; Cortex does not fall back to an operator key.
 
-NATS control messages use Nexus `BusEnvelope` schema v1 with the business
-message nested under `payload`. Cortex rejects the former flattened JSON shape,
-binds the actual subject/chain/kind/session/task/TTL before payload decoding,
-and uses Nexus-compatible base64 encoding for byte fields. Exact-frame replay
-state is an in-memory TTL cache. In `strict` mode cortexd
-now constructs the envelope signer and authenticator from configuration: it
-signs outbound envelopes with the node's current service key and verifies
-inbound ones against the sender's current on-chain service key, with no
-historical-key or unsigned fallback. What still blocks a
-working `strict` deployment is upstream: Nexus does not sign the envelopes it
-publishes and does not verify inbound signatures, so every inbound Builder
-message is rejected for a missing signature. That is TrueOpen/nexus#45.
-See `docs/reviews/nexus-bus-envelope-contract.md` and
-`docs/operations/cortexd-real-mode.md`.
+Builder control messages travel on the per-Builder DispatchStream (wire
+916e393, `proto/CHAIN_BINDINGS.md` "Phase 1 dispatch"). The first frame binds
+the stream with this node's current service key; every Builder frame is
+checked against the Builder's current on-chain service key, read once per
+committed height, with no historical-key or unsigned fallback. Stream messages
+are hints: the dispatch record, compensation and challenges are read from the
+chain.
 
 The Verifier hot path persists VerifierHandraise material before Builder
 publish, requires OpenVerify accepted plus formal verifier assignment before
@@ -680,7 +670,7 @@ Use `configs/real.example.yaml` as the production boundary checklist.
 Required real-mode boundaries include:
 
 - CometBFT RPC (ABCI state queries plus finalized block results)
-- Nexus ingress and NATS publish/subscribe
+- Nexus ingress and one DispatchStream per configured Builder
 - model-management gRPC or local model service
 - tx broadcaster configuration
 - signer URI
@@ -700,8 +690,8 @@ Operator runbooks live in `docs/operations/`:
   `reward_state` behavior.
 - `evidence-retention.md`: cleanup, task finality, preserved settlement
   material, non-destructive cleanup planning, and earnings view expectations.
-- `troubleshooting.md`: common fail-closed diagnostics for gRPC, NATS, Keeper,
-  tx, and admin socket issues.
+- `troubleshooting.md`: common fail-closed diagnostics for gRPC, Builder
+  streams, Keeper, tx, and admin socket issues.
 - `signer.md`: signer URI schemes, keystore v3 key directories, password
   sources, and which signing paths work in each mode.
 
@@ -715,8 +705,8 @@ self-signed certificate, trust it directly with `node.tls` instead of setting
 
 ```yaml
 node:
-  rpc_endpoint: https://62.84.178.46:26657
-  rest_endpoint: https://62.84.178.46:1317
+  rpc_endpoint: https://node.example:26657
+  rest_endpoint: https://node.example:1317
   tls:
     pubkey_hash: "<64 lowercase hex>"
     # or, instead of pubkey_hash:
@@ -839,14 +829,8 @@ deployment policy for long-running Worker/Verifier capacity. The durable,
 restart-safe deadline scheduling tracked by issue #108 is also required before
 operators may enable `self_rescue` in real mode.
 
-One upstream contract is still missing rather than deployment-specific: Nexus
-publishes BusEnvelopes without a signature and does not verify the signature on
-the ones it receives (nexus#45). Cortex builds the `strict` signer and
-authenticator, so a `strict` node signs correctly but rejects every inbound
-Builder message. Note what `nexus.envelope_auth_mode: trusted_nats_dev` does and
-does not buy: it relaxes signature verification only. It does not relax the
-20-field wire shape, which `DecodeBusEnvelope` enforces before any signature
-check (`internal/builderclient/envelope.go:553-567`, reached first at
-`internal/daemon/task_runner_nexus.go:395`), so a peer publishing the shorter legacy
-envelope is refused in either mode. See
-`docs/reviews/upstream-interop-status.md` §2.4.
+Phase 1 dispatch is pinned to the wire `916e393` candidate contract; the
+release re-pin and the known drift past it are listed in
+`proto/CHAIN_BINDINGS.md`. The `FetchTaskData(INPUT)` fallback authorized by a
+`DispatchAcceptV1` is not implemented: input is re-requested on the same
+stream.

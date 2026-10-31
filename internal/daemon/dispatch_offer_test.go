@@ -68,7 +68,7 @@ func TestDispatchOfferAcceptsInWriteOrder(t *testing.T) {
 		rec.AcceptSeq != 1 || rec.InputRequestSeq != 2 || rec.ClaimFromHeight != 109+dpRecordDeadline || len(rec.SignedOrder) == 0 {
 		t.Fatalf("record = %+v", rec)
 	}
-	if held, err := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); err != nil || !held {
+	if held, err := hasWorkerLease(ctx, x.st, rec.TicketHash); err != nil || !held {
 		t.Fatal("the lease is held from before the accept is signed (W3)")
 	}
 	if free, _ := x.leases.FreeSlots(); free != 1 {
@@ -226,7 +226,7 @@ func TestDispatchOfferRejectsWithTheClosedReasonSet(t *testing.T) {
 			if rec.State != layout.DispatchRejected || rec.RejectClass != c.class || rec.RejectBuilderSide != c.builderSide || rec.RejectSeq != 1 {
 				t.Fatalf("record = %+v", rec)
 			}
-			if held, err := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); err != nil || held {
+			if held, err := hasWorkerLease(ctx, x.st, rec.TicketHash); err != nil || held {
 				t.Fatal("a rejected ticket holds no lease")
 			}
 			if err := x.handle(ctx); err != nil {
@@ -241,7 +241,7 @@ func TestDispatchOfferRejectsWithTheClosedReasonSet(t *testing.T) {
 
 func TestDispatchOfferAcceptsALiveSessionKey(t *testing.T) {
 	delegate := secp256k1.PrivKeyFromBytes(bytes.Repeat([]byte{5}, 32))
-	addr, err := nodewire.EVMAccountAddress("trueopen", delegate.PubKey().SerializeUncompressed())
+	addr, err := evmAccountAddress("trueopen", delegate.PubKey().SerializeUncompressed())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestDispatchNewRoundReleasesTheOldLeaseFirst(t *testing.T) {
 	if err != nil || prev.State != layout.DispatchSuperseded {
 		t.Fatalf("old record = %+v, %v", prev, err)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, old); held {
+	if held, _ := hasWorkerLease(ctx, x.st, old); held {
 		t.Fatal("the old round's lease is released")
 	}
 	if !x.infer.stopped(old) {
@@ -394,7 +394,7 @@ func TestDispatchAcceptOfUnknownFateKeepsItsLease(t *testing.T) {
 	if rec.State != layout.DispatchAccepted {
 		t.Fatalf("record = %+v: an accept that may have been sent is never released as unsent", rec)
 	}
-	if held, _ := layout.HasWorkerLease(context.Background(), x.st, rec.TicketHash); !held {
+	if held, _ := hasWorkerLease(context.Background(), x.st, rec.TicketHash); !held {
 		t.Fatal("it keeps its lease")
 	}
 }

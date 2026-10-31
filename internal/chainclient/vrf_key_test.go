@@ -30,7 +30,7 @@ func TestBuilderVrfKeyReadsTheBuilderSelectorAtCommittedHeight(t *testing.T) {
 		return &hubv1.QueryVrfKeyResponse{ActiveVrfPubkey: key, ActiveFromEpoch: 3, VrfAuthorizationNonce: 2}, 0, ""
 	})
 	t.Cleanup(server.Close)
-	got, err := NewKeeperABCIClient(server.URL).BuilderVrfKey(context.Background(), "trueopen1builder")
+	got, err := NewKeeperABCIClient(server.URL).BuilderVrfKeyAt(context.Background(), "trueopen1builder", 900)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestBuilderVrfKeyRefusesAMalformedKey(t *testing.T) {
 		return &hubv1.QueryVrfKeyResponse{ActiveVrfPubkey: []byte{1, 2, 3}}, 0, ""
 	})
 	t.Cleanup(server.Close)
-	if _, err := NewKeeperABCIClient(server.URL).BuilderVrfKey(context.Background(), "trueopen1builder"); err == nil {
+	if _, err := NewKeeperABCIClient(server.URL).BuilderVrfKeyAt(context.Background(), "trueopen1builder", 900); err == nil {
 		t.Fatal("a VRF key that is not 32 bytes must be refused")
 	}
 }

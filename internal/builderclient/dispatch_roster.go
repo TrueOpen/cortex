@@ -32,6 +32,3 @@ func (c *ConnectTaskDataClient) GetDispatchRoster(ctx context.Context, endpoint 
 	}
 	return resp.Msg, nil
 }
-
-// IsRosterNotFound: this Builder keeps no roster for the task (DATA_NOT_FOUND).
-func IsRosterNotFound(err error) bool { return connect.CodeOf(err) == connect.CodeNotFound }

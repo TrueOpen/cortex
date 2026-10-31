@@ -36,8 +36,8 @@ type DispatchRecordedFact struct {
 	InferDeadline uint64
 }
 
-// DispatchRecordObserver consumes the authoritative record events (S9 wires
-// the Dispatcher as TaskRunnerConfig.DispatchRecords).
+// DispatchRecordObserver consumes the authoritative record events
+// (TaskRunnerConfig.DispatchRecords: the Dispatcher and the OmissionWatcher).
 type DispatchRecordObserver interface {
 	ObserveDispatchRecorded(context.Context, DispatchRecordedFact) error
 }

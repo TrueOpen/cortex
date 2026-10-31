@@ -119,16 +119,6 @@ func SignedOrderSigner(value string, evmChainID uint64, feeDenom string) ([]byte
 	return view.Signer, nil
 }
 
-// EVMAccountAddress is the Bech32 account of an EVM-style secp256k1 key: the
-// last 20 bytes of keccak256 over the 64-byte uncompressed point, which is
-// what SignedOrderSigner recovers.
-func EVMAccountAddress(hrp string, uncompressedPubkey []byte) (string, error) {
-	if len(uncompressedPubkey) != 65 || uncompressedPubkey[0] != 0x04 {
-		return "", fmt.Errorf("EVM account derivation needs a 65-byte uncompressed secp256k1 point")
-	}
-	return bech32ConvertAndEncode(hrp, orderKeccak(uncompressedPubkey[1:])[12:])
-}
-
 // VerifySignedOrderEnvelope checks the exact signed carrier against its
 // user_address. It accepts only the current SignedOrderV2 eip712 signature
 // format.

@@ -180,7 +180,7 @@ func TestDeadlineWithThisTicketAsWinnerResumesAndFlagsTheNotice(t *testing.T) {
 	if got.State != layout.DispatchRecorded || !got.FalseNotice || len(got.RecordNotice) == 0 {
 		t.Fatalf("record = %+v: winner, delivery resumes, the false notice is kept (CD §8.6a)", got)
 	}
-	if held, _ := layout.HasWorkerTaskLease(ctx, x.st, rec.TaskID); !held || len(tx.requests()) != 0 || x.infer.stopped(rec.TicketHash) {
+	if held, _ := hasWorkerTaskLease(ctx, x.st, rec.TaskID); !held || len(tx.requests()) != 0 || x.infer.stopped(rec.TicketHash) {
 		t.Fatal("a winner keeps its lease and inference, and never claims")
 	}
 }

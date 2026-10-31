@@ -29,9 +29,10 @@ type HandraiseChainView interface {
 	CommittedCurrentServiceKey(ctx context.Context, participantType, operatorAddress string) (chainclient.ServiceKeySnapshot, uint64, error)
 }
 
-// HandraiseLocal is the local state the gates read, every pass. S4 provides
-// the lease-backed FreeSlots; S9 wires WorkloadReady to Runtime readiness and
-// Draining to the operator drain controls.
+// HandraiseLocal is the local state the gates read, every pass. FreeSlots is
+// lease-backed (WithLeaseSlots); WorkloadReady is the Runtime's last
+// readiness verdict. There are no drain controls yet, so Draining reports
+// none (S9 Q10).
 type HandraiseLocal interface {
 	// WorkloadReady is Runtime.CheckWorkloadReadiness(ctx).Ready(): chain sync
 	// lag, identity, signer and store (CD §5.1 H1).

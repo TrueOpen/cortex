@@ -216,7 +216,7 @@ func (x *planeE2E) accepted(conn *streamtest.Conn) [32]byte {
 	x.t.Helper()
 	n := x.rootFor(x.handraise(conn))
 	conn.WaitAcked(x.t, conn.Push(x.t, n))
-	hrEventually(x.t, "root admitted", func() bool { r, ok := x.plane.handraiser.Admission(hrBuilderA); return ok && r.Admitted })
+	hrEventually(x.t, "root admitted", func() bool { r, ok := x.plane.handraiser.lastAdmission(hrBuilderA); return ok && r.Admitted })
 	d, err := dispatchwire.Digest(n.Root)
 	if err != nil {
 		x.t.Fatal(err)

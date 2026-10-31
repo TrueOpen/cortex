@@ -62,8 +62,10 @@ func SignInputRequest(ctx context.Context, m *nexusv1.DispatchInputRequestV1, s 
 	return sign(ctx, m, s, func(b []byte) { m.ServiceSignature = b })
 }
 
-// SignVerifierHandraise signs a VerifierHandraiseV1.
-func SignVerifierHandraise(ctx context.Context, m *taskv1.VerifierHandraiseV1, s DigestSigner) error {
+// signVerifierHandraise signs a VerifierHandraiseV1. Production signs the
+// Verifier handraise on the task runner path; this covers the projection in
+// the signing vectors only.
+func signVerifierHandraise(ctx context.Context, m *taskv1.VerifierHandraiseV1, s DigestSigner) error {
 	return sign(ctx, m, s, func(b []byte) { m.ServiceSignature = b })
 }
 

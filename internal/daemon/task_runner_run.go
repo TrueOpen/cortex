@@ -1167,7 +1167,7 @@ func retentionStartHeight(effect ReconcilerEffect) uint64 {
 }
 
 // releaseDispatchLease returns a recorded task's (task_id, WORKER) lease. The
-// hook never takes the runner lock (S9 wires Dispatcher.ReleaseTaskLease);
+// hook never takes the runner lock (cortexd: Dispatcher.ReleaseTaskLease);
 // releasing a lease that is not held is a no-op.
 func (r *TaskRunner) releaseDispatchLease(ctx context.Context, taskID string) error {
 	if r.cfg.ReleaseDispatchLease == nil {

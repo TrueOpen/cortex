@@ -81,7 +81,7 @@ func TestResignCortexVectorsWithFixtureKey(t *testing.T) {
 		},
 		"task_v1_verifierhandraisev1": func(m proto.Message) error {
 			x := m.(*taskv1.VerifierHandraiseV1)
-			return SignVerifierHandraise(ctx, x, s)
+			return signVerifierHandraise(ctx, x, s)
 		},
 		"nexus_v1_verifyresultsubmittednoticev1": func(m proto.Message) error {
 			x := m.(*nexusv1.VerifyResultSubmittedNoticeV1)

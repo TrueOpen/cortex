@@ -48,7 +48,7 @@ type Config struct {
 	// BuilderKey resolves the Builder's current on-chain service key
 	// (QueryCurrentServiceKey(BUILDER, op)). It is called for every
 	// Builder-signed frame; caching with rotation awareness is the caller's
-	// job (S9 wiring).
+	// job (daemon's builderKeyCache).
 	BuilderKey func(context.Context) ([]byte, error)
 	Store      *store.Store
 	Handler    Handler
@@ -59,8 +59,9 @@ type Config struct {
 	// HandlerTimeout bounds one Handler call. It must be below
 	// KeepaliveEvery*MaxMissed (the loop is blocked while a Handler runs);
 	// default half of that. This only bounds our own keepalive window: the
-	// Builder's liveness threshold is its own deployment setting, and S9
-	// wiring must also pick a value safe against it.
+	// Builder's liveness threshold is its own deployment setting, so the
+	// daemon keeps it below one keepalive period
+	// (dispatch.stream.handler_timeout_ms).
 	HandlerTimeout time.Duration
 	Backoff        func(attempt int) time.Duration
 	Now            func() time.Time // default time.Now

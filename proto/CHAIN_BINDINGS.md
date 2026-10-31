@@ -85,7 +85,7 @@ unchanged, and the Keeper stays the only authority over who may sign: the
 daemon checks that a broadcast order carries a signature, not whose it is, so
 it admits a session-signed order the Keeper accepted.
 `nodewire.VerifySignedOrderEnvelope` still verifies only the wallet branch; it
-backs tests and `scripts/testorder`, not admission. Cortex signs its Task data
+backs tests, not admission. Cortex signs its Task data
 requests as CORTEX_SERVICE, which the new registered-key branch of the Nexus
 ingress does not touch. The regenerated bindings differ in eight files
 (`nexus/v1/ingress`, `shared/v1/event`, `task/v1/{event, msg_assignment,

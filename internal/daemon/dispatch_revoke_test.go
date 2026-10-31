@@ -47,7 +47,7 @@ func TestDispatchRevokeStopsReleasesAndKeepsTheRecord(t *testing.T) {
 	if rec.State != layout.DispatchRevoked || !bytes.Equal(rec.Revoke, raw) || len(rec.Accept) == 0 || len(rec.Ticket) == 0 {
 		t.Fatalf("record = %+v: the ticket, the accept and the revoke are all kept", rec)
 	}
-	if held, _ := layout.HasWorkerLease(ctx, x.st, rec.TicketHash); held {
+	if held, _ := hasWorkerLease(ctx, x.st, rec.TicketHash); held {
 		t.Fatal("a revoke releases the lease")
 	}
 	if !x.infer.stopped(rec.TicketHash) {

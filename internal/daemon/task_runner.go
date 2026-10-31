@@ -109,15 +109,16 @@ type TaskRunnerConfig struct {
 	// diverged from Keeper authority.
 	OnQuarantinedEffect func(ReconcilerEffect, error)
 	// DispatchRecords receives dispatch_recorded effects after the runner lock
-	// is released (S9 wires the Dispatcher). Nil: the effects are traced only.
+	// is released (cortexd: the dispatch plane's link). Nil: the effects are
+	// traced only.
 	DispatchRecords DispatchRecordObserver
-	// DispatchEvents receives the other dispatch event effects (S6:
-	// compensation; S8: challenge opened/resolved) after the runner lock (S9
-	// wires DispatchEventObservers{Dispatcher, OmissionWatcher}). Nil: traced
-	// only.
+	// DispatchEvents receives the other dispatch event effects (compensation,
+	// challenge opened/resolved) after the runner lock (cortexd:
+	// DispatchEventObservers{Dispatcher, OmissionWatcher} through the link).
+	// Nil: traced only.
 	DispatchEvents DispatchEventObserver
 	// ReleaseDispatchLease returns a recorded task's (task_id, WORKER) lease
-	// (S9 wires Dispatcher.ReleaseTaskLease). It is called under the runner
+	// (cortexd: Dispatcher.ReleaseTaskLease). It is called under the runner
 	// lock, so it must not take it.
 	ReleaseDispatchLease func(ctx context.Context, taskID layout.StoredHash) error
 	// DispatchWaitInterval spaces re-runs of an infer waiting for its record
@@ -129,10 +130,10 @@ type TaskRunnerConfig struct {
 	InferExecutor  InferExecutor
 	VerifyExecutor VerifyExecutor
 	// VerifyCommitReader confirms this node's own commit row before the
-	// reveal reads B-level evidence (CD §6.2 V13–V14a). S9 wires it.
+	// reveal reads B-level evidence (CD §6.2 V13–V14a).
 	VerifyCommitReader chainclient.VerifyCommitReader
 	// VerifyNotices queues VerifyResultSubmittedNoticeV1 on every Builder
-	// stream (V12, V15). S9 wires the StreamFanout; nil sends none.
+	// stream (V12, V15): cortexd's StreamFanout. Nil sends none.
 	VerifyNotices verifier.NoticeSender
 	// TaskBuilders is the frozen Task Builder order evidence is fetched from
 	// and MsgReportDataUnavailable's bitmap follows. Nil falls back to the

@@ -142,8 +142,8 @@ func (h *StandingHandraiser) HeldRootDigests(ctx context.Context, builder string
 	return out, nil
 }
 
-// Admission returns the newest root seen from builder since start.
-func (h *StandingHandraiser) Admission(builder string) (HeldRoot, bool) {
+// lastAdmission returns the newest root seen from builder since start.
+func (h *StandingHandraiser) lastAdmission(builder string) (HeldRoot, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	r, ok := h.admission[builder]

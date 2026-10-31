@@ -67,7 +67,7 @@ func TestDispatchEpochReadsTheEpochStartBeacon(t *testing.T) {
 				return nil, 0, ""
 			})
 			t.Cleanup(server.Close)
-			got, err := NewKeeperABCIClient(server.URL).DispatchEpoch(context.Background(), c.earliest)
+			got, err := NewKeeperABCIClient(server.URL).DispatchEpochAt(context.Background(), c.earliest, 900)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +89,7 @@ func TestDispatchEpochRefusesANonCanonicalBeacon(t *testing.T) {
 		return &hubv1.QueryBeaconResponse{Beacon: &hubv1.BeaconState{Height: 800, RandomnessHex: "ABCD", SourceTag: "proposer_vrf_v1", Verified: true}}, 0, ""
 	})
 	t.Cleanup(server.Close)
-	if _, err := NewKeeperABCIClient(server.URL).DispatchEpoch(context.Background(), 850); err == nil {
+	if _, err := NewKeeperABCIClient(server.URL).DispatchEpochAt(context.Background(), 850, 900); err == nil {
 		t.Fatal("a beacon whose randomness is not canonical 32-byte hex must be refused")
 	}
 }
@@ -175,7 +175,7 @@ func TestDispatchParamsAndWorkerLiabilityParams(t *testing.T) {
 		p.ChallengeWindowBlocks != 80 || p.ChallengeResponseBlocks != 90 || p.EvidenceRetentionBlocks != 1_000 || p.MaxPrerecordOutputTokens != 32 {
 		t.Fatalf("dispatch params = %+v", p)
 	}
-	l, err := c.WorkerLiabilityParams(context.Background())
+	l, err := c.WorkerLiabilityParamsAt(context.Background(), 900)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestDispatchParamsRefuseMissingOrMalformedValues(t *testing.T) {
 			if _, ok := answer.(*taskv1.QueryTaskParamsResponse); ok {
 				_, err = c.DispatchParams(context.Background())
 			} else {
-				_, err = c.WorkerLiabilityParams(context.Background())
+				_, err = c.WorkerLiabilityParamsAt(context.Background(), 900)
 			}
 			if err == nil {
 				t.Fatal("malformed params accepted")

@@ -136,7 +136,7 @@ func newOfferFixture(t testing.TB) *offerFixture {
 	tk.HandraiseRootDigest = bytes.Clone(f.root[:])
 	tk.AcceptDeadlineMs = 2_000
 	tk.BoundChangeHeight = 105
-	user, err := nodewire.EVMAccountAddress("trueopen", dpUserKey.PubKey().SerializeUncompressed())
+	user, err := evmAccountAddress("trueopen", dpUserKey.PubKey().SerializeUncompressed())
 	if err != nil {
 		t.Fatal(err)
 	}
