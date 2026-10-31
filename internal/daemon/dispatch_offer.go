@@ -204,6 +204,9 @@ func (d *Dispatcher) localStop(ctx context.Context, rec layout.DispatchRecord) *
 	if p, err := profileOf(rec.ModelID, rec.ProfileVersion); err == nil && profiles[p] {
 		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is draining", rec.ModelID, rec.ProfileVersion)
 	}
+	if d.cfg.Retiring[rec.Builder] {
+		return refuse(reasonNoCapacity, classBuilderRetiring, "Builder %s is being removed (dispatch.retiring_builders)", rec.Builder)
+	}
 	return nil
 }
 

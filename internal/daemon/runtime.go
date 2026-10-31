@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -98,6 +99,12 @@ type Runtime struct {
 	chainProgressMu    sync.RWMutex
 	chainProgress      ChainProgress
 	chainProgressKnown bool
+
+	// Dispatch is one DispatchStream per configured Builder (S9); nil when
+	// dispatch.builders is empty or the mode wires no real dependencies.
+	Dispatch *DispatchStreams
+	// lastReady is the last CheckWorkloadReadiness verdict.
+	lastReady atomic.Bool
 }
 
 // ObserveChainProgress records what the last Keeper poll saw. The poller calls
@@ -579,6 +586,14 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 			return nil, err
 		}
 		runtime.manifestGate = gate
+	}
+	if cfg.UsesRealDependencies() && cfg.Dispatch.Enabled() {
+		streams, err := newRuntimeDispatchStreams(cfg, runtime)
+		if err != nil {
+			_ = runtime.Close()
+			return nil, err
+		}
+		runtime.Dispatch = streams
 	}
 	runtime.setDiagnosticsSnapshot(deps.Diagnostics)
 	runtime.setDiagnosticsSnapshot(runtime.Dependencies.Diagnostics)

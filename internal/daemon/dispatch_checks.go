@@ -40,6 +40,7 @@ const (
 	classInputMismatch      = "input_metadata_mismatch"
 	classInputTooLarge      = "input_too_large"
 	classNoFreeSlot         = "no_free_slot"
+	classBuilderRetiring    = "builder_retiring"
 )
 
 // verdict is one signed-reject decision.

@@ -73,6 +73,12 @@ type OmissionConfig struct {
 	Sign           dispatchwire.DigestSigner
 	Tx             txclient.Client
 	Store          *store.Store
+	// Submitter, when set, replaces Tx and ServiceAddress (see
+	// DispatcherConfig.Submitter). An empty address means the workload is
+	// inactive: nothing is submitted and no challenge is judged.
+	Submitter func() (txclient.Client, string)
+	// SweepEvery spaces Run's sweeps; default 2s.
+	SweepEvery time.Duration
 	// RosterGraceBlocks: blocks without any valid roster before
 	// MsgReportDispatchRosterUnavailable. ChallengeMarginBlocks: no Tx once
 	// height + margin reaches the window close. Both required (CD §15.3,
@@ -99,11 +105,15 @@ type OmissionWatcher struct {
 }
 
 func NewOmissionWatcher(cfg OmissionConfig) (*OmissionWatcher, error) {
-	if cfg.ChainID == "" || cfg.Operator == "" || cfg.ServiceAddress == "" || len(cfg.Builders) == 0 || cfg.Chain == nil || cfg.Roots == nil ||
-		cfg.Rosters == nil || cfg.Sign == nil || cfg.Tx == nil || cfg.Store == nil {
+	if cfg.ChainID == "" || cfg.Operator == "" || len(cfg.Builders) == 0 || cfg.Chain == nil || cfg.Roots == nil ||
+		cfg.Rosters == nil || cfg.Sign == nil || cfg.Store == nil || (cfg.Submitter == nil && (cfg.ServiceAddress == "" || cfg.Tx == nil)) {
 		return nil, errors.New("omission watcher: incomplete config")
 	}
-	for _, a := range append([]string{cfg.Operator, cfg.ServiceAddress}, cfg.Builders...) {
+	addrs := append([]string{cfg.Operator}, cfg.Builders...)
+	if cfg.ServiceAddress != "" {
+		addrs = append(addrs, cfg.ServiceAddress)
+	}
+	for _, a := range addrs {
 		if _, err := dispatch.AddressBytes(a); err != nil {
 			return nil, fmt.Errorf("omission watcher: address %q: %w", a, err)
 		}
@@ -206,6 +216,9 @@ func (w *OmissionWatcher) Sweep(ctx context.Context) error {
 	height, err := w.cfg.Chain.CommittedHeight(ctx)
 	if err != nil {
 		return err
+	}
+	if _, addr := w.svc(); addr == "" {
+		return w.collect(ctx, height) // workload inactive (S9 Q8)
 	}
 	cases, err := layout.OpenOmissionCases(ctx, w.cfg.Store)
 	if err != nil {
@@ -366,7 +379,7 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 			first = rounds[rec.Rounds[0].Round].GetRoster()
 		}
 		return w.challenge(ctx, c, cand.round, &taskv1.MsgChallengeDispatchOmission{TaskId: bytes.Clone(c.TaskID[:]), DispatchRound: cand.round,
-			ChallengerAddress: w.cfg.ServiceAddress, Roster: roster, FirstRoundRoster: first, HandraiseRoot: notice.GetRoot(),
+			ChallengerAddress: w.addrOr(), Roster: roster, FirstRoundRoster: first, HandraiseRoot: notice.GetRoot(),
 			InclusionProof: notice.GetProof(), NonInclusionProof: proof}, height, closeAt, p)
 	}
 	return w.close(ctx, c, layout.OmissionClear, "present in every examined round's roster", 0, p)
@@ -488,7 +501,11 @@ func (w *OmissionWatcher) submit(ctx context.Context, c layout.OmissionCase, kin
 	if err != nil {
 		return txclient.Observation{}, err
 	}
-	return w.cfg.Tx.Submit(ctx, txclient.Request{TaskID: hex.EncodeToString(c.TaskID[:]), SessionID: hex.EncodeToString(c.SessionID[:]),
+	tx, _ := w.svc()
+	if tx == nil {
+		return txclient.Observation{}, errors.New("omission: workload inactive, no Tx client")
+	}
+	return tx.Submit(ctx, txclient.Request{TaskID: hex.EncodeToString(c.TaskID[:]), SessionID: hex.EncodeToString(c.SessionID[:]),
 		Kind: kind, Payload: payload, DeadlineHeight: deadline, MaterialDigest: codec.Hash(id)})
 }
 
@@ -503,11 +520,11 @@ func (w *OmissionWatcher) ownChallenge(ctx context.Context, c layout.OmissionCas
 	case err != nil:
 		return false, builderclient.Retryable(err)
 	}
-	return s.Challenger == w.cfg.ServiceAddress && bytes.Equal(s.TaskID, c.TaskID[:]), nil
+	return s.Challenger == w.addrOr() && bytes.Equal(s.TaskID, c.TaskID[:]), nil
 }
 
 func (w *OmissionWatcher) challenge(ctx context.Context, c layout.OmissionCase, round uint32, msg *taskv1.MsgChallengeDispatchOmission, height, closeAt uint64, p chainclient.DispatchParamsSnapshot) error {
-	id, err := dispatchwire.OmissionChallengeID(w.cfg.ChainID, c.TaskID, round, w.cfg.Operator, w.cfg.ServiceAddress)
+	id, err := dispatchwire.OmissionChallengeID(w.cfg.ChainID, c.TaskID, round, w.cfg.Operator, w.addrOr())
 	if err != nil {
 		return err
 	}
@@ -559,12 +576,12 @@ func (w *OmissionWatcher) rosterMissing(ctx context.Context, c layout.OmissionCa
 		})
 		return err
 	}
-	id, err := dispatchwire.RosterUnavailableChallengeID(w.cfg.ChainID, c.TaskID, round, w.cfg.ServiceAddress)
+	id, err := dispatchwire.RosterUnavailableChallengeID(w.cfg.ChainID, c.TaskID, round, w.addrOr())
 	if err != nil {
 		return err
 	}
 	obs, err := w.submit(ctx, c, txclient.MsgReportDispatchRosterUnavailable, &taskv1.MsgReportDispatchRosterUnavailable{
-		TaskId: bytes.Clone(c.TaskID[:]), DispatchRound: round, ReporterAddress: w.cfg.ServiceAddress}, closeAt, id)
+		TaskId: bytes.Clone(c.TaskID[:]), DispatchRound: round, ReporterAddress: w.addrOr()}, closeAt, id)
 	if err != nil {
 		return builderclient.Retryable(err)
 	}
@@ -616,6 +633,10 @@ func (w *OmissionWatcher) ObserveDispatchEvent(ctx context.Context, f DispatchEv
 // proof deadline plus RecheckBlocks, or past window close + response when no
 // deadline is known, is given up, so no case stays open forever.
 func (w *OmissionWatcher) syncChallenge(ctx context.Context, c layout.OmissionCase, id layout.StoredHash, height uint64, p chainclient.DispatchParamsSnapshot) error {
+	addr := w.addrOr()
+	if addr == "" {
+		return nil // workload inactive: judged on a later sweep (S9 Q8)
+	}
 	s, err := w.cfg.Chain.DispatchChallenge(ctx, id[:])
 	found := err == nil
 	switch {
@@ -623,7 +644,7 @@ func (w *OmissionWatcher) syncChallenge(ctx context.Context, c layout.OmissionCa
 	case err != nil:
 		return builderclient.Retryable(err)
 	default:
-		if s.Challenger != w.cfg.ServiceAddress || !bytes.Equal(s.TaskID, c.TaskID[:]) {
+		if s.Challenger != addr || !bytes.Equal(s.TaskID, c.TaskID[:]) {
 			why := fmt.Sprintf("ChainObservationConflict: challenge %s names challenger %s, task %x", id, s.Challenger, s.TaskID)
 			w.cfg.Logger.Error("omission challenge disagrees with the chain", "alert", AlertDispatchOmissionConflict, "task", c.TaskID.String(), "why", why)
 			return w.close(ctx, c, layout.OmissionAbandoned, why, 0, p)
@@ -705,4 +726,38 @@ func (w *OmissionWatcher) collect(ctx context.Context, height uint64) error {
 		}
 	}
 	return nil
+}
+
+// svc is the (Tx, challenger address) pair for this call.
+func (w *OmissionWatcher) svc() (txclient.Client, string) {
+	if w.cfg.Submitter != nil {
+		return w.cfg.Submitter()
+	}
+	return w.cfg.Tx, w.cfg.ServiceAddress
+}
+
+// addrOr is the current challenger address; "" while the workload is inactive.
+func (w *OmissionWatcher) addrOr() string {
+	_, a := w.svc()
+	return a
+}
+
+// Run sweeps every SweepEvery until ctx ends.
+func (w *OmissionWatcher) Run(ctx context.Context) error {
+	every := w.cfg.SweepEvery
+	if every <= 0 {
+		every = 2 * time.Second
+	}
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		if err := w.Sweep(ctx); err != nil && ctx.Err() == nil {
+			w.cfg.Logger.Warn("omission sweep failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
 }

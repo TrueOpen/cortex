@@ -138,6 +138,15 @@ type DispatcherConfig struct {
 	// Msg's submitter). Nil Tx: no self-rescue.
 	Tx             txclient.Client
 	ServiceAddress string
+	// Submitter, when set, replaces Tx and ServiceAddress: it returns the
+	// workload's current broadcaster and the service address that broadcaster
+	// signs as, read together (Runtime.WorkloadSubmitter), so a claim or
+	// rescue never names one key and is broadcast by another (S6). Nil Tx:
+	// the workload is inactive; submissions wait.
+	Submitter func() (txclient.Client, string)
+	// Retiring names Builders being removed (dispatch.retiring_builders):
+	// their offers are refused NO_CAPACITY (CD §15.3).
+	Retiring map[string]bool
 	// ReceiptRescueMarginBlocks is how many blocks before
 	// infer_deadline_height an unaccepted receipt is self-submitted (CD §8.5).
 	// Required with Tx; there is no built-in default (CD §15.3).
@@ -215,8 +224,11 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 		slices.Sort(missing)
 		return nil, fmt.Errorf("dispatcher: config missing %s", strings.Join(missing, ", "))
 	}
-	if cfg.Tx != nil && (cfg.ServiceAddress == "" || cfg.ReceiptRescueMarginBlocks == 0) {
-		return nil, errors.New("dispatcher: receipt self-rescue needs ServiceAddress and ReceiptRescueMarginBlocks")
+	if (cfg.Tx != nil || cfg.Submitter != nil) && cfg.ReceiptRescueMarginBlocks == 0 {
+		return nil, errors.New("dispatcher: receipt self-rescue needs ReceiptRescueMarginBlocks")
+	}
+	if cfg.Tx != nil && cfg.Submitter == nil && cfg.ServiceAddress == "" {
+		return nil, errors.New("dispatcher: a Tx client needs its ServiceAddress")
 	}
 	if cfg.MaxInputBytes == 0 || cfg.MaxInputBytes > defaultTaskDataMaxBytes {
 		cfg.MaxInputBytes = defaultTaskDataMaxBytes
@@ -522,4 +534,12 @@ func hash32(b []byte) (layout.StoredHash, bool) {
 	}
 	copy(h[:], b)
 	return h, true
+}
+
+// submitter is the (Tx, service address) pair one submission uses.
+func (d *Dispatcher) submitter() (txclient.Client, string) {
+	if d.cfg.Submitter != nil {
+		return d.cfg.Submitter()
+	}
+	return d.cfg.Tx, d.cfg.ServiceAddress
 }

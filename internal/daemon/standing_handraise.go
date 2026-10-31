@@ -46,8 +46,11 @@ type StandingHandraiseConfig struct {
 	Sign            dispatchwire.DigestSigner
 	Store           *store.Store
 	Builders        map[string]HandraiseEnqueuer
-	Now             func() time.Time
-	Logger          *slog.Logger
+	// Retiring names Builders being removed (CD §15.3): each gets one
+	// withdrawal (zero free slots, no profiles) and then silence.
+	Retiring map[string]bool
+	Now      func() time.Time
+	Logger   *slog.Logger
 	// Alert receives operator alerts in addition to the log line; optional.
 	Alert func(HandraiseAlert)
 }
@@ -378,6 +381,9 @@ func (h *StandingHandraiser) evaluate(ctx context.Context) error {
 			prev = &last.State
 		}
 		want, canWithdraw, why := g.offer(prev)
+		if h.cfg.Retiring[b] {
+			want, canWithdraw, why = nil, true, "Builder is being removed (dispatch.retiring_builders)"
+		}
 		if want != nil {
 			if err := h.gates.builder(ctx, height, b); err != nil {
 				want, canWithdraw, why = nil, false, err.Error()

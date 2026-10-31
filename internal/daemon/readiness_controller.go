@@ -33,6 +33,9 @@ type WorkloadReadiness struct {
 	// stopping the poller.
 	ChainSync         diagnostics.DependencyStatus
 	DependenciesReady bool
+	// Streams are the DispatchStream rows (S9). Reported, never gating
+	// Ready(): the streams run inside the workload (S9 Q4).
+	Streams []diagnostics.DependencyStatus
 }
 
 func (r WorkloadReadiness) Ready() bool {
@@ -45,7 +48,7 @@ func (r WorkloadReadiness) Ready() bool {
 // one: a dependency added to the struct and forgotten in one of those callers
 // is exactly how a boundary stops being reported without anyone noticing.
 func (r WorkloadReadiness) DependencyStatuses() []diagnostics.DependencyStatus {
-	return []diagnostics.DependencyStatus{
+	return append([]diagnostics.DependencyStatus{
 		r.Identity,
 		r.ModelSupport,
 		r.ModelService,
@@ -55,7 +58,7 @@ func (r WorkloadReadiness) DependencyStatuses() []diagnostics.DependencyStatus {
 		r.Keeper,
 		r.Store,
 		r.ChainSync,
-	}
+	}, r.Streams...)
 }
 
 type ReadinessControllerConfig struct {

@@ -259,7 +259,11 @@ func (d *Dispatcher) advanceClaim(ctx context.Context, rec layout.DispatchRecord
 		}))
 		return err
 	}
-	if d.cfg.Tx == nil {
+	tx, addr := d.submitter()
+	if tx == nil || addr == "" {
+		if d.cfg.Submitter != nil {
+			return nil // workload inactive: the next sweep claims (S9 Q8)
+		}
 		// S6 Q12: stay claimable, warn once.
 		d.mu.Lock()
 		warn := !d.claimTxWarned
@@ -273,7 +277,7 @@ func (d *Dispatcher) advanceClaim(ctx context.Context, rec layout.DispatchRecord
 	if _, moved, err := d.updateLocked(ctx, rec.TicketHash, onlyClaimable(func(r *layout.DispatchRecord) { r.ClaimAttemptHeight = height })); err != nil || moved {
 		return err
 	}
-	obs, err := d.submitClaim(ctx, rec)
+	obs, err := d.submitClaim(ctx, rec, tx, addr)
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("submit claim: %w", err))
 	}
@@ -302,9 +306,9 @@ func (d *Dispatcher) advanceClaim(ctx context.Context, rec layout.DispatchRecord
 // activates only after every claim window (PHASE1_CONTRACT "Delayed key
 // cutover", S6 Q10), so the current key is the one the ticket was accepted
 // under.
-func (d *Dispatcher) submitClaim(ctx context.Context, rec layout.DispatchRecord) (txclient.Observation, error) {
+func (d *Dispatcher) submitClaim(ctx context.Context, rec layout.DispatchRecord, tx txclient.Client, addr string) (txclient.Observation, error) {
 	msg := &taskv1.MsgClaimDispatchCompensation{Order: &taskv1.SignedOrderV2{}, Ticket: &taskv1.DispatchTicketV1{},
-		Accept: &taskv1.DispatchAcceptV1{}, SubmitterAddress: d.cfg.ServiceAddress}
+		Accept: &taskv1.DispatchAcceptV1{}, SubmitterAddress: addr}
 	for _, p := range []struct {
 		raw []byte
 		m   proto.Message
@@ -317,7 +321,7 @@ func (d *Dispatcher) submitClaim(ctx context.Context, rec layout.DispatchRecord)
 	if err != nil {
 		return txclient.Observation{}, err
 	}
-	return d.cfg.Tx.Submit(ctx, txclient.Request{
+	return tx.Submit(ctx, txclient.Request{
 		TaskID: hex.EncodeToString(rec.TaskID[:]), SessionID: hex.EncodeToString(rec.SessionID[:]),
 		Kind: txclient.MsgClaimDispatchCompensation, Payload: payload, DeadlineHeight: rec.ClaimWindowCloseHeight,
 		MaterialDigest: codec.HashWithDomain("TRUEOPEN_DISPATCH_COMPENSATION_CLAIM_V1", rec.TicketHash[:]),

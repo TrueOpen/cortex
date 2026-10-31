@@ -141,10 +141,14 @@ func (r *Runtime) CheckWorkloadReadiness(ctx context.Context) WorkloadReadiness 
 			modelServiceStatus, txStatus, descriptorStatus,
 			chainStatus, keeperStatus, storeStatus),
 	}
+	if r.Dispatch != nil {
+		readiness.Streams = r.Dispatch.Statuses()
+	}
 	identityReader, identityOK := r.Dependencies.Keeper.(KeeperIdentityReader)
 	if !identityOK {
 		readiness.Identity.Error = "Keeper identity query client is required"
 		readiness.ModelSupport.Error = "Keeper identity query client is required"
+		r.lastReady.Store(readiness.Ready())
 		r.publishReadiness(readiness)
 		return readiness
 	}
@@ -169,6 +173,7 @@ func (r *Runtime) CheckWorkloadReadiness(ctx context.Context) WorkloadReadiness 
 	} else {
 		markReady(&readiness.ModelSupport)
 	}
+	r.lastReady.Store(readiness.Ready())
 	r.publishReadiness(readiness)
 	return readiness
 }
@@ -360,6 +365,9 @@ func (r *Runtime) publishReadiness(readiness WorkloadReadiness) {
 	setDiagnosticDependencyStatus(&report, readiness.Chain)
 	setDiagnosticDependencyStatus(&report, readiness.Keeper)
 	setDiagnosticDependencyStatus(&report, readiness.Store)
+	for _, s := range readiness.Streams {
+		setDiagnosticDependencyStatus(&report, s)
+	}
 	r.diagnostics = report
 	r.diagnosticsMu.Unlock()
 }

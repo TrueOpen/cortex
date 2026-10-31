@@ -21,7 +21,8 @@ import (
 // out exactly as signed; only the outer Tx signer differs (CD §8.3). One
 // rescue per receipt. The caller holds the work lock.
 func (d *Dispatcher) rescueReceipts(ctx context.Context, height uint64) error {
-	if d.cfg.Tx == nil {
+	tx, addr := d.submitter()
+	if tx == nil || addr == "" {
 		return nil
 	}
 	recs, err := layout.ReceiptRescueCandidates(ctx, d.cfg.Store)
@@ -47,7 +48,7 @@ func (d *Dispatcher) rescueReceipts(ctx context.Context, height uint64) error {
 			}
 			continue
 		}
-		obs, err := d.submitRescue(ctx, rec)
+		obs, err := d.submitRescue(ctx, rec, tx, addr)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("ticket %s rescue: %w", rec.TicketHash, err))
 			continue
@@ -68,12 +69,12 @@ func (d *Dispatcher) rescueReceipts(ctx context.Context, height uint64) error {
 	return errors.Join(errs...)
 }
 
-func (d *Dispatcher) submitRescue(ctx context.Context, rec layout.DispatchRecord) (txclient.Observation, error) {
+func (d *Dispatcher) submitRescue(ctx context.Context, rec layout.DispatchRecord, tx txclient.Client, addr string) (txclient.Observation, error) {
 	var receipt builderclient.SignedInferReceipt
 	if err := json.Unmarshal(rec.Receipt, &receipt); err != nil {
 		return txclient.Observation{}, fmt.Errorf("stored receipt: %w", err)
 	}
-	msg, err := inferReceiptRescueMessage(receipt, d.cfg.ServiceAddress)
+	msg, err := inferReceiptRescueMessage(receipt, addr)
 	if err != nil {
 		return txclient.Observation{}, err
 	}
@@ -82,7 +83,7 @@ func (d *Dispatcher) submitRescue(ctx context.Context, rec layout.DispatchRecord
 		return txclient.Observation{}, err
 	}
 	taskID := hex.EncodeToString(rec.TaskID[:])
-	return d.cfg.Tx.Submit(ctx, txclient.Request{
+	return tx.Submit(ctx, txclient.Request{
 		TaskID: taskID, SessionID: hex.EncodeToString(rec.SessionID[:]), Kind: txclient.MsgSubmitInferReceipt, Payload: payload,
 		DeadlineHeight: rec.InferDeadlineHeight,
 		MaterialDigest: codec.HashWithDomain("TRUEOPEN_INFER_RECEIPT_SELF_RESCUE_V1", []byte(taskID), payload),
