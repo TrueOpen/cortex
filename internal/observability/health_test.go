@@ -323,3 +323,23 @@ func TestMetricsRouteIsEmptyWithoutMetrics(t *testing.T) {
 		t.Fatalf("/metrics body = %q, want empty", body)
 	}
 }
+
+func TestHealthRegisterDependency(t *testing.T) {
+	h := NewIntegrationHealthWithRuntimeRequirements(false, false, false)
+	if err := h.SetDependency("dispatch_stream:b1", true); err != ErrUnknownDependency {
+		t.Fatalf("unregistered = %v", err)
+	}
+	h.RegisterDependency("dispatch_stream:b1", false)
+	h.RegisterDependency("dispatch_streams", true)
+	h.RegisterDependency("dispatch_streams", true)
+	for _, name := range []string{"chain", "model_service", "store", "keeper", "keeper_identity", "model_support", "builder_descriptor"} {
+		_ = h.SetDependency(name, true)
+	}
+	if ready, _ := h.Readiness(); ready {
+		t.Fatal("the required aggregate stream row is not ready yet")
+	}
+	_ = h.SetDependency("dispatch_streams", true)
+	if ready, deps := h.Readiness(); !ready || deps["dispatch_stream:b1"] {
+		t.Fatalf("ready = %v deps = %v: an optional row never blocks", ready, deps)
+	}
+}

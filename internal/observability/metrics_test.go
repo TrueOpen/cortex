@@ -85,3 +85,19 @@ func TestMetricsFailTheScrapeWhenStateIsUnreadable(t *testing.T) {
 		t.Fatalf("/metrics reported a zero height for an unreadable state:\n%s", body)
 	}
 }
+
+func TestMetricsReportDispatchAnswers(t *testing.T) {
+	state := NodeState{DispatchAnswers: []DispatchAnswerRow{
+		{Builder: "b1", Answer: "accept", Count: 3},
+		{Builder: "b1", Answer: "reject", BuilderSide: true, Count: 1},
+	}}
+	_, body := scrape(t, func(context.Context) (NodeState, error) { return state, nil })
+	for _, want := range []string{
+		`cortex_dispatch_answers{answer="accept",builder="b1",side="node"} 3`,
+		`cortex_dispatch_answers{answer="reject",builder="b1",side="builder"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q:\n%s", want, body)
+		}
+	}
+}

@@ -25,6 +25,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/modelregistry"
 	"github.com/TrueOpen/cortex/internal/observability"
 	"github.com/TrueOpen/cortex/internal/signer"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
 	"github.com/TrueOpen/cortex/internal/txclient"
 	"github.com/TrueOpen/cortex/internal/worker"
@@ -299,6 +300,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 	if cfg.Nexus.DowngradeDescriptorTLS {
 		health.SetWarning(daemon.UnsafeDescriptorTLSDowngradeMarker)
 	}
+	registerDispatchHealth(health, runtime)
 	if err := health.Apply(dependencies.Diagnostics.Dependencies); err != nil {
 		return err
 	}
@@ -413,6 +415,15 @@ func nodeStateSource(rt *daemon.Runtime, health *observability.Health, tasks *da
 			ChainLagBlocks:    report.ChainLagBlocks,
 			Ready:             ready,
 			Dependencies:      dependencies,
+		}
+		if rt.Store != nil && rt.Dispatch != nil {
+			answers, err := layout.DispatchAnswerCounts(ctx, rt.Store)
+			if err != nil {
+				return observability.NodeState{}, fmt.Errorf("read dispatch answers: %w", err)
+			}
+			for a, n := range answers {
+				state.DispatchAnswers = append(state.DispatchAnswers, observability.DispatchAnswerRow{Builder: a.Builder, Answer: a.Answer, BuilderSide: a.BuilderSide, Count: n})
+			}
 		}
 		if tasks == nil {
 			return state, nil
@@ -548,6 +559,12 @@ func newEvidenceCleanupConfig(cfg config.Config, runtime *daemon.Runtime, height
 		MinimumRetentionBlocks: cfg.Artifacts.MinimumRetentionBlocks,
 		SweepGracePeriod:       cfg.Artifacts.SweepGracePeriod,
 		TaskStatus: func(ctx context.Context, taskHash codec.Hash) (evidence.TaskCleanupStatus, error) {
+			if rec, ok, err := layout.DispatchScopeOwner(ctx, runtime.Store, layout.StoredHash(taskHash)); err != nil {
+				return evidence.TaskCleanupStatus{}, err
+			} else if ok {
+				// A per-ticket evidence scope (S5 Q8) follows its task (S6 Q9).
+				taskHash = codec.Hash(rec.TaskHash)
+			}
 			metadata, err := (&evidence.LayoutStoreIndex{Store: runtime.Store}).Evidence(ctx, taskHash)
 			if err != nil {
 				return evidence.TaskCleanupStatus{}, err
@@ -694,7 +711,15 @@ func workloadRunners(rt *daemon.Runtime, taskRunner *daemon.TaskRunner) []runtim
 	if rt == nil || taskRunner == nil {
 		return nil
 	}
-	return []runtimeRunner{taskRunner.Run}
+	runners := []runtimeRunner{taskRunner.Run}
+	if rt.Dispatch != nil {
+		if plane := rt.Dispatch.Plane(); plane != nil {
+			for _, run := range plane.Runners() {
+				runners = append(runners, runtimeRunner(run))
+			}
+		}
+	}
+	return runners
 }
 
 func runRuntimeRunnerGroupWithStarted(ctx context.Context, runners []runtimeRunner, started func()) error {
@@ -794,7 +819,7 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 			})
 		}
 	}
-	return daemon.NewTaskRunner(daemon.TaskRunnerConfig{
+	runnerCfg := daemon.TaskRunnerConfig{
 		Store:                rt.Store,
 		Evidence:             evidenceStore,
 		Model:                rt.Dependencies.Model,
@@ -843,7 +868,17 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 		TaskReader:           taskReader,
 		Diagnostic:           logTaskRunnerDiagnostic,
 		OnQuarantinedEffect:  logQuarantinedKeeperEffect,
-	}), nil
+	}
+	link := wireDispatchRunnerConfig(&runnerCfg, rt)
+	runner := daemon.NewTaskRunner(runnerCfg)
+	if link != nil {
+		plane, err := newDispatchPlane(cfg, rt, runner, evidenceStore)
+		if err != nil {
+			return nil, err
+		}
+		link.Bind(plane)
+	}
+	return runner, nil
 }
 
 func newKeeperPollerWithTaskRunner(cfg config.Config, rt *daemon.Runtime, taskRunner *daemon.TaskRunner) *daemon.KeeperPoller {

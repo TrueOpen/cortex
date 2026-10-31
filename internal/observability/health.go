@@ -75,6 +75,20 @@ func newHealth(names []string, optional map[string]bool) *Health {
 	return &Health{dependencies: deps, order: append([]string(nil), names...), required: required}
 }
 
+// RegisterDependency adds a row unknown until runtime, such as one per
+// Builder DispatchStream. required rows gate /readyz; registering twice is a
+// no-op.
+func (h *Health) RegisterDependency(name string, required bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.dependencies[name]; ok {
+		return
+	}
+	h.dependencies[name] = false
+	h.required[name] = required
+	h.order = append(h.order, name)
+}
+
 func (h *Health) SetDependency(name string, healthy bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

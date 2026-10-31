@@ -25,6 +25,16 @@ type NodeState struct {
 	Ready             bool
 	Dependencies      map[string]bool
 	TaskQueue         []TaskQueueRow
+	DispatchAnswers   []DispatchAnswerRow
+}
+
+// DispatchAnswerRow counts retained tickets one Builder sent this node by
+// how they were answered (S4 Q16); side is "builder" for a CD §5.1 2a
+// Builder-side reject, which does not count toward this node's reject rate.
+type DispatchAnswerRow struct {
+	Builder, Answer string
+	BuilderSide     bool
+	Count           uint64
 }
 
 // TaskQueueRow is one active task queue row, as cortexctl task list shows it.
@@ -49,6 +59,7 @@ var (
 	dependencyReadyDesc = prometheus.NewDesc("cortex_dependency_ready", "Readiness of each dependency /readyz gates on.", []string{"dependency"}, nil)
 	taskQueueRowsDesc   = prometheus.NewDesc("cortex_task_queue_rows", "Active task queue rows by role and status.", []string{"role", "status"}, nil)
 	autoHaltedDesc      = prometheus.NewDesc("cortex_task_queue_auto_halted", "Active task queue rows the scheduler has deliberately halted, by role.", []string{"role"}, nil)
+	dispatchAnswersDesc = prometheus.NewDesc("cortex_dispatch_answers", "Retained dispatch tickets by Builder and answer; side=builder rejects are the Builder's (CD §5.1 2a).", []string{"builder", "answer", "side"}, nil)
 	scrapeErrorDesc     = prometheus.NewDesc("cortex_node_state_scrape_error", "The node state could not be read.", nil, nil)
 )
 
@@ -71,7 +82,7 @@ type nodeCollector struct {
 }
 
 func (c nodeCollector) Describe(ch chan<- *prometheus.Desc) {
-	for _, desc := range []*prometheus.Desc{buildInfoDesc, chainCursorDesc, chainTipDesc, chainLagDesc, readyDesc, dependencyReadyDesc, taskQueueRowsDesc, autoHaltedDesc, scrapeErrorDesc} {
+	for _, desc := range []*prometheus.Desc{buildInfoDesc, chainCursorDesc, chainTipDesc, chainLagDesc, readyDesc, dependencyReadyDesc, taskQueueRowsDesc, autoHaltedDesc, dispatchAnswersDesc, scrapeErrorDesc} {
 		ch <- desc
 	}
 }
@@ -109,6 +120,13 @@ func (c nodeCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	for role, count := range halted {
 		gauge(autoHaltedDesc, float64(count), role)
+	}
+	for _, a := range state.DispatchAnswers {
+		side := "node"
+		if a.BuilderSide {
+			side = "builder"
+		}
+		gauge(dispatchAnswersDesc, float64(a.Count), a.Builder, a.Answer, side)
 	}
 }
 

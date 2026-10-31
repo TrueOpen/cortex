@@ -1040,6 +1040,7 @@ func (mainTaskInputResolver) ResolveTaskInput(context.Context, daemon.TaskInputR
 }
 
 type recordingKeeperClient struct {
+	dispatchChainStub
 	mu        sync.Mutex
 	pages     []chainclient.KeeperEventsPage
 	positions []chainclient.EventPosition
