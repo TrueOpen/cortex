@@ -658,6 +658,7 @@ admin:
 model_management:
   endpoint: 127.0.0.1:9090
   transport: grpc
+  max_concurrency: 1
 node:
   rpc_endpoint: http://127.0.0.1:26657
   rest_endpoint: http://127.0.0.1:1317
@@ -698,6 +699,14 @@ store:
 signer:
   uri: http://127.0.0.1:9080
   readiness_proof_interval_ms: 45000
+dispatch:
+  builders: [trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe]
+  evidence_retention_blocks: 201600
+  handraise: {heartbeat_ms: 10000, ttl_ms: 30000, min_change_interval_ms: 500}
+  min_price_bid: {"c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1@1": 1000}
+  stream: {keepalive_ms: 15000, max_missed: 3}
+  receipt_rescue_margin_blocks: 5
+  omission: {roster_grace_blocks: 20, challenge_margin_blocks: 5}
 `)
 
 	cfg, err := LoadFileWithOverrides(path, nil)
@@ -1299,6 +1308,8 @@ func validRealConfig() Config {
 	cfg.Tx = TxConfig{Enabled: true, MaxFeeAmount: 1000, FeeDenom: "utrueopen", MaxAttempts: 3, PollAttempts: 20, GasLimit: 250000}
 	cfg.Signer = SignerConfig{URI: "http://127.0.0.1:9080", ReadinessProofIntervalMS: 30000}
 	cfg.SelfRescue = SelfRescueConfig{Enabled: false, MarginBlocks: 12, MaxFeeAmount: 1000, FeeDenom: "utrueopen", AllowedTxTypes: []string{"MsgInferReceiptCommitOnlyTx"}}
+	cfg.ModelManagement.MaxConcurrency = 1
+	cfg.Dispatch = s9Dispatch()
 	return cfg
 }
 

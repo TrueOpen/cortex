@@ -5,6 +5,7 @@ admin:
 model_management:
   endpoint: @@MODEL_ENDPOINT@@
   transport: grpc
+  max_concurrency: @@MODEL_MAX_CONCURRENCY@@
   # A model service on another host must use TLS (deployment security baseline items 4
   # and 5); only a loopback endpoint may be plaintext.
   # pubkey_hash = the 64 lowercase hex chars of sha256(certificate SubjectPublicKeyInfo DER).
@@ -78,5 +79,22 @@ self_rescue:
   max_fee_amount: 1000000
 challenge_verifier:
   enabled: false
+dispatch:
+  builders: [@@DISPATCH_BUILDERS@@]
+  evidence_retention_blocks: @@DISPATCH_EVIDENCE_RETENTION_BLOCKS@@
+  handraise:
+    heartbeat_ms: @@DISPATCH_HEARTBEAT_MS@@
+    ttl_ms: @@DISPATCH_TTL_MS@@
+    min_change_interval_ms: @@DISPATCH_MIN_CHANGE_INTERVAL_MS@@
+  # The template renders one supported profile; add a key per extra profile.
+  min_price_bid:
+    "@@MODEL_ID@@@1": @@DISPATCH_MIN_PRICE_BID@@
+  stream:
+    keepalive_ms: @@DISPATCH_KEEPALIVE_MS@@
+    max_missed: @@DISPATCH_KEEPALIVE_MAX_MISSED@@
+  receipt_rescue_margin_blocks: @@DISPATCH_RESCUE_MARGIN_BLOCKS@@
+  omission:
+    roster_grace_blocks: @@DISPATCH_ROSTER_GRACE_BLOCKS@@
+    challenge_margin_blocks: @@DISPATCH_CHALLENGE_MARGIN_BLOCKS@@
 health:
   bind: 0.0.0.0:@@HEALTH_PORT@@

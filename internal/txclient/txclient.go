@@ -34,6 +34,16 @@ const (
 	MsgSweepDeadline      Kind = "/task.v1.MsgSweepDeadline"
 )
 
+// PhaseOneMsgKinds are the Msgs Phase 1 dispatch submits under this node's
+// service key (CD §6.2 V9/V14, §8.6, §8.7). The remote signer must register
+// each type URL (proto/CHAIN_BINDINGS.md "Phase 1 dispatch").
+var PhaseOneMsgKinds = []Kind{
+	MsgReportDataUnavailable,
+	MsgClaimDispatchCompensation,
+	MsgChallengeDispatchOmission,
+	MsgReportDispatchRosterUnavailable,
+}
+
 type Client interface {
 	Submit(context.Context, Request) (Observation, error)
 }

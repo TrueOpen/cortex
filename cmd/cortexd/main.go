@@ -121,6 +121,7 @@ type daemonFlags struct {
 	nodeTLSCAFile                string
 	nodeTLSPubkeyHash            string
 	healthBind                   string
+	dispatchBuilders             string
 }
 
 func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
@@ -164,6 +165,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 				"node-tls-ca-file":                "node_tls_ca_file",
 				"node-tls-pubkey-hash":            "node_tls_pubkey_hash",
 				"health-bind":                     "health_bind",
+				"dispatch-builders":               "dispatch_builders",
 			} {
 				if cmd.Flags().Changed(flagName) {
 					overrides[key] = cmd.Flags().Lookup(flagName).Value.String()
@@ -219,6 +221,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.nodeTLSCAFile, "node-tls-ca-file", "", "chain node certificate / CA PEM for the https node endpoints")
 	flags.StringVar(&values.nodeTLSPubkeyHash, "node-tls-pubkey-hash", "", "sha256 of the chain node certificate SubjectPublicKeyInfo (64 lowercase hex)")
 	flags.StringVar(&values.healthBind, "health-bind", "", "health HTTP bind address")
+	flags.StringVar(&values.dispatchBuilders, "dispatch-builders", "", "comma-separated Builder operators to keep a standing handraise with (dispatch.builders)")
 	return cmd
 }
 

@@ -42,7 +42,12 @@ render_config() {
     CORTEX_NODE_RPC CORTEX_NODE_REST CORTEX_KEEPER_API CORTEX_NEXUS_INGRESS \
     CORTEX_NEXUS_NATS CORTEX_SIGNER_URI CORTEX_SERVICE_KEY_REF \
     CORTEX_RETENTION_POLICY_VERSION \
-    CORTEX_MINIMUM_RETENTION_BLOCKS NEXUS_TOKEN_FILE
+    CORTEX_MINIMUM_RETENTION_BLOCKS NEXUS_TOKEN_FILE \
+    CORTEX_DISPATCH_BUILDERS CORTEX_DISPATCH_EVIDENCE_RETENTION_BLOCKS \
+    CORTEX_DISPATCH_HEARTBEAT_MS CORTEX_DISPATCH_TTL_MS CORTEX_DISPATCH_MIN_CHANGE_INTERVAL_MS \
+    CORTEX_DISPATCH_MIN_PRICE_BID CORTEX_DISPATCH_KEEPALIVE_MS CORTEX_DISPATCH_KEEPALIVE_MAX_MISSED \
+    CORTEX_DISPATCH_RESCUE_MARGIN_BLOCKS CORTEX_DISPATCH_ROSTER_GRACE_BLOCKS \
+    CORTEX_DISPATCH_CHALLENGE_MARGIN_BLOCKS
   do
     require_env "$name"
   done
@@ -60,6 +65,7 @@ render_config() {
   # Optional: empty is only valid when the corresponding endpoint is loopback;
   # real mode refuses to start otherwise (deployment security baseline).
   : "${CORTEX_MODEL_TLS_PUBKEY_HASH:=}"
+  : "${CORTEX_MODEL_MAX_CONCURRENCY:=1}"
   : "${CORTEX_NEXUS_NATS_CA_FILE:=}"
   : "${CORTEX_NEXUS_NATS_USER_KEY_FILE:=}"
   mkdir -p "$generated_dir"
@@ -92,6 +98,18 @@ render_config() {
   nexus_nats_ca_file=$(sed_replacement CORTEX_NEXUS_NATS_CA_FILE)
   nexus_nats_user_key_file=$(sed_replacement CORTEX_NEXUS_NATS_USER_KEY_FILE)
   minimum_retention_blocks=$(sed_replacement CORTEX_MINIMUM_RETENTION_BLOCKS)
+  dispatch_builders=$(sed_replacement CORTEX_DISPATCH_BUILDERS)
+  dispatch_evidence_retention_blocks=$(sed_replacement CORTEX_DISPATCH_EVIDENCE_RETENTION_BLOCKS)
+  dispatch_heartbeat_ms=$(sed_replacement CORTEX_DISPATCH_HEARTBEAT_MS)
+  dispatch_ttl_ms=$(sed_replacement CORTEX_DISPATCH_TTL_MS)
+  dispatch_min_change_interval_ms=$(sed_replacement CORTEX_DISPATCH_MIN_CHANGE_INTERVAL_MS)
+  dispatch_min_price_bid=$(sed_replacement CORTEX_DISPATCH_MIN_PRICE_BID)
+  dispatch_keepalive_ms=$(sed_replacement CORTEX_DISPATCH_KEEPALIVE_MS)
+  dispatch_keepalive_max_missed=$(sed_replacement CORTEX_DISPATCH_KEEPALIVE_MAX_MISSED)
+  dispatch_rescue_margin_blocks=$(sed_replacement CORTEX_DISPATCH_RESCUE_MARGIN_BLOCKS)
+  dispatch_roster_grace_blocks=$(sed_replacement CORTEX_DISPATCH_ROSTER_GRACE_BLOCKS)
+  dispatch_challenge_margin_blocks=$(sed_replacement CORTEX_DISPATCH_CHALLENGE_MARGIN_BLOCKS)
+  model_max_concurrency=$(sed_replacement CORTEX_MODEL_MAX_CONCURRENCY)
   sed \
     -e "s|@@CHAIN_ID@@|$chain_id|g" \
     -e "s|@@OPERATOR_ADDRESS@@|$operator_address|g" \
@@ -113,6 +131,18 @@ render_config() {
     -e "s|@@NEXUS_NATS_CA_FILE@@|$nexus_nats_ca_file|g" \
     -e "s|@@NEXUS_NATS_USER_KEY_FILE@@|$nexus_nats_user_key_file|g" \
     -e "s|@@MINIMUM_RETENTION_BLOCKS@@|$minimum_retention_blocks|g" \
+    -e "s|@@DISPATCH_BUILDERS@@|$dispatch_builders|g" \
+    -e "s|@@DISPATCH_EVIDENCE_RETENTION_BLOCKS@@|$dispatch_evidence_retention_blocks|g" \
+    -e "s|@@DISPATCH_HEARTBEAT_MS@@|$dispatch_heartbeat_ms|g" \
+    -e "s|@@DISPATCH_TTL_MS@@|$dispatch_ttl_ms|g" \
+    -e "s|@@DISPATCH_MIN_CHANGE_INTERVAL_MS@@|$dispatch_min_change_interval_ms|g" \
+    -e "s|@@DISPATCH_MIN_PRICE_BID@@|$dispatch_min_price_bid|g" \
+    -e "s|@@DISPATCH_KEEPALIVE_MS@@|$dispatch_keepalive_ms|g" \
+    -e "s|@@DISPATCH_KEEPALIVE_MAX_MISSED@@|$dispatch_keepalive_max_missed|g" \
+    -e "s|@@DISPATCH_RESCUE_MARGIN_BLOCKS@@|$dispatch_rescue_margin_blocks|g" \
+    -e "s|@@DISPATCH_ROSTER_GRACE_BLOCKS@@|$dispatch_roster_grace_blocks|g" \
+    -e "s|@@DISPATCH_CHALLENGE_MARGIN_BLOCKS@@|$dispatch_challenge_margin_blocks|g" \
+    -e "s|@@MODEL_MAX_CONCURRENCY@@|$model_max_concurrency|g" \
     "$deploy_dir/cortex.yaml.template" >"$temp_config"
   mv "$temp_config" "$config_path"
   trap - EXIT HUP INT TERM

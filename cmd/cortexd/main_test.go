@@ -1423,6 +1423,7 @@ admin:
 model_management:
   endpoint: 127.0.0.1:9090
   transport: grpc
+  max_concurrency: 1
 node:
   rpc_endpoint: http://127.0.0.1:26657
   rest_endpoint: http://127.0.0.1:1317
@@ -1457,6 +1458,14 @@ self_rescue:
   max_fee_amount: 1000
   fee_denom: utrueopen
   allowed_tx_types: [MsgInferReceiptCommitOnlyTx, MsgCommitTx, MsgResultTx, MsgWorkerRevealTx, MsgSettleTx]
+dispatch:
+  builders: [trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe]
+  evidence_retention_blocks: 201600
+  handraise: {heartbeat_ms: 10000, ttl_ms: 30000, min_change_interval_ms: 500}
+  min_price_bid: {"1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c@1": 1000}
+  stream: {keepalive_ms: 15000, max_missed: 3}
+  receipt_rescue_margin_blocks: 5
+  omission: {roster_grace_blocks: 20, challenge_margin_blocks: 5}
 health:
   bind: 127.0.0.1:0
 `

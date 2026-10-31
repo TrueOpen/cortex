@@ -17,6 +17,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/denom"
 	"github.com/TrueOpen/cortex/internal/identity"
 )
@@ -67,20 +69,86 @@ type Config struct {
 const DefaultHandraiseRootHistory = 64
 
 // DispatchConfig is the Phase 1 direct-dispatch configuration (CD §15.1).
-// S3 adds the standing handraise and dispatch evidence settings; the Builder
-// list and stream settings arrive with S9. heartbeat_ms, ttl_ms,
-// min_change_interval_ms and evidence_retention_blocks are 参数表 values
-// "待参数标定" that every Builder shares, so none has a built-in default
-// (CD §15.3).
+// The 参数表 values (heartbeat_ms, ttl_ms, min_change_interval_ms,
+// evidence_retention_blocks) and the stream liveness settings have no
+// built-in default (CD §15.3); real mode requires the whole block.
 type DispatchConfig struct {
+	// Builders are the Builder operators this node keeps a standing
+	// handraise and one DispatchStream with (dispatch_builders[]). Endpoint
+	// and TLS pin come from each one's on-chain descriptor only (CD §4.2.2).
+	Builders []string `yaml:"builders"`
+	// RetiringBuilders are being removed (CD §15.3): one withdrawal (zero free
+	// slots), offers refused NO_CAPACITY, the stream closed once none of
+	// their accepted tickets holds a duty. Disjoint from Builders.
+	RetiringBuilders []string `yaml:"retiring_builders"`
 	// EvidenceRetentionBlocks is dispatch_evidence_retention_blocks: how long
 	// handraise roots, inclusion proofs and the handraises they prove are kept.
 	EvidenceRetentionBlocks uint64          `yaml:"evidence_retention_blocks"`
 	Handraise               HandraiseConfig `yaml:"handraise"`
 	// MinPriceBid is the local min_price_bid per profile, keyed
-	// "<model_id hex>@<profile_version>" (CD §15.2, §5.1 H4). A supported
-	// profile without one is left out of every standing handraise.
-	MinPriceBid map[string]uint64 `yaml:"min_price_bid"`
+	// "<model_id hex>@<profile_version>" (CD §15.2, §5.1 H4). Real mode
+	// requires one above zero for every supported profile (CD §15.3).
+	MinPriceBid map[string]uint64    `yaml:"min_price_bid"`
+	Stream      DispatchStreamConfig `yaml:"stream"`
+	// ReceiptRescueMarginBlocks: blocks before infer_deadline_height an
+	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
+	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`
+	Omission                  DispatchOmissionConfig `yaml:"omission"`
+}
+
+// DispatchStreamConfig times every Builder's DispatchStream (CD §4.2.0
+// "送达"). Keepalive period and tolerated misses are deployment settings with
+// no built-in default; the handler timeout and reconnect backoff are local.
+type DispatchStreamConfig struct {
+	KeepaliveMS uint64 `yaml:"keepalive_ms"`
+	MaxMissed   int    `yaml:"max_missed"`
+	// HandlerTimeoutMS bounds one frame Handler; 0 is half the keepalive
+	// period. It must stay below one keepalive period so a Builder probing
+	// at the same period misses at most one answer while a Handler runs.
+	HandlerTimeoutMS uint64 `yaml:"handler_timeout_ms"`
+	// ReconnectMinMS / ReconnectMaxMS bound the exponential reconnect
+	// backoff; 0 takes 200ms / 30s.
+	ReconnectMinMS uint64 `yaml:"reconnect_min_ms"`
+	ReconnectMaxMS uint64 `yaml:"reconnect_max_ms"`
+}
+
+// DispatchOmissionConfig paces omission challenges (CD §8.7, S8 Q6).
+type DispatchOmissionConfig struct {
+	RosterGraceBlocks     uint64 `yaml:"roster_grace_blocks"`
+	ChallengeMarginBlocks uint64 `yaml:"challenge_margin_blocks"`
+}
+
+// Enabled reports whether this node runs Phase 1 dispatch at all.
+func (d DispatchConfig) Enabled() bool { return len(d.Builders)+len(d.RetiringBuilders) > 0 }
+
+// AllBuilders is Builders and RetiringBuilders, sorted.
+func (d DispatchConfig) AllBuilders() []string {
+	out := append(append([]string(nil), d.Builders...), d.RetiringBuilders...)
+	sort.Strings(out)
+	return out
+}
+
+// Keepalive is the keepalive probe period.
+func (s DispatchStreamConfig) Keepalive() time.Duration {
+	return time.Duration(s.KeepaliveMS) * time.Millisecond
+}
+
+// HandlerTimeout bounds one frame Handler; unset, half the keepalive period.
+func (s DispatchStreamConfig) HandlerTimeout() time.Duration {
+	if s.HandlerTimeoutMS != 0 {
+		return time.Duration(s.HandlerTimeoutMS) * time.Millisecond
+	}
+	return s.Keepalive() / 2
+}
+
+// ReconnectMin is the configured lower reconnect backoff bound; 0 is unset.
+func (s DispatchStreamConfig) ReconnectMin() time.Duration {
+	return time.Duration(s.ReconnectMinMS) * time.Millisecond
+}
+
+// ReconnectMax is the configured upper reconnect backoff bound; 0 is unset.
+func (s DispatchStreamConfig) ReconnectMax() time.Duration {
+	return time.Duration(s.ReconnectMaxMS) * time.Millisecond
 }
 
 // HandraiseConfig times the standing handraise (CD §4.2.0).
@@ -112,8 +180,7 @@ const maxDurationMS = uint64(math.MaxInt64 / int64(time.Millisecond))
 
 // problems validates the block. It fills nothing: root_history's default
 // comes from defaults(), and 0 (a Config built without it) means the
-// consumer's default. The four shared timings are all-or-nothing; S9 makes
-// them required in real mode.
+// consumer's default. The four shared timings are all-or-nothing.
 func (d DispatchConfig) problems() []string {
 	var problems []string
 	if d.Handraise.RootHistory < 0 || d.Handraise.RootHistory > 4096 {
@@ -161,6 +228,84 @@ func (d DispatchConfig) problems() []string {
 	}
 	if h.HeartbeatMS != 0 && h.TTLMS != 0 && h.HeartbeatMS >= h.TTLMS {
 		problems = append(problems, "dispatch.handraise.heartbeat_ms must be less than dispatch.handraise.ttl_ms (cortex 详细设计 §15.1)")
+	}
+	return problems
+}
+
+// dispatchProblems adds the S9 rules to DispatchConfig.problems: with any
+// Builder configured every setting is required, and real mode requires the
+// block and a price for every supported profile.
+func (c *Config) dispatchProblems() []string {
+	d := c.Dispatch
+	problems := d.problems()
+	if !d.Enabled() {
+		if c.Mode == ModeReal {
+			problems = append(problems, "dispatch.builders must list at least one Builder operator in real mode (cortex 详细设计 §15.1)")
+		}
+		return problems
+	}
+	seen := map[string]string{}
+	for _, list := range []struct {
+		field string
+		addrs []string
+	}{{"dispatch.builders", d.Builders}, {"dispatch.retiring_builders", d.RetiringBuilders}} {
+		for _, a := range list.addrs {
+			if _, err := dispatch.AddressBytes(a); err != nil {
+				problems = append(problems, fmt.Sprintf("%s entry %q is not a bech32 operator address: %v", list.field, a, err))
+			}
+			if prev, dup := seen[a]; dup {
+				problems = append(problems, fmt.Sprintf("%s lists %s, already in %s", list.field, a, prev))
+			}
+			seen[a] = list.field
+		}
+	}
+	if len(d.Builders) == 0 {
+		problems = append(problems, "dispatch.builders must keep at least one Builder that is not being retired")
+	}
+	if d.EvidenceRetentionBlocks == 0 {
+		problems = append(problems, "dispatch.evidence_retention_blocks and dispatch.handraise.{heartbeat_ms,ttl_ms,min_change_interval_ms} are required when dispatch.builders is set (参数表; no built-in default)")
+	}
+	s := d.Stream
+	switch {
+	case s.KeepaliveMS == 0:
+		problems = append(problems, "dispatch.stream.keepalive_ms is required when dispatch.builders is set (deployment setting; no built-in default)")
+	case s.KeepaliveMS > maxDurationMS:
+		problems = append(problems, fmt.Sprintf("dispatch.stream.keepalive_ms is too large (at most %d)", maxDurationMS))
+	case s.HandlerTimeoutMS >= s.KeepaliveMS:
+		problems = append(problems, "dispatch.stream.handler_timeout_ms must be below dispatch.stream.keepalive_ms: a Handler blocks the stream loop, and a Builder probing at that period must still be answered")
+	}
+	if s.MaxMissed < 1 {
+		problems = append(problems, "dispatch.stream.max_missed must be at least 1 (deployment setting; no built-in default)")
+	}
+	if s.ReconnectMaxMS != 0 && s.ReconnectMinMS > s.ReconnectMaxMS {
+		problems = append(problems, "dispatch.stream.reconnect_min_ms must not exceed dispatch.stream.reconnect_max_ms")
+	}
+	if s.ReconnectMinMS > maxDurationMS || s.ReconnectMaxMS > maxDurationMS {
+		problems = append(problems, fmt.Sprintf("dispatch.stream reconnect bounds are too large (at most %d)", maxDurationMS))
+	}
+	if c.ModelManagement.MaxConcurrency == 0 {
+		problems = append(problems, "model_management.max_concurrency must be greater than zero when dispatch.builders is set: it is the standing handraise capacity")
+	}
+	// Without tx.enabled the node has no direct transaction path (a file://
+	// signer cannot produce one): claims, receipt rescues and omission
+	// challenges are not submitted, and the rest of dispatch still runs
+	// (TestValidateAcceptsARealModeNodeWithoutADirectTransactionPath).
+	if c.Tx.Enabled {
+		if d.ReceiptRescueMarginBlocks == 0 {
+			problems = append(problems, "dispatch.receipt_rescue_margin_blocks is required with tx.enabled (cortex 详细设计 §8.5; no built-in default)")
+		}
+		if d.Omission.RosterGraceBlocks == 0 || d.Omission.ChallengeMarginBlocks == 0 {
+			problems = append(problems, "dispatch.omission.roster_grace_blocks and dispatch.omission.challenge_margin_blocks are required with tx.enabled (no built-in default)")
+		}
+	}
+	if c.Mode == ModeReal {
+		if profiles, err := c.LocalIdentity.ModelProfiles(); err == nil {
+			for _, p := range profiles {
+				if key := MinPriceBidKey(p.ModelID, p.ProfileVersion); d.MinPriceBid[key] == 0 {
+					problems = append(problems, fmt.Sprintf("dispatch.min_price_bid[%q] is required in real mode: production prices every supported profile above zero (cortex 详细设计 §15.3)", key))
+				}
+			}
+		}
 	}
 	return problems
 }
@@ -727,6 +872,7 @@ var deploymentEnvironment = map[string]string{
 	"CORTEX_MODEL_PROFILES":                     "model_profiles",
 	"CORTEX_MODEL_SERVICE_ID":                   "model_service_id",
 	"CORTEX_HEALTH_BIND":                        "health_bind",
+	"CORTEX_DISPATCH_BUILDERS":                  "dispatch_builders",
 }
 
 func setDeploymentValue(cfg *Config, key, value string) error {
@@ -854,6 +1000,8 @@ func setDeploymentValue(cfg *Config, key, value string) error {
 		cfg.LocalIdentity.ModelServiceID = value
 	case "health_bind":
 		cfg.Health.Bind = value
+	case "dispatch_builders":
+		cfg.Dispatch.Builders = splitCSV(value)
 	default:
 		return fmt.Errorf("unknown deployment override %q", key)
 	}
@@ -1102,7 +1250,7 @@ func (c *Config) Validate() error {
 		problems = append(problems, "signer.password_env, signer.password_file and signer.password_stdin are mutually exclusive")
 	}
 
-	problems = append(problems, c.Dispatch.problems()...)
+	problems = append(problems, c.dispatchProblems()...)
 
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

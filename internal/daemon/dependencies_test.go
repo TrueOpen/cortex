@@ -278,6 +278,7 @@ func TestBuildDependenciesRealModeUsesSharedFakeModelService(t *testing.T) {
 	cfg.TaskExecution.InputResolver = "fixture"
 	cfg.TaskExecution.FixtureRoot = t.TempDir()
 	cfg.LocalIdentity.SupportedModelProfiles = []string{chainModelID + "@1=llm_text_v1"}
+	cfg.Dispatch.MinPriceBid = map[string]uint64{config.MinPriceBidKey(chainModelID, 1): 1_000}
 
 	deps, err := BuildDependencies(cfg, DependencyOptions{
 		TxClient: txclienttest.NewFake(),
@@ -422,7 +423,7 @@ func realConfig() config.Config {
 		Admin:   config.AdminConfig{UDSPath: "/tmp/cortex.sock"},
 		// A loopback endpoint: real mode allows plaintext only on the same host, and a model
 		// service on another host must use TLS.
-		ModelManagement: config.ModelManagementConfig{Endpoint: "127.0.0.1:9090", Transport: "grpc"},
+		ModelManagement: config.ModelManagementConfig{Endpoint: "127.0.0.1:9090", Transport: "grpc", MaxConcurrency: 1},
 		Node:            config.NodeConfig{RPCEndpoint: "http://127.0.0.1:26657", RESTEndpoint: "http://127.0.0.1:1317"},
 		Tx:              config.TxConfig{Enabled: true, MaxFeeAmount: 1000, FeeDenom: "utrueopen", MaxAttempts: 3, PollAttempts: 20, GasLimit: 250000},
 		Keeper:          config.KeeperConfig{APIURL: "https://keeper.devnet.trueopen.xyz"},
@@ -448,6 +449,21 @@ func realConfig() config.Config {
 			FeeDenom:       "utrueopen",
 			AllowedTxTypes: []string{"MsgInferReceiptCommitOnlyTx", "MsgCommitTx", "MsgResultTx", "MsgWorkerRevealTx", "MsgSettleTx"},
 		},
+		Dispatch: testDispatchConfig(),
+	}
+}
+
+// testDispatchConfig is the dispatch block real mode requires (S9), pricing
+// realConfig's one profile.
+func testDispatchConfig() config.DispatchConfig {
+	return config.DispatchConfig{
+		Builders:                  []string{"trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe"},
+		EvidenceRetentionBlocks:   201_600,
+		Handraise:                 config.HandraiseConfig{HeartbeatMS: 10_000, TTLMS: 30_000, MinChangeIntervalMS: 500},
+		MinPriceBid:               map[string]uint64{config.MinPriceBidKey("c2e5065e9dda862ec6970d2c54765ad9414f22fe7ae82cf94dae6825828129c1", 1): 1_000},
+		Stream:                    config.DispatchStreamConfig{KeepaliveMS: 15_000, MaxMissed: 3},
+		ReceiptRescueMarginBlocks: 5,
+		Omission:                  config.DispatchOmissionConfig{RosterGraceBlocks: 20, ChallengeMarginBlocks: 5},
 	}
 }
 
