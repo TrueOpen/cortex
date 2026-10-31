@@ -130,6 +130,53 @@ closure (amino, cosmos, cosmos_proto, gogoproto, google) regenerates byte for
 byte against the previous generation's output, which is what shows the rename
 carried no field changes with it.
 
+## Phase 1 dispatch (916e393)
+
+Cortex runs one `nexus.v1.IngressAPI/DispatchStream` per Builder in
+`dispatch.builders` (HTTP/2; h2c only for a devnet plaintext descriptor).
+Endpoint and TLS pin come only from the Builder's current on-chain service
+descriptor (`NEXUS_GRPC`, `tls_pubkey_hash`); a pin mismatch drops the
+descriptor cache and the next reconnect re-reads it. The first frame is
+`DispatchStreamBindingV1` signed by the current Cortex service key; every
+Builder frame is checked against `QueryCurrentServiceKey(BUILDER)` read once
+per committed height. Keepalive probes from this side are even.
+
+Frames Cortex sends: `StandingHandraiseV1`, `DispatchAcceptV1`,
+`DispatchRejectV1`, `DispatchInputRequestV1`, `VerifierHandraiseV1` and
+`VerifyResultSubmittedNoticeV1` (the last two to every stream). Frames it
+handles: `HandraiseRootNoticeV1`, `DispatchOfferV1`, `DispatchRevokeV1`,
+`DispatchInputResponseV1`, `RecordResultNoticeV1` (a hint; the record is
+`QueryDispatchRecord`), `OpenVerifyV1` and `VerifierAssignmentNotifyV1`.
+`GetDispatchRoster` is a unary IngressAPI call (signed
+`DispatchRosterRequestV1`).
+
+Chain reads: `/hub.v1.Query/{Params,Beacon,VrfKey,CurrentServiceKey}`,
+`/task.v1.Query/{Session,Params,DispatchRecord,Task,TaskAssignment,
+DispatchCompensationClaim,DispatchCompensationClaimsByBuilder,
+DispatchWinnerIneligible,DispatchChallenge,VerifyCommit}`. Events:
+`dispatch_recorded`, the compensation `claimed/paid/rebutted` and the
+challenge `opened/resolved` events.
+
+**Remote signer prerequisite.** The signing service must register these type
+URLs and decode their payloads as ProtoJSON of the generated `task.v1` types
+(`txclient.PhaseOneMsgKinds`): `/task.v1.MsgReportDataUnavailable`,
+`/task.v1.MsgClaimDispatchCompensation`, `/task.v1.MsgChallengeDispatchOmission`,
+`/task.v1.MsgReportDispatchRosterUnavailable`. Each is submitted with the
+current service address as submitter, the same address the broadcaster signs as.
+A node without `tx.enabled` submits none of them.
+
+**Not implemented.** The `FetchTaskData(INPUT)` fallback authorized by
+`DispatchAcceptV1` (CD §4.2.0 "取 input"): 916e393's `TaskDataRequestAuthV1`
+has no slot for an accept, so input is re-requested on the same stream only.
+
+**Known drift past 916e393** (wire `feature/phase1-dispatch-prefund@337c45a`,
+for the release re-pin): `MsgChallengeDispatchOmission.bound_handraise_root`
+(field 9) is required when the challenge proves a newer root than the round's
+bound one; `DispatchRecordV1.dispatch_ticket_hash` may be ZERO32 for an
+unfinished record and must then read as "not recorded"; input chunks are
+zero-based (already so here); Builder keepalive probes are odd. The release
+re-pin also regenerates the descriptor and recopies `testdata/v1`.
+
 ## Reproduction
 
 The descriptor is committed as `proto/testdata/wire-916e393.binpb`.

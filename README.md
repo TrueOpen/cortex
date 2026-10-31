@@ -183,14 +183,7 @@ the corresponding flag always has higher precedence.
 | `CORTEX_TASK_INPUT_RESOLVER` | `--task-input-resolver` | `task_execution.input_resolver` |
 | `CORTEX_TASK_FIXTURE_ROOT` | `--task-fixture-root` | `task_execution.fixture_root` |
 | `CORTEX_NEXUS_INGRESS` | `--nexus-ingress` | `nexus.ingress_url` |
-| `CORTEX_NEXUS_NATS` | `--nexus-nats` | `nexus.nats_url` |
 | `CORTEX_NEXUS_AUTH_TOKEN_FILE` | `--nexus-auth-token-file` | `nexus.auth_token_file` |
-| `CORTEX_NEXUS_ENVELOPE_AUTH_MODE` | `--nexus-envelope-auth-mode` | `nexus.envelope_auth_mode` |
-| `CORTEX_NEXUS_ENVELOPE_TTL_MS` | `--nexus-envelope-ttl-ms` | `nexus.envelope_ttl_ms` |
-| `CORTEX_NEXUS_ENVELOPE_CLOCK_SKEW_MS` | `--nexus-envelope-clock-skew-ms` | `nexus.envelope_clock_skew_ms` |
-| `CORTEX_NEXUS_SUBSCRIBE_MODELS` | `--nexus-subscribe-models` | `nexus.subscribe_models` |
-| `CORTEX_MODEL_ID` | `--nexus-subscribe-models` | `nexus.subscribe_models` (deployment alias) |
-| `CORTEX_NEXUS_SUBSCRIBE_TASKS` | `--nexus-subscribe-tasks` | `nexus.subscribe_tasks` |
 | `CORTEX_ARTIFACTS_ROOT` | `--artifacts-root` | `artifacts.root` |
 | `CORTEX_EVIDENCE_ROOT` | `--evidence-root` | deprecated compatibility setting; use `artifacts.root` |
 | `CORTEX_STORE_PATH` | `--store-path` | `store.path` |
@@ -207,12 +200,7 @@ the corresponding flag always has higher precedence.
 | `CORTEX_NEXUS_ALLOW_INSECURE_DESCRIPTOR` | `--nexus-allow-insecure-descriptor` | `nexus.allow_insecure_descriptor` |
 | `CORTEX_NEXUS_DOWNGRADE_DESCRIPTOR_TLS` | `--nexus-downgrade-descriptor-tls` | `nexus.downgrade_descriptor_tls` |
 | `CORTEX_HEALTH_BIND` | `--health-bind` | `health.bind` |
-
-`CORTEX_MODEL_ID` is only a deployment-compatible alias for the Nexus model
-subscription subject; it does not set `local_identity.model_service_id` or a
-model profile. When both model-subscription environment variables are set,
-`CORTEX_NEXUS_SUBSCRIBE_MODELS` wins, and `--nexus-subscribe-models` wins over
-both.
+| `CORTEX_DISPATCH_BUILDERS` | `--dispatch-builders` | `dispatch.builders` |
 
 ### Model ids
 

@@ -125,3 +125,28 @@ dispatch:
 		t.Fatalf("builders = %v", cfg.Dispatch.Builders)
 	}
 }
+
+func TestDispatchS9RetiredNATSEnvironmentIsRefused(t *testing.T) {
+	path := writeConfig(t, `
+mode: fake
+chain_id: cortex-local
+admin:
+  uds_path: /tmp/cortex/admin.sock
+node:
+  rpc_endpoint: http://127.0.0.1:26657
+artifacts:
+  root: /tmp/cortex/evidence
+store:
+  path: /tmp/cortex/cortex.kv
+signer:
+  uri: file:///tmp/cortex/key.json
+`)
+	for _, name := range []string{"CORTEX_NEXUS_NATS", "CORTEX_NEXUS_JETSTREAM_STREAM", "CORTEX_NEXUS_ENVELOPE_AUTH_MODE"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "x")
+			if _, err := LoadFileWithOverrides(path, nil); err == nil || !strings.Contains(err.Error(), name+" was retired with the NATS bus") {
+				t.Fatalf("LoadFileWithOverrides = %v", err)
+			}
+		})
+	}
+}

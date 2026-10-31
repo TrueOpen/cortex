@@ -796,6 +796,11 @@ func decodeConfigError(data []byte, err error) error {
 }
 
 func applyEnv(cfg *Config) error {
+	for _, name := range retiredNATSEnvironment {
+		if value, ok := os.LookupEnv(name); ok && value != "" {
+			return fmt.Errorf("environment %s was retired with the NATS bus (wire 916e393); unset it", name)
+		}
+	}
 	for envName, key := range deploymentEnvironment {
 		value, ok := os.LookupEnv(envName)
 		if !ok || value == "" {
@@ -1354,6 +1359,15 @@ var retiredNATSFields = map[string]bool{
 	"nexus.nats_user_key_file": true, "nexus.jetstream_stream": true, "nexus.envelope_auth_mode": true,
 	"nexus.envelope_ttl_ms": true, "nexus.envelope_clock_skew_ms": true,
 	"nexus.subscribe_models": true, "nexus.subscribe_tasks": true,
+}
+
+// retiredNATSEnvironment are the CORTEX_* variables that configured the NATS
+// bus. An old env file that still sets one is refused rather than ignored, so
+// an operator learns the bus is gone instead of debugging a silent node.
+var retiredNATSEnvironment = []string{
+	"CORTEX_NEXUS_NATS", "CORTEX_NEXUS_NATS_CA_FILE", "CORTEX_NEXUS_NATS_CREDS_FILE", "CORTEX_NEXUS_NATS_USER_KEY_FILE",
+	"CORTEX_NEXUS_JETSTREAM_STREAM", "CORTEX_NEXUS_ENVELOPE_AUTH_MODE", "CORTEX_NEXUS_ENVELOPE_TTL_MS",
+	"CORTEX_NEXUS_ENVELOPE_CLOCK_SKEW_MS", "CORTEX_NEXUS_SUBSCRIBE_MODELS", "CORTEX_NEXUS_SUBSCRIBE_TASKS",
 }
 
 // retiredNATSFieldProblem refuses a config that still sets a NATS bus key,
