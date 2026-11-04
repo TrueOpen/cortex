@@ -179,7 +179,7 @@ by name.
 | Builders to dispatch with | `CORTEX_DISPATCH_BUILDERS` | BuilderSet member operator addresses (§1.3) |
 | Dispatch parameter-table values and local price floor | the other `CORTEX_DISPATCH_*` (§4.2) | shared with the Builders; `MIN_PRICE_BID` > 0 is this operator's own floor |
 | Chain id, RPC/REST/Keeper/Nexus endpoints | `.env` | |
-| Chain model id (Hash32) and profiles | `CORTEX_MODEL_ID`, `CORTEX_MODEL_PROFILES` | see §5.3 |
+| Which registered model this machine serves | `CORTEX_MODEL_ID`, `CORTEX_MODEL_PROFILES`, vLLM model | chosen by the human from the chain catalogue (§5.0) |
 | Hugging Face token, if the model is gated | the vLLM host's environment | |
 
 ### 3.2 Creating a service keystore
@@ -236,11 +236,17 @@ Everything is driven from the operator's machine by
 
 1. §6 GPU driver: `nvidia-smi` prints a table
 2. §3.4 server prerequisites
-3. §5 vLLM is serving, and `/v1/models` shows the chain `repo_id`
-4. §3.1 / §3.2 human-provided inputs are present
-5. §4.2 env file for this host written: `CORTEX_NODE_COUNT=1` (§1.4) and the §1.2 transport overrides
-6. §4.3 `addr → sync → build → push → render → (read config) → up`, canary first
-7. §4.5 `status` / `diag` / `smoke`; red items classified per §4.5
+3. `make build` on the operator machine, so `bin/cortexctl` exists (it reads the chain directly; no daemon needed)
+4. §5.0 list the models registered on chain, **let the human choose one by `repo_id`**, and record its model id, profile version, revision and `required_top_k`
+5. §5 install vLLM, pull exactly that `repo_id` at that revision, and serve it; `/v1/models` shows the chain `repo_id`
+6. §3.1 / §3.2 human-provided inputs are present
+7. §4.2 env file for this host written: `CORTEX_NODE_COUNT=1` (§1.4), the §1.2 transport overrides, and the model values from step 4
+8. §4.3 `addr → sync → build → push → render → (read config) → up`, canary first
+9. §4.5 `status` / `diag` / `smoke`; red items classified per §4.5
+
+The model choice comes before vLLM because it decides what vLLM downloads
+(often tens of GB), which GPU is big enough, and which flags vLLM needs. Do not
+download a model before the human has chosen it.
 
 Each step has its acceptance check in the section it points to. Do not start a
 step before the previous one has passed.
@@ -467,6 +473,96 @@ taken from a pre-dispatch process may still carry retired NATS variables
 
 ## 5. vLLM
 
+### 5.0 Choose the model from the chain — a human decision
+
+Only a model registered on this chain can earn work, and vLLM must serve it
+under its chain `repo_id`. So read the chain's model catalogue first, show it to
+the human, and let them pick. Do not pick on their behalf, even when only one
+model is listed. The choice decides what vLLM downloads and serves, and
+`model_support` (declaring support on chain) is per model.
+
+**Step 1: list every registered model.** `cortexctl model find` needs an exact
+`--repo`, and `cortexctl model list` goes through the admin socket of a running
+daemon. Neither can enumerate the catalogue before Cortex is configured. Use
+the chain's REST query (`Query/Models`, the only enumeration the chain offers)
+on `CORTEX_NODE_REST`:
+
+```sh
+REST=<CORTEX_NODE_REST>
+curl -s "$REST/TrueOpen/hub/v1/models" | jq .        # look at the raw shape once
+curl -s "$REST/TrueOpen/hub/v1/models" | jq -r \
+  '.models[] | [.repo_id, .provider, .status, .latest_profile_version, .active_supporter_count, .model_id] | @tsv'
+```
+
+**VERIFY** the response field names against the raw output. The chain's REST
+projection may differ in casing or nesting from the names above, which are the
+ones `internal/chainclient` decodes. The response is paged. When
+`.page.next_page_token` is non-empty, request again with
+`?page.page_token=<token, URL-encoded>`, and repeat until it is empty.
+
+Present the list to the human as a table: `repo_id`, `provider`, `status`,
+latest profile version, supporter count. Filter or flag rows before showing
+them:
+
+- `provider` must be `HUGGINGFACE`, because the `local` adapter serves nothing
+  else;
+- a `status` of `FROZEN`, `EMERGENCY_FROZEN` or `DELISTED` (with or without the
+  `MODEL_PROFILE_STATUS_` prefix) gets no work: show those rows, marked, but do
+  not recommend them. `ACTIVE` is the normal state, and `REGISTERED` is not yet
+  active.
+
+Ask the human which `repo_id` this machine should serve. Mention the GPU you
+found in §6.1 (model and VRAM), because they are the one who knows whether the
+model fits.
+
+**Step 2: confirm the choice through the verified path.** This also catches a
+misread REST shape:
+
+```sh
+bin/cortexctl model find --rpc <CORTEX_NODE_RPC> --provider HUGGINGFACE --repo <owner/name> --format json
+```
+
+It must return exactly one row. If it returns several, more than one model is
+registered for the same repo. Show them to the human and ask which `model_id`
+to use.
+
+**Step 3: read the profile and the verified manifest:**
+
+```sh
+curl -s "$REST/TrueOpen/hub/v1/profile/<model_id>/<latest_profile_version>" | jq .
+bin/cortexctl model manifest fetch <model_id> --rpc <CORTEX_NODE_RPC> \
+  --profile-version <latest_profile_version> --format json
+```
+
+`manifest fetch` prints its result only after checking the manifest against
+the chain's `manifest_hash`. If the profile's `manifest_uri` is `ipfs://`, it
+needs `--ipfs-gateway <https url>` (none by default). `--mirror <base url>` and
+`--cache-dir` are optional extra sources. If no source works, ask the human
+where the manifest is published. Record these values; the rest of the deployment is
+derived from them:
+
+| Value | From | Used for |
+|---|---|---|
+| `model_id` (64 hex) | `model find` | `CORTEX_MODEL_ID` |
+| profile version | `latest_profile_version` | `CORTEX_MODEL_PROFILES` = `<model_id>@<version>=llm_text_v1` |
+| `repo_id` | `model find` / manifest | vLLM model and `--served-model-name` |
+| `revision` | manifest | vLLM `--revision` (§5.5) |
+| `required_top_k` | profile | vLLM `--max-logprobs` must be at least this |
+| `resource_tier`, `task_types` | profile | show to the human with the choice |
+
+`llm_text_v1` is the only capability this build defines
+(`internal/modelservice/types.go`).
+
+**Pin the revision.** Cortex checks only that vLLM's served name equals the
+chain `repo_id`. It does not check which revision of the weights or tokenizer
+is loaded. Serving the repo's latest revision instead of the manifest's makes
+every output disagree with the Verifiers, and nothing reports the cause, the
+same failure mode as §5.2.
+
+Two more steps belong to the human, after the deployment: declaring model
+support on chain (`model_support` stays red until it is done) and, for a gated
+repo, providing an HF token.
+
 ### 5.1 What Cortex needs from it
 
 With `transport: local`, Cortex calls vLLM's OpenAI-compatible HTTP API:
@@ -484,7 +580,8 @@ Required server properties:
 |---|---|---|
 | served model name == chain `repo_id` exactly | `--served-model-name <owner/name>` (or serve by that repo path) | otherwise `model_service` stays red |
 | raw logprobs | `--logprobs-mode raw_logprobs` | §5.2 |
-| enough logprobs | `--max-logprobs` ≥ the profile's logprobs count (vLLM default 20; **VERIFY** against the profile) | requests above the limit are refused |
+| the manifest's revision | `--revision <revision>` (§5.0) | Cortex does not check it; a different revision disagrees with every Verifier |
+| enough logprobs | `--max-logprobs` ≥ the profile's `required_top_k` (§5.0; vLLM default 20) | requests above the limit are refused |
 | a known scheduler limit | `--max-num-seqs <n>` | needed to size `max_concurrency` (§5.4) |
 | loopback | `--host 127.0.0.1 --port 8000` | `local` is plaintext |
 
@@ -513,13 +610,10 @@ the cause.
 ### 5.3 Model id and binding
 
 `CORTEX_MODEL_ID` and the ids in `CORTEX_MODEL_PROFILES` are the chain's Hash32
-model ids as 64 lowercase hex, never a name. Find one, and its `repo_id`, with:
+model ids as 64 lowercase hex, never a name. They come from the model the human
+chose in §5.0.
 
-```sh
-bin/cortexctl model find --rpc <keeper-rpc> --provider HUGGINGFACE --repo <owner/name> --format json
-```
-
-`CORTEX_MODEL_PROFILES` entries have the form `<model-id-hex>@<version>=<profile>`,
+`CORTEX_MODEL_PROFILES` entries have the form `<model-id-hex>@<version>=<capability>`,
 e.g. `c2e5…29c1@1=llm_text_v1` (see `env.example`).
 
 `model_service` stays red, with the reason in `diag`, when:
@@ -570,7 +664,8 @@ is the shape; adapt the paths:
 set -euo pipefail
 export PATH=/opt/vllm/venv/bin:/usr/local/bin:/usr/bin:/bin
 # export HF_TOKEN=...            # only for gated models; from the human
-MODEL=<owner/name>               # == chain repo_id
+MODEL=<owner/name>               # == chain repo_id chosen in §5.0
+REVISION=<revision>              # from the verified manifest (§5.0)
 PORT=8000
 LOG=/opt/vllm/vllm.log
 PIDFILE=/opt/vllm/vllm.pid
@@ -582,15 +677,25 @@ command -v ninja >/dev/null || { echo "ninja missing from PATH" >&2; exit 1; }
 
 setsid nohup vllm serve "$MODEL" \
   --served-model-name "$MODEL" \
+  --revision "$REVISION" --tokenizer-revision "$REVISION" \
   --host 127.0.0.1 --port "$PORT" \
   --logprobs-mode raw_logprobs \
-  --max-logprobs 20 \
+  --max-logprobs <max(20, required_top_k)> \
   --max-num-seqs <n> \
   --gpu-memory-utilization 0.90 \
   --max-model-len <len> \
   </dev/null >>"$LOG" 2>&1 &
 echo $! > "$PIDFILE"
 echo "started vllm pid $(cat "$PIDFILE"); log $LOG"
+```
+
+To keep a slow download out of the engine start, you can pull the weights
+first. Check free disk space against the repo size before you start, and
+**VERIFY** the CLI name for the installed `huggingface_hub`
+(`huggingface-cli download` in older releases, `hf download` in newer ones):
+
+```sh
+/opt/vllm/venv/bin/huggingface-cli download <owner/name> --revision <revision>
 ```
 
 Acceptance check, waiting up to ~10 minutes for the model to download and load:
@@ -719,7 +824,9 @@ Before deploying:
 - [ ] every §3.1 human-provided item is present; if one is missing, stop and ask
 - [ ] chain is alive (`/status` tip advancing, `/block_results` not 500)
 - [ ] `nvidia-smi` prints a table; no unexplained VRAM tenants
+- [ ] the human chose the model from the chain catalogue (§5.0); its model id, profile version, revision and `required_top_k` are recorded
 - [ ] vLLM answers `/health`, and `/v1/models` lists exactly the chain `repo_id`
+- [ ] vLLM was started with the manifest's `--revision` and `--max-logprobs` ≥ `required_top_k`
 - [ ] vLLM was started with `--logprobs-mode raw_logprobs`
 - [ ] `.env` sets `CORTEX_MODEL_TRANSPORT=local`, endpoint and max concurrency (§1.2)
 - [ ] `CORTEX_DISPATCH_*` values come from a human, and no retired NATS variable is set (§1.3)
@@ -756,6 +863,7 @@ Reporting:
 | chat input schema | `proto/cortex/v1/chat_input.proto` |
 | config fields, env var names, validation | `internal/config/config.go` |
 | key generation / registration proof | `cmd/cortexctl/onboard.go` |
+| chain model lookup and manifest fetch | `cmd/cortexctl/main.go` (`model find`), `cmd/cortexctl/manifest_fetch.go`, `internal/chainclient/keeper.go` (`ModelsBySource`) |
 | admin socket routes | `internal/adminapi/admin.go` |
 | what the deploy script renders and forwards | `scripts/testnet-deploy.sh` (`render_one`, `CORTEX_FORWARDED_OVERRIDES`) |
 
