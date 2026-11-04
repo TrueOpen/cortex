@@ -1244,7 +1244,20 @@ func (*OpenTaskRequest_Header) isOpenTaskRequest_Frame() {}
 
 func (*OpenTaskRequest_Chunk) isOpenTaskRequest_Frame() {}
 
-// OpenTaskResponse defines the OpenTaskResponse wire type.
+// OpenTaskResponse is also the typed gRPC error detail for binding/takeover
+// routing. SESSION_BOUND_ELSEWHERE supplies bound_builder and task_id;
+// TAKEOVER_PENDING additionally supplies takeover_activation_height.
+// Epoch zero, an unavailable committed start beacon or a not-yet-effective pool
+// use NEXUS_INGRESS_DISPATCH_NOT_READY: retry at the supplied availability height
+// without switching Builder. Snapshot activation may occur later in the same epoch.
+// If dispatch_available_height exceeds order_expire_height, do not retry the
+// unchanged order: rebuild and re-sign the same unconsumed sequence with a later
+// expiry and fresh preflight context when retrying, without triggering takeover.
+// A pending Builder rejects all new orders, same-sequence retries, takeover
+// requests and new Sessions with NEXUS_INGRESS_BUILDER_KEY_ROTATING and
+// service_key_rotation_effective_height. Existing-order replay and dispatched
+// work continue. SDK follows NO_CAPACITY takeover routing, skips pending
+// Builders, and waits for the earliest activation if every candidate is pending.
 type OpenTaskResponse struct {
 	state                    protoimpl.MessageState        `protogen:"open.v1"`
 	TaskId                   string                        `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -1257,8 +1270,12 @@ type OpenTaskResponse struct {
 	DispatchResult           *DispatchResultHeaderV1       `protobuf:"bytes,8,opt,name=dispatch_result,json=dispatchResult,proto3,oneof" json:"dispatch_result,omitempty"`
 	BoundBuilder             *string                       `protobuf:"bytes,9,opt,name=bound_builder,json=boundBuilder,proto3,oneof" json:"bound_builder,omitempty"`
 	TakeoverActivationHeight *uint64                       `protobuf:"varint,10,opt,name=takeover_activation_height,json=takeoverActivationHeight,proto3,oneof" json:"takeover_activation_height,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// Earliest height to retry dispatch readiness; recheck committed availability.
+	DispatchAvailableHeight *uint64 `protobuf:"varint,11,opt,name=dispatch_available_height,json=dispatchAvailableHeight,proto3,oneof" json:"dispatch_available_height,omitempty"`
+	// Activation H attached to NEXUS_INGRESS_BUILDER_KEY_ROTATING.
+	ServiceKeyRotationEffectiveHeight *uint64 `protobuf:"varint,12,opt,name=service_key_rotation_effective_height,json=serviceKeyRotationEffectiveHeight,proto3,oneof" json:"service_key_rotation_effective_height,omitempty"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *OpenTaskResponse) Reset() {
@@ -1357,6 +1374,20 @@ func (x *OpenTaskResponse) GetBoundBuilder() string {
 func (x *OpenTaskResponse) GetTakeoverActivationHeight() uint64 {
 	if x != nil && x.TakeoverActivationHeight != nil {
 		return *x.TakeoverActivationHeight
+	}
+	return 0
+}
+
+func (x *OpenTaskResponse) GetDispatchAvailableHeight() uint64 {
+	if x != nil && x.DispatchAvailableHeight != nil {
+		return *x.DispatchAvailableHeight
+	}
+	return 0
+}
+
+func (x *OpenTaskResponse) GetServiceKeyRotationEffectiveHeight() uint64 {
+	if x != nil && x.ServiceKeyRotationEffectiveHeight != nil {
+		return *x.ServiceKeyRotationEffectiveHeight
 	}
 	return 0
 }
@@ -3254,6 +3285,11 @@ func (x *SubmitVerifyResultResponse) GetIdempotent() bool {
 }
 
 // SubscribeOutputRequest defines the SubscribeOutputRequest wire type.
+// A stale ticket also terminates an ongoing subscription and rejects old-ticket
+// uploads with NEXUS_INGRESS_ATTEMPT_STALE. A chain-recorded Task Builders member
+// waits boundedly for its replica, then returns NEXUS_OUTPUT_REPLICA_NOT_READY;
+// retry or use FetchTaskData(OUTPUT), never SESSION_UNBOUND for a recorded member.
+// RECORD_REJECTED and NEXUS_OUTPUT_STREAM_STOPPED terminate unusable attempts.
 // body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_SUBSCRIBE_OUTPUT_V1", session_id,
 // task_id, OPTIONAL_V1(resume_after_seq), OPTIONAL_V1(dispatch_ticket_hash)).
 // Unset is absent, and a set zero is present zero.
@@ -3635,12 +3671,17 @@ func (x *GetTaskEventsRequest) GetRequestEnvelope() *SDKRequestEnvelopeV2 {
 	return nil
 }
 
-//	ORDER_RECEIVED, DISPATCH_ACCEPTED, DISPATCH_RECORDED, RECORD_REJECTED,
-//	TAKEOVER_PENDING, TAKEOVER_RECORDED, TAKEOVER_VOIDED,
-//	OUTPUT_DATA_RECEIVED, VERIFIER_ASSIGNMENT_FINALIZED, RESULT_ACCEPTED,
-//	TASK_SETTLED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED
+// GetTaskEventsResponse reports Nexus lifecycle events, separate from the Node
+// ProtocolEventCodeV1 registry. The closed event_code set is:
 //
-// GetTaskEventsResponse defines the GetTaskEventsResponse wire type.
+//	ORDER_RECEIVED, DISPATCH_ACCEPTED, NO_CAPACITY, DISPATCH_RECORDED, RECORD_REJECTED,
+//	TAKEOVER_PENDING, TAKEOVER_RECORDED, TAKEOVER_VOIDED,
+//	TASK_FAILED, ORDER_EXPIRED, ASSIGN_TIMEOUT, OPEN_VERIFY_ACCEPTED, SAMPLE_READY,
+//	WORKER_REVEAL_ACCEPTED, FULL_RESULT_REVEAL_ACCEPTED, SETTLE_ACCEPTED,
+//	OUTPUT_REF_RECEIVED, SWEEP_OBSERVED, TASK_CLOSED, TASK_RECOVERED.
+//
+// Acceptance/receipt events describe observed progress, never replacement chain
+// authority. In particular OUTPUT_REF_RECEIVED is the Worker's signed receipt.
 type GetTaskEventsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Cursor        string                 `protobuf:"bytes,1,opt,name=cursor,proto3" json:"cursor,omitempty"`
@@ -3648,6 +3689,7 @@ type GetTaskEventsResponse struct {
 	TaskPhase     string                 `protobuf:"bytes,3,opt,name=task_phase,json=taskPhase,proto3" json:"task_phase,omitempty"`
 	EventCode     string                 `protobuf:"bytes,4,opt,name=event_code,json=eventCode,proto3" json:"event_code,omitempty"`
 	ChainHeight   int64                  `protobuf:"varint,5,opt,name=chain_height,json=chainHeight,proto3" json:"chain_height,omitempty"`
+	Detail        *TaskEventDetailV1     `protobuf:"bytes,6,opt,name=detail,proto3,oneof" json:"detail,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3717,6 +3759,132 @@ func (x *GetTaskEventsResponse) GetChainHeight() int64 {
 	return 0
 }
 
+func (x *GetTaskEventsResponse) GetDetail() *TaskEventDetailV1 {
+	if x != nil {
+		return x.Detail
+	}
+	return nil
+}
+
+// TaskEventDetailV1 carries event-local routing and rejection facts so the SDK
+// can recover without resubmitting OpenTask. Addresses identify stable operators.
+// TAKEOVER_PENDING supplies candidate + activation height; TAKEOVER_RECORDED
+// supplies bound_builder. TAKEOVER_VOIDED supplies what voided it: recording
+// supplies the recording Builder + recorded task ID; another takeover that
+// registered first supplies that takeover's candidate_builder +
+// takeover_activation_height; a Session bound to another Builder supplies
+// bound_builder; cancellation/closure need no destination.
+// DISPATCH_ACCEPTED supplies the ticket and worker_operator_address.
+// RECORD_REJECTED supplies a nonzero reject_code and the rejected entry's ticket
+// when one exists. dispatch_ticket_hash is absent when no ticket exists: a
+// rejected takeover entry, or an order that missed its record deadline before
+// any Worker accepted. A missed record deadline uses RECORD_LATE. When one entry
+// is rejected, later sequences of the same Session are rejected with it; those
+// sequences were not consumed, so they use CONFLICT, never SEQUENCE_CONSUMED,
+// and the client resends an order at the same sequence. An order ahead of the
+// Session's next expected sequence uses SEQUENCE_NOT_NEXT and is likewise
+// resent at the same sequence once the earlier sequences are recorded; only
+// SEQUENCE_CONSUMED means the sequence must not be reused.
+type TaskEventDetailV1 struct {
+	state                    protoimpl.MessageState    `protogen:"open.v1"`
+	BoundBuilder             *string                   `protobuf:"bytes,1,opt,name=bound_builder,json=boundBuilder,proto3,oneof" json:"bound_builder,omitempty"`
+	RecordingBuilder         *string                   `protobuf:"bytes,2,opt,name=recording_builder,json=recordingBuilder,proto3,oneof" json:"recording_builder,omitempty"`
+	RecordedTaskId           []byte                    `protobuf:"bytes,3,opt,name=recorded_task_id,json=recordedTaskId,proto3,oneof" json:"recorded_task_id,omitempty"`
+	CandidateBuilder         *string                   `protobuf:"bytes,4,opt,name=candidate_builder,json=candidateBuilder,proto3,oneof" json:"candidate_builder,omitempty"`
+	TakeoverActivationHeight *uint64                   `protobuf:"varint,5,opt,name=takeover_activation_height,json=takeoverActivationHeight,proto3,oneof" json:"takeover_activation_height,omitempty"`
+	DispatchTicketHash       []byte                    `protobuf:"bytes,6,opt,name=dispatch_ticket_hash,json=dispatchTicketHash,proto3,oneof" json:"dispatch_ticket_hash,omitempty"`
+	RejectCode               *v11.DispatchRejectCodeV1 `protobuf:"varint,7,opt,name=reject_code,json=rejectCode,proto3,enum=task.v1.DispatchRejectCodeV1,oneof" json:"reject_code,omitempty"`
+	WorkerOperatorAddress    *string                   `protobuf:"bytes,8,opt,name=worker_operator_address,json=workerOperatorAddress,proto3,oneof" json:"worker_operator_address,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *TaskEventDetailV1) Reset() {
+	*x = TaskEventDetailV1{}
+	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskEventDetailV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskEventDetailV1) ProtoMessage() {}
+
+func (x *TaskEventDetailV1) ProtoReflect() protoreflect.Message {
+	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskEventDetailV1.ProtoReflect.Descriptor instead.
+func (*TaskEventDetailV1) Descriptor() ([]byte, []int) {
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *TaskEventDetailV1) GetBoundBuilder() string {
+	if x != nil && x.BoundBuilder != nil {
+		return *x.BoundBuilder
+	}
+	return ""
+}
+
+func (x *TaskEventDetailV1) GetRecordingBuilder() string {
+	if x != nil && x.RecordingBuilder != nil {
+		return *x.RecordingBuilder
+	}
+	return ""
+}
+
+func (x *TaskEventDetailV1) GetRecordedTaskId() []byte {
+	if x != nil {
+		return x.RecordedTaskId
+	}
+	return nil
+}
+
+func (x *TaskEventDetailV1) GetCandidateBuilder() string {
+	if x != nil && x.CandidateBuilder != nil {
+		return *x.CandidateBuilder
+	}
+	return ""
+}
+
+func (x *TaskEventDetailV1) GetTakeoverActivationHeight() uint64 {
+	if x != nil && x.TakeoverActivationHeight != nil {
+		return *x.TakeoverActivationHeight
+	}
+	return 0
+}
+
+func (x *TaskEventDetailV1) GetDispatchTicketHash() []byte {
+	if x != nil {
+		return x.DispatchTicketHash
+	}
+	return nil
+}
+
+func (x *TaskEventDetailV1) GetRejectCode() v11.DispatchRejectCodeV1 {
+	if x != nil && x.RejectCode != nil {
+		return *x.RejectCode
+	}
+	return v11.DispatchRejectCodeV1(0)
+}
+
+func (x *TaskEventDetailV1) GetWorkerOperatorAddress() string {
+	if x != nil && x.WorkerOperatorAddress != nil {
+		return *x.WorkerOperatorAddress
+	}
+	return ""
+}
+
 // PrepareChallengeRequest defines the PrepareChallengeRequest wire type.
 // body_digest is H_FIELDS_V1("TRUEOPEN_SDK_BODY_PREPARE_CHALLENGE_V1", session_id,
 // task_id, challenge_kind, OPTIONAL_V1(local_evidence_digest)). An empty
@@ -3735,7 +3903,7 @@ type PrepareChallengeRequest struct {
 
 func (x *PrepareChallengeRequest) Reset() {
 	*x = PrepareChallengeRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3747,7 +3915,7 @@ func (x *PrepareChallengeRequest) String() string {
 func (*PrepareChallengeRequest) ProtoMessage() {}
 
 func (x *PrepareChallengeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[41]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3760,7 +3928,7 @@ func (x *PrepareChallengeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareChallengeRequest.ProtoReflect.Descriptor instead.
 func (*PrepareChallengeRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{41}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PrepareChallengeRequest) GetSessionId() string {
@@ -3812,7 +3980,7 @@ type PrepareChallengeResponse struct {
 
 func (x *PrepareChallengeResponse) Reset() {
 	*x = PrepareChallengeResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3824,7 +3992,7 @@ func (x *PrepareChallengeResponse) String() string {
 func (*PrepareChallengeResponse) ProtoMessage() {}
 
 func (x *PrepareChallengeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[42]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3837,7 +4005,7 @@ func (x *PrepareChallengeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareChallengeResponse.ProtoReflect.Descriptor instead.
 func (*PrepareChallengeResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{42}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PrepareChallengeResponse) GetChallengeOpen() bool {
@@ -3886,7 +4054,7 @@ type Coin struct {
 
 func (x *Coin) Reset() {
 	*x = Coin{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3898,7 +4066,7 @@ func (x *Coin) String() string {
 func (*Coin) ProtoMessage() {}
 
 func (x *Coin) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[43]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3911,7 +4079,7 @@ func (x *Coin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Coin.ProtoReflect.Descriptor instead.
 func (*Coin) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{43}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *Coin) GetDenom() string {
@@ -3939,7 +4107,7 @@ type GetTaskStatusRequest struct {
 
 func (x *GetTaskStatusRequest) Reset() {
 	*x = GetTaskStatusRequest{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3951,7 +4119,7 @@ func (x *GetTaskStatusRequest) String() string {
 func (*GetTaskStatusRequest) ProtoMessage() {}
 
 func (x *GetTaskStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[44]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3964,7 +4132,7 @@ func (x *GetTaskStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetTaskStatusRequest) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{44}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *GetTaskStatusRequest) GetTaskId() string {
@@ -3995,7 +4163,7 @@ type GetTaskStatusResponse struct {
 
 func (x *GetTaskStatusResponse) Reset() {
 	*x = GetTaskStatusResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4007,7 +4175,7 @@ func (x *GetTaskStatusResponse) String() string {
 func (*GetTaskStatusResponse) ProtoMessage() {}
 
 func (x *GetTaskStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[45]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4020,7 +4188,7 @@ func (x *GetTaskStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTaskStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetTaskStatusResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{45}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *GetTaskStatusResponse) GetState() string {
@@ -4068,7 +4236,7 @@ type ResumeOutputResponse struct {
 
 func (x *ResumeOutputResponse) Reset() {
 	*x = ResumeOutputResponse{}
-	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4080,7 +4248,7 @@ func (x *ResumeOutputResponse) String() string {
 func (*ResumeOutputResponse) ProtoMessage() {}
 
 func (x *ResumeOutputResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_nexus_v1_ingress_proto_msgTypes[46]
+	mi := &file_nexus_v1_ingress_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4093,7 +4261,7 @@ func (x *ResumeOutputResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeOutputResponse.ProtoReflect.Descriptor instead.
 func (*ResumeOutputResponse) Descriptor() ([]byte, []int) {
-	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{46}
+	return file_nexus_v1_ingress_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ResumeOutputResponse) GetFrame() *SubscribeOutputResponse {
@@ -4107,7 +4275,7 @@ var File_nexus_v1_ingress_proto protoreflect.FileDescriptor
 
 const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\n" +
-	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x19cosmos_proto/cosmos.proto\x1a\x17nexus/v1/dispatch.proto\x1a\x17nexus/v1/sdk_auth.proto\x1a\x18shared/v1/evidence.proto\x1a\x1dshared/v1/rest_encoding.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
+	"\x16nexus/v1/ingress.proto\x12\bnexus.v1\x1a\x19cosmos_proto/cosmos.proto\x1a\x17nexus/v1/dispatch.proto\x1a\x17nexus/v1/sdk_auth.proto\x1a\x18shared/v1/evidence.proto\x1a\x1dshared/v1/rest_encoding.proto\x1a\x14task/v1/commit.proto\x1a\x16task/v1/dispatch.proto\x1a\x16task/v1/evidence.proto\x1a\x1btask/v1/infer_receipt.proto\x1a\x14task/v1/result.proto\"\xcd\x03\n" +
 	"\x13TaskDataObjectRefV1\x12\x1b\n" +
 	"\ttask_hash\x18\x01 \x01(\tR\btaskHash\x12\x1d\n" +
 	"\n" +
@@ -4189,7 +4357,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x0fOpenTaskRequest\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x18.nexus.v1.OpenTaskHeaderH\x00R\x06header\x12\x16\n" +
 	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunkB\a\n" +
-	"\x05frame\"\xf0\x04\n" +
+	"\x05frame\"\xd0\x06\n" +
 	"\x10OpenTaskResponse\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x16\n" +
@@ -4202,10 +4370,14 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\x0fdispatch_result\x18\b \x01(\v2 .nexus.v1.DispatchResultHeaderV1H\x00R\x0edispatchResult\x88\x01\x01\x12B\n" +
 	"\rbound_builder\x18\t \x01(\tB\x18Ҵ-\x14cosmos.AddressStringH\x01R\fboundBuilder\x88\x01\x01\x12A\n" +
 	"\x1atakeover_activation_height\x18\n" +
-	" \x01(\x04H\x02R\x18takeoverActivationHeight\x88\x01\x01B\x12\n" +
+	" \x01(\x04H\x02R\x18takeoverActivationHeight\x88\x01\x01\x12?\n" +
+	"\x19dispatch_available_height\x18\v \x01(\x04H\x03R\x17dispatchAvailableHeight\x88\x01\x01\x12U\n" +
+	"%service_key_rotation_effective_height\x18\f \x01(\x04H\x04R!serviceKeyRotationEffectiveHeight\x88\x01\x01B\x12\n" +
 	"\x10_dispatch_resultB\x10\n" +
 	"\x0e_bound_builderB\x1d\n" +
-	"\x1b_takeover_activation_height\"\xe0\x01\n" +
+	"\x1b_takeover_activation_heightB\x1c\n" +
+	"\x1a_dispatch_available_heightB(\n" +
+	"&_service_key_rotation_effective_height\"\xe0\x01\n" +
 	"\x1eUploadTaskResultObjectHeaderV1\x12<\n" +
 	"\n" +
 	"object_ref\x18\x01 \x01(\v2\x1d.nexus.v1.TaskDataObjectRefV1R\tobjectRef\x12\x1d\n" +
@@ -4396,7 +4568,7 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12\x1f\n" +
 	"\vfrom_cursor\x18\x03 \x01(\tR\n" +
 	"fromCursor\x12I\n" +
-	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"\xa6\x01\n" +
+	"\x10request_envelope\x18\x04 \x01(\v2\x1e.nexus.v1.SDKRequestEnvelopeV2R\x0frequestEnvelope\"\xeb\x01\n" +
 	"\x15GetTaskEventsResponse\x12\x16\n" +
 	"\x06cursor\x18\x01 \x01(\tR\x06cursor\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1d\n" +
@@ -4404,7 +4576,27 @@ const file_nexus_v1_ingress_proto_rawDesc = "" +
 	"task_phase\x18\x03 \x01(\tR\ttaskPhase\x12\x1d\n" +
 	"\n" +
 	"event_code\x18\x04 \x01(\tR\teventCode\x12!\n" +
-	"\fchain_height\x18\x05 \x01(\x03R\vchainHeight\"\xf7\x01\n" +
+	"\fchain_height\x18\x05 \x01(\x03R\vchainHeight\x128\n" +
+	"\x06detail\x18\x06 \x01(\v2\x1b.nexus.v1.TaskEventDetailV1H\x00R\x06detail\x88\x01\x01B\t\n" +
+	"\a_detail\"\xf7\x05\n" +
+	"\x11TaskEventDetailV1\x12B\n" +
+	"\rbound_builder\x18\x01 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringH\x00R\fboundBuilder\x88\x01\x01\x12J\n" +
+	"\x11recording_builder\x18\x02 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringH\x01R\x10recordingBuilder\x88\x01\x01\x123\n" +
+	"\x10recorded_task_id\x18\x03 \x01(\fB\x04\xc8\xf3\x18\x02H\x02R\x0erecordedTaskId\x88\x01\x01\x12J\n" +
+	"\x11candidate_builder\x18\x04 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringH\x03R\x10candidateBuilder\x88\x01\x01\x12A\n" +
+	"\x1atakeover_activation_height\x18\x05 \x01(\x04H\x04R\x18takeoverActivationHeight\x88\x01\x01\x12;\n" +
+	"\x14dispatch_ticket_hash\x18\x06 \x01(\fB\x04\xc8\xf3\x18\x02H\x05R\x12dispatchTicketHash\x88\x01\x01\x12C\n" +
+	"\vreject_code\x18\a \x01(\x0e2\x1d.task.v1.DispatchRejectCodeV1H\x06R\n" +
+	"rejectCode\x88\x01\x01\x12U\n" +
+	"\x17worker_operator_address\x18\b \x01(\tB\x18Ҵ-\x14cosmos.AddressStringH\aR\x15workerOperatorAddress\x88\x01\x01B\x10\n" +
+	"\x0e_bound_builderB\x14\n" +
+	"\x12_recording_builderB\x13\n" +
+	"\x11_recorded_task_idB\x14\n" +
+	"\x12_candidate_builderB\x1d\n" +
+	"\x1b_takeover_activation_heightB\x17\n" +
+	"\x15_dispatch_ticket_hashB\x0e\n" +
+	"\f_reject_codeB\x1a\n" +
+	"\x18_worker_operator_address\"\xf7\x01\n" +
 	"\x17PrepareChallengeRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x17\n" +
@@ -4494,7 +4686,7 @@ func file_nexus_v1_ingress_proto_rawDescGZIP() []byte {
 }
 
 var file_nexus_v1_ingress_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_nexus_v1_ingress_proto_msgTypes = make([]protoimpl.MessageInfo, 47)
+var file_nexus_v1_ingress_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_nexus_v1_ingress_proto_goTypes = []any{
 	(TaskDataObjectKind)(0),                  // 0: nexus.v1.TaskDataObjectKind
 	(TaskDataObjectReadinessV1)(0),           // 1: nexus.v1.TaskDataObjectReadinessV1
@@ -4542,49 +4734,51 @@ var file_nexus_v1_ingress_proto_goTypes = []any{
 	(*AckOutputResponse)(nil),                // 43: nexus.v1.AckOutputResponse
 	(*GetTaskEventsRequest)(nil),             // 44: nexus.v1.GetTaskEventsRequest
 	(*GetTaskEventsResponse)(nil),            // 45: nexus.v1.GetTaskEventsResponse
-	(*PrepareChallengeRequest)(nil),          // 46: nexus.v1.PrepareChallengeRequest
-	(*PrepareChallengeResponse)(nil),         // 47: nexus.v1.PrepareChallengeResponse
-	(*Coin)(nil),                             // 48: nexus.v1.Coin
-	(*GetTaskStatusRequest)(nil),             // 49: nexus.v1.GetTaskStatusRequest
-	(*GetTaskStatusResponse)(nil),            // 50: nexus.v1.GetTaskStatusResponse
-	(*ResumeOutputResponse)(nil),             // 51: nexus.v1.ResumeOutputResponse
-	(v1.EvidenceKind)(0),                     // 52: shared.v1.EvidenceKind
-	(*SessionGrantV1)(nil),                   // 53: nexus.v1.SessionGrantV1
-	(*SDKRequestEnvelopeV2)(nil),             // 54: nexus.v1.SDKRequestEnvelopeV2
-	(OpenTaskStatusV1)(0),                    // 55: nexus.v1.OpenTaskStatusV1
-	(*DispatchResultHeaderV1)(nil),           // 56: nexus.v1.DispatchResultHeaderV1
-	(v11.FinishReasonV1)(0),                  // 57: task.v1.FinishReasonV1
-	(*v11.InferReceiptV3)(nil),               // 58: task.v1.InferReceiptV3
-	(*v11.ResultReceiptV3)(nil),              // 59: task.v1.ResultReceiptV3
-	(*v11.VerifyCommitV1)(nil),               // 60: task.v1.VerifyCommitV1
-	(*DispatchStreamRequest)(nil),            // 61: nexus.v1.DispatchStreamRequest
-	(*ResumeOutputRequest)(nil),              // 62: nexus.v1.ResumeOutputRequest
-	(*GetDispatchRosterRequest)(nil),         // 63: nexus.v1.GetDispatchRosterRequest
-	(*DispatchStreamResponse)(nil),           // 64: nexus.v1.DispatchStreamResponse
-	(*GetDispatchRosterResponse)(nil),        // 65: nexus.v1.GetDispatchRosterResponse
+	(*TaskEventDetailV1)(nil),                // 46: nexus.v1.TaskEventDetailV1
+	(*PrepareChallengeRequest)(nil),          // 47: nexus.v1.PrepareChallengeRequest
+	(*PrepareChallengeResponse)(nil),         // 48: nexus.v1.PrepareChallengeResponse
+	(*Coin)(nil),                             // 49: nexus.v1.Coin
+	(*GetTaskStatusRequest)(nil),             // 50: nexus.v1.GetTaskStatusRequest
+	(*GetTaskStatusResponse)(nil),            // 51: nexus.v1.GetTaskStatusResponse
+	(*ResumeOutputResponse)(nil),             // 52: nexus.v1.ResumeOutputResponse
+	(v1.EvidenceKind)(0),                     // 53: shared.v1.EvidenceKind
+	(*SessionGrantV1)(nil),                   // 54: nexus.v1.SessionGrantV1
+	(*SDKRequestEnvelopeV2)(nil),             // 55: nexus.v1.SDKRequestEnvelopeV2
+	(OpenTaskStatusV1)(0),                    // 56: nexus.v1.OpenTaskStatusV1
+	(*DispatchResultHeaderV1)(nil),           // 57: nexus.v1.DispatchResultHeaderV1
+	(v11.FinishReasonV1)(0),                  // 58: task.v1.FinishReasonV1
+	(*v11.InferReceiptV3)(nil),               // 59: task.v1.InferReceiptV3
+	(*v11.ResultReceiptV3)(nil),              // 60: task.v1.ResultReceiptV3
+	(*v11.VerifyCommitV1)(nil),               // 61: task.v1.VerifyCommitV1
+	(v11.DispatchRejectCodeV1)(0),            // 62: task.v1.DispatchRejectCodeV1
+	(*DispatchStreamRequest)(nil),            // 63: nexus.v1.DispatchStreamRequest
+	(*ResumeOutputRequest)(nil),              // 64: nexus.v1.ResumeOutputRequest
+	(*GetDispatchRosterRequest)(nil),         // 65: nexus.v1.GetDispatchRosterRequest
+	(*DispatchStreamResponse)(nil),           // 66: nexus.v1.DispatchStreamResponse
+	(*GetDispatchRosterResponse)(nil),        // 67: nexus.v1.GetDispatchRosterResponse
 }
 var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	0,  // 0: nexus.v1.TaskDataObjectRefV1.object_kind:type_name -> nexus.v1.TaskDataObjectKind
 	3,  // 1: nexus.v1.TaskDataObjectRefV1.evidence_producer_kind:type_name -> nexus.v1.EvidenceProducerKindV1
-	52, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
+	53, // 2: nexus.v1.TaskDataObjectRefV1.evidence_kind:type_name -> shared.v1.EvidenceKind
 	5,  // 3: nexus.v1.TaskDataObjectMetadataV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	1,  // 4: nexus.v1.TaskDataObjectMetadataV1.readiness:type_name -> nexus.v1.TaskDataObjectReadinessV1
 	19, // 5: nexus.v1.TaskDataObjectMetadataV1.fin:type_name -> nexus.v1.OutputFinV1
 	5,  // 6: nexus.v1.BuilderStorageConfirmationV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	4,  // 7: nexus.v1.TaskDataRequestAuthV1.requester_kind:type_name -> nexus.v1.TaskDataRequesterKindV1
-	53, // 8: nexus.v1.TaskDataRequestAuthV1.session_grant:type_name -> nexus.v1.SessionGrantV1
-	54, // 9: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	54, // 8: nexus.v1.TaskDataRequestAuthV1.session_grant:type_name -> nexus.v1.SessionGrantV1
+	55, // 9: nexus.v1.OpenTaskHeader.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
 	11, // 10: nexus.v1.OpenTaskRequest.header:type_name -> nexus.v1.OpenTaskHeader
 	6,  // 11: nexus.v1.OpenTaskResponse.input_metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
 	9,  // 12: nexus.v1.OpenTaskResponse.input_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	55, // 13: nexus.v1.OpenTaskResponse.status:type_name -> nexus.v1.OpenTaskStatusV1
-	56, // 14: nexus.v1.OpenTaskResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
+	56, // 13: nexus.v1.OpenTaskResponse.status:type_name -> nexus.v1.OpenTaskStatusV1
+	57, // 14: nexus.v1.OpenTaskResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
 	5,  // 15: nexus.v1.UploadTaskResultObjectHeaderV1.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	10, // 16: nexus.v1.UploadTaskResultObjectHeaderV1.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
 	14, // 17: nexus.v1.UploadTaskResultObjectRequest.header:type_name -> nexus.v1.UploadTaskResultObjectHeaderV1
 	6,  // 18: nexus.v1.UploadTaskResultObjectResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
 	10, // 19: nexus.v1.OutputStreamHeaderV2.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	57, // 20: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
+	58, // 20: nexus.v1.OutputFinV1.finish_reason:type_name -> task.v1.FinishReasonV1
 	17, // 21: nexus.v1.UploadTaskOutputStreamRequest.header:type_name -> nexus.v1.OutputStreamHeaderV2
 	18, // 22: nexus.v1.UploadTaskOutputStreamRequest.chunk:type_name -> nexus.v1.OutputChunkV1
 	19, // 23: nexus.v1.UploadTaskOutputStreamRequest.fin:type_name -> nexus.v1.OutputFinV1
@@ -4594,7 +4788,7 @@ var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	10, // 27: nexus.v1.GetTaskDataMetadataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
 	6,  // 28: nexus.v1.GetTaskDataMetadataResponse.metadata:type_name -> nexus.v1.TaskDataObjectMetadataV1
 	7,  // 29: nexus.v1.GetTaskDataMetadataResponse.evidence_bundle:type_name -> nexus.v1.EvidenceBundleSummaryV1
-	58, // 30: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
+	59, // 30: nexus.v1.GetTaskDataMetadataResponse.infer_receipt:type_name -> task.v1.InferReceiptV3
 	5,  // 31: nexus.v1.FetchTaskDataRequest.object_ref:type_name -> nexus.v1.TaskDataObjectRefV1
 	8,  // 32: nexus.v1.FetchTaskDataRequest.range:type_name -> nexus.v1.ByteRangeV1
 	10, // 33: nexus.v1.FetchTaskDataRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
@@ -4602,67 +4796,69 @@ var file_nexus_v1_ingress_proto_depIdxs = []int32{
 	8,  // 35: nexus.v1.FetchTaskDataHeaderV1.served_range:type_name -> nexus.v1.ByteRangeV1
 	27, // 36: nexus.v1.FetchTaskDataResponse.header:type_name -> nexus.v1.FetchTaskDataHeaderV1
 	28, // 37: nexus.v1.FetchTaskDataResponse.chunk:type_name -> nexus.v1.FetchTaskDataChunkV1
-	58, // 38: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
+	59, // 38: nexus.v1.FinalizeTaskResultRequest.receipt:type_name -> task.v1.InferReceiptV3
 	10, // 39: nexus.v1.FinalizeTaskResultRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
-	52, // 40: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
+	53, // 40: nexus.v1.FinalizeTaskResultRequest.evidence_kind:type_name -> shared.v1.EvidenceKind
 	9,  // 41: nexus.v1.FinalizeTaskResultResponse.output_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
 	9,  // 42: nexus.v1.FinalizeTaskResultResponse.evidence_bundle_confirmations:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	59, // 43: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	60, // 43: nexus.v1.FinalizeVerifierEvidenceRequest.receipt:type_name -> task.v1.ResultReceiptV3
 	10, // 44: nexus.v1.FinalizeVerifierEvidenceRequest.request_auth:type_name -> nexus.v1.TaskDataRequestAuthV1
 	9,  // 45: nexus.v1.FinalizeVerifierEvidenceResponse.evidence_bundle_confirmation:type_name -> nexus.v1.BuilderStorageConfirmationV1
-	58, // 46: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
-	60, // 47: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
-	59, // 48: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
-	54, // 49: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	59, // 46: nexus.v1.SubmitInferReceiptRequest.receipt:type_name -> task.v1.InferReceiptV3
+	61, // 47: nexus.v1.SubmitVerifyCommitRequest.commit:type_name -> task.v1.VerifyCommitV1
+	60, // 48: nexus.v1.SubmitVerifyResultRequest.receipt:type_name -> task.v1.ResultReceiptV3
+	55, // 49: nexus.v1.SubscribeOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
 	18, // 50: nexus.v1.SubscribeOutputResponse.chunk:type_name -> nexus.v1.OutputChunkV1
 	19, // 51: nexus.v1.SubscribeOutputResponse.fin:type_name -> nexus.v1.OutputFinV1
-	56, // 52: nexus.v1.SubscribeOutputResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
-	54, // 53: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	54, // 54: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	54, // 55: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
-	48, // 56: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
-	41, // 57: nexus.v1.ResumeOutputResponse.frame:type_name -> nexus.v1.SubscribeOutputResponse
-	12, // 58: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
-	40, // 59: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
-	42, // 60: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
-	49, // 61: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
-	44, // 62: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
-	46, // 63: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
-	15, // 64: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
-	20, // 65: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
-	24, // 66: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
-	26, // 67: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
-	30, // 68: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
-	32, // 69: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
-	34, // 70: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
-	36, // 71: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
-	38, // 72: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
-	61, // 73: nexus.v1.IngressAPI.DispatchStream:input_type -> nexus.v1.DispatchStreamRequest
-	62, // 74: nexus.v1.IngressAPI.ResumeOutput:input_type -> nexus.v1.ResumeOutputRequest
-	63, // 75: nexus.v1.IngressAPI.GetDispatchRoster:input_type -> nexus.v1.GetDispatchRosterRequest
-	13, // 76: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
-	41, // 77: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
-	43, // 78: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
-	50, // 79: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
-	45, // 80: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
-	47, // 81: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
-	16, // 82: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
-	23, // 83: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
-	25, // 84: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
-	29, // 85: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
-	31, // 86: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
-	33, // 87: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
-	35, // 88: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
-	37, // 89: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
-	39, // 90: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
-	64, // 91: nexus.v1.IngressAPI.DispatchStream:output_type -> nexus.v1.DispatchStreamResponse
-	51, // 92: nexus.v1.IngressAPI.ResumeOutput:output_type -> nexus.v1.ResumeOutputResponse
-	65, // 93: nexus.v1.IngressAPI.GetDispatchRoster:output_type -> nexus.v1.GetDispatchRosterResponse
-	76, // [76:94] is the sub-list for method output_type
-	58, // [58:76] is the sub-list for method input_type
-	58, // [58:58] is the sub-list for extension type_name
-	58, // [58:58] is the sub-list for extension extendee
-	0,  // [0:58] is the sub-list for field type_name
+	57, // 52: nexus.v1.SubscribeOutputResponse.dispatch_result:type_name -> nexus.v1.DispatchResultHeaderV1
+	55, // 53: nexus.v1.AckOutputRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	55, // 54: nexus.v1.GetTaskEventsRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	46, // 55: nexus.v1.GetTaskEventsResponse.detail:type_name -> nexus.v1.TaskEventDetailV1
+	62, // 56: nexus.v1.TaskEventDetailV1.reject_code:type_name -> task.v1.DispatchRejectCodeV1
+	55, // 57: nexus.v1.PrepareChallengeRequest.request_envelope:type_name -> nexus.v1.SDKRequestEnvelopeV2
+	49, // 58: nexus.v1.PrepareChallengeResponse.estimated_bond:type_name -> nexus.v1.Coin
+	41, // 59: nexus.v1.ResumeOutputResponse.frame:type_name -> nexus.v1.SubscribeOutputResponse
+	12, // 60: nexus.v1.IngressAPI.OpenTask:input_type -> nexus.v1.OpenTaskRequest
+	40, // 61: nexus.v1.IngressAPI.SubscribeOutput:input_type -> nexus.v1.SubscribeOutputRequest
+	42, // 62: nexus.v1.IngressAPI.AckOutput:input_type -> nexus.v1.AckOutputRequest
+	50, // 63: nexus.v1.IngressAPI.GetTaskStatus:input_type -> nexus.v1.GetTaskStatusRequest
+	44, // 64: nexus.v1.IngressAPI.GetTaskEvents:input_type -> nexus.v1.GetTaskEventsRequest
+	47, // 65: nexus.v1.IngressAPI.PrepareChallenge:input_type -> nexus.v1.PrepareChallengeRequest
+	15, // 66: nexus.v1.IngressAPI.UploadTaskResultObject:input_type -> nexus.v1.UploadTaskResultObjectRequest
+	20, // 67: nexus.v1.IngressAPI.UploadTaskOutputStream:input_type -> nexus.v1.UploadTaskOutputStreamRequest
+	24, // 68: nexus.v1.IngressAPI.GetTaskDataMetadata:input_type -> nexus.v1.GetTaskDataMetadataRequest
+	26, // 69: nexus.v1.IngressAPI.FetchTaskData:input_type -> nexus.v1.FetchTaskDataRequest
+	30, // 70: nexus.v1.IngressAPI.FinalizeTaskResult:input_type -> nexus.v1.FinalizeTaskResultRequest
+	32, // 71: nexus.v1.IngressAPI.FinalizeVerifierEvidence:input_type -> nexus.v1.FinalizeVerifierEvidenceRequest
+	34, // 72: nexus.v1.IngressAPI.SubmitInferReceipt:input_type -> nexus.v1.SubmitInferReceiptRequest
+	36, // 73: nexus.v1.IngressAPI.SubmitVerifyCommit:input_type -> nexus.v1.SubmitVerifyCommitRequest
+	38, // 74: nexus.v1.IngressAPI.SubmitVerifyResult:input_type -> nexus.v1.SubmitVerifyResultRequest
+	63, // 75: nexus.v1.IngressAPI.DispatchStream:input_type -> nexus.v1.DispatchStreamRequest
+	64, // 76: nexus.v1.IngressAPI.ResumeOutput:input_type -> nexus.v1.ResumeOutputRequest
+	65, // 77: nexus.v1.IngressAPI.GetDispatchRoster:input_type -> nexus.v1.GetDispatchRosterRequest
+	13, // 78: nexus.v1.IngressAPI.OpenTask:output_type -> nexus.v1.OpenTaskResponse
+	41, // 79: nexus.v1.IngressAPI.SubscribeOutput:output_type -> nexus.v1.SubscribeOutputResponse
+	43, // 80: nexus.v1.IngressAPI.AckOutput:output_type -> nexus.v1.AckOutputResponse
+	51, // 81: nexus.v1.IngressAPI.GetTaskStatus:output_type -> nexus.v1.GetTaskStatusResponse
+	45, // 82: nexus.v1.IngressAPI.GetTaskEvents:output_type -> nexus.v1.GetTaskEventsResponse
+	48, // 83: nexus.v1.IngressAPI.PrepareChallenge:output_type -> nexus.v1.PrepareChallengeResponse
+	16, // 84: nexus.v1.IngressAPI.UploadTaskResultObject:output_type -> nexus.v1.UploadTaskResultObjectResponse
+	23, // 85: nexus.v1.IngressAPI.UploadTaskOutputStream:output_type -> nexus.v1.UploadTaskOutputStreamResponse
+	25, // 86: nexus.v1.IngressAPI.GetTaskDataMetadata:output_type -> nexus.v1.GetTaskDataMetadataResponse
+	29, // 87: nexus.v1.IngressAPI.FetchTaskData:output_type -> nexus.v1.FetchTaskDataResponse
+	31, // 88: nexus.v1.IngressAPI.FinalizeTaskResult:output_type -> nexus.v1.FinalizeTaskResultResponse
+	33, // 89: nexus.v1.IngressAPI.FinalizeVerifierEvidence:output_type -> nexus.v1.FinalizeVerifierEvidenceResponse
+	35, // 90: nexus.v1.IngressAPI.SubmitInferReceipt:output_type -> nexus.v1.SubmitInferReceiptResponse
+	37, // 91: nexus.v1.IngressAPI.SubmitVerifyCommit:output_type -> nexus.v1.SubmitVerifyCommitResponse
+	39, // 92: nexus.v1.IngressAPI.SubmitVerifyResult:output_type -> nexus.v1.SubmitVerifyResultResponse
+	66, // 93: nexus.v1.IngressAPI.DispatchStream:output_type -> nexus.v1.DispatchStreamResponse
+	52, // 94: nexus.v1.IngressAPI.ResumeOutput:output_type -> nexus.v1.ResumeOutputResponse
+	67, // 95: nexus.v1.IngressAPI.GetDispatchRoster:output_type -> nexus.v1.GetDispatchRosterResponse
+	78, // [78:96] is the sub-list for method output_type
+	60, // [60:78] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_nexus_v1_ingress_proto_init() }
@@ -4703,13 +4899,15 @@ func file_nexus_v1_ingress_proto_init() {
 		(*SubscribeOutputResponse_Chunk)(nil),
 		(*SubscribeOutputResponse_Fin)(nil),
 	}
+	file_nexus_v1_ingress_proto_msgTypes[40].OneofWrappers = []any{}
+	file_nexus_v1_ingress_proto_msgTypes[41].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nexus_v1_ingress_proto_rawDesc), len(file_nexus_v1_ingress_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   47,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

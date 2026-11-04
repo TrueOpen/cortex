@@ -97,15 +97,15 @@
       "path": "shared/params_v1.json",
       "origin": "wire",
       "contract_section": "Phase 1 public contract: canonical bytes, authorization and fresh-genesis dispatch; see docs/PHASE1_CONTRACT.md",
-      "bytes": 66819,
-      "sha256": "2841e5b0ac68d3d2901ac962ca2e3db8018a53072c538c5b9027490030194574"
+      "bytes": 67166,
+      "sha256": "45ad7325f4f862d3e16036d9aaac86802b3e09ec857012d04082b30e3a5cb543"
     },
     {
       "path": "shared/query_page_v1.json",
       "origin": "wire",
-      "contract_section": "Raw Hash32 query selector and pagination commitments",
-      "bytes": 38796,
-      "sha256": "f7c22a66aced6c386407a6fbe2778dbc437d2f206ba480268e5f25861945e69e"
+      "contract_section": "Height-pinned pagination scope for every active Hub and Task Query RPC",
+      "bytes": 51113,
+      "sha256": "e06edffe86dc9a786d41fb1ec1bf432219262c38a5e3199b78d84447c3508403"
     },
     {
       "path": "shared/rest_json_shapes_v1.json",
@@ -117,9 +117,9 @@
     {
       "path": "shared/service_key_rotation_v1.json",
       "origin": "wire",
-      "contract_section": "Delayed service-key rotation, inclusive cutoffs and safe epoch activation",
-      "bytes": 2633,
-      "sha256": "2116de3e5981a4697b5ce493a4dd165cf9773e2eb25f5262c9195f1e69303dd8"
+      "contract_section": "Fixed E+2 service-key rotation, strict proof cutoffs and retained message generations",
+      "bytes": 9999,
+      "sha256": "4761e1219e47b4c371f60b6c31dec75c32e97cd7ad7b0feadf559a8565f89d40"
     },
     {
       "path": "shared/shared_domains_v1.json",
@@ -135,6 +135,13 @@
       "sha256": "e773b87a90eaddc044f6f90f41e8ffc2c1d4a4fe28515d072b9bc8239abcbbeb"
     },
     {
+      "path": "task/builder_sync_v1.json",
+      "origin": "wire",
+      "contract_section": "Typed Builder replication, canonical oneof signing and current-key transport vectors",
+      "bytes": 193834,
+      "sha256": "4baf434626a5b8694706da8647f4a0c62f78d38284fa3f3d8339dbd33211d063"
+    },
+    {
       "path": "task/canonical_json_v1.json",
       "origin": "wire",
       "contract_section": "Canonical JSON evidence and generation-parameter digests",
@@ -142,11 +149,18 @@
       "sha256": "68a5c14659ba04c39bea24f6ceae16efd0332faf48a01108f470f09289607fc2"
     },
     {
+      "path": "task/dispatch_compensation_v1.json",
+      "origin": "wire",
+      "contract_section": "Sequence compensation, binding-scoped round acceptors and bounded Session compaction",
+      "bytes": 10095,
+      "sha256": "54114eeb59ab945bb687521022599c0549fa9d433f50bce792b2edcdb2d3556c"
+    },
+    {
       "path": "task/dispatch_v1.json",
       "origin": "wire",
       "contract_section": "Generation-bound dispatch proofs and attempt-bound output signatures; docs/PHASE1_CONTRACT.md",
-      "bytes": 129298,
-      "sha256": "20e06a30943f8e151493a5bec801eac7a72c6e5e64117af80fba11523ee851e7"
+      "bytes": 141861,
+      "sha256": "e906018ba8fef066f7b13ea4d2264b8c8aa693db361565f182da5706b4aa9014"
     },
     {
       "path": "task/generation_params_ranges_v1.json",
@@ -182,6 +196,13 @@
       "contract_section": "TaskOrderV3 order_value derivation",
       "bytes": 7966,
       "sha256": "9d07af445a928ac4e523b24c07f7a4cafbf87cc55b500409b3fde3e5628aa9dc"
+    },
+    {
+      "path": "task/order_lifetime_v1.json",
+      "origin": "wire",
+      "contract_section": "Frozen order lifetime, expiry inclusivity and usable-height boundaries",
+      "bytes": 3631,
+      "sha256": "81ee9849d5bda25bb934e1fdd10693bc2e85ece8f357added3e979fcb1a0df6f"
     },
     {
       "path": "task/output_chunk_equivocation_v1.json",

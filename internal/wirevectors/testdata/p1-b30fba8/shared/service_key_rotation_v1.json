@@ -1,0 +1,344 @@
+{
+  "schema": "trueopen-service-key-rotation-v1",
+  "notes": [
+    "Protocol-hard-limit examples, not approved network parameter values.",
+    "Registration in epoch E activates at the fixed E+2 start, including the last block of E.",
+    "The interval protects the previous generation before another registration; it never schedules activation.",
+    "Only previous-generation evidence responsibilities gate another registration; current group duties and liability do not.",
+    "Previous dispatch proofs use max(order earliest_submit_height, signed ticket bound_change_height) strictly below previous_retired_height; handraise roots use root_height. Online submitters remain current ACTIVE only.",
+    "Emergency revoke immediately cancels pending replacement and preserves necessary proof identities.",
+    "Retained Builder messages (result header, input response, revoke, record notice) select the generation by their positive signed nonce, which may not precede their ticket's nonce, and keep their original signed bytes; retained_message_cases sign with the selected generation's key.",
+    "Explicit emergency revoke sets revoked_height. Retained dispatch proofs must precede that cutoff; rotation clips the previous retirement height to it. Terminal-state revocation without this field does not invent an emergency-revoke cutoff.",
+    "Record proofs use the associated ticket or claim binding height; the signed record cannot replace or lower frozen context, including missing context."
+  ],
+  "hard_limits": {
+    "record_deadline_blocks": 4,
+    "dispatch_compensation_claim_window_blocks": 64,
+    "dispatch_compensation_rebuttal_blocks": 8,
+    "dispatch_challenge_window_blocks": 32,
+    "dispatch_challenge_response_blocks": 8
+  },
+  "schedules": [
+    {
+      "name": "first_block",
+      "registered_height": 100,
+      "epoch_start_height": 100,
+      "epoch_length": 10,
+      "effective_height": 120
+    },
+    {
+      "name": "last_block",
+      "registered_height": 109,
+      "epoch_start_height": 100,
+      "epoch_length": 10,
+      "effective_height": 120
+    },
+    {
+      "name": "next_epoch",
+      "registered_height": 110,
+      "epoch_start_height": 110,
+      "epoch_length": 10,
+      "effective_height": 130
+    },
+    {
+      "name": "initial_epoch",
+      "registered_height": 1,
+      "epoch_start_height": 0,
+      "epoch_length": 120,
+      "effective_height": 240
+    },
+    {
+      "name": "one_block_epoch",
+      "registered_height": 1,
+      "epoch_start_height": 1,
+      "epoch_length": 1,
+      "effective_height": 3
+    }
+  ],
+  "rotation_interval_blocks": 77,
+  "registration_cases": [
+    {
+      "name": "first_registration",
+      "height": 100,
+      "previous_retired_height": 0,
+      "previous_evidence_count": 0,
+      "allowed": true
+    },
+    {
+      "name": "before_interval",
+      "height": 176,
+      "previous_retired_height": 100,
+      "previous_evidence_count": 0,
+      "allowed": false
+    },
+    {
+      "name": "interval_boundary",
+      "height": 177,
+      "previous_retired_height": 100,
+      "previous_evidence_count": 0,
+      "allowed": true
+    },
+    {
+      "name": "previous_evidence_open",
+      "height": 178,
+      "previous_retired_height": 100,
+      "previous_evidence_count": 1,
+      "allowed": false
+    },
+    {
+      "name": "current_duties_do_not_block",
+      "height": 178,
+      "previous_retired_height": 100,
+      "previous_evidence_count": 0,
+      "current_group_count": 2,
+      "current_liability_count": 3,
+      "allowed": true
+    }
+  ],
+  "proof_cases": [
+    {
+      "name": "before_cutover",
+      "earliest_submit_height": 119,
+      "previous_retired_height": 120,
+      "allowed": true,
+      "bound_change_height": 110
+    },
+    {
+      "name": "at_cutover",
+      "earliest_submit_height": 120,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "after_cutover",
+      "earliest_submit_height": 121,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "binding_at_cutover",
+      "earliest_submit_height": 119,
+      "bound_change_height": 120,
+      "previous_retired_height": 120,
+      "allowed": false
+    },
+    {
+      "name": "binding_after_cutover",
+      "earliest_submit_height": 119,
+      "bound_change_height": 121,
+      "previous_retired_height": 120,
+      "allowed": false
+    }
+  ],
+  "retained_message_cases": [
+    {
+      "name": "current_nonce",
+      "signed_nonce": 2,
+      "ticket_nonce": 2,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 130,
+      "previous_retired_height": 120,
+      "allowed": true,
+      "bound_change_height": 110
+    },
+    {
+      "name": "previous_before_cutover",
+      "signed_nonce": 1,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 119,
+      "previous_retired_height": 120,
+      "allowed": true,
+      "bound_change_height": 110
+    },
+    {
+      "name": "previous_at_cutover",
+      "signed_nonce": 1,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 120,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "unknown_nonce",
+      "signed_nonce": 3,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 119,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "zero_nonce",
+      "signed_nonce": 0,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 119,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "current_revoked",
+      "signed_nonce": 2,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "REVOKED",
+      "previous_nonce": 1,
+      "earliest_submit_height": 130,
+      "previous_retired_height": 120,
+      "allowed": true,
+      "bound_change_height": 110,
+      "revoked_height": 140
+    },
+    {
+      "name": "previous_without_order_height",
+      "signed_nonce": 1,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "older_than_ticket",
+      "signed_nonce": 1,
+      "ticket_nonce": 2,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 119,
+      "previous_retired_height": 120,
+      "allowed": false,
+      "bound_change_height": 110
+    },
+    {
+      "name": "previous_binding_at_cutover",
+      "signed_nonce": 1,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "ACTIVE",
+      "previous_nonce": 1,
+      "earliest_submit_height": 119,
+      "bound_change_height": 120,
+      "previous_retired_height": 120,
+      "allowed": false
+    },
+    {
+      "name": "revoked_order_at_cutoff",
+      "signed_nonce": 2,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "REVOKED",
+      "previous_nonce": 1,
+      "earliest_submit_height": 140,
+      "bound_change_height": 110,
+      "previous_retired_height": 120,
+      "revoked_height": 140,
+      "allowed": false
+    },
+    {
+      "name": "revoked_binding_at_cutoff",
+      "signed_nonce": 2,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "REVOKED",
+      "previous_nonce": 1,
+      "earliest_submit_height": 119,
+      "bound_change_height": 140,
+      "previous_retired_height": 120,
+      "revoked_height": 140,
+      "allowed": false
+    },
+    {
+      "name": "revoked_without_order_height",
+      "signed_nonce": 2,
+      "ticket_nonce": 1,
+      "current_nonce": 2,
+      "current_status": "REVOKED",
+      "previous_nonce": 1,
+      "bound_change_height": 110,
+      "previous_retired_height": 120,
+      "revoked_height": 140,
+      "allowed": false
+    }
+  ],
+  "root_proof_cases": [
+    {
+      "name": "root_before_cutoff_without_order",
+      "root_height": 119,
+      "cutoff_height": 120,
+      "allowed": true
+    },
+    {
+      "name": "root_before_cutoff_with_later_order",
+      "root_height": 119,
+      "earliest_submit_height": 200,
+      "cutoff_height": 120,
+      "allowed": true
+    },
+    {
+      "name": "root_at_cutoff_with_older_order",
+      "root_height": 120,
+      "earliest_submit_height": 1,
+      "cutoff_height": 120,
+      "allowed": false
+    },
+    {
+      "name": "root_after_cutoff",
+      "root_height": 121,
+      "cutoff_height": 120,
+      "allowed": false
+    }
+  ],
+  "record_proof_context_cases": [
+    {
+      "name": "matching_frozen_context_before_cutoff",
+      "earliest_submit_height": 119,
+      "bound_change_height": 110,
+      "record_bound_change_height": 110,
+      "cutoff_height": 120,
+      "allowed": true
+    },
+    {
+      "name": "signed_record_cannot_lower_frozen_binding_at_cutoff",
+      "earliest_submit_height": 119,
+      "bound_change_height": 120,
+      "record_bound_change_height": 110,
+      "cutoff_height": 120,
+      "allowed": false
+    },
+    {
+      "name": "signed_record_cannot_lower_frozen_binding_after_cutoff",
+      "earliest_submit_height": 119,
+      "bound_change_height": 121,
+      "record_bound_change_height": 110,
+      "cutoff_height": 120,
+      "allowed": false
+    },
+    {
+      "name": "signed_record_cannot_replace_missing_frozen_binding",
+      "earliest_submit_height": 119,
+      "record_bound_change_height": 110,
+      "cutoff_height": 120,
+      "allowed": false
+    }
+  ]
+}

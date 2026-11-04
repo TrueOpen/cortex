@@ -320,8 +320,15 @@ type BuilderState struct {
 	ActiveTaskLiabilityCount       uint32                 `protobuf:"varint,9,opt,name=active_task_liability_count,json=activeTaskLiabilityCount,proto3" json:"active_task_liability_count,omitempty"`
 	PendingStageDutyCount          uint32                 `protobuf:"varint,10,opt,name=pending_stage_duty_count,json=pendingStageDutyCount,proto3" json:"pending_stage_duty_count,omitempty"`
 	PendingEvidenceSubmissionCount uint32                 `protobuf:"varint,11,opt,name=pending_evidence_submission_count,json=pendingEvidenceSubmissionCount,proto3" json:"pending_evidence_submission_count,omitempty"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	// Present together; one previous generation for old proofs, never live authority.
+	PreviousServicePubkey             []byte  `protobuf:"bytes,12,opt,name=previous_service_pubkey,json=previousServicePubkey,proto3,oneof" json:"previous_service_pubkey,omitempty"`
+	PreviousServiceAuthorizationNonce *uint64 `protobuf:"varint,13,opt,name=previous_service_authorization_nonce,json=previousServiceAuthorizationNonce,proto3,oneof" json:"previous_service_authorization_nonce,omitempty"`
+	PreviousRetiredHeight             *uint64 `protobuf:"varint,14,opt,name=previous_retired_height,json=previousRetiredHeight,proto3,oneof" json:"previous_retired_height,omitempty"`
+	// Explicit emergency-revoke height, present only for a REVOKED current key.
+	// On rotation, clip previous_retired_height to this height and clear it.
+	RevokedHeight *uint64 `protobuf:"varint,15,opt,name=revoked_height,json=revokedHeight,proto3,oneof" json:"revoked_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuilderState) Reset() {
@@ -427,6 +434,34 @@ func (x *BuilderState) GetPendingStageDutyCount() uint32 {
 func (x *BuilderState) GetPendingEvidenceSubmissionCount() uint32 {
 	if x != nil {
 		return x.PendingEvidenceSubmissionCount
+	}
+	return 0
+}
+
+func (x *BuilderState) GetPreviousServicePubkey() []byte {
+	if x != nil {
+		return x.PreviousServicePubkey
+	}
+	return nil
+}
+
+func (x *BuilderState) GetPreviousServiceAuthorizationNonce() uint64 {
+	if x != nil && x.PreviousServiceAuthorizationNonce != nil {
+		return *x.PreviousServiceAuthorizationNonce
+	}
+	return 0
+}
+
+func (x *BuilderState) GetPreviousRetiredHeight() uint64 {
+	if x != nil && x.PreviousRetiredHeight != nil {
+		return *x.PreviousRetiredHeight
+	}
+	return 0
+}
+
+func (x *BuilderState) GetRevokedHeight() uint64 {
+	if x != nil && x.RevokedHeight != nil {
+		return *x.RevokedHeight
 	}
 	return 0
 }
@@ -1428,7 +1463,7 @@ var File_hub_v1_builder_proto protoreflect.FileDescriptor
 
 const file_hub_v1_builder_proto_rawDesc = "" +
 	"\n" +
-	"\x14hub/v1/builder.proto\x12\x06hub.v1\x1a\x19cosmos_proto/cosmos.proto\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/rest_encoding.proto\"\xcb\x05\n" +
+	"\x14hub/v1/builder.proto\x12\x06hub.v1\x1a\x19cosmos_proto/cosmos.proto\x1a\x13hub/v1/common.proto\x1a\x16shared/v1/common.proto\x1a\x1dshared/v1/rest_encoding.proto\"\xc1\b\n" +
 	"\fBuilderState\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12A\n" +
 	"\x0fbuilder_address\x18\x02 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\x0ebuilderAddress\x12P\n" +
@@ -1441,7 +1476,15 @@ const file_hub_v1_builder_proto_rawDesc = "" +
 	"\x1bactive_task_liability_count\x18\t \x01(\rR\x18activeTaskLiabilityCount\x127\n" +
 	"\x18pending_stage_duty_count\x18\n" +
 	" \x01(\rR\x15pendingStageDutyCount\x12I\n" +
-	"!pending_evidence_submission_count\x18\v \x01(\rR\x1ependingEvidenceSubmissionCount\"\xb9\x02\n" +
+	"!pending_evidence_submission_count\x18\v \x01(\rR\x1ependingEvidenceSubmissionCount\x12A\n" +
+	"\x17previous_service_pubkey\x18\f \x01(\fB\x04\xc8\xf3\x18\x01H\x00R\x15previousServicePubkey\x88\x01\x01\x12T\n" +
+	"$previous_service_authorization_nonce\x18\r \x01(\x04H\x01R!previousServiceAuthorizationNonce\x88\x01\x01\x12;\n" +
+	"\x17previous_retired_height\x18\x0e \x01(\x04H\x02R\x15previousRetiredHeight\x88\x01\x01\x12*\n" +
+	"\x0erevoked_height\x18\x0f \x01(\x04H\x03R\rrevokedHeight\x88\x01\x01B\x1a\n" +
+	"\x18_previous_service_pubkeyB'\n" +
+	"%_previous_service_authorization_nonceB\x1a\n" +
+	"\x18_previous_retired_heightB\x11\n" +
+	"\x0f_revoked_height\"\xb9\x02\n" +
 	"\x15BuilderAdmissionState\x12A\n" +
 	"\x0fbuilder_address\x18\x01 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\x0ebuilderAddress\x12-\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x15.hub.v1.BuilderStatusR\x06status\x12=\n" +
@@ -1613,6 +1656,7 @@ func file_hub_v1_builder_proto_init() {
 		return
 	}
 	file_hub_v1_common_proto_init()
+	file_hub_v1_builder_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hub_v1_builder_proto_msgTypes[1].OneofWrappers = []any{}
 	file_hub_v1_builder_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}

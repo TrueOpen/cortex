@@ -1,0 +1,118 @@
+{
+  "schema": "trueopen-order-lifetime-v1",
+  "maximum_protocol_blocks": "7200",
+  "recommended_test_blocks": "7200",
+  "notes": [
+    "Heights and limits are decimal strings to preserve uint64 values across languages.",
+    "Expiry is inclusive and measured from signed earliest_submit_height, not the live binding height.",
+    "Admission and takeover apply the Session-frozen policy. Compensation only verifies the committed order identity.",
+    "Expiry must strictly follow earliest_submit_height; chain admission also requires the frozen recording span."
+  ],
+  "cases": [
+    {
+      "name": "same_block_expiry",
+      "earliest_submit_height": "100",
+      "order_expire_height": "100",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "test_limit_inclusive",
+      "earliest_submit_height": "100",
+      "order_expire_height": "220",
+      "max_order_lifetime_blocks": "120",
+      "allowed": true
+    },
+    {
+      "name": "test_limit_plus_one",
+      "earliest_submit_height": "100",
+      "order_expire_height": "221",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "protocol_limit_inclusive",
+      "earliest_submit_height": "100",
+      "order_expire_height": "7300",
+      "max_order_lifetime_blocks": "7200",
+      "allowed": true
+    },
+    {
+      "name": "zero_policy",
+      "earliest_submit_height": "100",
+      "order_expire_height": "100",
+      "max_order_lifetime_blocks": "0",
+      "allowed": false
+    },
+    {
+      "name": "policy_above_protocol_limit",
+      "earliest_submit_height": "100",
+      "order_expire_height": "100",
+      "max_order_lifetime_blocks": "7201",
+      "allowed": false
+    },
+    {
+      "name": "expiry_before_earliest",
+      "earliest_submit_height": "100",
+      "order_expire_height": "99",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "zero_earliest",
+      "earliest_submit_height": "0",
+      "order_expire_height": "1",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "last_usable_height",
+      "earliest_submit_height": "9223372036854768607",
+      "order_expire_height": "9223372036854775807",
+      "max_order_lifetime_blocks": "7200",
+      "allowed": true
+    },
+    {
+      "name": "last_usable_delta",
+      "earliest_submit_height": "9223372036854775806",
+      "order_expire_height": "9223372036854775807",
+      "max_order_lifetime_blocks": "1",
+      "allowed": true
+    },
+    {
+      "name": "unusable_earliest",
+      "earliest_submit_height": "9223372036854775808",
+      "order_expire_height": "9223372036854775808",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "unusable_expiry",
+      "earliest_submit_height": "9223372036854775807",
+      "order_expire_height": "9223372036854775808",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "unsigned_wrap_cannot_look_fresh",
+      "earliest_submit_height": "18446744073709551615",
+      "order_expire_height": "0",
+      "max_order_lifetime_blocks": "120",
+      "allowed": false
+    },
+    {
+      "name": "heights_above_javascript_exact_integer",
+      "earliest_submit_height": "9007199254740992",
+      "order_expire_height": "9007199254741112",
+      "max_order_lifetime_blocks": "120",
+      "allowed": true
+    },
+    {
+      "name": "shorter_legacy_policy_remains_valid",
+      "earliest_submit_height": "100",
+      "order_expire_height": "340",
+      "max_order_lifetime_blocks": "240",
+      "allowed": true
+    }
+  ]
+}

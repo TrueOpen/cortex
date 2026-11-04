@@ -9,9 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/dispatchstream"
+	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
@@ -272,8 +275,13 @@ func TestDispatchInputIsBoundedAndCounted(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := uint32(len(in))
-	if err := y.d.HandleInputResponse(ctx, hrBuilderA, y.fx.inputResponse(0, n+1, in[:1])); err == nil || builderclient.IsRetryable(err) {
-		t.Fatalf("more chunks than bytes: err = %v, want permanent", err)
+	// More chunks than bytes: since wire b30fba8 the signing projection
+	// itself refuses it, so no Builder can sign such a response.
+	th := y.fx.ticketHash()
+	if _, err := dispatchwire.Digest(&nexusv1.DispatchInputResponseV1{TaskId: y.fx.ticket.TaskId, DispatchTicketHash: th[:],
+		InputHash: y.fx.ticket.InputHash, InputSizeBytes: uint64(n), Input: in[:1], ChunkIndex: 0, ChunkCount: n + 1,
+		ServiceAuthorizationNonce: 1}); !errors.Is(err, dispatch.ErrDecode) {
+		t.Fatalf("more chunks than bytes: err = %v, want the projection to refuse it", err)
 	}
 	for i := int(n) - 1; i >= 0; i-- { // one-byte chunks, last first
 		if err := y.d.HandleInputResponse(ctx, hrBuilderA, y.fx.inputResponse(uint32(i), n, in[i:i+1])); err != nil {

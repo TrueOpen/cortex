@@ -1,7 +1,7 @@
 # Nexus Ingress Bindings
 
 Generated from the TrueOpen/wire descriptor of commit
-`916e3936355cb787f6e82509619f55c6b5aad7e2` (the Phase 1 candidate contract). See `proto/CHAIN_BINDINGS.md` for
+`b30fba873bd5b7553947f0ad32731fdd6e6ae93b` (the Phase 1 contract the devnet Node and Builder run). See `proto/CHAIN_BINDINGS.md` for
 the checksum, tools and reproduction instructions.
 
 Task receipts are imported from the same canonical `task.v1` graph used by
