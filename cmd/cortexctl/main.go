@@ -245,6 +245,7 @@ func newModelCommand(client clientFactory, stdout io.Writer) *cobra.Command {
 		newModelListCommand(client, stdout),
 		newModelShowCommand(client, stdout),
 		newModelFindCommand(stdout),
+		newModelAvailableCommand(client, stdout),
 		newModelSupportCommand(client, stdout, false),
 		newModelSupportCommand(client, stdout, true),
 	)
@@ -360,6 +361,21 @@ func newModelFindCommand(stdout io.Writer) *cobra.Command {
 			})
 		}
 		return printFormatted(stdout, rows, adminapi.Format(*format))
+	}
+	return cmd
+}
+
+// newModelAvailableCommand lists every chain model with this node's support
+// state, read by the daemon through its own Keeper and operator address.
+func newModelAvailableCommand(client clientFactory, stdout io.Writer) *cobra.Command {
+	cmd := &cobra.Command{Use: "available", Short: "List chain models and whether this node supports each", Args: cobra.NoArgs}
+	format := newFormatFlag(cmd, "table")
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		value, err := client().ModelAvailable(cmd.Context(), adminapi.ModelAvailableRequest{})
+		if err != nil {
+			return err
+		}
+		return printFormatted(stdout, value, adminapi.Format(*format))
 	}
 	return cmd
 }

@@ -955,6 +955,15 @@ func TestKeeperABCIClientModelsBySourcePagesAndFilters(t *testing.T) {
 		if err != nil || len(anyProvider) != 3 {
 			t.Fatalf("any provider = %d models, %v, want 3", len(anyProvider), err)
 		}
+		all, err := client.Models(context.Background())
+		if err != nil || len(all) != 4 {
+			t.Fatalf("all models = %d, %v, want every entry across both pages", len(all), err)
+		}
+		for i, model := range all {
+			if want := strings.Repeat(hex.EncodeToString([]byte{byte(i + 1)}), 32); model.ModelID != want {
+				t.Fatalf("models[%d] = %s, want %s in chain order", i, model.ModelID, want)
+			}
+		}
 		server.Close()
 	}
 }

@@ -39,6 +39,7 @@ type ServiceConfig struct {
 	TaskQueueRequeue           func(context.Context, TaskQueueRequeueRequest) (TaskQueueRequeueResponse, error)
 	TaskQueueList              func(context.Context, TaskQueueListRequest) (TaskQueueListResponse, error)
 	TaskSettlement             func(context.Context, TaskSettlementRequest) (TaskSettlementResponse, error)
+	ModelAvailable             func(context.Context, ModelAvailableRequest) (ModelAvailableResponse, error)
 }
 
 type Service struct {
@@ -53,6 +54,7 @@ type Service struct {
 	taskQueueRequeue           func(context.Context, TaskQueueRequeueRequest) (TaskQueueRequeueResponse, error)
 	taskQueueList              func(context.Context, TaskQueueListRequest) (TaskQueueListResponse, error)
 	taskSettlement             func(context.Context, TaskSettlementRequest) (TaskSettlementResponse, error)
+	modelAvailable             func(context.Context, ModelAvailableRequest) (ModelAvailableResponse, error)
 }
 
 type TreasuryStatus struct {
@@ -114,6 +116,29 @@ type TaskQueueRow struct {
 	HaltReason string `json:"halt_reason,omitempty"`
 }
 
+type ModelAvailableRequest struct{}
+
+// ModelAvailableResponse lists every model registered on chain, read at one
+// committed height, with this node's own support row for each.
+type ModelAvailableResponse struct {
+	OperatorAddress string              `json:"operator_address"`
+	Models          []ModelAvailableRow `json:"models"`
+}
+
+// ModelAvailableRow is one chain model. Supported is this operator's
+// declared_support; SupportActive is whether the chain has activated it.
+// Both are false when the operator has no support row for the model.
+type ModelAvailableRow struct {
+	ModelID              string `json:"model_id"`
+	Provider             string `json:"provider"`
+	RepoID               string `json:"repo_id"`
+	Status               string `json:"status"`
+	LatestProfileVersion uint32 `json:"latest_profile_version"`
+	ActiveSupporterCount uint32 `json:"active_supporter_count"`
+	Supported            bool   `json:"supported"`
+	SupportActive        bool   `json:"support_active"`
+}
+
 type ModelRegisterRequest struct {
 	Manifest               modelregistry.Manifest `json:"manifest"`
 	ModelRegistrationFee   uint64                 `json:"model_registration_fee"`
@@ -164,6 +189,7 @@ func New(config ServiceConfig) *Service {
 		taskQueueRequeue:           config.TaskQueueRequeue,
 		taskQueueList:              config.TaskQueueList,
 		taskSettlement:             config.TaskSettlement,
+		modelAvailable:             config.ModelAvailable,
 	}
 }
 
@@ -273,6 +299,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/model/show-projection", s.handleModelShowProjection)
 	mux.HandleFunc("/v1/model/support", s.handleModelSupport)
 	mux.HandleFunc("/v1/model/daily-support", s.handleModelDailySupport)
+	mux.HandleFunc("/v1/model/available", s.handleModelAvailable)
 	mux.HandleFunc("/v1/treasury/status", s.handleTreasuryStatus)
 	mux.HandleFunc("/v1/capability", s.handleCapability)
 	mux.HandleFunc("/v1/diagnostics", s.handleDiagnostics)
@@ -459,6 +486,13 @@ func (s *Service) TaskQueueRequeue(ctx context.Context, req TaskQueueRequeueRequ
 
 // taskQueueListMaxLimit bounds a response an operator reads in a terminal.
 const taskQueueListMaxLimit = 500
+
+func (s *Service) ModelAvailable(ctx context.Context, req ModelAvailableRequest) (ModelAvailableResponse, error) {
+	if s.modelAvailable == nil {
+		return ModelAvailableResponse{}, fmt.Errorf("model availability is unavailable: it needs a real Keeper")
+	}
+	return s.modelAvailable(ctx, req)
+}
 
 func (s *Service) TaskQueueList(ctx context.Context, req TaskQueueListRequest) (TaskQueueListResponse, error) {
 	if s.taskQueueList == nil {
@@ -674,6 +708,13 @@ func (s *Server) handleTaskQueueRequeue(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (s *Server) handleModelAvailable(w http.ResponseWriter, r *http.Request) {
+	var req ModelAvailableRequest
+	s.handle(w, r, &req, func(ctx context.Context) (any, error) {
+		return s.service.ModelAvailable(ctx, req)
+	})
+}
+
 func (s *Server) handleTaskQueueList(w http.ResponseWriter, r *http.Request) {
 	var req TaskQueueListRequest
 	s.handle(w, r, &req, func(ctx context.Context) (any, error) {
@@ -869,6 +910,12 @@ func (c *Client) TaskQueueRequeue(ctx context.Context, req TaskQueueRequeueReque
 	return out, err
 }
 
+func (c *Client) ModelAvailable(ctx context.Context, req ModelAvailableRequest) (ModelAvailableResponse, error) {
+	var out ModelAvailableResponse
+	err := c.post(ctx, "/v1/model/available", req, &out)
+	return out, err
+}
+
 func (c *Client) TaskQueueList(ctx context.Context, req TaskQueueListRequest) (TaskQueueListResponse, error) {
 	var out TaskQueueListResponse
 	err := c.post(ctx, "/v1/task/list", req, &out)
@@ -963,6 +1010,15 @@ func formatTable(value any) string {
 		return fmt.Sprintf("queue_id\ttask_id\tstatus\tretry_count\tretry_at\tlast_error\n%s\t%s\t%s\t%d\t%s\t%s\n", v.QueueID, v.TaskID, v.Status, v.RetryCount, v.RetryAt, v.LastError)
 	case TaskSettlementResponse:
 		return fmt.Sprintf("task_id\tstatus\tsubmitted\tconfirmed\ttx_hash\tincluded_height\treject_reason\terror\n%s\t%s\t%t\t%t\t%s\t%d\t%s\t%s\n", v.TaskID, v.Status, v.Submitted, v.Confirmed, v.TxHash, v.IncludedHeight, truncateError(v.RejectReason), truncateError(v.Error))
+	case ModelAvailableResponse:
+		var b strings.Builder
+		b.WriteString("model_id\tprovider\trepo_id\tstatus\tprofile_version\tactive_supporters\tsupported\tsupport_active\n")
+		for _, row := range v.Models {
+			b.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%d\t%t\t%t\n",
+				row.ModelID, row.Provider, row.RepoID, row.Status, row.LatestProfileVersion,
+				row.ActiveSupporterCount, row.Supported, row.SupportActive))
+		}
+		return b.String()
 	case TaskQueueListResponse:
 		var b strings.Builder
 		b.WriteString("queue_id\ttask_id\trole\tstage\tstatus\tretry_count\tretry_at\tdue_height\thalt_code\tlast_error\n")

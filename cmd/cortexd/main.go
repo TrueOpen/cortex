@@ -288,6 +288,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 		TaskQueueRequeue:           taskQueueRequeuer(runtime, taskManager),
 		TaskQueueList:              taskQueueLister(runtime, taskManager),
 		TaskSettlement:             taskSettlementSubmitter(runtime),
+		ModelAvailable:             modelAvailabilityLister(cfg, runtime),
 	}))
 	if err := adminServer.Start(ctx); err != nil {
 		return err

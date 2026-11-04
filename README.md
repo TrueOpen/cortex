@@ -216,6 +216,15 @@ refused. Look the id up from the model's source on chain:
 bin/cortexctl model find --rpc <keeper-rpc> --provider HUGGINGFACE --repo <owner/name> --format json
 ```
 
+On a running node, `cortexctl model available` lists every model registered
+on chain with the node's own support row for each: `supported` is the
+operator's `declared_support`, `support_active` whether the chain has activated
+it. A model the operator never declared reads `false` in both.
+
+```sh
+bin/cortexctl model available [--format json]
+```
+
 At startup, and on every readiness check, each configured model id is read
 from its chain ModelState and bound to that model's `repo_id`. The local vLLM
 adapter serves only `HUGGINGFACE` sources, and the vLLM served model name
