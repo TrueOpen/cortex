@@ -199,7 +199,7 @@ func omLeaf(free uint32, expiry uint64, model string) *taskv1.HandraiseRootLeafV
 func omRoot(t *testing.T, height, version uint64, leaf *taskv1.HandraiseRootLeafV1) (HeldRoot, *taskv1.SignedHandraiseRootV1) {
 	t.Helper()
 	root := &taskv1.SignedHandraiseRootV1{ChainId: dpChainID, BuilderAddress: hrBuilderA, RootHeight: height, RootVersion: version, LeafCount: 1,
-		Root: bytes.Repeat([]byte{byte(height + version)}, 32)}
+		Root: bytes.Repeat([]byte{byte(height + version)}, 32), ServiceAuthorizationNonce: 1}
 	d, err := dispatchwire.Digest(root)
 	if err != nil {
 		t.Fatal(err)
@@ -345,7 +345,7 @@ func TestOmittedNodeChallengesWithTheBoundRoot(t *testing.T) {
 	}
 	m := omChallenge(t, reqs[0])
 	if m.GetChallengerAddress() != omService || m.GetDispatchRound() != 0 || m.GetFirstRoundRoster() != nil || !proto.Equal(m.GetRoster(), x.roster) ||
-		!proto.Equal(m.GetHandraiseRoot(), x.bound) || m.GetInclusionProof().GetLeaf().GetHandraise().GetMember().GetSlot() != 4 ||
+		!proto.Equal(m.GetHandraiseRoot(), x.bound) || m.GetBoundHandraiseRoot() != nil || m.GetInclusionProof().GetLeaf().GetHandraise().GetMember().GetSlot() != 4 ||
 		m.GetNonInclusionProof().GetPredecessor().GetSlot() != 1 || m.GetNonInclusionProof().GetSuccessor().GetSlot() != 7 {
 		t.Fatalf("challenge = %v", m)
 	}
@@ -441,12 +441,17 @@ func TestNewerRootBeforeEarliestSubmitIsEvidence(t *testing.T) {
 	x := newOmission(t, omLeaf(0, 250, "m")) // the bound root's leaf has no free slot
 	newer, newerRoot := omRoot(t, 185, 1, omLeaf(2, 250, "m"))
 	late, _ := omRoot(t, 195, 1, omLeaf(2, 250, "m")) // signed after earliest_submit 190: no evidence
-	x.roots.roots = append([]HeldRoot{late, newer}, x.roots.roots...)
+	// wire b30fba8: root_height + 2 must not pass earliest_submit_height.
+	tooLate, _ := omRoot(t, 189, 1, omLeaf(2, 250, "m"))
+	x.roots.roots = append([]HeldRoot{late, tooLate, newer}, x.roots.roots...)
 	x.observe()
 	x.sweepAt(201)
 	reqs := x.tx.requests()
 	if len(reqs) != 1 || !proto.Equal(omChallenge(t, reqs[0]).GetHandraiseRoot(), newerRoot) {
-		t.Fatal("source (b): the newer root with root_height <= earliest_submit_height")
+		t.Fatal("source (b): the newer root with root_height + 2 <= earliest_submit_height")
+	}
+	if !proto.Equal(omChallenge(t, reqs[0]).GetBoundHandraiseRoot(), x.bound) {
+		t.Fatal("a newer-root proof carries the round's bound root preimage (bound_handraise_root)")
 	}
 }
 
