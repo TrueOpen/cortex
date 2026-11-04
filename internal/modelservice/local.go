@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -411,6 +412,7 @@ type completionChoice struct {
 }
 
 type completionResponse struct {
+	ID      string             `json:"id"`
 	Choices []completionChoice `json:"choices"`
 }
 
@@ -1167,6 +1169,19 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	tokenIDsRef := s.putArtifact(tokenIDsBytes)
 	positionValuesRef := s.putArtifact(positionValuesBytes)
 	generatedTokenCount := uint64(len(generatedIDs))
+	// ADR-0040: an engine with the anchor sidecar serves the AnchorCommitV1 of
+	// this completion under its id. The bytes are kept exactly as served; the
+	// Worker commits to their hash.
+	anchorCommitRef := ""
+	if resp.ID != "" {
+		anchorCommit, err := s.fetchAnchorCommit(ctx, resp.ID)
+		if err != nil {
+			return InferResponse{}, err
+		}
+		if anchorCommit != nil {
+			anchorCommitRef = s.putArtifact(anchorCommit)
+		}
+	}
 
 	return InferResponse{
 		RequestID:              req.RequestID,
@@ -1183,7 +1198,61 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		GeneratedTokenCount:    generatedTokenCount,
 		WorkUnit:               generatedTokenCount,
 		FinishReason:           finishReason,
+		EngineRequestID:        resp.ID,
+		AnchorCommitRef:        anchorCommitRef,
 	}, nil
+}
+
+// maxAnchorCommitBytes bounds the AnchorCommitV1 document: it holds token ids,
+// Merkle roots and checkpoint hashes, never anchors themselves.
+const maxAnchorCommitBytes = 16 << 20
+
+// fetchAnchorCommit asks the engine sidecar for the AnchorCommitV1 of a
+// finished completion (GET /slp/commit/{id}, ADR-0040). An engine without the
+// sidecar answers 404, which is not an error here: whether the commitment is
+// required is the locked Profile's call, made by the Worker.
+func (s *LocalService) fetchAnchorCommit(ctx context.Context, completionID string) ([]byte, error) {
+	path := "/slp/commit/" + url.PathEscape(completionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("modelservice local: create request %s: %w", path, err)
+	}
+	if s.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	}
+	resp, err := s.http.Do(req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, retryableError{err: fmt.Errorf("modelservice local: request %s: %w", path, err)}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		err := fmt.Errorf("modelservice local: %s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(detail)))
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			return nil, retryableError{err: err}
+		}
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAnchorCommitBytes+1))
+	if err != nil {
+		return nil, retryableError{err: fmt.Errorf("modelservice local: read %s: %w", path, err)}
+	}
+	if len(data) > maxAnchorCommitBytes {
+		return nil, fmt.Errorf("modelservice local: %s exceeds %d bytes", path, maxAnchorCommitBytes)
+	}
+	var head struct {
+		RequestID string `json:"request_id"`
+	}
+	if !json.Valid(data) || json.Unmarshal(data, &head) != nil || head.RequestID == "" {
+		return nil, fmt.Errorf("modelservice local: %s is not an AnchorCommitV1 document", path)
+	}
+	return data, nil
 }
 
 // checkEOSFinish refuses an EOS_TOKEN finish whose last generated token is not
@@ -1653,6 +1722,9 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 		var chunk completionResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			return fmt.Errorf("modelservice local: decode stream frame: %w", err)
+		}
+		if out.ID == "" && chunk.ID != "" {
+			out.ID = chunk.ID
 		}
 		if len(chunk.Choices) == 0 {
 			continue

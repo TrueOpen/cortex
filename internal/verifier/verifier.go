@@ -379,6 +379,7 @@ func (v *Verifier) profileEvidenceLimits(state TaskState, profile chainclient.Cu
 	if !served {
 		return map[nodewire.EvidenceKind]uint64{
 			nodewire.EvidenceKindWorkerValueOpening: math.MaxUint64, nodewire.EvidenceKindWorkerTokenOpening: math.MaxUint64,
+			nodewire.EvidenceKindWorkerAnchorOpening: math.MaxUint64,
 		}, nil
 	}
 	if _, err := keepercontract.EvidenceSchemaHashFromCurrentModelProfile(profile); err != nil {
@@ -389,14 +390,15 @@ func (v *Verifier) profileEvidenceLimits(state TaskState, profile chainclient.Cu
 	for _, req := range schema.RequiredInferEvidence {
 		kind := nodewire.EvidenceKind(req.EvidenceKind)
 		supported := kind == nodewire.EvidenceKindWorkerValueOpening && req.CommitmentSchemaVersion == nodewire.WorkerValueCommitmentSchemaVersionV3 ||
-			kind == nodewire.EvidenceKindWorkerTokenOpening && req.CommitmentSchemaVersion == nodewire.WorkerTokenCommitmentSchemaVersionV1
+			kind == nodewire.EvidenceKindWorkerTokenOpening && req.CommitmentSchemaVersion == nodewire.WorkerTokenCommitmentSchemaVersionV1 ||
+			kind == nodewire.EvidenceKindWorkerAnchorOpening && req.CommitmentSchemaVersion == nodewire.WorkerAnchorCommitmentSchemaVersionV1
 		if !supported {
 			return nil, fmt.Errorf("locked profile requires unsupported evidence kind %d at commitment schema %d", req.EvidenceKind, req.CommitmentSchemaVersion)
 		}
 		limits[kind] = req.MaxEncodedSizeBytes.Uint64()
 	}
-	if len(limits) != 2 {
-		return nil, fmt.Errorf("locked profile must require exactly the Worker value and token evidence")
+	if limits[nodewire.EvidenceKindWorkerValueOpening] == 0 || limits[nodewire.EvidenceKindWorkerTokenOpening] == 0 {
+		return nil, fmt.Errorf("locked profile must require the Worker value and token evidence")
 	}
 	return limits, nil
 }

@@ -482,6 +482,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmani
 	// localGenerationFinishReason maps an id in eos_token_ids to EOS and refuses
 	// any other.
 	return completionResponse{
+		ID: chatResp.ID,
 		Choices: []completionChoice{{
 			Text:           text,
 			FinishReason:   finishReason,

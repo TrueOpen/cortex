@@ -188,7 +188,8 @@ func digestOf(preimage []byte, err error) (codec.Hash, error) {
 // frozen framing requires to be rejected rather than framed.
 func canonicalEvidenceKind(kind EvidenceKind) (uint32, error) {
 	switch kind {
-	case EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindSettlementRootOpening, EvidenceKindWorkerTokenOpening:
+	case EvidenceKindWorkerValueOpening, EvidenceKindVerifierValueOpening, EvidenceKindSettlementRootOpening, EvidenceKindWorkerTokenOpening,
+		EvidenceKindWorkerAnchorOpening:
 		return uint32(kind), nil
 	case EvidenceKindUnspecified:
 		return 0, fmt.Errorf("evidence_kind must not be EVIDENCE_KIND_UNSPECIFIED")

@@ -347,8 +347,13 @@ type InferResponse struct {
 	// TokenIDsRef names a TokenIDsV1 artifact and PositionValuesRef a
 	// PositionValuesV1 artifact (see material.go). Cortex derives the A-level
 	// and B-level Worker evidence from them; neither is evidence itself.
-	TokenIDsRef         string
-	PositionValuesRef   string
+	TokenIDsRef       string
+	PositionValuesRef string
+	// EngineRequestID is the engine-side request id (vLLM completion id) and
+	// AnchorCommitRef names the AnchorCommitV1 artifact fetched from the
+	// engine sidecar (ADR-0040); both empty when the engine has no sidecar.
+	EngineRequestID     string
+	AnchorCommitRef     string
 	Error               *ServiceError
 	GeneratedTokenCount uint64
 	WorkUnit            uint64
