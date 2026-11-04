@@ -22,7 +22,8 @@ them in tests:
 | Signer | local keystore (`file://`) or remote HTTP | `signer.uri`, `local_identity.service_key_ref` |
 
 Two binaries: `cortexd` (daemon) and `cortexctl` (operator CLI over a Unix
-socket, plus offline helpers such as `onboard` and `model find`).
+socket, plus chain-direct helpers such as `onboard`, `model available --rpc`
+and `model find`).
 
 **Fail-closed is the design.** Real mode never substitutes a fake for a missing
 dependency. A red dependency means the affected runner stays stopped, not that
@@ -237,7 +238,7 @@ Everything is driven from the operator's machine by
 1. §6 GPU driver: `nvidia-smi` prints a table
 2. §3.4 server prerequisites
 3. `make build` on the operator machine, so `bin/cortexctl` exists (it reads the chain directly; no daemon needed)
-4. §5.0 list the models registered on chain, **let the human choose one by `repo_id`**, and record its model id, profile version, revision and `required_top_k`
+4. §5.0 list the models registered on chain (`cortexctl model available --rpc`), **let the human choose one by `repo_id`**, and record its model id, profile version, revision and `required_top_k`
 5. §5 install vLLM, pull exactly that `repo_id` at that revision, and serve it; `/v1/models` shows the chain `repo_id`
 6. §3.1 / §3.2 human-provided inputs are present
 7. §4.2 env file for this host written: `CORTEX_NODE_COUNT=1` (§1.4), the §1.2 transport overrides, and the model values from step 4
@@ -415,7 +416,7 @@ deployment.
 | `chain` / `keeper` | RPC/REST/Keeper unreachable; the poller retries forever with backoff | usually no; check §4.6 |
 | `model_service` | vLLM not answering, wrong transport, or the model id is not bound (§5.3) | yes, §1.2 and §5 |
 | `keeper_identity` | operator bond is not ACTIVE / is JAILED, or the service key does not match | **no**, chain-side; ask a human |
-| `model_support` | model support not declared on chain | **no**, chain-side; ask a human |
+| `model_support` | model support not declared on chain, or not yet active | **no**, chain-side; ask a human. Check with `cortexctl model available` on the node (`supported` / `support_active`) |
 | `dispatch_stream:<builder>` | that Builder's stream is not bound (descriptor, TLS pin, keepalive) | usually peer-side; `/readyz` needs at least one bound |
 | `builder_descriptor` | only when `CORTEX_NEXUS_BUILDER_OPERATOR` is set: descriptor missing or not committing this ingress | peer-side |
 | `tx_broadcaster` | signer cannot sign Cosmos transactions | **optional**, ignore |
@@ -481,54 +482,43 @@ the human, and let them pick. Do not pick on their behalf, even when only one
 model is listed. The choice decides what vLLM downloads and serves, and
 `model_support` (declaring support on chain) is per model.
 
-**Step 1: list every registered model.** `cortexctl model find` needs an exact
-`--repo`, and `cortexctl model list` goes through the admin socket of a running
-daemon. Neither can enumerate the catalogue before Cortex is configured. Use
-the chain's REST query (`Query/Models`, the only enumeration the chain offers)
-on `CORTEX_NODE_REST`:
+**Step 1: list every registered model.** `cortexctl model available --rpc`
+reads the whole model registry straight from the chain. It needs no running
+`cortexd`, so it works before this node is configured, and it can run from the
+operator machine:
 
 ```sh
-REST=<CORTEX_NODE_REST>
-curl -s "$REST/TrueOpen/hub/v1/models" | jq .        # look at the raw shape once
-curl -s "$REST/TrueOpen/hub/v1/models" | jq -r \
-  '.models[] | [.repo_id, .provider, .status, .latest_profile_version, .active_supporter_count, .model_id] | @tsv'
+bin/cortexctl model available --rpc <CORTEX_NODE_RPC> \
+  --operator <CORTEX_NODE1_OPERATOR_ADDRESS> --format json
 ```
 
-**VERIFY** the response field names against the raw output. The chain's REST
-projection may differ in casing or nesting from the names above, which are the
-ones `internal/chainclient` decodes. The response is paged. When
-`.page.next_page_token` is non-empty, request again with
-`?page.page_token=<token, URL-encoded>`, and repeat until it is empty.
+Each entry in `.models[]` has `model_id`, `provider`, `repo_id`, `status`
+(already stripped of its `MODEL_PROFILE_STATUS_` prefix),
+`latest_profile_version` and `active_supporter_count`. `--operator` is
+optional. When it is given, each row also has `supported` (this operator has
+declared support on chain) and `support_active` (the chain has activated that
+support). A model the operator never declared reads `false` in both. Without
+`--operator`, those two fields are omitted from the JSON.
 
 Present the list to the human as a table: `repo_id`, `provider`, `status`,
-latest profile version, supporter count. Filter or flag rows before showing
-them:
+latest profile version, supporter count, plus `supported` / `support_active`
+when you passed `--operator`. Filter or flag rows before showing them:
 
 - `provider` must be `HUGGINGFACE`, because the `local` adapter serves nothing
   else;
-- a `status` of `FROZEN`, `EMERGENCY_FROZEN` or `DELISTED` (with or without the
-  `MODEL_PROFILE_STATUS_` prefix) gets no work: show those rows, marked, but do
-  not recommend them. `ACTIVE` is the normal state, and `REGISTERED` is not yet
-  active.
+- a `status` of `FROZEN`, `EMERGENCY_FROZEN` or `DELISTED` gets no work: show
+  those rows, marked, but do not recommend them. `ACTIVE` is the normal state,
+  and `REGISTERED` is not yet active.
 
 Ask the human which `repo_id` this machine should serve. Mention the GPU you
 found in §6.1 (model and VRAM), because they are the one who knows whether the
-model fits.
+model fits. If more than one row has the chosen `repo_id`, show all of them and
+ask which `model_id` to use.
 
-**Step 2: confirm the choice through the verified path.** This also catches a
-misread REST shape:
-
-```sh
-bin/cortexctl model find --rpc <CORTEX_NODE_RPC> --provider HUGGINGFACE --repo <owner/name> --format json
-```
-
-It must return exactly one row. If it returns several, more than one model is
-registered for the same repo. Show them to the human and ask which `model_id`
-to use.
-
-**Step 3: read the profile and the verified manifest:**
+**Step 2: read the profile and the verified manifest:**
 
 ```sh
+REST=<CORTEX_NODE_REST>
 curl -s "$REST/TrueOpen/hub/v1/profile/<model_id>/<latest_profile_version>" | jq .
 bin/cortexctl model manifest fetch <model_id> --rpc <CORTEX_NODE_RPC> \
   --profile-version <latest_profile_version> --format json
@@ -543,9 +533,9 @@ derived from them:
 
 | Value | From | Used for |
 |---|---|---|
-| `model_id` (64 hex) | `model find` | `CORTEX_MODEL_ID` |
+| `model_id` (64 hex) | `model available` | `CORTEX_MODEL_ID` |
 | profile version | `latest_profile_version` | `CORTEX_MODEL_PROFILES` = `<model_id>@<version>=llm_text_v1` |
-| `repo_id` | `model find` / manifest | vLLM model and `--served-model-name` |
+| `repo_id` | `model available` / manifest | vLLM model and `--served-model-name` |
 | `revision` | manifest | vLLM `--revision` (§5.5) |
 | `required_top_k` | profile | vLLM `--max-logprobs` must be at least this |
 | `resource_tier`, `task_types` | profile | show to the human with the choice |
@@ -559,9 +549,12 @@ is loaded. Serving the repo's latest revision instead of the manifest's makes
 every output disagree with the Verifiers, and nothing reports the cause, the
 same failure mode as §5.2.
 
-Two more steps belong to the human, after the deployment: declaring model
-support on chain (`model_support` stays red until it is done) and, for a gated
-repo, providing an HF token.
+Two more steps belong to the human: declaring model support on chain
+(`model_support` stays red until it is done) and, for a gated repo, providing
+an HF token. Check the support state at any time with
+`cortexctl model available --rpc <CORTEX_NODE_RPC> --operator <operator> --format json`.
+Read the chosen model's `supported` and `support_active` fields. Both must be
+`true` before the node gets work for that model.
 
 ### 5.1 What Cortex needs from it
 
@@ -825,6 +818,7 @@ Before deploying:
 - [ ] chain is alive (`/status` tip advancing, `/block_results` not 500)
 - [ ] `nvidia-smi` prints a table; no unexplained VRAM tenants
 - [ ] the human chose the model from the chain catalogue (§5.0); its model id, profile version, revision and `required_top_k` are recorded
+- [ ] `model available --operator` shows `supported` and `support_active` true for that model, or the human knows it is still pending
 - [ ] vLLM answers `/health`, and `/v1/models` lists exactly the chain `repo_id`
 - [ ] vLLM was started with the manifest's `--revision` and `--max-logprobs` ≥ `required_top_k`
 - [ ] vLLM was started with `--logprobs-mode raw_logprobs`
@@ -863,7 +857,7 @@ Reporting:
 | chat input schema | `proto/cortex/v1/chat_input.proto` |
 | config fields, env var names, validation | `internal/config/config.go` |
 | key generation / registration proof | `cmd/cortexctl/onboard.go` |
-| chain model lookup and manifest fetch | `cmd/cortexctl/main.go` (`model find`), `cmd/cortexctl/manifest_fetch.go`, `internal/chainclient/keeper.go` (`ModelsBySource`) |
+| chain model listing, lookup and manifest fetch | `cmd/cortexctl/main.go` (`model available`, `model find`), `internal/adminapi/model_available.go`, `cmd/cortexctl/manifest_fetch.go`, `internal/chainclient/keeper.go` (`Models`, `ModelsBySource`) |
 | admin socket routes | `internal/adminapi/admin.go` |
 | what the deploy script renders and forwards | `scripts/testnet-deploy.sh` (`render_one`, `CORTEX_FORWARDED_OVERRIDES`) |
 
