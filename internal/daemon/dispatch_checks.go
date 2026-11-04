@@ -29,18 +29,21 @@ const (
 
 // Local reject classes (CD §5.1 "可审计的 reason 类别"; Q2).
 const (
-	classRotationPending    = "service_key_rotation_pending"
-	classOrderInvalid       = "order_invalid"
-	classOrderExpired       = "order_expired"
-	classStaleBoundChange   = "builder_stale_bound_change_height"
-	classNodeIneligible     = "node_ineligible"
-	classWinnerIneligible   = "winner_ineligible"
-	classProfileUnavailable = "profile_unavailable"
-	classPriceBelowMin      = "price_below_min"
-	classInputMismatch      = "input_metadata_mismatch"
-	classInputTooLarge      = "input_too_large"
-	classNoFreeSlot         = "no_free_slot"
-	classBuilderRetiring    = "builder_retiring"
+	classRotationPending = "service_key_rotation_pending"
+	// classBuilderRotationPending: the Builder's own pending rotation
+	// activates at or before the order (wire PHASE1_CONTRACT).
+	classBuilderRotationPending = "builder_service_key_rotation_pending"
+	classOrderInvalid           = "order_invalid"
+	classOrderExpired           = "order_expired"
+	classStaleBoundChange       = "builder_stale_bound_change_height"
+	classNodeIneligible         = "node_ineligible"
+	classWinnerIneligible       = "winner_ineligible"
+	classProfileUnavailable     = "profile_unavailable"
+	classPriceBelowMin          = "price_below_min"
+	classInputMismatch          = "input_metadata_mismatch"
+	classInputTooLarge          = "input_too_large"
+	classNoFreeSlot             = "no_free_slot"
+	classBuilderRetiring        = "builder_retiring"
 )
 
 // verdict is one signed-reject decision.

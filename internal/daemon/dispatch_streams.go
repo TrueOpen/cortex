@@ -91,7 +91,7 @@ func NewDispatchStreams(cfg DispatchStreamsConfig) (*DispatchStreams, error) {
 		sess, err := dispatchstream.New(dispatchstream.Config{
 			ChainID: cfg.ChainID, BuilderOperator: b, CortexOperator: cfg.Operator,
 			HTTPClient: &descriptorClient{builder: b, endpoints: cfg.Endpoints, members: cfg.Members, http: cfg.HTTP, downgrade: cfg.Downgrade},
-			BaseURL:    dispatchStreamBase, Sign: cfg.Sign, AuthNonce: authNonce, BuilderKey: keys.Key,
+			BaseURL:    dispatchStreamBase, Sign: cfg.Sign, AuthNonce: authNonce, BuilderKeys: keys.Keys,
 			Store: cfg.Store, Handler: s.router, KeepaliveEvery: cfg.Stream.Keepalive(), MaxMissed: cfg.Stream.MaxMissed,
 			HandlerTimeout: cfg.Stream.HandlerTimeout(), Backoff: streamBackoff(cfg.Stream.ReconnectMin(), cfg.Stream.ReconnectMax()),
 			Now: cfg.Now, Height: cfg.Height, OnBound: s.router.onBound, Logger: cfg.Logger,

@@ -98,7 +98,7 @@ func TestVerifyInclusionPublishedSignedRoot(t *testing.T) {
 			AdmitRejectReason: taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_NONE},
 		LeafIndex: 0,
 	}
-	ctx := InclusionContext{ChainID: root.ChainId, BuilderOperator: root.BuilderAddress, BuilderPubKey: mustHex(t, rootRow.PublicKeyHex)}
+	ctx := InclusionContext{ChainID: root.ChainId, BuilderOperator: root.BuilderAddress, BuilderKeys: currentKeys(root.BuilderAddress, mustHex(t, rootRow.PublicKeyHex))}
 	inc, err := VerifyInclusion(root, proof, ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestVerifyInclusionSelfBuiltRoot(t *testing.T) {
 	}
 	r := dispatch.HandraiseRoot(digests)
 	root := &taskv1.SignedHandraiseRootV1{ChainId: base.ChainId, BuilderAddress: base.BuilderAddress,
-		RootHeight: 7, RootVersion: 1, LeafCount: 3, Root: r[:]}
+		RootHeight: 7, RootVersion: 1, LeafCount: 3, Root: r[:], ServiceAuthorizationNonce: 1}
 	// The Builder signs with the same digest-to-raw64 path Cortex uses.
 	d, err := Digest(root)
 	if err != nil {
@@ -152,7 +152,7 @@ func TestVerifyInclusionSelfBuiltRoot(t *testing.T) {
 	if root.BuilderServiceSignature, err = localSigner(builderKey)(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
-	ictx := InclusionContext{ChainID: base.ChainId, BuilderOperator: base.BuilderAddress, BuilderPubKey: pubKey(t, builderKey)}
+	ictx := InclusionContext{ChainID: base.ChainId, BuilderOperator: base.BuilderAddress, BuilderKeys: currentKeys(base.BuilderAddress, pubKey(t, builderKey))}
 	for i := range leaves {
 		sib, err := dispatch.HandraiseProof(digests, uint32(i))
 		if err != nil {
@@ -198,7 +198,7 @@ func TestVerifyInclusionSelfBuiltRoot(t *testing.T) {
 			t.Fatalf("leaf %d: wrong index err = %v", i, err)
 		}
 		otherKey := ictx
-		otherKey.BuilderPubKey = pubKey(t, fixtureKeyHex)
+		otherKey.BuilderKeys = currentKeys(base.BuilderAddress, pubKey(t, fixtureKeyHex))
 		if _, err := VerifyInclusion(root, proof, otherKey); !errors.Is(err, ErrBuilderSignature) {
 			t.Fatalf("leaf %d: other Builder key err = %v", i, err)
 		}
@@ -221,7 +221,7 @@ func signedRootOver(t *testing.T, builderKey, chainID, builder string, leaves []
 	}
 	r := dispatch.HandraiseRoot(digests)
 	root := &taskv1.SignedHandraiseRootV1{ChainId: chainID, BuilderAddress: builder,
-		RootHeight: 9, RootVersion: 1, LeafCount: uint32(len(leaves)), Root: r[:]}
+		RootHeight: 9, RootVersion: 1, LeafCount: uint32(len(leaves)), Root: r[:], ServiceAuthorizationNonce: 1}
 	d, err := Digest(root)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestVerifyInclusionBindsChainAndBuilder(t *testing.T) {
 			AdmitRejectReason: taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_NONE}}
 	}
 	same := func(*taskv1.StandingHandraiseV1) {}
-	good := InclusionContext{ChainID: base.ChainId, BuilderOperator: base.BuilderAddress, BuilderPubKey: pubKey(t, builderKey)}
+	good := InclusionContext{ChainID: base.ChainId, BuilderOperator: base.BuilderAddress, BuilderKeys: currentKeys(base.BuilderAddress, pubKey(t, builderKey))}
 
 	root, proof := signedRootOver(t, builderKey, base.ChainId, base.BuilderAddress, leafFor(same), 0)
 	if _, err := VerifyInclusion(root, proof, good); err != nil {
@@ -280,10 +280,10 @@ func TestVerifyInclusionBindsChainAndBuilder(t *testing.T) {
 		}, good, ErrInclusionBuilder},
 		{"stream builder", func() (*taskv1.SignedHandraiseRootV1, *taskv1.HandraiseInclusionProofV1) {
 			return root, proof
-		}, InclusionContext{ChainID: good.ChainID, BuilderOperator: otherOperator, BuilderPubKey: good.BuilderPubKey}, ErrInclusionBuilder},
+		}, InclusionContext{ChainID: good.ChainID, BuilderOperator: otherOperator, BuilderKeys: good.BuilderKeys}, ErrInclusionBuilder},
 		{"stream chain", func() (*taskv1.SignedHandraiseRootV1, *taskv1.HandraiseInclusionProofV1) {
 			return root, proof
-		}, InclusionContext{ChainID: "other-chain", BuilderOperator: good.BuilderOperator, BuilderPubKey: good.BuilderPubKey}, ErrInclusionChain},
+		}, InclusionContext{ChainID: "other-chain", BuilderOperator: good.BuilderOperator, BuilderKeys: good.BuilderKeys}, ErrInclusionChain},
 		{"no leaf", func() (*taskv1.SignedHandraiseRootV1, *taskv1.HandraiseInclusionProofV1) {
 			return root, &taskv1.HandraiseInclusionProofV1{}
 		}, good, ErrInclusionMalformed},

@@ -239,6 +239,7 @@ func (f *offerFixture) inputResponse(index, count uint32, chunk []byte) *nexusv1
 	m := &nexusv1.DispatchInputResponseV1{
 		TaskId: bytes.Clone(f.ticket.TaskId), DispatchTicketHash: th[:], InputHash: bytes.Clone(f.ticket.InputHash),
 		InputSizeBytes: uint64(len(f.input)), Input: bytes.Clone(chunk), ChunkIndex: index, ChunkCount: count,
+		ServiceAuthorizationNonce: f.ticket.ServiceAuthorizationNonce,
 	}
 	d, err := dispatchwire.Digest(m)
 	if err != nil {

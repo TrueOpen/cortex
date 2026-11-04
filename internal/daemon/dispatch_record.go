@@ -49,11 +49,15 @@ var _ DispatchRecordObserver = (*Dispatcher)(nil)
 // else (§8.6); RECORDED makes this node ask the chain, now and on the next
 // sweeps, and only the chain's answer moves the ticket. The notice is stored
 // and acknowledged even when the chain does not show the record yet (S5 Q4).
-// The session verified builder_service_signature before this call (S4 Q10).
+// The session verified builder_service_signature before this call (S4 Q10);
+// verifyRetained binds the notice to the stored ticket.
 func (d *Dispatcher) HandleRecordResult(ctx context.Context, builder string, n *nexusv1.RecordResultNoticeV1) error {
 	ticket, ok := hash32(n.GetDispatchTicketHash())
 	if !ok {
 		return errors.New("record notice: dispatch_ticket_hash is not 32 bytes")
+	}
+	if err := d.verifyRetained(ctx, ticket, builder, n); err != nil {
+		return err
 	}
 	if err := d.lock(ctx); err != nil {
 		return err

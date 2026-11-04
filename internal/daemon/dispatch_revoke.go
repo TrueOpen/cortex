@@ -12,15 +12,12 @@ import (
 )
 
 // HandleRevoke applies one DispatchRevokeV1 from builder. The session already
-// verified builder_service_signature on the received bytes against builder's
-// current key (dispatchstream.Handler contract, Q10). CD §4.2.0 撤回: stop at
-// once, release the lease, never claim (S6 reads State), keep ticket and
+// verified builder_service_signature on the received bytes by the generation
+// its nonce names (dispatchstream.Handler contract, Q10); a revoke for a held
+// ticket is also bound to that ticket (checkTicketBound). CD §4.2.0 撤回: stop
+// at once, release the lease, never claim (S6 reads State), keep ticket and
 // revoke. Staged input is dropped with the state change (I7).
 func (d *Dispatcher) HandleRevoke(ctx context.Context, builder string, rv *nexusv1.DispatchRevokeV1) error {
-	if err := d.lock(ctx); err != nil {
-		return err
-	}
-	defer d.unlock()
 	if rv.GetReason() != nexusv1.DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_RBF {
 		return fmt.Errorf("dispatch revoke from %s: reason %v is outside the closed set (RBF only)", builder, rv.GetReason())
 	}
@@ -29,6 +26,13 @@ func (d *Dispatcher) HandleRevoke(ctx context.Context, builder string, rv *nexus
 	if !ok1 || !ok2 {
 		return fmt.Errorf("dispatch revoke from %s: task_id and dispatch_ticket_hash must be 32 bytes", builder)
 	}
+	if err := d.verifyRetained(ctx, ticket, builder, rv); err != nil {
+		return err
+	}
+	if err := d.lock(ctx); err != nil {
+		return err
+	}
+	defer d.unlock()
 	raw, err := dispatchwire.Raw(rv)
 	if err != nil {
 		return err

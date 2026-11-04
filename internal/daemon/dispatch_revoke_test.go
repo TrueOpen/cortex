@@ -16,7 +16,7 @@ import (
 func dpRevoke(t *testing.T, x *dispatchHarness, reason nexusv1.DispatchRevokeReasonV1) *nexusv1.DispatchRevokeV1 {
 	t.Helper()
 	th := x.fx.ticketHash()
-	m := &nexusv1.DispatchRevokeV1{TaskId: bytes.Clone(x.fx.ticket.TaskId), DispatchTicketHash: th[:], RevokedHeight: 151, Reason: reason}
+	m := &nexusv1.DispatchRevokeV1{TaskId: bytes.Clone(x.fx.ticket.TaskId), DispatchTicketHash: th[:], RevokedHeight: 151, Reason: reason, ServiceAuthorizationNonce: 1}
 	d, err := dispatchwire.Digest(m)
 	if err != nil {
 		t.Fatal(err)

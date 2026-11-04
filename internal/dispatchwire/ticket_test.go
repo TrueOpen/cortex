@@ -92,7 +92,7 @@ func loadTicketVector(t *testing.T) (*taskv1.DispatchTicketV1, TicketContext) {
 		ChainID:              tk.ChainId,
 		BuilderOperator:      tk.BuilderAddress,
 		SelfOperator:         tk.Target.OperatorAddress,
-		BuilderServicePubKey: mustHex(t, ticketRow.PublicKeyHex),
+		BuilderKeys:          currentKeys(tk.BuilderAddress, mustHex(t, ticketRow.PublicKeyHex)),
 		BuilderVRFPubKey:     mustHex(t, vrf.PublicKeyHex),
 		EpochLengthBlocks:    ep.Length,
 		EarliestSubmitHeight: ep.Height,
@@ -216,7 +216,7 @@ func TestCheckTicketContextMismatches(t *testing.T) {
 		"chain":      {func(c *TicketContext) { c.ChainID = "other-chain" }, ErrTicketChain},
 		"unverified": {func(c *TicketContext) { c.Beacon = EpochBeacon{} }, ErrTicketEpoch},
 		"builder key": {func(c *TicketContext) {
-			c.BuilderServicePubKey = pubKey(t, "1111111111111111111111111111111111111111111111111111111111111111")
+			c.BuilderKeys.Current = pubKey(t, "1111111111111111111111111111111111111111111111111111111111111111")
 		}, ErrTicketSignature},
 		"root not held": {func(c *TicketContext) { c.HeldRootDigests = nil }, ErrTicketRoot},
 		"self operator": {func(c *TicketContext) { c.SelfOperator = otherOperator }, ErrTicketTarget},
@@ -229,5 +229,34 @@ func TestCheckTicketContextMismatches(t *testing.T) {
 				t.Fatalf("err = %v, want %v", err, c.want)
 			}
 		})
+	}
+}
+
+// A ticket signed by the Builder's previous generation still proves while
+// max(order earliest_submit_height, bound_change_height) precedes that key's
+// retirement; from the retirement height on only the current key does.
+func TestCheckTicketSelectsGenerationByItsNonce(t *testing.T) {
+	tk, ctx := loadTicketVector(t)
+	ctx.BuilderKeys = BuilderKeys{Operator: tk.BuilderAddress, Current: pubKey(t, previousKeyHex), CurrentNonce: 2, CurrentActive: true,
+		Previous: ctx.BuilderKeys.Current, PreviousNonce: 1, PreviousRetiredHeight: max(ctx.EarliestSubmitHeight, tk.BoundChangeHeight) + 1}
+	if err := CheckTicket(tk, ctx); err != nil {
+		t.Fatalf("previous generation before its cutoff: %v", err)
+	}
+	retired := ctx
+	retired.BuilderKeys.PreviousRetiredHeight--
+	if err := CheckTicket(tk, retired); !errors.Is(err, ErrTicketSignature) || !errors.Is(err, ErrBuilderKeyGeneration) {
+		t.Fatalf("previous generation at its cutoff: err = %v", err)
+	}
+	unknown := proto.Clone(tk).(*taskv1.DispatchTicketV1)
+	unknown.ServiceAuthorizationNonce = 3
+	resignTicket(t, unknown)
+	if err := CheckTicket(unknown, ctx); !errors.Is(err, ErrBuilderKeyGeneration) {
+		t.Fatalf("unknown generation: err = %v", err)
+	}
+	unsigned := proto.Clone(tk).(*taskv1.DispatchTicketV1)
+	unsigned.ServiceAuthorizationNonce = 0
+	resignTicket(t, unsigned)
+	if err := CheckTicket(unsigned, ctx); !errors.Is(err, ErrBuilderKeyGeneration) {
+		t.Fatalf("zero nonce: err = %v", err)
 	}
 }

@@ -245,7 +245,7 @@ func (x *planeE2E) accepted(conn *streamtest.Conn) [32]byte {
 
 func (x *planeE2E) notice(th [32]byte, status taskv1.DispatchRecordStatusV1) *nexusv1.RecordResultNoticeV1 {
 	x.t.Helper()
-	n := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: th[:], Status: status, RecordedHeight: 120}
+	n := &nexusv1.RecordResultNoticeV1{DispatchTicketHash: th[:], Status: status, RecordedHeight: 120, ServiceAuthorizationNonce: 1}
 	if status == taskv1.DispatchRecordStatusV1_DISPATCH_RECORD_STATUS_V1_REJECTED {
 		n.RecordedHeight, n.RejectCode = 0, taskv1.DispatchRejectCodeV1_DISPATCH_REJECT_CODE_V1_RECORD_LATE
 	}

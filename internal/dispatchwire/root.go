@@ -23,7 +23,9 @@ var (
 type InclusionContext struct {
 	ChainID         string
 	BuilderOperator string // the stream's authenticated Builder operator
-	BuilderPubKey   []byte // its current service key, resolved from chain
+	// BuilderKeys is its service-key binding, resolved from chain; the
+	// root's own signed nonce selects the generation that verifies it.
+	BuilderKeys BuilderKeys
 }
 
 // Inclusion is what a verified HandraiseRootNoticeV1 tells this node.
@@ -41,7 +43,7 @@ type Inclusion struct {
 // also check that proof.leaf.handraise is a handraise this node signed for
 // this Builder (digest equality with its send log).
 // A root signature failure is returned as ErrBuilderSignature or
-// ErrNotBuilderSigned (from VerifyBuilderSigned), not as an ErrInclusion*
+// ErrBuilderKeyGeneration (from VerifyRootProof), not as an ErrInclusion*
 // sentinel.
 func VerifyInclusion(root *taskv1.SignedHandraiseRootV1, proof *taskv1.HandraiseInclusionProofV1, c InclusionContext) (Inclusion, error) {
 	if root.GetChainId() != c.ChainID {
@@ -50,7 +52,11 @@ func VerifyInclusion(root *taskv1.SignedHandraiseRootV1, proof *taskv1.Handraise
 	if root.GetBuilderAddress() != c.BuilderOperator {
 		return Inclusion{}, fmt.Errorf("%w: root signed for %s, stream Builder is %s", ErrInclusionBuilder, root.GetBuilderAddress(), c.BuilderOperator)
 	}
-	if err := VerifyBuilderSigned(root, c.BuilderPubKey); err != nil {
+	raw, err := Raw(root)
+	if err != nil {
+		return Inclusion{}, fmt.Errorf("%w: %w", ErrBuilderSignature, err)
+	}
+	if err := VerifyRootProof(c.ChainID, raw, c.BuilderKeys); err != nil {
 		return Inclusion{}, err
 	}
 	leaf := proof.GetLeaf()

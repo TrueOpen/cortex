@@ -62,9 +62,11 @@ func TestServerCarriesBothDirections(t *testing.T) {
 		ChainID: chainID, BuilderOperator: operator, CortexOperator: operator,
 		HTTPClient: builderclient.NewDispatchStreamHTTPClient(), BaseURL: srv.URL(),
 		ClientOptions: nil, Sign: sign(cortexKey),
-		AuthNonce:  func(context.Context) (uint64, error) { return 7, nil },
-		BuilderKey: func(context.Context) ([]byte, error) { return pub, nil },
-		Store:      st, Handler: h, KeepaliveEvery: time.Hour, MaxMissed: 3,
+		AuthNonce: func(context.Context) (uint64, error) { return 7, nil },
+		BuilderKeys: func(context.Context) (dispatchwire.BuilderKeys, error) {
+			return dispatchwire.BuilderKeys{Operator: operator, Current: pub, CurrentNonce: 1, CurrentActive: true}, nil
+		},
+		Store: st, Handler: h, KeepaliveEvery: time.Hour, MaxMissed: 3,
 		Height: func() uint64 { return 100 },
 	})
 	if err != nil {
@@ -76,7 +78,7 @@ func TestServerCarriesBothDirections(t *testing.T) {
 	t.Cleanup(func() { cancel(); <-done })
 
 	conn := srv.Next(t, operator)
-	revoke := &nexusv1.DispatchRevokeV1{TaskId: h32(1), DispatchTicketHash: h32(2), RevokedHeight: 1,
+	revoke := &nexusv1.DispatchRevokeV1{TaskId: h32(1), DispatchTicketHash: h32(2), RevokedHeight: 1, ServiceAuthorizationNonce: 1,
 		Reason: nexusv1.DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_RBF}
 	d, _ := dispatchwire.Digest(revoke)
 	revoke.BuilderServiceSignature, _ = signer.SignDigestWithPrivateKeyHex(builderKey, codec.Hash(d))

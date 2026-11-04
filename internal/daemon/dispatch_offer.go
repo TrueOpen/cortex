@@ -151,7 +151,7 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	if err := d.checkHandraise(builder, height); err != nil {
 		return ev, err, nil
 	}
-	tc, err := d.ticketContext(ctx, builder, t, so.GetOrder(), height)
+	tc, builderPendingAt, err := d.ticketContext(ctx, builder, t, so.GetOrder(), height)
 	if err != nil {
 		if builderclient.IsRetryable(err) {
 			return ev, nil, err
@@ -184,6 +184,13 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	if key.HasPendingRotation {
 		ev.verdict = refuse(reasonNoCapacity, classRotationPending,
 			"service key rotation pending (effective at %d)", key.PendingRotation.EffectiveHeight)
+		return ev, nil, nil
+	}
+	if builderPendingAt != 0 {
+		v := refuse(reasonInvalid, classBuilderRotationPending, "Builder %s service key rotates at %d; order earliest_submit_height %d is not before it",
+			builder, builderPendingAt, so.GetOrder().GetEarliestSubmitHeight())
+		v.builderSide = true
+		ev.verdict = v
 		return ev, nil, nil
 	}
 	// Checks 2, 2a, 3, 4, 6, 7.
@@ -226,32 +233,41 @@ func (d *Dispatcher) checkHandraise(builder string, height uint64) error {
 
 // ticketContext builds CheckTicket's inputs at height from chain authority
 // and this node's own roots. Read failures are retryable; anything else drops.
-func (d *Dispatcher) ticketContext(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, o *taskv1.TaskOrderV3, height uint64) (dispatchwire.TicketContext, error) {
-	var tc dispatchwire.TicketContext
+//
+// pendingAt is the Builder's pending rotation activation height when the
+// order's earliest_submit_height has reached it, else zero.
+func (d *Dispatcher) ticketContext(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, o *taskv1.TaskOrderV3, height uint64) (tc dispatchwire.TicketContext, pendingAt uint64, err error) {
 	key, err := d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, builder, height)
 	if errors.Is(err, chainclient.ErrNotFound) {
-		return tc, fmt.Errorf("Builder %s has no service key on chain: %w", builder, err) // check-1 drop (I6)
+		return tc, 0, fmt.Errorf("Builder %s has no service key on chain: %w", builder, err) // check-1 drop (I6)
 	}
 	if err != nil {
-		return tc, builderclient.Retryable(fmt.Errorf("Builder %s service key: %w", builder, err))
+		return tc, 0, builderclient.Retryable(fmt.Errorf("Builder %s service key: %w", builder, err))
 	}
 	if key.Status != "ACTIVE" {
-		return tc, fmt.Errorf("Builder %s service key is %s; it authorizes no live ticket", builder, key.Status)
+		return tc, 0, fmt.Errorf("Builder %s service key is %s; it authorizes no live ticket", builder, key.Status)
 	}
-	pub, err := hex.DecodeString(key.ServicePubkey)
+	keys, err := builderKeysOf(builder, key)
 	if err != nil {
-		return tc, fmt.Errorf("Builder %s service key: %w", builder, err)
+		return tc, 0, err
+	}
+	// wire PHASE1_CONTRACT: a Builder with a pending rotation keeps signing
+	// with its current key, and Cortex rejects its tickets for an order whose
+	// earliest_submit_height reaches the activation height: past it that key
+	// is retired and could no longer prove the ticket.
+	if key.HasPendingRotation && o.GetEarliestSubmitHeight() >= key.PendingRotation.EffectiveHeight {
+		pendingAt = key.PendingRotation.EffectiveHeight
 	}
 	vrf, err := d.chain.BuilderVrfKeyAt(ctx, builder, height)
 	if errors.Is(err, chainclient.ErrNotFound) {
-		return tc, fmt.Errorf("Builder %s has no VRF key on chain: %w", builder, err) // check-1 drop (I6)
+		return tc, 0, fmt.Errorf("Builder %s has no VRF key on chain: %w", builder, err) // check-1 drop (I6)
 	}
 	if err != nil {
-		return tc, builderclient.Retryable(fmt.Errorf("Builder %s VRF key: %w", builder, err))
+		return tc, 0, builderclient.Retryable(fmt.Errorf("Builder %s VRF key: %w", builder, err))
 	}
 	ep, err := d.chain.DispatchEpochAt(ctx, o.GetEarliestSubmitHeight(), height)
 	if err != nil {
-		return tc, builderclient.Retryable(fmt.Errorf("epoch beacon: %w", err))
+		return tc, 0, builderclient.Retryable(fmt.Errorf("epoch beacon: %w", err))
 	}
 	// HoldsRoot, not HeldRootDigests: any retained root counts, and the
 	// store validates the record it answers from.
@@ -259,24 +275,24 @@ func (d *Dispatcher) ticketContext(ctx context.Context, builder string, t *taskv
 	copy(root[:], t.GetHandraiseRootDigest())
 	held, err := d.cfg.Handraise.HoldsRoot(ctx, builder, root)
 	if err != nil {
-		return tc, builderclient.Retryable(fmt.Errorf("handraise roots: %w", err))
+		return tc, 0, builderclient.Retryable(fmt.Errorf("handraise roots: %w", err))
 	}
 	vrfKey := vrf.ActivePubkey
 	epoch := o.GetEarliestSubmitHeight() / ep.EpochLengthBlocks
 	if vrf.PendingPubkey != nil && epoch >= vrf.PendingFromEpoch {
 		vrfKey = vrf.PendingPubkey
 	} else if epoch < vrf.ActiveFromEpoch {
-		return tc, fmt.Errorf("Builder %s VRF key is active from epoch %d; the key for epoch %d is not readable", builder, vrf.ActiveFromEpoch, epoch)
+		return tc, 0, fmt.Errorf("Builder %s VRF key is active from epoch %d; the key for epoch %d is not readable", builder, vrf.ActiveFromEpoch, epoch)
 	}
 	tc = dispatchwire.TicketContext{
 		ChainID: d.cfg.ChainID, BuilderOperator: builder, SelfOperator: d.cfg.Operator,
-		BuilderServicePubKey: pub, BuilderVRFPubKey: vrfKey, EpochLengthBlocks: ep.EpochLengthBlocks,
+		BuilderKeys: keys, BuilderVRFPubKey: vrfKey, EpochLengthBlocks: ep.EpochLengthBlocks,
 		EarliestSubmitHeight: o.GetEarliestSubmitHeight(), HeldRootDigests: map[[32]byte]bool{root: held},
 	}
 	if ep.Verified {
 		tc.Beacon = dispatchwire.NewVerifiedBeacon(ep.BeaconHeight, ep.Randomness)
 	}
-	return tc, nil
+	return tc, pendingAt, nil
 }
 
 func (d *Dispatcher) persistOffer(ctx context.Context, builder string, ticket layout.StoredHash, t *taskv1.DispatchTicketV1,
@@ -513,6 +529,66 @@ func (d *Dispatcher) requestInput(ctx context.Context, enq DispatchEnqueuer, rec
 		return nil
 	}); err != nil {
 		return builderclient.Retryable(fmt.Errorf("record input request: %w", err))
+	}
+	return nil
+}
+
+// checkTicketBound verifies a retained DispatchInputResponseV1,
+// DispatchRevokeV1 or RecordResultNoticeV1 against the stored ticket it names
+// (wire VerifyTicketBoundDispatchProof): its signed nonce may not be older
+// than the ticket's, and a previous or revoked generation proves it only
+// while max(order earliest_submit_height, ticket bound_change_height)
+// precedes that key's cutoff. The session already checked the signature by
+// the generation the nonce names; only these ticket-scoped rules are new
+// here. A failed chain read is retryable; anything else is a permanent
+// refusal of the message.
+func (d *Dispatcher) checkTicketBound(ctx context.Context, rec layout.DispatchRecord, msg proto.Message) error {
+	if len(rec.Ticket) == 0 {
+		return fmt.Errorf("ticket %s has no stored ticket to bind %s to", rec.TicketHash, dispatchwire.Name(msg))
+	}
+	so := &taskv1.SignedOrderV2{}
+	if err := proto.Unmarshal(rec.SignedOrder, so); err != nil {
+		return fmt.Errorf("stored order of ticket %s: %w", rec.TicketHash, err)
+	}
+	height, err := d.chain.CommittedHeight(ctx)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("committed height: %w", err))
+	}
+	key, err := d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, rec.Builder, height)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("Builder %s service key: %w", rec.Builder, err))
+	}
+	keys, err := builderKeysOf(rec.Builder, key)
+	if err != nil {
+		return err
+	}
+	raw, err := dispatchwire.Raw(msg)
+	if err != nil {
+		return err
+	}
+	return dispatchwire.VerifyTicketBoundProof(d.cfg.ChainID, dispatchwire.Name(msg), raw, rec.Ticket, keys, so.GetOrder().GetEarliestSubmitHeight())
+}
+
+// verifyRetained runs checkTicketBound for a Builder message naming ticket,
+// before the work lock is taken (its chain reads must not hold it). A ticket
+// this node does not hold yet, or holds from another Builder, is left to the
+// handler: there is no stored ticket to bind the message to.
+func (d *Dispatcher) verifyRetained(ctx context.Context, ticket layout.StoredHash, builder string, msg proto.Message) error {
+	rec, err := layout.GetDispatchRecord(ctx, d.cfg.Store, ticket)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("read dispatch record: %w", err))
+	}
+	if rec.Builder != builder || len(rec.Ticket) == 0 {
+		return nil
+	}
+	if err := d.checkTicketBound(ctx, rec, msg); err != nil {
+		if builderclient.IsRetryable(err) {
+			return err
+		}
+		return fmt.Errorf("%s for ticket %s from %s: %w", dispatchwire.Name(msg), ticket, builder, err)
 	}
 	return nil
 }

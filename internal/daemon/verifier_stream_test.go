@@ -115,6 +115,12 @@ func TestVerifierStreamChecksTheBuilderMessageBinding(t *testing.T) {
 		"other chain":     {func(m *nexusv1.OpenVerifyV1, _ *stubBuilderKeys) { m.Binding.ChainId = "other" }, false},
 		"other Builder":   {func(m *nexusv1.OpenVerifyV1, _ *stubBuilderKeys) { m.Binding.BuilderAddress = "builder-2" }, false},
 		"stale nonce":     {func(m *nexusv1.OpenVerifyV1, _ *stubBuilderKeys) { m.Binding.ServiceAuthorizationNonce = 2 }, false},
+		"zero nonce":      {func(m *nexusv1.OpenVerifyV1, _ *stubBuilderKeys) { m.Binding.ServiceAuthorizationNonce = 0 }, false},
+		"older than the previous generation": {func(m *nexusv1.OpenVerifyV1, k *stubBuilderKeys) {
+			key := k.keys["builder-1"]
+			key.AuthorizationNonce, key.HasPrevious, key.Previous.AuthorizationNonce = 3, true, 2
+			k.keys["builder-1"] = key
+		}, false},
 		"unknown Builder": {func(_ *nexusv1.OpenVerifyV1, k *stubBuilderKeys) { delete(k.keys, "builder-1") }, false},
 		"revoked key": {func(_ *nexusv1.OpenVerifyV1, k *stubBuilderKeys) {
 			key := k.keys["builder-1"]
@@ -138,6 +144,22 @@ func TestVerifierStreamChecksTheBuilderMessageBinding(t *testing.T) {
 				t.Fatal("a frame failing the binding check reached the inbox")
 			}
 		})
+	}
+}
+
+// wire b30fba8: a binding nonce of the Builder's previous generation still
+// names a key the chain retains, so a message kept across the cutover is
+// admitted (the session verified its signature by that generation).
+func TestVerifierStreamAdmitsThePreviousGenerationBinding(t *testing.T) {
+	h := newVSHarness(t)
+	key := h.keys.keys["builder-1"]
+	key.AuthorizationNonce, key.HasPrevious, key.Previous.AuthorizationNonce = 2, true, 1
+	h.keys.keys["builder-1"] = key
+	if err := h.stream.HandleFrame(context.Background(), "builder-1", openVerifyFrame(vsOpenVerify("builder-1"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := h.inbox.load(context.Background(), vsTaskID, 1); !ok {
+		t.Fatal("a previous-generation OPEN_VERIFY did not reach the inbox")
 	}
 }
 
