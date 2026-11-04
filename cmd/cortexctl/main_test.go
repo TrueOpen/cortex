@@ -537,8 +537,8 @@ func startTestAdminServer(t *testing.T) string {
 		},
 		ModelAvailable: func(context.Context, adminapi.ModelAvailableRequest) (adminapi.ModelAvailableResponse, error) {
 			return adminapi.ModelAvailableResponse{OperatorAddress: "trueopen1operator", Models: []adminapi.ModelAvailableRow{
-				{ModelID: strings.Repeat("b2", 32), Provider: "HUGGINGFACE", RepoID: "Qwen/Qwen3.8-27B-FP8", Status: "REGISTERED", LatestProfileVersion: 1, Supported: true},
-				{ModelID: strings.Repeat("a6", 32), Provider: "HUGGINGFACE", RepoID: "Qwen/Qwen3-8B", Status: "ACTIVE", LatestProfileVersion: 1, ActiveSupporterCount: 4},
+				{ModelID: strings.Repeat("b2", 32), Provider: "HUGGINGFACE", RepoID: "Qwen/Qwen3.8-27B-FP8", Status: "REGISTERED", LatestProfileVersion: 1, Supported: boolPtr(true), SupportActive: boolPtr(false)},
+				{ModelID: strings.Repeat("a6", 32), Provider: "HUGGINGFACE", RepoID: "Qwen/Qwen3-8B", Status: "ACTIVE", LatestProfileVersion: 1, ActiveSupporterCount: 4, Supported: boolPtr(false), SupportActive: boolPtr(false)},
 			}}, nil
 		},
 	}))
@@ -718,10 +718,18 @@ func TestModelAvailableListsChainModelsWithSupport(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("Unmarshal model available output: %v", err)
 	}
-	if got.OperatorAddress != "trueopen1operator" || len(got.Models) != 2 || !got.Models[0].Supported || got.Models[1].Supported {
+	if got.OperatorAddress != "trueopen1operator" || len(got.Models) != 2 || got.Models[0].Supported == nil || !*got.Models[0].Supported || *got.Models[1].Supported {
 		t.Fatalf("model available json = %+v", got)
 	}
+
+	// The daemon answers for its own operator; naming another one only makes
+	// sense when reading the chain directly.
+	if err := run([]string{"model", "available", "--operator", "trueopen1other"}, &stdout); err == nil || !strings.Contains(err.Error(), "--rpc") {
+		t.Fatalf("--operator without --rpc error = %v", err)
+	}
 }
+
+func boolPtr(value bool) *bool { return &value }
 
 // An empty queue is the answer to the question, not a failure.
 func TestTaskListReportsEmptyQueueWithoutError(t *testing.T) {

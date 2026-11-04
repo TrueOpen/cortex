@@ -119,15 +119,17 @@ type TaskQueueRow struct {
 type ModelAvailableRequest struct{}
 
 // ModelAvailableResponse lists every model registered on chain, read at one
-// committed height, with this node's own support row for each.
+// committed height, with OperatorAddress's own support row for each. Without
+// an operator the support fields are absent.
 type ModelAvailableResponse struct {
-	OperatorAddress string              `json:"operator_address"`
+	OperatorAddress string              `json:"operator_address,omitempty"`
 	Models          []ModelAvailableRow `json:"models"`
 }
 
-// ModelAvailableRow is one chain model. Supported is this operator's
+// ModelAvailableRow is one chain model. Supported is the operator's
 // declared_support; SupportActive is whether the chain has activated it.
-// Both are false when the operator has no support row for the model.
+// Both are false when the operator has no support row for the model, and nil
+// when no operator was asked about.
 type ModelAvailableRow struct {
 	ModelID              string `json:"model_id"`
 	Provider             string `json:"provider"`
@@ -135,8 +137,8 @@ type ModelAvailableRow struct {
 	Status               string `json:"status"`
 	LatestProfileVersion uint32 `json:"latest_profile_version"`
 	ActiveSupporterCount uint32 `json:"active_supporter_count"`
-	Supported            bool   `json:"supported"`
-	SupportActive        bool   `json:"support_active"`
+	Supported            *bool  `json:"supported,omitempty"`
+	SupportActive        *bool  `json:"support_active,omitempty"`
 }
 
 type ModelRegisterRequest struct {
@@ -1014,9 +1016,9 @@ func formatTable(value any) string {
 		var b strings.Builder
 		b.WriteString("model_id\tprovider\trepo_id\tstatus\tprofile_version\tactive_supporters\tsupported\tsupport_active\n")
 		for _, row := range v.Models {
-			b.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%d\t%t\t%t\n",
+			b.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%d\t%d\t%s\t%s\n",
 				row.ModelID, row.Provider, row.RepoID, row.Status, row.LatestProfileVersion,
-				row.ActiveSupporterCount, row.Supported, row.SupportActive))
+				row.ActiveSupporterCount, optionalBool(row.Supported), optionalBool(row.SupportActive)))
 		}
 		return b.String()
 	case TaskQueueListResponse:

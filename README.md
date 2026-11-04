@@ -216,13 +216,17 @@ refused. Look the id up from the model's source on chain:
 bin/cortexctl model find --rpc <keeper-rpc> --provider HUGGINGFACE --repo <owner/name> --format json
 ```
 
-On a running node, `cortexctl model available` lists every model registered
-on chain with the node's own support row for each: `supported` is the
-operator's `declared_support`, `support_active` whether the chain has activated
-it. A model the operator never declared reads `false` in both.
+`cortexctl model available` lists every model registered on chain with one
+operator's support row for each: `supported` is the operator's
+`declared_support`, `support_active` whether the chain has activated it. A model
+the operator never declared reads `false` in both. On a node it asks cortexd,
+which answers for its own operator; with `--rpc` it reads the chain directly
+from any machine, and `--operator` picks whose support to show (without it the
+two columns print `-`).
 
 ```sh
 bin/cortexctl model available [--format json]
+bin/cortexctl model available --rpc <keeper-rpc> [--operator <operator-address>] [--format json]
 ```
 
 At startup, and on every readiness check, each configured model id is read
