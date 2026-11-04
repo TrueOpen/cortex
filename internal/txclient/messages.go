@@ -1038,6 +1038,7 @@ func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error
 		"EVIDENCE_KIND_VERIFIER_VALUE_OPENING":  2,
 		"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3,
 		"EVIDENCE_KIND_WORKER_TOKEN_OPENING":    4,
+		"EVIDENCE_KIND_WORKER_ANCHOR_OPENING":   5,
 	}
 	previousEvidenceKind := uint32(0)
 	for index, requirement := range verification.EvidenceSchema.RequiredInferEvidence {
