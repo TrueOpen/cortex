@@ -164,6 +164,10 @@ type outputDescriptor struct {
 	FinishReason        nodewire.FinishReasonV1 `json:"finish_reason"`
 	GeneratedTokenCount uint64                  `json:"generated_token_count"`
 	OutputChunkLengths  []uint64                `json:"output_chunk_lengths"`
+	// AnchorCommit is the engine's AnchorCommitV1 artifact (ADR-0040), fetched
+	// from the model service right after inference; empty when the engine has
+	// no anchor sidecar. It is small (roots and token ids only).
+	AnchorCommit []byte `json:"anchor_commit,omitempty"`
 }
 
 // InferOutputCheckpoint carries the durable identities produced by one
@@ -556,6 +560,14 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
+	var anchorCommit []byte
+	if resp.AnchorCommitRef != "" {
+		anchorArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "anchor_commit", resp.AnchorCommitRef)
+		if err != nil {
+			return nil, nil, nil, outputDescriptor{}, err
+		}
+		anchorCommit = append([]byte(nil), anchorArtifact.Data...)
+	}
 	output = append([]byte(nil), outputArtifact.Data...)
 	tokenIDs = append([]byte(nil), tokenIDsArtifact.Data...)
 	positionValues = append([]byte(nil), positionValuesArtifact.Data...)
@@ -669,7 +681,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 		PositionValuesRef: resp.PositionValuesRef, OutputHash: outputHash,
 		PackageHash: packageHash, OutputCID: outputCID,
 		FinishReason: resp.FinishReason, GeneratedTokenCount: resp.GeneratedTokenCount,
-		OutputChunkLengths: lengths,
+		OutputChunkLengths: lengths, AnchorCommit: anchorCommit,
 	}
 	descriptorJSON, err := json.Marshal(descriptor)
 	if err != nil {
@@ -772,7 +784,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
-	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, generationParams, tokenIDs, positionValues)
+	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, generationParams, tokenIDs, positionValues, descriptor.AnchorCommit)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}

@@ -49,6 +49,7 @@ const (
 	EvidenceArtifactWorkerValues      = "worker_values"
 	EvidenceArtifactGenerationParams  = "generation_params"
 	EvidenceArtifactAggregateProof    = "aggregate_proof"
+	EvidenceArtifactAnchorCommit      = "anchor_commit"
 )
 
 // TaskDataKey is the complete TaskDataObjectRefV1. Empty ProducerOperator means

@@ -74,9 +74,10 @@ func (c *NexusEvidenceConfirmer) checkCommitments(commitments EvidenceCommitment
 	if receipt.ChainID != c.cfg.ChainID || receipt.TaskID != commitments.TaskID {
 		return fmt.Errorf("Worker receipt task or chain mismatch")
 	}
-	if len(receipt.RequiredEvidenceCommitments) != 2 || receipt.RequiredEvidenceCommitments[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening ||
-		receipt.RequiredEvidenceCommitments[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
-		return fmt.Errorf("signed infer receipt must commit the Worker value and token bundles, in that order")
+	if n := len(receipt.RequiredEvidenceCommitments); (n != 2 && n != 3) || receipt.RequiredEvidenceCommitments[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening ||
+		receipt.RequiredEvidenceCommitments[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening ||
+		(n == 3 && receipt.RequiredEvidenceCommitments[2].EvidenceKind != nodewire.EvidenceKindWorkerAnchorOpening) {
+		return fmt.Errorf("signed infer receipt must commit the Worker value and token bundles, in that order, optionally followed by the anchor bundle")
 	}
 	for _, committed := range receipt.RequiredEvidenceCommitments {
 		limit := commitments.MaxEncodedSizeBytes[committed.EvidenceKind]

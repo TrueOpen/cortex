@@ -406,6 +406,8 @@ func evidenceKindStringFromInt32(kind int32) string {
 		return "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING"
 	case 4:
 		return "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
+	case 5:
+		return "EVIDENCE_KIND_WORKER_ANCHOR_OPENING"
 	}
 	return ""
 }
