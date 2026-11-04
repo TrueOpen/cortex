@@ -245,6 +245,7 @@ func newModelCommand(client clientFactory, stdout io.Writer) *cobra.Command {
 		newModelListCommand(client, stdout),
 		newModelShowCommand(client, stdout),
 		newModelFindCommand(stdout),
+		newModelAvailableCommand(client, stdout),
 		newModelSupportCommand(client, stdout, false),
 		newModelSupportCommand(client, stdout, true),
 	)
@@ -360,6 +361,42 @@ func newModelFindCommand(stdout io.Writer) *cobra.Command {
 			})
 		}
 		return printFormatted(stdout, rows, adminapi.Format(*format))
+	}
+	return cmd
+}
+
+// newModelAvailableCommand lists every chain model with one operator's support
+// state. Without --rpc the running daemon answers for its own operator; with
+// --rpc the chain is read directly, so it works from any machine that reaches
+// the chain, and --operator picks whose support to show.
+func newModelAvailableCommand(client clientFactory, stdout io.Writer) *cobra.Command {
+	var rpcEndpoint, operator string
+	cmd := &cobra.Command{Use: "available", Short: "List chain models and whether a node supports each", Args: cobra.NoArgs}
+	format := newFormatFlag(cmd, "table")
+	cmd.Flags().StringVar(&rpcEndpoint, "rpc", "", "chain CometBFT RPC endpoint; read the chain directly instead of asking cortexd")
+	cmd.Flags().StringVar(&operator, "operator", "", "operator address whose support to show (with --rpc); empty lists the models only")
+	timeout := cmd.Flags().Duration("timeout", 30*time.Second, "bound on the whole chain read (with --rpc)")
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		if strings.TrimSpace(rpcEndpoint) == "" {
+			if strings.TrimSpace(operator) != "" {
+				return errors.New("--operator needs --rpc; without it cortexd answers for its own operator")
+			}
+			value, err := client().ModelAvailable(cmd.Context(), adminapi.ModelAvailableRequest{})
+			if err != nil {
+				return err
+			}
+			return printFormatted(stdout, value, adminapi.Format(*format))
+		}
+		if *timeout <= 0 {
+			return errors.New("--timeout must be positive")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), *timeout)
+		defer cancel()
+		value, err := adminapi.ListAvailableModels(ctx, operator, chainclient.NewKeeperABCIClient(rpcEndpoint))
+		if err != nil {
+			return err
+		}
+		return printFormatted(stdout, value, adminapi.Format(*format))
 	}
 	return cmd
 }

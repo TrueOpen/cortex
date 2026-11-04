@@ -535,6 +535,12 @@ func startTestAdminServer(t *testing.T) string {
 				LastError: "Nexus assign payload for task-1 is not available",
 			}}}, nil
 		},
+		ModelAvailable: func(context.Context, adminapi.ModelAvailableRequest) (adminapi.ModelAvailableResponse, error) {
+			return adminapi.ModelAvailableResponse{OperatorAddress: "trueopen1operator", Models: []adminapi.ModelAvailableRow{
+				{ModelID: strings.Repeat("b2", 32), Provider: "HUGGINGFACE", RepoID: "Qwen/Qwen3.8-27B-FP8", Status: "REGISTERED", LatestProfileVersion: 1, Supported: boolPtr(true), SupportActive: boolPtr(false)},
+				{ModelID: strings.Repeat("a6", 32), Provider: "HUGGINGFACE", RepoID: "Qwen/Qwen3-8B", Status: "ACTIVE", LatestProfileVersion: 1, ActiveSupporterCount: 4, Supported: boolPtr(false), SupportActive: boolPtr(false)},
+			}}, nil
+		},
 	}))
 	if err := server.Start(context.Background()); err != nil {
 		t.Fatalf("Start returned error: %v", err)
@@ -684,6 +690,46 @@ func TestTaskListRendersTableHeaderAndRejectsNegativeLimit(t *testing.T) {
 		t.Fatalf("task list negative limit error = %v", err)
 	}
 }
+
+// `model available` shows every chain model and marks the ones this node supports.
+func TestModelAvailableListsChainModelsWithSupport(t *testing.T) {
+	socketPath := startTestAdminServer(t)
+	t.Setenv("CORTEX_ADMIN_SOCKET", socketPath)
+
+	var stdout bytes.Buffer
+	if err := run([]string{"model", "available"}, &stdout); err != nil {
+		t.Fatalf("model available returned error: %v", err)
+	}
+	for _, want := range []string{
+		"model_id\tprovider\trepo_id\tstatus\tprofile_version\tactive_supporters\tsupported\tsupport_active\n",
+		strings.Repeat("b2", 32) + "\tHUGGINGFACE\tQwen/Qwen3.8-27B-FP8\tREGISTERED\t1\t0\ttrue\tfalse\n",
+		strings.Repeat("a6", 32) + "\tHUGGINGFACE\tQwen/Qwen3-8B\tACTIVE\t1\t4\tfalse\tfalse\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("model available table %q missing %q", stdout.String(), want)
+		}
+	}
+
+	stdout.Reset()
+	if err := run([]string{"model", "available", "--format", "json"}, &stdout); err != nil {
+		t.Fatalf("model available json returned error: %v", err)
+	}
+	var got adminapi.ModelAvailableResponse
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("Unmarshal model available output: %v", err)
+	}
+	if got.OperatorAddress != "trueopen1operator" || len(got.Models) != 2 || got.Models[0].Supported == nil || !*got.Models[0].Supported || *got.Models[1].Supported {
+		t.Fatalf("model available json = %+v", got)
+	}
+
+	// The daemon answers for its own operator; naming another one only makes
+	// sense when reading the chain directly.
+	if err := run([]string{"model", "available", "--operator", "trueopen1other"}, &stdout); err == nil || !strings.Contains(err.Error(), "--rpc") {
+		t.Fatalf("--operator without --rpc error = %v", err)
+	}
+}
+
+func boolPtr(value bool) *bool { return &value }
 
 // An empty queue is the answer to the question, not a failure.
 func TestTaskListReportsEmptyQueueWithoutError(t *testing.T) {

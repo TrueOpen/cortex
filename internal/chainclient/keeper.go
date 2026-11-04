@@ -411,6 +411,21 @@ func (c *KeeperABCIClient) ModelsBySource(ctx context.Context, provider, repoID 
 	if strings.TrimSpace(repoID) == "" {
 		return nil, fmt.Errorf("repo_id is required")
 	}
+	return c.scanModels(ctx, func(model CurrentModelSnapshot) bool {
+		return model.RepoID == repoID && (provider == "" || model.Provider == provider)
+	})
+}
+
+// Models walks every ModelState at the committed height and returns all of
+// them, in the chain's canonical key order.
+func (c *KeeperABCIClient) Models(ctx context.Context) ([]CurrentModelSnapshot, error) {
+	return c.scanModels(ctx, func(CurrentModelSnapshot) bool { return true })
+}
+
+// scanModels pages through hub Models at one committed height and keeps the
+// models keep accepts. Only kept models are validated, so a malformed entry
+// the caller did not ask for cannot fail the scan.
+func (c *KeeperABCIClient) scanModels(ctx context.Context, keep func(CurrentModelSnapshot) bool) ([]CurrentModelSnapshot, error) {
 	height, err := c.CommittedHeight(ctx)
 	if err != nil {
 		return nil, err
@@ -432,7 +447,7 @@ func (c *KeeperABCIClient) ModelsBySource(ctx context.Context, provider, repoID 
 		}
 		for _, model := range snapshot.Models {
 			normalizeCurrentModelStatus(&model)
-			if model.RepoID == repoID && (provider == "" || model.Provider == provider) {
+			if keep(model) {
 				if err := model.Validate(); err != nil {
 					return nil, err
 				}
