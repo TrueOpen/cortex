@@ -255,19 +255,21 @@ func (e *productionVerifyExecutor) confirmWorkerValueEvidence(ctx context.Contex
 	return values, &receipt, served, nil
 }
 
-// resultSubmitter is the reveal's MsgSubmitVerifyResult exit. A fake-output
-// node without a tx client signs and finalizes without submitting (S7 Q7).
-func (e *productionVerifyExecutor) resultSubmitter(serviceAddress string) (verifier.ResultSubmitter, error) {
-	if resolveWorkloadTx(e.cfg) == nil && e.cfg.FakeOutput {
-		return nil, nil
+// resultExit is the reveal's MsgSubmitVerifyResult exit: the receiving
+// Builder's relay first, then self-submission, in the commit exit's order
+// (verifier.deliverResult). As with the commit, a relay with no workload tx
+// client beside it is a complete configuration -- the file:// keystore node
+// that cannot build a Cosmos transaction -- and only "neither" is refused. A
+// fake-output node with neither signs and finalizes without submitting.
+func (e *productionVerifyExecutor) resultExit(serviceAddress string, task store.VerifyTask) (verifier.ResultSubmitter, verifier.ResultRelay, error) {
+	relay := taskResultRelayFor(e.cfg.VerifyResultRelay, task)
+	if relay == nil && resolveWorkloadTx(e.cfg) == nil && e.cfg.FakeOutput {
+		return nil, nil, nil
 	}
-	submitter, err := e.commitSubmitter(serviceAddress, false)
-	if err != nil {
-		return nil, err
+	manager, err := e.settlementManager(serviceAddress, relay != nil, "result")
+	if err != nil || manager == nil {
+		// A nil *SettlementManager must not become a non-nil interface.
+		return nil, relay, err
 	}
-	exit, ok := submitter.(verifier.ResultSubmitter)
-	if !ok {
-		return nil, fmt.Errorf("the verify settlement manager cannot submit a result")
-	}
-	return exit, nil
+	return manager, relay, nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/taskdataauth"
+	"github.com/TrueOpen/cortex/internal/txclient/txclienttest"
 	"github.com/TrueOpen/cortex/internal/verifier"
 )
 
@@ -170,5 +171,112 @@ func TestTaskCommitRelayClassifiesNexusAnswersForTheCommitExit(t *testing.T) {
 				t.Fatalf("%s must stay transient (retry, no self-submit), got %v", name, err)
 			}
 		})
+	}
+}
+
+// resultRelayTaskData records SubmitVerifyResult without the fake client's
+// full receipt validation, which the relay itself does not own.
+type resultRelayTaskData struct {
+	*inputTaskDataClient
+	endpoints []string
+	receipts  []nodewire.ResultReceiptV3
+}
+
+func (c *resultRelayTaskData) SubmitVerifyResult(_ context.Context, endpoint string, req builderclient.SubmitVerifyResultRequest) (builderclient.VerifyRelayAck, error) {
+	c.endpoints = append(c.endpoints, endpoint)
+	c.receipts = append(c.receipts, req.Receipt)
+	return builderclient.VerifyRelayAck{SigningDigest: codec.HashBytes([]byte("relay-result"))}, nil
+}
+
+// The signed result goes to the same receiving Builder as the commit, verbatim.
+func TestNexusVerifyResultRelayHandsSignedResultToReceivingBuilder(t *testing.T) {
+	signing, binding := localInputServiceSigner(t)
+	auth, err := taskdataauth.New(taskdataauth.Config{
+		ServiceKeys: &inputServiceKeys{binding: binding}, Signer: signing,
+		ChainID: outputTestChainID, OperatorAddress: inputTestOperator,
+		ServiceAddress: binding.ServiceAddress, ServicePubkey: binding.ServicePubkey,
+		ServiceKeyRef: inputTestKeyRef, ExpiryBlocks: inputTestExpiry,
+	})
+	if err != nil {
+		t.Fatalf("taskdataauth.New: %v", err)
+	}
+	client := &resultRelayTaskData{inputTaskDataClient: &inputTaskDataClient{}}
+	trace := &collectTrace{}
+	relay, err := NewNexusVerifyResultRelay(NexusVerifyCommitRelayConfig{
+		TaskData: client,
+		Endpoints: staticEndpoints{endpoint: BuilderEndpoint{
+			OperatorAddress: inputTestBuilder, Endpoint: "https://builder.example", Source: BuilderEndpointSourceDescriptor,
+			TLSPubkeyHash: relayTestPin,
+		}},
+		Auth: auth, ChainID: outputTestChainID, Trace: trace.trace(),
+	})
+	if err != nil {
+		t.Fatalf("NewNexusVerifyResultRelay: %v", err)
+	}
+	receipt := nodewire.ResultReceiptV3{TaskID: bytes.Repeat([]byte{0x11}, 32), VerifyRound: 1, ExpiryHeight: 950, ServiceSignature: bytes.Repeat([]byte{0x44}, 64)}
+	task := store.VerifyTask{SessionID: "session-1", TaskID: hex.EncodeToString(receipt.TaskID), BuilderOperatorAddress: inputTestBuilder}
+
+	if _, err := relay.RelayVerifyResult(context.Background(), task, receipt); err != nil {
+		t.Fatalf("RelayVerifyResult: %v", err)
+	}
+	if len(client.receipts) != 1 || client.endpoints[0] != "https://builder.example" ||
+		!bytes.Equal(client.receipts[0].ServiceSignature, receipt.ServiceSignature) || client.receipts[0].ExpiryHeight != 950 {
+		t.Fatalf("relayed %d to %v, want the signed receipt once to the descriptor endpoint", len(client.receipts), client.endpoints)
+	}
+	if line := trace.event(t, "verify_result_relayed"); !strings.Contains(line, `builder="`+inputTestBuilder+`"`) {
+		t.Fatalf("trace line = %q", line)
+	}
+	unsigned := receipt
+	unsigned.ServiceSignature = nil
+	_, err = relay.RelayVerifyResult(context.Background(), task, unsigned)
+	if err == nil || len(client.receipts) != 1 {
+		t.Fatalf("unsigned receipt: err = %v, relayed %d; want a refusal and nothing sent", err, len(client.receipts))
+	}
+}
+
+type stubVerifyResultRelay struct {
+	err   error
+	calls int
+}
+
+func (s *stubVerifyResultRelay) RelayVerifyResult(context.Context, store.VerifyTask, nodewire.ResultReceiptV3) (builderclient.VerifyRelayAck, error) {
+	s.calls++
+	return builderclient.VerifyRelayAck{}, s.err
+}
+
+// The reveal's result exit on a node with no workload tx client (a file://
+// keystore): it used to refuse with "verifier commit exit requires a workload
+// tx client" on every retry until the reveal deadline. With the result relay
+// wired it is a complete configuration; without it the refusal names the
+// result, not the commit. A deterministic refusal maps onto the self-submit
+// exit, and a node that does have a tx client keeps it as the fallback.
+func TestResultExitRelaysWithoutAWorkloadTxClient(t *testing.T) {
+	task := store.VerifyTask{SessionID: "session-1", TaskID: "task-1", BuilderOperatorAddress: inputTestBuilder}
+	stub := &stubVerifyResultRelay{}
+
+	submitter, relay, err := (&productionVerifyExecutor{cfg: TaskRunnerConfig{VerifyResultRelay: stub}}).resultExit("", task)
+	if err != nil || submitter != nil || relay == nil {
+		t.Fatalf("relay-only node: submitter = %v, relay = %v, err = %v; want the relay as the only exit", submitter, relay, err)
+	}
+	if err := relay.RelayVerifyResult(context.Background(), verifier.ResultRelayRequest{TaskID: task.TaskID}); err != nil || stub.calls != 1 {
+		t.Fatalf("relay: err = %v, calls = %d", err, stub.calls)
+	}
+
+	_, _, err = (&productionVerifyExecutor{cfg: TaskRunnerConfig{}}).resultExit("", task)
+	if err == nil || !strings.Contains(err.Error(), "verifier result exit requires a workload tx client") {
+		t.Fatalf("no relay, no tx: err = %v, want a refusal that names the result exit", err)
+	}
+
+	refusing := &stubVerifyResultRelay{err: connect.NewError(connect.CodeFailedPrecondition, errors.New("NEXUS_INGRESS_RELAY_NOT_OFFERED"))}
+	submitter, relay, err = (&productionVerifyExecutor{cfg: TaskRunnerConfig{VerifyResultRelay: refusing, Tx: txclienttest.NewFake()}}).resultExit("service-1", task)
+	if err != nil || submitter == nil || relay == nil {
+		t.Fatalf("tx-capable node: submitter = %v, relay = %v, err = %v; want both exits", submitter, relay, err)
+	}
+	if err := relay.RelayVerifyResult(context.Background(), verifier.ResultRelayRequest{TaskID: task.TaskID}); !verifier.ResultRelayNotOffered(err) {
+		t.Fatalf("deterministic refusal = %v, want ErrResultRelayNotOffered so the exit self-submits", err)
+	}
+	transient := &stubVerifyResultRelay{err: connect.NewError(connect.CodeUnavailable, errors.New("builder busy"))}
+	if err := taskResultRelayFor(transient, task).RelayVerifyResult(context.Background(), verifier.ResultRelayRequest{}); err == nil || verifier.ResultRelayNotOffered(err) {
+		t.Fatalf("transient failure = %v, want it retried rather than self-submitted", err)
 	}
 }

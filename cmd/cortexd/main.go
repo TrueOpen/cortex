@@ -263,6 +263,7 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 	}
 	defer runtime.Close()
 	dependencies := runtime.Dependencies
+	warnSignerCannotSubmitTx(cfg, runtime)
 
 	registry := newModelRegistry(cfg, runtime)
 	modelRegistryEnabled := registry != nil
@@ -829,6 +830,7 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 		OutputConfirmer:      rt.OutputConfirmer,
 		EvidenceConfirmer:    rt.EvidenceConfirmer,
 		VerifyCommitRelay:    rt.VerifyCommitRelay,
+		VerifyResultRelay:    rt.VerifyResultRelay,
 		Trace:                rt.TaskTrace(),
 		FakeOutput:           fakeOutput,
 		HandraiseEligibility: handraiseEligibility,
@@ -1017,10 +1019,23 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 			return rt.Dependencies.Keeper.ChainHeight(ctx)
 		}
 	}
-	if rt.WorkloadTx != nil && cfg.Tx.Enabled && rt.TaskDataAuth != nil {
-		registryConfig.SupportConfirmer = modelregistry.NewTxSupportConfirmer(rt.WorkloadTx, modelregistry.TxSupportConfirmerOptions{
+	// The tx client and service address are resolved per confirmation, not
+	// here: this runs at boot, before the first Keeper poll activates the
+	// workload, so rt.WorkloadTx is always nil now and gating on it left the
+	// SupportRenewer failing "support confirmation client is required" every
+	// tick until support freshness lapsed and the node stopped getting work.
+	if cfg.Tx.Enabled && rt.TaskDataAuth != nil {
+		canSubmit := cosmosTxCapable(rt, signingClient)
+		registryConfig.SupportConfirmer = modelregistry.NewTxSupportConfirmer(nil, modelregistry.TxSupportConfirmerOptions{
 			ChainID: cfg.ChainID, OperatorAddress: cfg.LocalIdentity.OperatorAddress,
-			Signer: signingClient, ServiceKeyRef: cfg.LocalIdentity.ServiceKeyRef, ServiceAddress: rt.ServiceAddress,
+			Signer: signingClient, ServiceKeyRef: cfg.LocalIdentity.ServiceKeyRef,
+			Workload: rt.WorkloadSubmitter,
+			TxUnavailable: func() string {
+				if !canSubmit {
+					return "the configured signer cannot sign Cosmos transactions (a file:// keystore); daily model support renewal needs a Cosmos-capable service signer"
+				}
+				return ""
+			},
 			ServiceIdentity: func(ctx context.Context) (uint64, uint64, uint64, uint64, error) {
 				nonce, height, err := rt.TaskDataAuth.CommittedServiceBinding(ctx)
 				if err != nil {
@@ -1035,7 +1050,7 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 				epoch, expiry, err := reader.SupportSigningScopeAt(ctx, height)
 				return nonce, height, epoch, expiry, err
 			},
-			GasPayer: rt.ServiceAddress, FeeCap: modelregistryTxFeeCap(cfg),
+			FeeCap:          modelregistryTxFeeCap(cfg),
 			SupportedModels: dailySupportModels(cfg),
 		})
 	}
@@ -1044,6 +1059,36 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 		rt.Reconciler.SetRegistry(registry)
 	}
 	return registry
+}
+
+// cosmosTxCapable reports whether this runtime can put its own transaction on
+// chain at all: an injected tx client, or a signer that assembles Cosmos
+// transactions. A file:// keystore signer cannot (signer.LocalSigner).
+func cosmosTxCapable(rt *daemon.Runtime, signingClient signer.Signer) bool {
+	return rt.Dependencies.Tx != nil || (signingClient != nil && signingClient.CanSignCosmosTx())
+}
+
+// warnSignerCannotSubmitTx says at startup, once and loudly, what tx.enabled
+// does not deliver when the signer cannot sign Cosmos transactions. The node
+// still runs -- inference and the verify commit/result travel through the
+// Builder relay -- but every path without a relay is silently dead, and an
+// operator otherwise learns that from a jailing or a lapsed support row.
+func warnSignerCannotSubmitTx(cfg config.Config, rt *daemon.Runtime) {
+	if !cfg.UsesRealDependencies() || !cfg.Tx.Enabled || rt == nil || cosmosTxCapable(rt, signerForRuntime(rt)) {
+		return
+	}
+	slog.Warn("tx.enabled is true but the configured signer cannot sign Cosmos transactions (e.g. a file:// keystore); "+
+		"this node cannot submit any transaction of its own. Disabled: daily model support renewal "+
+		"(MsgBatchConfirmModelSupport, no Builder relay -- support freshness will lapse), compensation claims, "+
+		"receipt self-rescue, omission challenges, data-unavailable reports, settlement, and the self-submit "+
+		"fallback of the verify commit/result relay. Configure a Cosmos-capable service signer to enable them.",
+		slog.String("signer_scheme", signerURIScheme(cfg.Signer.URI)))
+}
+
+// signerURIScheme names the signer kind for a log line without logging the path.
+func signerURIScheme(uri string) string {
+	scheme, _, _ := strings.Cut(uri, "://")
+	return scheme
 }
 
 // registrySupportConfirmer renews through the same Registry call

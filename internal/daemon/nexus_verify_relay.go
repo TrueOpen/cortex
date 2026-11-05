@@ -145,3 +145,94 @@ func (r *NexusVerifyCommitRelay) relayTo(ctx context.Context, task store.VerifyT
 		tasktrace.Bool("idempotent", ack.Idempotent), tasktrace.Hash("commit_key", ack.CommitKey))
 	return ack, nil
 }
+
+// VerifyResultRelay hands a Verifier-signed ResultReceiptV3 to the receiving
+// Builder to submit MsgSubmitVerifyResult on chain, the result-side twin of
+// VerifyCommitRelay. A return only means the Builder broadcast it.
+type VerifyResultRelay interface {
+	RelayVerifyResult(context.Context, store.VerifyTask, nodewire.ResultReceiptV3) (builderclient.VerifyRelayAck, error)
+}
+
+// taskResultRelay binds a VerifyResultRelay to one verify responsibility for
+// the verifier's result exit (verifier.ResultRelay), with the error
+// classification of taskCommitRelay: a deterministic refusal is wrapped as
+// ErrResultRelayNotOffered and the exit self-submits, anything else is retried.
+type taskResultRelay struct {
+	relay VerifyResultRelay
+	task  store.VerifyTask
+}
+
+// taskResultRelayFor returns nil when no relay is configured.
+func taskResultRelayFor(relay VerifyResultRelay, task store.VerifyTask) verifier.ResultRelay {
+	if relay == nil {
+		return nil
+	}
+	return taskResultRelay{relay: relay, task: task}
+}
+
+func (r taskResultRelay) RelayVerifyResult(ctx context.Context, req verifier.ResultRelayRequest) error {
+	task := r.task
+	if req.SessionID != "" {
+		task.SessionID = req.SessionID
+	}
+	if req.TaskID != "" {
+		task.TaskID = req.TaskID
+	}
+	_, err := r.relay.RelayVerifyResult(ctx, task, req.Receipt)
+	if err == nil {
+		return nil
+	}
+	if commitRelayRefusedDeterministically(err) {
+		return fmt.Errorf("%w: %v", verifier.ErrResultRelayNotOffered, err)
+	}
+	return err
+}
+
+// NexusVerifyResultRelay relays over IngressAPI SubmitVerifyResult to the
+// task's receiving Builder, over the same dialBuilder path as the commit relay.
+// Without it a node whose signer cannot build Cosmos transactions (a file://
+// keystore) signed every result and then had no way to put it on chain, and
+// each selected round ended in a Verifier timeout fault.
+type NexusVerifyResultRelay struct {
+	cfg NexusVerifyCommitRelayConfig
+}
+
+func NewNexusVerifyResultRelay(cfg NexusVerifyCommitRelayConfig) (*NexusVerifyResultRelay, error) {
+	switch {
+	case cfg.TaskData == nil:
+		return nil, fmt.Errorf("Nexus verify result relay requires a task-data client")
+	case cfg.Endpoints == nil:
+		return nil, fmt.Errorf("Nexus verify result relay requires a Builder endpoint resolver")
+	case cfg.Auth == nil:
+		return nil, fmt.Errorf("Nexus verify result relay requires a task-data authenticator")
+	case strings.TrimSpace(cfg.ChainID) == "":
+		return nil, fmt.Errorf("Nexus verify result relay requires a chain id")
+	}
+	return &NexusVerifyResultRelay{cfg: cfg}, nil
+}
+
+func (r *NexusVerifyResultRelay) RelayVerifyResult(ctx context.Context, task store.VerifyTask, receipt nodewire.ResultReceiptV3) (builderclient.VerifyRelayAck, error) {
+	if err := ctx.Err(); err != nil {
+		return builderclient.VerifyRelayAck{}, err
+	}
+	if strings.TrimSpace(task.BuilderOperatorAddress) == "" {
+		return builderclient.VerifyRelayAck{}, fmt.Errorf("verify result relay requires the receiving Builder operator address")
+	}
+	if len(receipt.ServiceSignature) == 0 {
+		return builderclient.VerifyRelayAck{}, builderclient.Permanent(fmt.Errorf("verify result relay requires a signed result receipt"))
+	}
+	var ack builderclient.VerifyRelayAck
+	err := dialBuilder(ctx, r.cfg.Endpoints, task.BuilderOperatorAddress, func(ctx context.Context, endpoint BuilderEndpoint) error {
+		got, err := r.cfg.TaskData.SubmitVerifyResult(ctx, endpoint.Endpoint, builderclient.SubmitVerifyResultRequest{Receipt: receipt})
+		if err != nil {
+			return err
+		}
+		ack = got
+		r.cfg.Trace.Event("verify_result_relayed",
+			tasktrace.Str("task", task.TaskID), tasktrace.Str("session", task.SessionID),
+			tasktrace.Str("builder", endpoint.OperatorAddress), tasktrace.Str("endpoint", endpoint.Endpoint),
+			tasktrace.Hash("result_signing_digest", got.SigningDigest), tasktrace.Bool("idempotent", got.Idempotent))
+		return nil
+	})
+	return ack, err
+}

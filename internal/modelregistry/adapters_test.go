@@ -246,6 +246,68 @@ func TestTxSupportConfirmerRejectsRecoveryByte(t *testing.T) {
 	}
 }
 
+// cortexd builds the confirmer at boot, before the workload activates, so the
+// tx client and service address must be read per confirmation. Capturing them
+// at construction left daily renewal failing every tick for the life of the
+// process. Inactive: an explicit refusal naming the missing route.
+func TestTxSupportConfirmerResolvesTheWorkloadLazily(t *testing.T) {
+	ctx := context.Background()
+	var (
+		active  txclient.Client
+		address string
+	)
+	signedAs := ""
+	digestSigner := signer.DigestSignerFunc(func(_ context.Context, req signer.DigestRequest) ([]byte, error) {
+		signedAs = req.ExpectedSignerAddress
+		return []byte(strings.Repeat("s", 64)), nil
+	})
+	confirmer := NewTxSupportConfirmer(nil, TxSupportConfirmerOptions{
+		ChainID: "chain-1", OperatorAddress: "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+		Signer: digestSigner, ServiceKeyRef: "kms://service",
+		ServiceIdentity: func(context.Context) (uint64, uint64, uint64, uint64, error) { return 3, 100, 1, 199, nil },
+		FeeCap:          txclient.Coin{Amount: 25, Denom: "utrueopen"},
+		SupportedModels: []string{"0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"},
+		Workload:        func() (txclient.Client, string) { return active, address },
+		TxUnavailable:   func() string { return "" },
+	})
+	material := SupportMaterial{
+		ModelID: "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a", ProfileVersion: "1",
+		SupportMode: SupportModeDaily, Supported: true, EpochIndex: 7,
+	}
+
+	_, err := confirmer.ConfirmSupport(ctx, material)
+	if err == nil || !strings.Contains(err.Error(), "no Builder relay carries MsgBatchConfirmModelSupport") ||
+		!strings.Contains(err.Error(), "workload is not active") {
+		t.Fatalf("inactive workload: err = %v, want an explicit no-relay / not-active refusal", err)
+	}
+
+	tx := &recordingTxClient{obs: txclient.Observation{Accepted: true, Status: txclient.LifecycleKeeperConfirmed, TxHash: "tx-support", IncludedHeight: 55}}
+	active, address = tx, "trueopen1service"
+	if _, err := confirmer.ConfirmSupport(ctx, material); err != nil {
+		t.Fatalf("activated workload: ConfirmSupport error = %v", err)
+	}
+	if len(tx.requests) != 1 || tx.requests[0].GasPayer != "trueopen1service" || signedAs != "trueopen1service" {
+		t.Fatalf("requests = %#v, signed as %q; want one submission paid and signed by the activated service address", tx.requests, signedAs)
+	}
+	var batch txclient.BatchConfirmModelSupportMessage
+	if err := json.Unmarshal(tx.requests[0].Payload, &batch); err != nil || batch.SubmitterAddress != "trueopen1service" {
+		t.Fatalf("batch = %#v, %v; want the activated service address as submitter", batch, err)
+	}
+}
+
+// A signer that cannot build Cosmos transactions is named in the refusal.
+func TestTxSupportConfirmerNamesTheMissingCosmosSigner(t *testing.T) {
+	confirmer := NewTxSupportConfirmer(nil, TxSupportConfirmerOptions{
+		Signer:        signer.DigestSignerFunc(func(context.Context, signer.DigestRequest) ([]byte, error) { return nil, nil }),
+		Workload:      func() (txclient.Client, string) { return nil, "" },
+		TxUnavailable: func() string { return "the configured signer cannot sign Cosmos transactions" },
+	})
+	_, err := confirmer.ConfirmSupport(context.Background(), SupportMaterial{SupportMode: SupportModeDaily, Supported: true})
+	if err == nil || !strings.Contains(err.Error(), "cannot sign Cosmos transactions") {
+		t.Fatalf("err = %v, want the missing Cosmos-capable signer named", err)
+	}
+}
+
 func validAdapterRegistrationMaterial() RegistrationMaterial {
 	return RegistrationMaterial{
 		ManifestHash: "manifest-hash-1", SignedEnvelope: strings.Repeat("ab", 64), FeeDenom: "utrueopen",

@@ -64,6 +64,9 @@ type Runtime struct {
 	// VerifyCommitRelay hands a Verifier's signed commit to the receiving Builder
 	// for on-chain relay; nil when the node lacks the task-data plane.
 	VerifyCommitRelay VerifyCommitRelay
+	// VerifyResultRelay is the same relay for the signed result receipt, asked
+	// before any self-submission; nil when the node lacks the task-data plane.
+	VerifyResultRelay VerifyResultRelay
 	// taskTrace is the per-task protocol trace sink this runtime was built
 	// with. It is held so the task runner built afterwards traces into the same
 	// sink as the output confirmer built here.
@@ -546,12 +549,18 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		}
 	}
 	var verifyCommitRelay VerifyCommitRelay
+	var verifyResultRelay VerifyResultRelay
 	if cfg.UsesRealDependencies() &&
 		deps.TaskData != nil && taskDataAuth != nil && builderEndpointResolver != nil {
-		verifyCommitRelay, err = NewNexusVerifyCommitRelay(NexusVerifyCommitRelayConfig{
+		relayConfig := NexusVerifyCommitRelayConfig{
 			TaskData: deps.TaskData, Endpoints: builderEndpointResolver, Auth: taskDataAuth,
 			ChainID: cfg.ChainID, Trace: taskTrace,
-		})
+		}
+		verifyCommitRelay, err = NewNexusVerifyCommitRelay(relayConfig)
+		if err != nil {
+			return nil, err
+		}
+		verifyResultRelay, err = NewNexusVerifyResultRelay(relayConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -566,6 +575,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		OutputConfirmer:             outputConfirmer,
 		EvidenceConfirmer:           evidenceConfirmer,
 		VerifyCommitRelay:           verifyCommitRelay,
+		VerifyResultRelay:           verifyResultRelay,
 		taskTrace:                   taskTrace,
 		Reconciler:                  reconciler,
 		cfg:                         cfg,

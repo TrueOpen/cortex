@@ -78,8 +78,12 @@ type Config struct {
 	// Notices queues VerifyResultSubmittedNoticeV1 after the commit and after
 	// the result are handed off. Nil sends none.
 	Notices NoticeSender
-	// ResultSubmitter self-submits MsgSubmitVerifyResult. Required in real
-	// mode; nil with FakeOutput signs and finalizes without submitting.
+	// ResultRelay is the Task Builder relay for the signed result, asked before
+	// ResultSubmitter (see result_exit.go). Nil means no relay channel.
+	ResultRelay ResultRelay
+	// ResultSubmitter self-submits MsgSubmitVerifyResult when the relay is
+	// absent or refuses. Real mode needs it or ResultRelay; with neither, nil
+	// FakeOutput signs and finalizes without submitting.
 	ResultSubmitter ResultSubmitter
 }
 

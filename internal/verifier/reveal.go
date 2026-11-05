@@ -118,8 +118,8 @@ func (v *Verifier) HandleRevealPhaseStarted(ctx context.Context, state TaskState
 	}
 	// Before any B-level read: a real-mode reveal with no way to put its result
 	// on chain must not download the value bundle or sign anything.
-	if v.cfg.ResultSubmitter == nil && !v.cfg.FakeOutput {
-		return RevealResult{}, fmt.Errorf("%w: no direct result submitter is wired, so a signed result would stay local", ErrResultExitUnavailable)
+	if v.cfg.ResultSubmitter == nil && v.cfg.ResultRelay == nil && !v.cfg.FakeOutput {
+		return RevealResult{}, fmt.Errorf("%w: neither a Builder result relay nor a direct result submitter is wired, so a signed result would stay local", ErrResultExitUnavailable)
 	}
 	// generation_params_digest is frozen preimage field 7 and a consensus read,
 	// so it is fetched rather than derived. v.taskFacts validates the answer it

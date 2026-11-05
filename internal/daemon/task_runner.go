@@ -57,6 +57,9 @@ type TaskRunnerConfig struct {
 	// VerifyCommitRelay hands the signed verify commit to the receiving Builder
 	// for relay. Optional: nil keeps the pre-relay behaviour (self-submit only).
 	VerifyCommitRelay VerifyCommitRelay
+	// VerifyResultRelay hands the signed result receipt to the same Builder.
+	// Optional: nil leaves self-submission as the result's only exit.
+	VerifyResultRelay VerifyResultRelay
 	FakeOutput        bool
 	// VerifierSender delivers signed VerifierHandraises to Builders. Nil means
 	// this node has no delivery channel, and the Verifier refuses to sign.

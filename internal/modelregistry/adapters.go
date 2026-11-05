@@ -49,6 +49,16 @@ type TxSupportConfirmerOptions struct {
 	// confirmation carries this whole set rather than the one model it was
 	// requested for.
 	SupportedModels []string
+	// Workload resolves the tx client and the Keeper-confirmed current service
+	// address at call time. cortexd builds the confirmer at boot, before the
+	// first Keeper poll activates the workload, so a client and address read
+	// then are always nil and empty and renewal would never succeed. When set,
+	// its answer replaces the constructor's tx client, ServiceAddress and
+	// GasPayer.
+	Workload func() (txclient.Client, string)
+	// TxUnavailable says why there is no tx client, for the refusal; nil
+	// means "the workload is not active yet".
+	TxUnavailable func() string
 }
 
 type txSupportConfirmer struct {
@@ -62,9 +72,37 @@ func NewTxSupportConfirmer(tx txclient.Client, options TxSupportConfirmerOptions
 
 func (txSupportConfirmer) SignsSupportInternally() bool { return true }
 
+// resolve applies the Workload provider, if any, for one confirmation.
+func (c txSupportConfirmer) resolve() (txSupportConfirmer, error) {
+	if c.options.Workload != nil {
+		tx, serviceAddress := c.options.Workload()
+		c.tx = tx
+		c.options.ServiceAddress, c.options.GasPayer = serviceAddress, serviceAddress
+	}
+	if c.tx == nil {
+		reason := "the workload is not active yet: the Keeper has not confirmed this node's current service key"
+		if c.options.TxUnavailable != nil {
+			if r := c.options.TxUnavailable(); r != "" {
+				reason = r
+			}
+		}
+		// MsgBatchConfirmModelSupport has no Builder relay (nexus ingress
+		// carries none), so this node's own transaction is the only route.
+		return c, fmt.Errorf("model support confirmation needs this node's own transaction (no Builder relay carries MsgBatchConfirmModelSupport), and no workload tx client is available: %s", reason)
+	}
+	if c.options.Workload != nil && c.options.ServiceAddress == "" {
+		return c, fmt.Errorf("model support confirmation requires the Keeper-confirmed current service address")
+	}
+	return c, nil
+}
+
 func (c txSupportConfirmer) ConfirmSupport(ctx context.Context, material SupportMaterial) (string, error) {
-	if c.tx == nil || c.options.Signer == nil {
-		return "", fmt.Errorf("tx client and support signer are required")
+	if c.options.Signer == nil {
+		return "", fmt.Errorf("support signer is required")
+	}
+	c, err := c.resolve()
+	if err != nil {
+		return "", err
 	}
 	if !material.Supported {
 		return "", fmt.Errorf("Keeper does not define an undeclare/disable support message")

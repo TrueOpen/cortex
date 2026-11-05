@@ -445,8 +445,9 @@ func (e *productionVerifyExecutor) verifyRoundIdentity(ctx context.Context, task
 // It confirms no output and runs no model: the verification happened in the
 // commit half and its leaves are on disk. What it does download is the B
 // level (ADR-0023), and only after revealGate has seen this node's own commit
-// row on chain. The signed result leaves through the MsgSubmitVerifyResult
-// self-submission (resultSubmitter); the reveal half never submits a commit.
+// row on chain. The signed result leaves through the receiving Builder's relay
+// or, failing that, the MsgSubmitVerifyResult self-submission (resultExit); the
+// reveal half never submits a commit.
 func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec.Hash, task store.VerifyTask) (store.VerifyTask, bool, error) {
 	if task.RevealDeadlineHeight == 0 {
 		// The runner does not schedule this case (awaitingRevealPhase skips it),
@@ -483,7 +484,7 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 	if err != nil {
 		return task, false, err
 	}
-	resultExit, err := e.resultSubmitter(identity.signerAddress)
+	resultSubmitter, resultRelay, err := e.resultExit(identity.signerAddress, task)
 	if err != nil {
 		return task, false, err
 	}
@@ -495,7 +496,7 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		stopped, rerr := e.reportOrWait(ctx, task, persistence, builders, servedBy, err)
 		return stopped, false, rerr
 	}
-	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}, Notices: e.cfg.VerifyNotices, ResultSubmitter: resultExit})
+	v := verifier.New(verifier.Config{VerifierAddress: e.cfg.LocalVerifierAddress, ModelServiceID: e.cfg.ModelServiceID, Model: e.cfg.Model, Persistence: persistence, ChainID: e.cfg.ChainID, SignerAddress: identity.signerAddress, SignerKeyRef: e.cfg.SignerKeyRef, Signer: e.cfg.Signer, VerifyDeadlineDeltaHeight: e.cfg.VerifyDeadlineDeltaHeight, FakeOutput: e.cfg.FakeOutput, TaskFacts: e.cfg.TaskFacts, ServiceAuthorizationNonce: identity.authorizationNonce, ProfileReader: e.cfg.ProfileReader, MaxOutputBytes: e.cfg.MaxOutputBytes, Trace: e.cfg.Trace, EvidencePublisher: nexusVerifierEvidencePublisher{cfg: e.cfg, builderOperator: task.BuilderOperatorAddress}, Notices: e.cfg.VerifyNotices, ResultSubmitter: resultSubmitter, ResultRelay: resultRelay})
 	state := verifier.TaskState{TaskID: task.TaskID, SessionID: task.SessionID, OrderSequence: task.OrderSequence, OrderDigest: task.OrderDigest, VerifyRound: task.VerifyRound, InferReceiptHash: identity.inferReceiptHash, Member: identity.member, ModelID: task.ModelID, ProfileVersion: task.ProfileVersion, Capability: task.Capability, WorkerAddress: task.WorkerAddress, OpenVerifyAccepted: true, AssignedVerifiers: append([]string(nil), task.AssignedVerifiers...), OpenVerifyHeight: task.OpenVerifyHeight, HandraiseExpiryHeight: identity.handraiseExpiryHeight, CurrentHeight: task.CurrentHeight, CommitDeadlineHeight: task.CommitDeadlineHeight, WorkerRevealDeadlineHeight: task.WorkerRevealDeadlineHeight, RevealDeadlineHeight: task.RevealDeadlineHeight, VerifyDeadlineHeight: task.DeadlineHeight, VerificationSampleSeed: task.VerificationSampleSeed}
 	state.ConfirmedWorkerValues = workerValues
 	if workerReceipt != nil {
@@ -515,6 +516,7 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 		tasktrace.Hash("result_signing_digest", reveal.ResultSigningDigest),
 		tasktrace.Uint("expiry_height", reveal.ExpiryHeight),
 		tasktrace.Bool("signed", reveal.Signed),
+		tasktrace.Bool("result_relayed", reveal.Delivery.Relayed),
 		tasktrace.Bool("result_submitted", reveal.Delivery.Submitted),
 		tasktrace.Str("result_tx", reveal.Delivery.TxHash))
 	// Q15: the result digest exists only now, after the reveal succeeded.
@@ -551,15 +553,27 @@ func (e *productionVerifyExecutor) runReveal(ctx context.Context, taskHash codec
 // signature in a local evidence file and the chain with no CommitState -- the
 // exact silence this exit closes.
 func (e *productionVerifyExecutor) commitSubmitter(serviceAddress string, relayWired bool) (verifier.CommitSubmitter, error) {
+	manager, err := e.settlementManager(serviceAddress, relayWired, "commit")
+	if err != nil || manager == nil {
+		// A nil *SettlementManager must not become a non-nil interface.
+		return nil, err
+	}
+	return manager, nil
+}
+
+// settlementManager is the direct submitter behind both verify exits; exit
+// ("commit" / "result") only names the exit in the refusal. Nil with no error:
+// a relay is wired and there is no tx client, so the relay is the only route.
+func (e *productionVerifyExecutor) settlementManager(serviceAddress string, relayWired bool, exit string) (*verifier.SettlementManager, error) {
 	tx := resolveWorkloadTx(e.cfg)
 	if tx == nil {
 		if relayWired {
 			return nil, nil
 		}
-		return nil, builderclient.Retryable(fmt.Errorf("verifier commit exit requires a workload tx client: the signed commit has no relay to travel on, so a node without a direct transaction path cannot put a commit on chain"))
+		return nil, builderclient.Retryable(fmt.Errorf("verifier %[1]s exit requires a workload tx client: the signed %[1]s has no relay to travel on, so a node without a direct transaction path cannot put a %[1]s on chain", exit))
 	}
 	if strings.TrimSpace(serviceAddress) == "" {
-		return nil, builderclient.Retryable(fmt.Errorf("verifier commit exit requires the Keeper-confirmed current Cortex service address as the outer transaction signer"))
+		return nil, builderclient.Retryable(fmt.Errorf("verifier %s exit requires the Keeper-confirmed current Cortex service address as the outer transaction signer", exit))
 	}
 	feeCap := e.cfg.CommitExitFeeCap
 	if feeCap == (txclient.Coin{}) {
