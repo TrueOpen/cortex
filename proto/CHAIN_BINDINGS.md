@@ -228,6 +228,24 @@ past its height dismisses the local claim instead of retrying.
 The new Builder-to-Builder `nexus/v1/builder_sync.proto` is not generated:
 Cortex is not a party to it and `ingress.proto` does not import it.
 
+## Model support relay (e365a48)
+
+e365a48 adds `IngressAPI.SubmitModelSupportConfirmation` (wire
+`docs/MODEL_SUPPORT_RELAY.md`); no other message, signing byte or chain message
+changes. The request carries `epoch_index` and the protobuf binary of the
+existing `hub.v1.ModelSupportConfirmationV1`; the Builder batches it into
+`MsgBatchConfirmModelSupport` and pays the fee.
+
+Cortex submits the daily support confirmation with its own transaction when
+its signer can build Cosmos transactions. Otherwise (a `file://` keystore) it
+relays the same signed confirmation to the first Builder in
+`dispatch.builders` that accepts it, and checks the echoed
+`confirmation_signing_digest`. Within an epoch every retry resends the
+material already signed. `relay_accepted` is only the Builder's queue: the
+SupportRenewer keeps reading the chain's support rows, and while they still
+read stale it resubmits the same confirmation every
+`SupportResubmitInterval` (2 minutes) instead of every Keeper poll.
+
 ## Reproduction
 
 The descriptor is committed as `proto/testdata/wire-e365a48.binpb`.

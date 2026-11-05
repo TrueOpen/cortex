@@ -1026,6 +1026,12 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 	// tick until support freshness lapsed and the node stopped getting work.
 	if cfg.Tx.Enabled && rt.TaskDataAuth != nil {
 		canSubmit := cosmosTxCapable(rt, signingClient)
+		// A node that cannot submit its own transaction renews through a
+		// dispatch Builder, which batches the signed confirmation and pays.
+		var relay modelregistry.SupportRelay
+		if rt.ModelSupportRelay != nil {
+			relay = rt.ModelSupportRelay
+		}
 		registryConfig.SupportConfirmer = modelregistry.NewTxSupportConfirmer(nil, modelregistry.TxSupportConfirmerOptions{
 			ChainID: cfg.ChainID, OperatorAddress: cfg.LocalIdentity.OperatorAddress,
 			Signer: signingClient, ServiceKeyRef: cfg.LocalIdentity.ServiceKeyRef,
@@ -1052,6 +1058,11 @@ func newModelRegistry(cfg config.Config, rt *daemon.Runtime) *modelregistry.Regi
 			},
 			FeeCap:          modelregistryTxFeeCap(cfg),
 			SupportedModels: dailySupportModels(cfg),
+			Relay:           relay,
+			RelayServiceAddress: func() string {
+				address, _ := rt.WorkloadIdentity()
+				return address
+			},
 		})
 	}
 	registry := modelregistry.NewRegistry(registryConfig)
@@ -1077,9 +1088,12 @@ func warnSignerCannotSubmitTx(cfg config.Config, rt *daemon.Runtime) {
 	if !cfg.UsesRealDependencies() || !cfg.Tx.Enabled || rt == nil || cosmosTxCapable(rt, signerForRuntime(rt)) {
 		return
 	}
+	renewal := "daily model support renewal goes through the dispatch Builders' relay"
+	if rt.ModelSupportRelay == nil {
+		renewal = "daily model support renewal has no route (no dispatch Builder relay -- support freshness will lapse)"
+	}
 	slog.Warn("tx.enabled is true but the configured signer cannot sign Cosmos transactions (e.g. a file:// keystore); "+
-		"this node cannot submit any transaction of its own. Disabled: daily model support renewal "+
-		"(MsgBatchConfirmModelSupport, no Builder relay -- support freshness will lapse), compensation claims, "+
+		"this node cannot submit any transaction of its own; "+renewal+". Disabled: compensation claims, "+
 		"receipt self-rescue, omission challenges, data-unavailable reports, settlement, and the self-submit "+
 		"fallback of the verify commit/result relay. Configure a Cosmos-capable service signer to enable them.",
 		slog.String("signer_scheme", signerURIScheme(cfg.Signer.URI)))
@@ -1129,7 +1143,9 @@ func newSupportRenewer(cfg config.Config, rt *daemon.Runtime, registry *modelreg
 		// goes unnoticed.
 		Interval: intervalFromMillis(cfg.Keeper.PollIntervalMS),
 		OnRenewal: func(modelID string, remaining uint64) {
-			slog.Info("renewed daily model support",
+			// Submitted, not yet renewed: through the relay this is a Builder's
+			// queue, and the renewer keeps reading the chain until it shows.
+			slog.Info("submitted daily model support confirmation",
 				slog.String("model", modelID), slog.Uint64("remaining_before_renewal", remaining))
 		},
 		OnFailure: func(modelID string, err error) {

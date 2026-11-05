@@ -143,6 +143,63 @@ func TestSupportRenewerReportsFailuresWithoutStopping(t *testing.T) {
 	}
 }
 
+// A relayed confirmation is accepted into a Builder's queue well before the
+// chain shows it. Until then the row still reads stale, and resubmitting on
+// every Keeper poll would only flood the relay with the same material.
+func TestSupportRenewerSpacesResubmissionsWhileTheChainCatchesUp(t *testing.T) {
+	renewer, confirmer := renewalFixture(t, 1000, 900, nil)
+	now := time.Unix(1000, 0)
+	renewer.cfg.Now = func() time.Time { return now }
+	renewer.cfg.ResubmitAfter = time.Minute
+
+	renewer.RunOnce(context.Background())
+	now = now.Add(30 * time.Second)
+	renewer.RunOnce(context.Background())
+	if len(confirmer.calls) != 1 {
+		t.Fatalf("renewals = %v, want one while the first submission is pending", confirmer.calls)
+	}
+	// Still stale a minute later: the submission was lost (a Builder restart, a
+	// failed batch), and the same material goes again.
+	now = now.Add(31 * time.Second)
+	renewer.RunOnce(context.Background())
+	if len(confirmer.calls) != 2 {
+		t.Fatalf("renewals = %v, want a resubmission once the spacing elapsed", confirmer.calls)
+	}
+}
+
+// A failed submission queued nothing, so it is not spaced: the next tick tries again.
+func TestSupportRenewerRetriesAFailureOnTheNextTick(t *testing.T) {
+	renewer, confirmer := renewalFixture(t, 1000, 900, nil)
+	renewer.cfg.Now = func() time.Time { return time.Unix(1000, 0) }
+	renewer.cfg.ResubmitAfter = time.Minute
+	confirmer.err = errors.New("every Builder refused")
+
+	renewer.RunOnce(context.Background())
+	renewer.RunOnce(context.Background())
+	if len(confirmer.calls) != 2 {
+		t.Fatalf("renewals = %v, want a retry on every tick after a failure", confirmer.calls)
+	}
+}
+
+// Once the chain shows the refresh, the next window starts from scratch.
+func TestSupportRenewerForgetsTheSubmissionOnceSupportIsFresh(t *testing.T) {
+	now := time.Unix(1000, 0)
+	stale, confirmer := renewalFixture(t, 1000, 900, nil)
+	stale.cfg.Now = func() time.Time { return now }
+	stale.cfg.ResubmitAfter = time.Hour
+	stale.RunOnce(context.Background())
+
+	fresh, _ := renewalFixture(t, 1000, 10, nil)
+	stale.cfg.Keeper = fresh.cfg.Keeper
+	stale.RunOnce(context.Background())
+	if !stale.submittedAt.IsZero() {
+		t.Fatal("a pending submission outlived the refresh it was waiting for")
+	}
+	if len(confirmer.calls) != 1 {
+		t.Fatalf("renewals = %v", confirmer.calls)
+	}
+}
+
 // TestNewSupportRenewerRefusesAnIncompleteConfiguration keeps a half-wired
 // renewer from looking like a working one.
 func TestNewSupportRenewerRefusesAnIncompleteConfiguration(t *testing.T) {
