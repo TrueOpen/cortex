@@ -72,3 +72,55 @@ func TestClaimsRecoverAfterAGap(t *testing.T) {
 		}
 	})
 }
+
+// wire b30fba8 keys claims by (session, sequence): a DISMISSED claim may be
+// replaced by another ticket's claim, after which this ticket answers
+// NotFound for good. A rebutted event read at or past its height must not
+// retry the event page forever; the claim is dismissed locally.
+func TestRebuttedClaimReplacedAtItsSequenceIsDismissed(t *testing.T) {
+	ctx := context.Background()
+	x, tx := claimHarness(t)
+	x.landClaims(tx)
+	rec := x.committed(t)
+	x.atHeight(t, rec.ClaimFromHeight)
+	pending := x.record(t)
+	if pending.State != layout.DispatchClaimPending {
+		t.Fatalf("state %s, want a pending claim", pending.State)
+	}
+	x.chain.with(func(f *fakeDispatchChain) { delete(f.claims, [32]byte(rec.TicketHash)) })
+	var height uint64
+	x.chain.with(func(f *fakeDispatchChain) { height = f.height })
+	fact := DispatchEventFact{Type: chainclient.KeeperEventDispatchCompensationRebutted, Height: height + 1,
+		TaskID: rec.TaskID, TicketHash: rec.TicketHash, Builder: hrBuilderA, Worker: hrCortex}
+	if err := x.d.ObserveDispatchEvent(ctx, fact); !builderclient.IsRetryable(err) {
+		t.Fatalf("an event past the served height is a lag and retries: %v", err)
+	}
+	fact.Height = height
+	if err := x.d.ObserveDispatchEvent(ctx, fact); err != nil {
+		t.Fatalf("a replaced claim must not hold the event page: %v", err)
+	}
+	if got := x.record(t); got.State != layout.DispatchClaimDismissed {
+		t.Fatalf("state %s, want dismissed", got.State)
+	}
+}
+
+// A claimed or paid event whose ticket no longer resolves at or past its
+// height is not retried either; only a rebuttal changes local state.
+func TestClaimEventForAnUnqueryableClaimIsNotRetried(t *testing.T) {
+	ctx := context.Background()
+	x, tx := claimHarness(t)
+	x.landClaims(tx)
+	rec := x.committed(t)
+	x.atHeight(t, rec.ClaimFromHeight)
+	x.chain.with(func(f *fakeDispatchChain) { delete(f.claims, [32]byte(rec.TicketHash)) })
+	var height uint64
+	x.chain.with(func(f *fakeDispatchChain) { height = f.height })
+	fact := DispatchEventFact{Type: chainclient.KeeperEventDispatchCompensationPaid, Height: height,
+		TaskID: rec.TaskID, TicketHash: rec.TicketHash, Builder: hrBuilderA, Worker: hrCortex}
+	if err := x.d.ObserveDispatchEvent(ctx, fact); err != nil {
+		t.Fatal(err)
+	}
+	if got := x.record(t); got.State != layout.DispatchClaimPending {
+		t.Fatalf("state %s, want it left pending", got.State)
+	}
+}

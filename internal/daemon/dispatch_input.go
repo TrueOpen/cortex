@@ -32,6 +32,9 @@ func (d *Dispatcher) HandleInputResponse(ctx context.Context, builder string, r 
 	if !ok {
 		return errors.New("dispatch input: dispatch_ticket_hash is not 32 bytes")
 	}
+	if err := d.verifyRetained(ctx, ticket, builder, r); err != nil {
+		return err
+	}
 	if err := d.lock(ctx); err != nil {
 		return err
 	}

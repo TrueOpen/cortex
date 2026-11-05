@@ -506,6 +506,13 @@
           "name": "cross_chain",
           "reason": "a token minted on one chain must not verify on another",
           "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "2c3e6b8ef095925cd559944dce300f37113ad0d3b244259a93aa480529c61860",
+          "field": 1,
+          "name": "cross_rpc_value_evidence",
+          "reason": "VerifierValueEvidence also has three selector fields; RPC identity keeps their page cursors separate.",
+          "value": "/task.v1.Query/VerifierValueEvidence"
         }
       ],
       "rpc_method": "/hub.v1.Query/FreezeSignals",
@@ -990,6 +997,315 @@
         }
       ],
       "variant": "/task.v1.Query/SessionsByOwner"
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "e2770a57cf7a456c69331ffdc740f55b83a9aeb6c698b353f90fa2a60c1428f8",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/DispatchChallengesByBuilder"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_dispatch_challenges_by_builder",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f5631000000000000002a2f7461736b2e76312e51756572792f44697370617463684368616c6c656e67657342794275696c646572",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/DispatchChallengesByBuilder",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a17d66f1ead0d05bcf7ddc5be288c300e1d7d6361c82d0101151d9e6f06d1787",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "048d6919e4e651a09941f3afae69333338e6db93c5fc3c86745bb4b2d7887ad9",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "e2770a57cf7a456c69331ffdc740f55b83a9aeb6c698b353f90fa2a60c1428f8",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8",
+          "hex": "0f0e0d0c0b0a09080706050403020100a1b2c3d4",
+          "name": "builder_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_dispatch_challenges_by_builder",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020e2770a57cf7a456c69331ffdc740f55b83a9aeb6c698b353f90fa2a60c1428f800000000000000140f0e0d0c0b0a09080706050403020100a1b2c3d4",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "09e3004151ccf5d2ba2685c03374c1119dcc40dacbbb7e57b8d0a548111686a1",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "Page tokens are bound to the authoritative chain.",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "905fecfe362eef9975399ffeef27baee4f5ab501e1d74bbc3f1e922d0ca3768f",
+          "field": 1,
+          "name": "cross_rpc",
+          "reason": "A registered RPC with the same selector arity cannot reuse this cursor.",
+          "value": "/task.v1.Query/DispatchCompensationClaimsByBuilder"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/DispatchChallengesByBuilder",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "29ae4efae6037b0665cd5813d54383cf4069439b65ced11f41d7e5a889481c77",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "9eaccfeb3dfdce51fe047b6e8746f2b94b288c95c0491f0f5be6b43c4a112840",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "aff3943ba6c51fcd692caa0fe91dc7678a2dfe4d83e4a5b68459f95b60010804",
+          "field": 2,
+          "name": "builder_address_first_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/DispatchChallengesByBuilder"
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "b8fabc0ca60f83fe5cbb83057206f1aa17ccd603ee40aaa331c5fe0d5ab134ef",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/DispatchCompensationClaimsByBuilder"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_dispatch_compensation_claims_by_builder",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000322f7461736b2e76312e51756572792f4469737061746368436f6d70656e736174696f6e436c61696d7342794275696c646572",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/DispatchCompensationClaimsByBuilder",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "a4eb9510d8d3b473daab02f8aa1e4a36027df9b572319851e00538ae67983e19",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "905fecfe362eef9975399ffeef27baee4f5ab501e1d74bbc3f1e922d0ca3768f",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "b8fabc0ca60f83fe5cbb83057206f1aa17ccd603ee40aaa331c5fe0d5ab134ef",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8",
+          "hex": "0f0e0d0c0b0a09080706050403020100a1b2c3d4",
+          "name": "builder_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_dispatch_compensation_claims_by_builder",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020b8fabc0ca60f83fe5cbb83057206f1aa17ccd603ee40aaa331c5fe0d5ab134ef00000000000000140f0e0d0c0b0a09080706050403020100a1b2c3d4",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "c0351eb14edf12617064d4808b893620a9f510837343807cb8f5c3df72da7f9f",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "Page tokens are bound to the authoritative chain.",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "048d6919e4e651a09941f3afae69333338e6db93c5fc3c86745bb4b2d7887ad9",
+          "field": 1,
+          "name": "cross_rpc",
+          "reason": "A registered RPC with the same selector arity cannot reuse this cursor.",
+          "value": "/task.v1.Query/DispatchChallengesByBuilder"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/DispatchCompensationClaimsByBuilder",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "4038a26d4971bc98953d91f145c4b56f79dfebfdf321c2e650d46c2018b0ecbc",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "3bbcbb9136b905f2bf1e4a178f17fb9540da7a642f80ff61a3a6d234a6caeee2",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "1bc5a356d56489ca2c99ec7a868104952e0be196db6e7f1880cd36a1e9b2a23a",
+          "field": 2,
+          "name": "builder_address_first_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/DispatchCompensationClaimsByBuilder"
+    },
+    {
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "d51c97a49b8221074916c823e9ca418c0b1a19b0852cd666bacd63ded7507bd5",
+      "domain": "TRUEOPEN_QUERY_RPC_V1",
+      "fields": [
+        {
+          "name": "rpc_method",
+          "type": "string",
+          "utf8": "/task.v1.Query/VerifierValueEvidence"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_rpc_v1_task_verifier_value_evidence",
+      "preimage_hex": "0000000000000015545255454f50454e5f51554552595f5250435f563100000000000000242f7461736b2e76312e51756572792f566572696669657256616c756545766964656e6365",
+      "producer": "QueryRPCDigestV1",
+      "rpc_method": "/task.v1.Query/VerifierValueEvidence",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "013420c6a65d83e7e354624a8a0f04aa6d9e1c328b180dc8f95a943c50b93739",
+          "field": 0,
+          "name": "rpc_method_first_byte"
+        }
+      ]
+    },
+    {
+      "chain_id": "trueopen-page-vector-1",
+      "contract_section": "Public QueryPageV1 selector and RPC projection",
+      "digest_hex": "04eced061cee603253088fc413a7e374cd72f5e39b871a7796936cb86e148e6b",
+      "domain": "TRUEOPEN_QUERY_SELECTOR_V1",
+      "fields": [
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-page-vector-1"
+        },
+        {
+          "hex": "d51c97a49b8221074916c823e9ca418c0b1a19b0852cd666bacd63ded7507bd5",
+          "name": "rpc_method_digest",
+          "type": "bytes"
+        },
+        {
+          "hex": "4141414141414141414141414141414141414141414141414141414141414141",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "name": "verify_round",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "bech32": "trueopen1pu8q6rqtpgysspcxq5zqxqspqzsm9s7589fuc8",
+          "hex": "0f0e0d0c0b0a09080706050403020100a1b2c3d4",
+          "name": "target_operator_address",
+          "type": "address"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "query_selector_v1_task_verifier_value_evidence",
+      "preimage_hex": "000000000000001a545255454f50454e5f51554552595f53454c4543544f525f56310000000000000016747275656f70656e2d706167652d766563746f722d310000000000000020d51c97a49b8221074916c823e9ca418c0b1a19b0852cd666bacd63ded7507bd50000000000000020414141414141414141414141414141414141414141414141414141414141414100000000000000040000000100000000000000140f0e0d0c0b0a09080706050403020100a1b2c3d4",
+      "producer": "QueryPageDigestsV1",
+      "replay": [
+        {
+          "digest_hex": "aad5f39242ea841b1a541807faa3b925ccd3aa80aa1b87e4fd1d605a6b696a06",
+          "field": 0,
+          "name": "cross_chain",
+          "reason": "Page tokens are bound to the authoritative chain.",
+          "value": "trueopen-page-vector-2"
+        },
+        {
+          "digest_hex": "af1e228e3df1539c96425097101592ba993cea301cc4e8dc53d4373002126cbd",
+          "field": 1,
+          "name": "cross_rpc",
+          "reason": "A registered RPC with the same selector arity cannot reuse this cursor.",
+          "value": "/hub.v1.Query/FreezeSignals"
+        }
+      ],
+      "rpc_method": "/task.v1.Query/VerifierValueEvidence",
+      "tamper": [
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "1cbe5ed1c9555ea3a6122dee3ec2609dab376fc659e0eb13a23c3a4d7bbabf75",
+          "field": 0,
+          "name": "chain_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "cc3f5d1aa000274f7740653b78a3e182195e171f94c69a8499257da6c394b7b8",
+          "field": 1,
+          "name": "rpc_method_digest_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "d51679599b22fd383eb0325bc88031c6a2261ed773825af87e42a3c26c18d709",
+          "field": 2,
+          "name": "task_id_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "f511b47396a478c6b5f7e065c4d462faaa976532954389a705d87c0638af8304",
+          "field": 3,
+          "name": "verify_round_first_byte"
+        },
+        {
+          "bit": 0,
+          "byte": 0,
+          "digest_hex": "258142bfa0a31a4306c54bb733f7b295cbfdacbaa73c179846945226478e6667",
+          "field": 4,
+          "name": "target_operator_address_first_byte"
+        }
+      ],
+      "variant": "/task.v1.Query/VerifierValueEvidence"
     }
   ]
 }

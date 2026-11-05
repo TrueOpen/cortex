@@ -1,0 +1,299 @@
+{
+  "schema": "trueopen-dispatch-compensation-v1",
+  "notes": [
+    "Consumer state-transition acceptance cases; wire owns their public shapes and normative identities, not Keeper business logic.",
+    "Claim primary is (session_id, order_sequence); ticket lookup is derived. A dismissed replacement removes old ticket/prune indexes atomically.",
+    "Amounts are atomic units. PAID consumes the unique sequence allowance even when actual payment is zero; DISMISSED does not.",
+    "Session lifecycle reads its fixed Task parameter version. All arithmetic is checked and cleanup is bounded by visited items.",
+    "Each claim_cases row overrides claim_defaults; existing status and exact replay always refer to an existing claim row."
+  ],
+  "round_identity_cases": [
+    {
+      "name": "same_round_context",
+      "registered_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "ticket_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "same_round": true
+    },
+    {
+      "name": "new_epoch_round_zero",
+      "registered_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "ticket_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 2,
+        "dispatch_round": 0
+      },
+      "same_round": false
+    },
+    {
+      "name": "return_to_same_builder_new_binding",
+      "registered_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "ticket_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 196,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "same_round": false
+    },
+    {
+      "name": "another_round",
+      "registered_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "ticket_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 1
+      },
+      "same_round": false
+    },
+    {
+      "name": "another_sequence",
+      "registered_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 0,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "ticket_scope": {
+        "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "order_sequence": 1,
+        "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+        "bound_change_height": 130,
+        "vrf_epoch": 1,
+        "dispatch_round": 0
+      },
+      "same_round": false
+    }
+  ],
+  "claim_defaults": {
+    "stream_exists": true,
+    "stream_status": "ACTIVE",
+    "order_sequence": 0,
+    "next_expected_sequence": 0,
+    "max_pending_per_session": 4,
+    "earliest_submit_height": 130,
+    "bound_change_height": 130,
+    "current_height": 151,
+    "record_deadline_blocks": 20,
+    "dispatch_compensation_claim_window_blocks": 60,
+    "compensation_paid": false,
+    "claim_exists": false,
+    "exact_ticket_replay": false,
+    "winner_recorded": false,
+    "winner_ineligible": false,
+    "order_ticket_accept_scope_and_signatures_valid": true
+  },
+  "same_epoch_return_case": {
+    "epoch_length_blocks": 120,
+    "record_deadline_blocks": 20,
+    "dispatch_compensation_claim_window_blocks": 60,
+    "dispatch_compensation_rebuttal_blocks": 30,
+    "dispatch_record_retention_blocks": 1440,
+    "old_scope": {
+      "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "order_sequence": 0,
+      "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "bound_change_height": 130,
+      "vrf_epoch": 1,
+      "dispatch_round": 0
+    },
+    "new_scope": {
+      "session_id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "order_sequence": 0,
+      "builder_address": "trueopen1rfjz7r3u8t65teavh5utquj3kwvsj983p3jclz",
+      "bound_change_height": 196,
+      "vrf_epoch": 1,
+      "dispatch_round": 0
+    },
+    "first_takeover_registered_height": 154,
+    "first_takeover_effective_height": 174,
+    "return_registered_height": 176,
+    "return_effective_height": 196,
+    "old_claimed_height": 208,
+    "old_rebutted_height": 209,
+    "old_claim_status": "DISMISSED",
+    "compensation_paid": false,
+    "new_earliest_submit_height": 196,
+    "new_claimed_height": 217,
+    "old_acceptor_ticket_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "new_ticket_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expected_new_claim_admissible": true
+  },
+  "claim_cases": [
+    {
+      "name": "session_missing",
+      "stream_exists": false,
+      "expected": "COMPENSATION_NOT_CLAIMABLE"
+    },
+    {
+      "name": "summary_only",
+      "stream_exists": false,
+      "summary_exists": true,
+      "expected": "COMPENSATION_NOT_CLAIMABLE"
+    },
+    {
+      "name": "closed_at_ticket_base",
+      "stream_status": "CLOSED",
+      "closed_height": 200,
+      "earliest_submit_height": 130,
+      "bound_change_height": 200,
+      "current_height": 221,
+      "expected": "COMPENSATION_NOT_CLAIMABLE"
+    },
+    {
+      "name": "sequence_above_pending_range",
+      "next_expected_sequence": 5,
+      "max_pending_per_session": 4,
+      "order_sequence": 9,
+      "expected": "COMPENSATION_NOT_CLAIMABLE"
+    },
+    {
+      "name": "paid_claim_pruned_marker_retained",
+      "claim_exists": false,
+      "compensation_paid": true,
+      "expected": "COMPENSATION_NOT_CLAIMABLE"
+    },
+    {
+      "name": "other_ticket_pending",
+      "existing_claim_status": "PENDING_REBUTTAL",
+      "expected": "COMPENSATION_NOT_CLAIMABLE",
+      "claim_exists": true
+    },
+    {
+      "name": "dismissed_can_replace",
+      "existing_claim_status": "DISMISSED",
+      "compensation_paid": false,
+      "expected": "APPLIED",
+      "old_ticket_query": "NOT_FOUND",
+      "claim_exists": true
+    },
+    {
+      "name": "exact_paid_replay_after_session_compaction",
+      "exact_ticket_replay": true,
+      "existing_claim_status": "PAID",
+      "stream_exists": false,
+      "expected": "NOOP",
+      "claim_exists": true
+    }
+  ],
+  "lifecycle_cases": [
+    {
+      "name": "zero_actual_payment",
+      "paid_amount": "0",
+      "expected_compensation_paid": true
+    },
+    {
+      "name": "cancel_preserves_paid_marker",
+      "initial_status": "UNUSED",
+      "initial_compensation_paid": true,
+      "expected_status": "CANCEL_PENDING",
+      "expected_compensation_paid": true
+    },
+    {
+      "name": "admission_preserves_paid_marker",
+      "initial_status": "UNUSED",
+      "initial_compensation_paid": true,
+      "expected_status": "CONSUMED",
+      "expected_compensation_paid": true
+    },
+    {
+      "name": "tail_cleanup",
+      "final_next_expected_sequence": 0,
+      "max_pending_per_session": 4,
+      "paid_unused_sequences": [
+        0
+      ],
+      "expected_visited": 4,
+      "expected_sequence_count": 0,
+      "expected_root_changed": false
+    },
+    {
+      "name": "paid_receipt_after_fold",
+      "resolved_height": 111,
+      "closed_height": 200,
+      "session_order_retention_blocks": 120,
+      "dispatch_record_retention_blocks": 1440,
+      "compacted_height": 320,
+      "claim_prune_height": 1551,
+      "sequence_exists": false,
+      "expected_genesis_valid": true
+    },
+    {
+      "name": "paid_receipt_during_tail_cleanup",
+      "stream_exists": true,
+      "stream_status": "CLOSED",
+      "final_next_expected_sequence": 0,
+      "max_pending_per_session": 4,
+      "cursor_next_order_sequence": 1,
+      "order_sequence": 0,
+      "claim_status": "PAID",
+      "sequence_exists": false,
+      "expected_genesis_valid": true
+    },
+    {
+      "name": "paid_receipt_before_fold_missing_marker",
+      "stream_exists": true,
+      "claim_status": "PAID",
+      "sequence_exists": false,
+      "cursor_exists": false,
+      "expected_genesis_valid": false
+    },
+    {
+      "name": "paid_receipt_after_summary_prune",
+      "stream_exists": false,
+      "summary_exists": false,
+      "claim_status": "PAID",
+      "sequence_exists": false,
+      "expected_genesis_valid": true
+    },
+    {
+      "name": "pending_claim_blocks_compaction",
+      "claim_status": "PENDING_REBUTTAL",
+      "expected_compaction_allowed": false
+    }
+  ]
+}

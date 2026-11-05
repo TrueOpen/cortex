@@ -44,9 +44,11 @@ type TicketContext struct {
 	ChainID string
 	// BuilderOperator is the operator the stream peer authenticated as; the
 	// ticket must name it.
-	BuilderOperator      string
-	SelfOperator         string
-	BuilderServicePubKey []byte // current service key of BuilderOperator, from chain
+	BuilderOperator string
+	SelfOperator    string
+	// BuilderKeys is BuilderOperator's service-key binding from chain; the
+	// ticket's own signed nonce selects the generation that verifies it.
+	BuilderKeys          BuilderKeys
 	BuilderVRFPubKey     []byte // Hub VrfKey of BuilderOperator; 32 bytes
 	EpochLengthBlocks    uint64
 	EarliestSubmitHeight uint64 // from the SignedOrderV2 in the same offer
@@ -57,8 +59,9 @@ type TicketContext struct {
 }
 
 // CheckTicket runs the ticket-legitimacy checks that need no live state:
-// chain and Builder identity, Builder signature, root reference, target,
-// epoch/reference height and VRF.
+// chain and Builder identity, Builder signature (by the generation the
+// ticket's service_authorization_nonce names, under wire's proof cutoffs),
+// root reference, target, epoch/reference height and VRF.
 // Rank is deliberately not checked -- the Worker cannot see the roster.
 // Deadlines are not checked either: accept_deadline_ms is on the Builder's
 // clock, so it is never a protocol judgment for this node.
@@ -69,7 +72,11 @@ func CheckTicket(t *taskv1.DispatchTicketV1, c TicketContext) error {
 	if t.GetBuilderAddress() != c.BuilderOperator {
 		return fmt.Errorf("%w: ticket names %s, stream Builder is %s", ErrTicketBuilder, t.GetBuilderAddress(), c.BuilderOperator)
 	}
-	if err := VerifyBuilderSigned(t, c.BuilderServicePubKey); err != nil {
+	raw, err := Raw(t)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrTicketSignature, err)
+	}
+	if err := VerifyTicketProof(c.ChainID, raw, c.BuilderKeys, c.EarliestSubmitHeight); err != nil {
 		return fmt.Errorf("%w: %w", ErrTicketSignature, err)
 	}
 	// roster_hash and handraise_root_digest are exactly 32 bytes here: wire's

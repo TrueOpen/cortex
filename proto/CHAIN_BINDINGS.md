@@ -1,9 +1,11 @@
 # Wire Bindings
 
 Cortex consumes the descriptor built from `TrueOpen/wire` commit
-`916e3936355cb787f6e82509619f55c6b5aad7e2` (916e393, wire#49), the Phase 1
-candidate contract. It is not a release: go.mod pins the pseudo-version
-`v0.5.2-0.20261029083751-916e3936355c`, and the pin moves to the release asset
+`b30fba873bd5b7553947f0ad32731fdd6e6ae93b` (b30fba8), the Phase 1 contract the
+devnet Node and Builder binaries are built on; Cortex must match them exactly or
+dispatch signatures and proof checks between Cortex and Builders disagree. It is
+not a release: go.mod pins the pseudo-version
+`v0.5.2-0.20261104040334-b30fba873bd5`, and the pin moves to the release asset
 once wire tags it. Hub, Task, shared, Nexus and Cortex use one Google Protobuf
 descriptor graph. The previous mixed Node revisions, handwritten `Frozen*`
 subsets and duplicate Bus Task types are retired.
@@ -130,7 +132,7 @@ closure (amino, cosmos, cosmos_proto, gogoproto, google) regenerates byte for
 byte against the previous generation's output, which is what shows the rename
 carried no field changes with it.
 
-## Phase 1 dispatch (916e393)
+## Phase 1 dispatch (b30fba8)
 
 Cortex runs one `nexus.v1.IngressAPI/DispatchStream` per Builder in
 `dispatch.builders` (HTTP/2; h2c only for a devnet plaintext descriptor).
@@ -139,7 +141,9 @@ descriptor (`NEXUS_GRPC`, `tls_pubkey_hash`); a pin mismatch drops the
 descriptor cache and the next reconnect re-reads it. The first frame is
 `DispatchStreamBindingV1` signed by the current Cortex service key; every
 Builder frame is checked against `QueryCurrentServiceKey(BUILDER)` read once
-per committed height. Keepalive probes from this side are even.
+per committed height, by the key of the generation the frame itself names (see
+"Service-key generations" below), and only while that Builder's current key is
+ACTIVE. Keepalive probes from this side are even, the Builder's odd.
 
 Frames Cortex sends: `StandingHandraiseV1`, `DispatchAcceptV1`,
 `DispatchRejectV1`, `DispatchInputRequestV1`, `VerifierHandraiseV1` and
@@ -165,30 +169,76 @@ URLs and decode their payloads as ProtoJSON of the generated `task.v1` types
 current service address as submitter, the same address the broadcaster signs as.
 A node without `tx.enabled` submits none of them.
 
-**Not implemented.** The `FetchTaskData(INPUT)` fallback authorized by
-`DispatchAcceptV1` (CD §4.2.0 "取 input"): 916e393's `TaskDataRequestAuthV1`
-has no slot for an accept, so input is re-requested on the same stream only.
+The signing service must decode them at b30fba8 too:
+`MsgChallengeDispatchOmission` gained `bound_handraise_root` (field 9).
 
-**Known drift past 916e393** (wire `feature/phase1-dispatch-prefund@337c45a`,
-for the release re-pin): `MsgChallengeDispatchOmission.bound_handraise_root`
-(field 9) is required when the challenge proves a newer root than the round's
-bound one; `DispatchRecordV1.dispatch_ticket_hash` may be ZERO32 for an
-unfinished record and must then read as "not recorded"; input chunks are
-zero-based (already so here); Builder keepalive probes are odd. The release
-re-pin also regenerates the descriptor and recopies `testdata/v1`.
+**Not implemented.** The `FetchTaskData(INPUT)` fallback authorized by
+`DispatchAcceptV1` (CD §4.2.0 "取 input"): `TaskDataRequestAuthV1` has no slot
+for an accept, so input is re-requested on the same stream only.
+
+### Service-key generations (916e393 to b30fba8)
+
+`DispatchTicketV1` (27), `DispatchRecordV1` (22), `SignedHandraiseRootV1` (9),
+`DispatchInputResponseV1` (9), `DispatchRevokeV1` (6), `RecordResultNoticeV1`
+(6) and `DispatchResultHeaderV1` (6) now sign the Builder's
+`service_authorization_nonce`, which moves every one of their signing digests.
+`CurrentServiceKeyViewV1` retains one previous generation
+(`previous_service_pubkey`, `previous_service_authorization_nonce`,
+`previous_retired_height`) and an explicit emergency-revoke `revoked_height`.
+A retained Builder message keeps its original signed bytes across reconnect and
+the Builder's key cutover, so Cortex selects the key by the message's own nonce
+(`dispatchwire.BuilderKeys`):
+
+- every Builder frame: signature by the named generation (current or previous),
+  nonce positive, Builder's current key ACTIVE; a key observed REVOKED closes
+  the stream at the next keepalive tick;
+- ticket and handraise root: wire `VerifyDispatchProof`; a previous key proves
+  a ticket only while max(order earliest_submit_height, ticket
+  bound_change_height) is below `previous_retired_height`, a root only while
+  its own root_height is;
+- input response, revoke and record notice for a held ticket: wire
+  `VerifyTicketBoundDispatchProof` against the stored ticket (nonce not older
+  than the ticket's, same cutoff);
+- `BuilderMessageBindingV1` nonces (`OpenVerifyV1`,
+  `VerifierAssignmentNotifyV1`) may name the current or previous generation.
+
+Cortex signs none of the messages that gained the nonce; its accept, reject,
+binding and handraise nonces are unchanged. Rotation activates at the fixed
+E+2 epoch start (`old_material_close_height` is reserved). A Builder with a
+pending rotation keeps signing with its current key, and Cortex rejects its
+tickets (INVALID_TICKET, `builder_service_key_rotation_pending`) for an order
+whose earliest_submit_height has reached the activation height. Reject code 37
+(`SERVICE_KEY_ROTATION_PENDING`) is reserved and 38 is `SEQUENCE_NOT_NEXT`;
+Cortex maps neither. An omission proof from a newer root carries the round's
+signed bound root as `bound_handraise_root` and uses only roots with
+root_height + 2 <= earliest_submit_height.
+
+`QuerySessionResponse` now returns the Session's frozen params and version.
+Recording and claim timing use them, never the current Task params: D_ticket
+is the order anchor plus the Session's `record_deadline_blocks`, the claim
+window is the Session's, and check 2 bounds order_expire_height -
+earliest_submit_height by its `max_order_lifetime_blocks`. A claim needs the
+retained Session; a CLOSED one admits it only while max(order
+earliest_submit_height, ticket bound_change_height) is below `closed_height`.
+Claims are keyed by (session, sequence): a dismissed claim replaced by
+another ticket's no longer resolves by ticket, so a rebutted event read at or
+past its height dismisses the local claim instead of retrying.
+
+The new Builder-to-Builder `nexus/v1/builder_sync.proto` is not generated:
+Cortex is not a party to it and `ingress.proto` does not import it.
 
 ## Reproduction
 
-The descriptor is committed as `proto/testdata/wire-916e393.binpb`.
+The descriptor is committed as `proto/testdata/wire-b30fba8.binpb`.
 Its SHA-256 is
-`ad68a72183f458830515a8d2f161c2f4f7801eeb4ce68f32bfc4d1ddefbe2467`.
+`9cc6b5d931d5c5895effc4c1025a732ff8c3734c3e29ead7c1d18145210a82cd`.
 
-There is no release asset for 916e393; it is `buf build` of that commit with
+There is no release asset for b30fba8; it is `buf build` of that commit with
 the buf version wire's `contract.yml` pins:
 
 ```sh
 git clone https://github.com/TrueOpen/wire && cd wire
-git checkout 916e3936355cb787f6e82509619f55c6b5aad7e2 && mkdir -p build
+git checkout b30fba873bd5b7553947f0ad32731fdd6e6ae93b && mkdir -p build
 go run github.com/bufbuild/buf/cmd/buf@v1.71.0 build -o build/wire.binpb
 shasum -a 256 build/wire.binpb
 ```
@@ -207,7 +257,7 @@ plugin over the other's file would emit a second, unused client for the same
 service.
 
 ```sh
-make proto-gen-chain CHAIN_GEN_OUT=bin/wire-916e393-review
+make proto-gen-chain CHAIN_GEN_OUT=bin/wire-b30fba8-review
 make proto-drift-chain
 ```
 
@@ -228,7 +278,7 @@ Nexus provenance is also recorded in `proto/nexus/v1/README.md`.
 
 ## Active Contracts
 
-Released fixture bytes are kept unchanged under `internal/wirevectors/testdata/p1-916e393`.
+Released fixture bytes are kept unchanged under `internal/wirevectors/testdata/p1-b30fba8`.
 wire v0.3.0 is a reviewed breaking release:
 
 - `model_id` is a Hash32 (`TRUEOPEN_MODEL_ID_V1`). Cortex carries it as 64

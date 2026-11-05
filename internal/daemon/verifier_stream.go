@@ -96,9 +96,13 @@ func (s *VerifierStream) checkBinding(ctx context.Context, from string, b *nexus
 	if key.Status != "ACTIVE" {
 		return fmt.Errorf("%w: Builder %s service key is %s; it authorizes no live traffic", ErrBuilderMessageBinding, from, key.Status)
 	}
-	if b.GetServiceAuthorizationNonce() != key.AuthorizationNonce.Uint64() {
+	// wire b30fba8: the binding nonce selects the current or the one previous
+	// generation; a message retained across the Builder's cutover keeps its
+	// original bytes (the session verified them by this generation's key).
+	nonce := b.GetServiceAuthorizationNonce()
+	if nonce == 0 || (nonce != key.AuthorizationNonce.Uint64() && (!key.HasPrevious || nonce != key.Previous.AuthorizationNonce)) {
 		return fmt.Errorf("%w: service_authorization_nonce %d, Builder %s current is %d",
-			ErrBuilderMessageBinding, b.GetServiceAuthorizationNonce(), from, key.AuthorizationNonce.Uint64())
+			ErrBuilderMessageBinding, nonce, from, key.AuthorizationNonce.Uint64())
 	}
 	return nil
 }

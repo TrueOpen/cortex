@@ -97,6 +97,10 @@ func TestDispatchOfferCheckOneDropsWithoutSigning(t *testing.T) {
 		{"root not held", hrBuilderA, func(x *dispatchHarness) { x.hr.dropRoots() }},
 		{"VRF output", hrBuilderA, func(x *dispatchHarness) { x.fx.ticket.VrfOutput[0] ^= 1; x.fx.signTicket(hrBuilderKey) }},
 		{"Builder signature", hrBuilderA, func(x *dispatchHarness) { x.fx.signTicket(hrCortexKey) }},
+		{"unknown Builder key generation", hrBuilderA, func(x *dispatchHarness) {
+			x.fx.ticket.ServiceAuthorizationNonce = 2
+			x.fx.signTicket(hrBuilderKey)
+		}},
 		{"target", hrBuilderA, func(x *dispatchHarness) {
 			x.fx.ticket.Target.OperatorAddress = hrBuilderB
 			x.fx.signTicket(hrBuilderKey)
@@ -151,6 +155,13 @@ func TestDispatchOfferRejectsWithTheClosedReasonSet(t *testing.T) {
 		{"service key rotation pending (issue #83)", func(x *dispatchHarness) {
 			x.chain.with(func(f *fakeDispatchChain) { f.cortexKey.HasPendingRotation = true })
 		}, noCapacity, classRotationPending, false},
+		{"Builder rotation activates at the order (wire b30fba8)", func(x *dispatchHarness) {
+			x.chain.with(func(f *fakeDispatchChain) {
+				k := f.builderKeys[hrBuilderA]
+				k.HasPendingRotation, k.PendingRotation.EffectiveHeight = true, x.fx.order.Order.EarliestSubmitHeight
+				f.builderKeys[hrBuilderA] = k
+			})
+		}, invalid, classBuilderRotationPending, true},
 		{"order does not hash to task_hash", func(x *dispatchHarness) {
 			x.fx.order.Order.MaxFee.AtomicUnits = "2000"
 			x.fx.signOrder(dpUserKey)

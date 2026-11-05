@@ -496,8 +496,12 @@ type StreamState struct {
 	StickyRunCount                 uint32                     `protobuf:"varint,23,opt,name=sticky_run_count,json=stickyRunCount,proto3" json:"sticky_run_count,omitempty"`
 	PendingSessionKeyChange        *PendingSessionKeyChangeV1 `protobuf:"bytes,24,opt,name=pending_session_key_change,json=pendingSessionKeyChange,proto3,oneof" json:"pending_session_key_change,omitempty"`
 	PendingTakeover                *PendingTakeoverV1         `protobuf:"bytes,25,opt,name=pending_takeover,json=pendingTakeover,proto3,oneof" json:"pending_takeover,omitempty"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	// Positive exactly for CLOSED, set once on entry into that state. A closed
+	// Session accepts a claim only for max(ticket bound height, order ESH) below
+	// this height, until history compaction removes the StreamState.
+	ClosedHeight  uint64 `protobuf:"varint,26,opt,name=closed_height,json=closedHeight,proto3" json:"closed_height,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamState) Reset() {
@@ -705,6 +709,13 @@ func (x *StreamState) GetPendingTakeover() *PendingTakeoverV1 {
 	return nil
 }
 
+func (x *StreamState) GetClosedHeight() uint64 {
+	if x != nil {
+		return x.ClosedHeight
+	}
+	return 0
+}
+
 // OrderSequenceState records how one order sequence was used (this contract, key =
 // (session_id, order_sequence)). StreamState.next_expected_sequence stays the
 // only authority for the next acceptable sequence.
@@ -718,8 +729,12 @@ type OrderSequenceState struct {
 	ConsumedHeight        uint64                 `protobuf:"varint,5,opt,name=consumed_height,json=consumedHeight,proto3" json:"consumed_height,omitempty"`
 	CancelledHeight       uint64                 `protobuf:"varint,6,opt,name=cancelled_height,json=cancelledHeight,proto3" json:"cancelled_height,omitempty"`
 	CancelEffectiveHeight uint64                 `protobuf:"varint,7,opt,name=cancel_effective_height,json=cancelEffectiveHeight,proto3" json:"cancel_effective_height,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Set atomically on compensation PAID, including a zero actual payment.
+	// Never cleared by cancellation, admission or settlement. An unconsumed
+	// sequence uses UNUSED to retain this marker until Session compaction.
+	CompensationPaid bool `protobuf:"varint,8,opt,name=compensation_paid,json=compensationPaid,proto3" json:"compensation_paid,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *OrderSequenceState) Reset() {
@@ -801,10 +816,20 @@ func (x *OrderSequenceState) GetCancelEffectiveHeight() uint64 {
 	return 0
 }
 
+func (x *OrderSequenceState) GetCompensationPaid() bool {
+	if x != nil {
+		return x.CompensationPaid
+	}
+	return false
+}
+
 // SessionHistoryPruneCursorState folds order history after a session closed
 // (key = session_id). rolling_sequence_root advances by
 // TRUEOPEN_SESSION_SEQUENCE_ROOT_V1; visited_count counts every visited row,
-// including already collapsed or missing ones. No DONE row is persisted.
+// including already collapsed or missing ones. After final next, it scans
+// through final next + max_pending_per_session to delete UNUSED paid markers
+// and gaps without changing the root or outcome counts. Genesis accepts a
+// cursor anywhere in that full range. No DONE row is persisted.
 // SessionHistoryPruneCursorState defines the SessionHistoryPruneCursorState wire type.
 type SessionHistoryPruneCursorState struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
@@ -1525,7 +1550,7 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x15task/v1/session.proto\x12\atask.v1\x1a\x19cosmos_proto/cosmos.proto\x1a\x14gogoproto/gogo.proto\x1a\x16shared/v1/amount.proto\x1a\x1dshared/v1/rest_encoding.proto\"~\n" +
 	"\x11SessionNonceState\x12;\n" +
 	"\fuser_address\x18\x01 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\vuserAddress\x12,\n" +
-	"\x12next_session_nonce\x18\x02 \x01(\x04R\x10nextSessionNonce\"\xd1\f\n" +
+	"\x12next_session_nonce\x18\x02 \x01(\x04R\x10nextSessionNonce\"\xf6\f\n" +
 	"\vStreamState\x12#\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\tsessionId\x12F\n" +
@@ -1554,11 +1579,12 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\x14sticky_anchor_height\x18\x16 \x01(\x04R\x12stickyAnchorHeight\x12(\n" +
 	"\x10sticky_run_count\x18\x17 \x01(\rR\x0estickyRunCount\x12d\n" +
 	"\x1apending_session_key_change\x18\x18 \x01(\v2\".task.v1.PendingSessionKeyChangeV1H\x02R\x17pendingSessionKeyChange\x88\x01\x01\x12J\n" +
-	"\x10pending_takeover\x18\x19 \x01(\v2\x1a.task.v1.PendingTakeoverV1H\x03R\x0fpendingTakeover\x88\x01\x01B\x0e\n" +
+	"\x10pending_takeover\x18\x19 \x01(\v2\x1a.task.v1.PendingTakeoverV1H\x03R\x0fpendingTakeover\x88\x01\x01\x12#\n" +
+	"\rclosed_height\x18\x1a \x01(\x04R\fclosedHeightB\x0e\n" +
 	"\f_session_keyB\x15\n" +
 	"\x13_last_record_winnerB\x1d\n" +
 	"\x1b_pending_session_key_changeB\x13\n" +
-	"\x11_pending_takeover\"\xc1\x02\n" +
+	"\x11_pending_takeover\"\xee\x02\n" +
 	"\x12OrderSequenceState\x12#\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\tsessionId\x12%\n" +
@@ -1567,7 +1593,8 @@ const file_task_v1_session_proto_rawDesc = "" +
 	"\atask_id\x18\x04 \x01(\fB\x04\xc8\xf3\x18\x02R\x06taskId\x12'\n" +
 	"\x0fconsumed_height\x18\x05 \x01(\x04R\x0econsumedHeight\x12)\n" +
 	"\x10cancelled_height\x18\x06 \x01(\x04R\x0fcancelledHeight\x126\n" +
-	"\x17cancel_effective_height\x18\a \x01(\x04R\x15cancelEffectiveHeight\"\xf0\x02\n" +
+	"\x17cancel_effective_height\x18\a \x01(\x04R\x15cancelEffectiveHeight\x12+\n" +
+	"\x11compensation_paid\x18\b \x01(\bR\x10compensationPaid\"\xf0\x02\n" +
 	"\x1eSessionHistoryPruneCursorState\x12#\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\tsessionId\x12.\n" +

@@ -24,11 +24,11 @@ import (
 )
 
 func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
-	data, err := os.ReadFile("../../proto/testdata/wire-916e393.binpb")
+	data, err := os.ReadFile("../../proto/testdata/wire-b30fba8.binpb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "ad68a72183f458830515a8d2f161c2f4f7801eeb4ce68f32bfc4d1ddefbe2467" {
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != "9cc6b5d931d5c5895effc4c1025a732ff8c3734c3e29ead7c1d18145210a82cd" {
 		t.Fatalf("pinned wire descriptor changed: %s", got)
 	}
 	var set descriptorpb.FileDescriptorSet
@@ -39,6 +39,12 @@ func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
 	for _, expected := range set.File {
 		name := expected.GetName()
 		if !strings.HasPrefix(name, "hub/v1/") && !strings.HasPrefix(name, "task/v1/") && !strings.HasPrefix(name, "shared/v1/") && !strings.HasPrefix(name, "nexus/v1/") {
+			continue
+		}
+		// Builder-to-Builder replication (SyncRequest): Cortex is not a party
+		// to it and ingress.proto does not import it, so wiregen does not
+		// generate it.
+		if name == "nexus/v1/builder_sync.proto" {
 			continue
 		}
 		actual, err := protoregistry.GlobalFiles.FindFileByPath(name)
@@ -53,7 +59,7 @@ func TestChainBindingsMatchReleasedDescriptor(t *testing.T) {
 		got := protodesc.ToFileDescriptorProto(actual)
 		got.SourceCodeInfo = nil
 		if !proto.Equal(want, got) {
-			t.Fatalf("binding descriptor differs from pinned wire 916e393: %s\n%s", name, cmp.Diff(want, got, protocmp.Transform()))
+			t.Fatalf("binding descriptor differs from pinned wire b30fba8: %s\n%s", name, cmp.Diff(want, got, protocmp.Transform()))
 		}
 		checked++
 	}

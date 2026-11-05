@@ -268,7 +268,7 @@ func (w *OmissionWatcher) Sweep(ctx context.Context) error {
 type omissionCandidate struct {
 	round uint32
 	bound *HeldRoot  // (a) the round's bound root, held, leaf serving
-	newer []HeldRoot // (b) roots with root_height <= earliest_submit, leaf serving, newest first
+	newer []HeldRoot // (b) roots with root_height + 2 <= earliest_submit, leaf serving, newest first
 }
 
 func windowClose(c layout.OmissionCase, p chainclient.DispatchParamsSnapshot) uint64 {
@@ -383,9 +383,16 @@ func (w *OmissionWatcher) examine(ctx context.Context, c layout.OmissionCase, he
 		if cand.round != 0 { // S8 Q3
 			first = rounds[rec.Rounds[0].Round].GetRoster()
 		}
-		return w.challenge(ctx, c, cand.round, &taskv1.MsgChallengeDispatchOmission{TaskId: bytes.Clone(c.TaskID[:]), DispatchRound: cand.round,
+		msg := &taskv1.MsgChallengeDispatchOmission{TaskId: bytes.Clone(c.TaskID[:]), DispatchRound: cand.round,
 			ChallengerAddress: w.addrOr(), Roster: roster, FirstRoundRoster: first, HandraiseRoot: notice.GetRoot(),
-			InclusionProof: notice.GetProof(), NonInclusionProof: proof}, height, closeAt, p)
+			InclusionProof: notice.GetProof(), NonInclusionProof: proof}
+		if evidence != cand.bound {
+			// wire b30fba8: a newer root is compared with the round's bound
+			// root only through that root's signed preimage (checkRosters
+			// bound it to the record's digest).
+			msg.BoundHandraiseRoot = proto.Clone(bound).(*taskv1.SignedHandraiseRootV1)
+		}
+		return w.challenge(ctx, c, cand.round, msg, height, closeAt, p)
 	}
 	return w.close(ctx, c, layout.OmissionClear, "present in every examined round's roster", 0, p)
 }
@@ -395,9 +402,15 @@ func (w *OmissionWatcher) candidates(ctx context.Context, c layout.OmissionCase,
 		n, err := heldNotice(r)
 		return err == nil && w.leafServes(n.GetProof().GetLeaf(), prof, rec.RecordedHeight)
 	}
-	pool, err := w.cfg.Roots.RootsUpTo(ctx, c.Builder, rec.EarliestSubmitHeight, w.cfg.RootScan)
-	if err != nil {
-		return nil, err
+	// wire b30fba8: a newer root must satisfy root_height + 2 <=
+	// earliest_submit_height, which excludes a root signed after dispatch of
+	// an order admitted one block ahead.
+	var pool []HeldRoot
+	if rec.EarliestSubmitHeight >= 2 {
+		var err error
+		if pool, err = w.cfg.Roots.RootsUpTo(ctx, c.Builder, rec.EarliestSubmitHeight-2, w.cfg.RootScan); err != nil {
+			return nil, err
+		}
 	}
 	pool = slices.DeleteFunc(pool, func(r HeldRoot) bool { return !serves(r) })
 	var out []omissionCandidate

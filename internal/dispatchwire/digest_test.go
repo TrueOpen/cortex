@@ -77,10 +77,11 @@ func TestDigestMatchesWireVectors(t *testing.T) {
 			t.Fatalf("%s: digest %x, want %s", row.Name, got, row.DigestHex)
 		}
 	}
-	// wire 916e393 publishes exactly 19 message rows; a change in that count
-	// is a fixture change this test must be revisited for.
-	if len(rows) != 19 {
-		t.Fatalf("%d message vectors checked, want 19", len(rows))
+	// wire b30fba8 publishes exactly 21 message rows (19 plus two more
+	// DispatchInputResponseV1 chunks); a change in that count is a fixture
+	// change this test must be revisited for.
+	if len(rows) != 21 {
+		t.Fatalf("%d message vectors checked, want 21", len(rows))
 	}
 }
 

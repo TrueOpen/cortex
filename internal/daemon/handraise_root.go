@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -48,12 +47,15 @@ func (h *StandingHandraiser) HandleRootNotice(ctx context.Context, builder strin
 	if key.Status != "ACTIVE" {
 		return fmt.Errorf("Builder %s service key is %s; its roots authorize nothing", builder, key.Status)
 	}
-	pub, err := hex.DecodeString(key.ServicePubkey)
+	// The root's own signed nonce picks the generation: a root retained
+	// across the Builder's cutover verifies by its previous key while its
+	// root_height precedes that key's retirement.
+	keys, err := builderKeysOf(builder, key)
 	if err != nil {
-		return fmt.Errorf("Builder %s service key: %w", builder, err)
+		return err
 	}
 	inc, err := dispatchwire.VerifyInclusion(n.GetRoot(), n.GetProof(), dispatchwire.InclusionContext{
-		ChainID: h.cfg.ChainID, BuilderOperator: builder, BuilderPubKey: pub,
+		ChainID: h.cfg.ChainID, BuilderOperator: builder, BuilderKeys: keys,
 	})
 	if err != nil {
 		return fmt.Errorf("handraise root from %s: %w", builder, err)

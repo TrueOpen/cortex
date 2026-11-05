@@ -42,7 +42,7 @@ func isSignatureField(f protoreflect.FieldDescriptor) bool {
 	return strings.HasSuffix(string(f.Name()), "signature")
 }
 
-// builderSignedNames is the set of Builder-signed message types wire 916e393
+// builderSignedNames is the set of Builder-signed message types wire b30fba8
 // publishes vectors for; the test fails if the descriptor-based
 // classification ever stops covering one of them.
 var builderSignedNames = []string{

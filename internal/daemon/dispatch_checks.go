@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -29,18 +31,21 @@ const (
 
 // Local reject classes (CD §5.1 "可审计的 reason 类别"; Q2).
 const (
-	classRotationPending    = "service_key_rotation_pending"
-	classOrderInvalid       = "order_invalid"
-	classOrderExpired       = "order_expired"
-	classStaleBoundChange   = "builder_stale_bound_change_height"
-	classNodeIneligible     = "node_ineligible"
-	classWinnerIneligible   = "winner_ineligible"
-	classProfileUnavailable = "profile_unavailable"
-	classPriceBelowMin      = "price_below_min"
-	classInputMismatch      = "input_metadata_mismatch"
-	classInputTooLarge      = "input_too_large"
-	classNoFreeSlot         = "no_free_slot"
-	classBuilderRetiring    = "builder_retiring"
+	classRotationPending = "service_key_rotation_pending"
+	// classBuilderRotationPending: the Builder's own pending rotation
+	// activates at or before the order (wire PHASE1_CONTRACT).
+	classBuilderRotationPending = "builder_service_key_rotation_pending"
+	classOrderInvalid           = "order_invalid"
+	classOrderExpired           = "order_expired"
+	classStaleBoundChange       = "builder_stale_bound_change_height"
+	classNodeIneligible         = "node_ineligible"
+	classWinnerIneligible       = "winner_ineligible"
+	classProfileUnavailable     = "profile_unavailable"
+	classPriceBelowMin          = "price_below_min"
+	classInputMismatch          = "input_metadata_mismatch"
+	classInputTooLarge          = "input_too_large"
+	classNoFreeSlot             = "no_free_slot"
+	classBuilderRetiring        = "builder_retiring"
 )
 
 // verdict is one signed-reject decision.
@@ -56,11 +61,12 @@ func refuse(reason taskv1.DispatchRejectReasonV1, class, format string, args ...
 }
 
 // prechecks runs CD §5.1 checks 2, 2a, 3, 4, 6 and 7 in that order, every
-// chain read pinned to height. oraw is the order carrier as received. Check 5
-// is the lease. A nil verdict and nil error means accept; an error is a
-// failed read (retryable).
-func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, height uint64) (*verdict, error) {
-	if v, err := d.checkOrder(ctx, t, so, oraw, height); v != nil || err != nil {
+// chain read pinned to height. oraw is the order carrier as received and
+// session its Session read at height (nil: not on chain). Check 5 is the
+// lease. A nil verdict and nil error means accept; an error is a failed read
+// (retryable).
+func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, session *chainclient.SessionSnapshot, height uint64) (*verdict, error) {
+	if v, err := d.checkOrder(ctx, t, so, oraw, session, height); v != nil || err != nil {
 		return v, err
 	}
 	o := so.GetOrder()
@@ -87,7 +93,7 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 // checkOrder is check 2 (order structure, user signature, task identity,
 // session owner and status, expiry, BuilderSet) and 2a (bound_change_height).
 // The carrier is decoded once.
-func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, height uint64) (*verdict, error) {
+func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, session *chainclient.SessionSnapshot, height uint64) (*verdict, error) {
 	// No EVM chain id is configured at this layer, so a carrier that states
 	// no signature_chain_id (signed before the field existed) has no known
 	// EIP-712 domain. Such legacy carriers are out of scope for Phase 1
@@ -118,12 +124,13 @@ func (d *Dispatcher) checkOrder(ctx context.Context, t *taskv1.DispatchTicketV1,
 	if err != nil {
 		return refuse(reasonInvalid, classOrderInvalid, "%v", err), nil
 	}
-	session, err := d.chain.SessionAt(ctx, o.GetSessionId(), height)
-	if errors.Is(err, chainclient.ErrNotFound) {
+	if session == nil {
 		return refuse(reasonInvalid, classOrderInvalid, "the session is not on chain"), nil
 	}
-	if err != nil {
-		return nil, builderclient.Retryable(fmt.Errorf("session: %w", err))
+	// wire b30fba8: admission bounds order_expire_height - earliest_submit_height
+	// by the Session's frozen max_order_lifetime_blocks.
+	if err := dispatch.ValidateOrderLifetime(o.GetEarliestSubmitHeight(), o.GetOrderExpireHeight(), session.Dispatch.MaxOrderLifetimeBlocks); err != nil {
+		return refuse(reasonInvalid, classOrderInvalid, "%v (max_order_lifetime_blocks %d)", err, session.Dispatch.MaxOrderLifetimeBlocks), nil
 	}
 	if session.Status != "ACTIVE" && session.Status != "IDLE" {
 		return refuse(reasonInvalid, classOrderInvalid, "the session is %s", session.Status), nil

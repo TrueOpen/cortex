@@ -121,14 +121,29 @@ type ServiceKeySnapshot struct {
 	// activation; Cortex stops taking new duty meanwhile (CD §8.4).
 	HasPendingRotation bool                              `json:"has_pending_rotation,omitempty"`
 	PendingRotation    PendingServiceKeyRotationSnapshot `json:"pending_rotation,omitempty"`
+	// HasPrevious is set while the binding retains the one generation the
+	// last rotation replaced. Previous is proof-only (wire PHASE1_CONTRACT
+	// "Retained message generations"): it verifies material that generation
+	// signed before PreviousRetiredHeight and never authorizes live traffic.
+	HasPrevious bool                       `json:"has_previous,omitempty"`
+	Previous    PreviousServiceKeySnapshot `json:"previous,omitempty"`
 }
 
 // PendingServiceKeyRotationSnapshot is hub.v1.PendingServiceKeyRotationState.
 type PendingServiceKeyRotationSnapshot struct {
 	RegisteredHeight       uint64 `json:"registered_height"`
 	EffectiveHeight        uint64 `json:"effective_height"`
-	OldMaterialCloseHeight uint64 `json:"old_material_close_height"`
 	NextAuthorizationNonce uint64 `json:"next_service_authorization_nonce"`
+}
+
+// PreviousServiceKeySnapshot is the previous_* triple of
+// hub.v1.CurrentServiceKeyViewV1.
+type PreviousServiceKeySnapshot struct {
+	ServicePubkey      string `json:"service_pubkey"`
+	AuthorizationNonce uint64 `json:"authorization_nonce"`
+	// RetiredHeight is the strict proof cutoff: material bound to this height
+	// or later is not provable by the previous key.
+	RetiredHeight uint64 `json:"retired_height"`
 }
 
 type ModelSnapshot struct {
@@ -465,6 +480,18 @@ func (s ServiceKeySnapshot) Validate() error {
 	}
 	if s.AuthorizationNonce.Uint64() == 0 {
 		return fmt.Errorf("Keeper service key authorization nonce is required")
+	}
+	if s.RevokedHeight.Uint64() != 0 && s.Status != "REVOKED" {
+		return fmt.Errorf("Keeper service key revoke height is set on a %s key", s.Status)
+	}
+	if s.HasPrevious {
+		p := s.Previous
+		if decoded, err := hex.DecodeString(p.ServicePubkey); err != nil || len(decoded) != 33 || p.ServicePubkey != strings.ToLower(p.ServicePubkey) || (p.ServicePubkey[:2] != "02" && p.ServicePubkey[:2] != "03") {
+			return fmt.Errorf("Keeper previous service key public key must be lowercase compressed secp256k1 hex")
+		}
+		if p.AuthorizationNonce == 0 || p.AuthorizationNonce >= s.AuthorizationNonce.Uint64() || p.RetiredHeight == 0 {
+			return fmt.Errorf("Keeper previous service key requires an older nonce and a retirement height")
+		}
 	}
 	return nil
 }

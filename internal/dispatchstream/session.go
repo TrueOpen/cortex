@@ -45,13 +45,13 @@ type Config struct {
 
 	Sign      dispatchwire.DigestSigner
 	AuthNonce func(context.Context) (uint64, error) // current service_authorization_nonce
-	// BuilderKey resolves the Builder's current on-chain service key
-	// (QueryCurrentServiceKey(BUILDER, op)). It is called for every
-	// Builder-signed frame; caching with rotation awareness is the caller's
-	// job (daemon's builderKeyCache).
-	BuilderKey func(context.Context) ([]byte, error)
-	Store      *store.Store
-	Handler    Handler
+	// BuilderKeys resolves the Builder's on-chain service-key binding
+	// (QueryCurrentServiceKey(BUILDER, op): current and previous
+	// generation). It is called for every Builder-signed frame; caching with
+	// rotation awareness is the caller's job (daemon's builderKeyCache).
+	BuilderKeys func(context.Context) (dispatchwire.BuilderKeys, error)
+	Store       *store.Store
+	Handler     Handler
 
 	KeepaliveEvery time.Duration // default 15s
 	PruneEvery     time.Duration // outbox + dedup prune while bound; default 10m
@@ -156,7 +156,7 @@ func New(cfg Config) (*Session, error) {
 		"ChainID": cfg.ChainID == "", "BuilderOperator": cfg.BuilderOperator == "",
 		"CortexOperator": cfg.CortexOperator == "", "HTTPClient": cfg.HTTPClient == nil,
 		"BaseURL": cfg.BaseURL == "", "Sign": cfg.Sign == nil, "AuthNonce": cfg.AuthNonce == nil,
-		"BuilderKey": cfg.BuilderKey == nil, "Store": cfg.Store == nil, "Handler": cfg.Handler == nil,
+		"BuilderKeys": cfg.BuilderKeys == nil, "Store": cfg.Store == nil, "Handler": cfg.Handler == nil,
 		"Height": cfg.Height == nil,
 	} {
 		if absent {
@@ -392,6 +392,13 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 		case <-pruneTicker.C:
 			s.prune(ctx)
 		case <-ticks:
+			// wire PHASE1_CONTRACT: once the Builder's current key is no
+			// longer ACTIVE (revoked), the Cortex closes the stream as soon
+			// as it observes this, not only at that Builder's next frame. A
+			// failed read is not such an observation.
+			if keys, err := s.cfg.BuilderKeys(ctx); err == nil && !keys.CurrentActive {
+				return progressed, fmt.Errorf("Builder %s current service key is no longer ACTIVE", s.cfg.BuilderOperator)
+			}
 			v, ok := c.ka.probe(uint64(max(s.cfg.Now().UnixMilli(), 0)))
 			if !ok {
 				if c.ka.missed >= s.cfg.MaxMissed {
@@ -631,13 +638,34 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 }
 
 // verifyBuilder checks builder_service_signature on the received inner bytes
-// against the Builder's current on-chain key. Variants that are not
-// themselves Builder-signed (offer, handraise_root) are left to their
-// Handlers (see Handler).
+// with the Builder's key of the generation the message's own signed
+// service_authorization_nonce names (wire PHASE1_CONTRACT "Retained message
+// generations"): a retained copy keeps its original bytes across reconnect
+// and the Builder's key cutover and is never re-signed, so it may verify by
+// the previous generation. A message type without that nonce uses the
+// current key. Every frame here is live traffic, accepted only while the
+// Builder's current key is ACTIVE. The ticket-bound checks (nonce not older
+// than its ticket, proof cutoffs) need the ticket and are the Handler's.
+// Variants that are not themselves Builder-signed (offer, handraise_root) are
+// left to their Handlers (see Handler).
 func (s *Session) verifyBuilder(ctx context.Context, name string, in []byte) error {
-	key, err := s.cfg.BuilderKey(ctx)
+	keys, err := s.cfg.BuilderKeys(ctx)
 	if err != nil {
 		return fmt.Errorf("resolve Builder service key: %w", err)
+	}
+	if !keys.CurrentActive {
+		return fmt.Errorf("Builder %s current service key is not ACTIVE; no live message is accepted", s.cfg.BuilderOperator)
+	}
+	nonce, has, err := dispatchwire.SignedBuilderNonce(name, in)
+	if err != nil {
+		return err
+	}
+	if has && nonce == 0 {
+		return fmt.Errorf("%w: %s carries no service_authorization_nonce", dispatchwire.ErrBuilderKeyGeneration, name)
+	}
+	key, err := keys.Key(nonce)
+	if err != nil {
+		return err
 	}
 	if err := dispatchwire.VerifyBuilderSignedRaw(name, in, key); err != nil && !errors.Is(err, dispatchwire.ErrNotBuilderSigned) {
 		return err

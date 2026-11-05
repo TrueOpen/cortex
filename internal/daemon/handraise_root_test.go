@@ -53,7 +53,7 @@ func hrRootNotice(t *testing.T, builder, keyHex string, height, version uint64, 
 		t.Fatal(err)
 	}
 	signed := &taskv1.SignedHandraiseRootV1{ChainId: hrChainID, BuilderAddress: builder, RootHeight: height,
-		RootVersion: version, LeafCount: uint32(len(leaves)), Root: root[:]}
+		RootVersion: version, LeafCount: uint32(len(leaves)), Root: root[:], ServiceAuthorizationNonce: 1}
 	d, err := dispatchwire.Digest(signed)
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +263,8 @@ func TestHandraiseRootNotAdmittedAlertSurvivesACrash(t *testing.T) {
 	n := hrRootNotice(t, hrBuilderA, hrBuilderKey, 300, 0,
 		&taskv1.HandraiseRootLeafV1{Handraise: mine, AdmitRejectReason: taskv1.AdmitRejectReasonV1_ADMIT_REJECT_REASON_V1_REJECT_RATE})
 	inc, err := dispatchwire.VerifyInclusion(n.GetRoot(), n.GetProof(), dispatchwire.InclusionContext{
-		ChainID: hrChainID, BuilderOperator: hrBuilderA, BuilderPubKey: hrPub(t, hrBuilderKey),
+		ChainID: hrChainID, BuilderOperator: hrBuilderA,
+		BuilderKeys: dispatchwire.BuilderKeys{Operator: hrBuilderA, Current: hrPub(t, hrBuilderKey), CurrentNonce: 1, CurrentActive: true},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -228,10 +228,10 @@ func TestChainBindingProvenanceIsRecorded(t *testing.T) {
 	}
 	text := string(body)
 	for _, want := range []string{
-		"916e3936355cb787f6e82509619f55c6b5aad7e2",
-		"v0.5.2-0.20261029083751-916e3936355c",
-		"ad68a72183f458830515a8d2f161c2f4f7801eeb4ce68f32bfc4d1ddefbe2467",
-		"proto/testdata/wire-916e393.binpb",
+		"b30fba873bd5b7553947f0ad32731fdd6e6ae93b",
+		"v0.5.2-0.20261104040334-b30fba873bd5",
+		"9cc6b5d931d5c5895effc4c1025a732ff8c3734c3e29ead7c1d18145210a82cd",
+		"proto/testdata/wire-b30fba8.binpb",
 		// The descriptor is a buf build, so the provenance names the buf
 		// version that reproduces it as well as the commit.
 		"buf@v1.71.0",

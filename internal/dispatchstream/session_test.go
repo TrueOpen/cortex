@@ -49,12 +49,19 @@ func keySigner(keyHex string) dispatchwire.DigestSigner {
 
 func h32(b byte) []byte { return bytes.Repeat([]byte{b}, 32) }
 
-// revoke is a Builder-signed business message; tag makes it distinct.
+// revoke is a Builder-signed business message of generation 1; tag makes it
+// distinct.
 func revoke(t *testing.T, tag byte, keyHex string) *nexusv1.DispatchRevokeV1 {
+	t.Helper()
+	return revokeGen(t, tag, keyHex, 1)
+}
+
+// revokeGen is revoke signed under service key generation nonce.
+func revokeGen(t *testing.T, tag byte, keyHex string, nonce uint64) *nexusv1.DispatchRevokeV1 {
 	t.Helper()
 	m := &nexusv1.DispatchRevokeV1{
 		TaskId: h32(tag), DispatchTicketHash: h32(tag + 1), RevokedHeight: uint64(tag),
-		Reason: nexusv1.DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_RBF,
+		Reason: nexusv1.DispatchRevokeReasonV1_DISPATCH_REVOKE_REASON_V1_RBF, ServiceAuthorizationNonce: nonce,
 	}
 	d, err := dispatchwire.Digest(m)
 	if err != nil {
@@ -156,9 +163,11 @@ func startPrepared(t *testing.T, tweak func(*Config), prepare func(*Session)) *h
 	h.cfg = Config{
 		ChainID: testChainID, BuilderOperator: testOperator, CortexOperator: testOperator,
 		HTTPClient: srv.Client(), BaseURL: srv.URL,
-		Sign:           keySigner(cortexKeyHex),
-		AuthNonce:      func(context.Context) (uint64, error) { return 7, nil },
-		BuilderKey:     func(context.Context) ([]byte, error) { return pub(t, builderKeyHex), nil },
+		Sign:      keySigner(cortexKeyHex),
+		AuthNonce: func(context.Context) (uint64, error) { return 7, nil },
+		BuilderKeys: func(context.Context) (dispatchwire.BuilderKeys, error) {
+			return dispatchwire.BuilderKeys{Operator: testOperator, Current: pub(t, builderKeyHex), CurrentNonce: 1, CurrentActive: true}, nil
+		},
 		Store:          newTestStore(t),
 		Handler:        h.handler,
 		KeepaliveEvery: time.Hour,
@@ -402,6 +411,24 @@ func TestSession(t *testing.T) {
 		}
 	})
 
+	t.Run("a Builder key revoked while bound closes the stream at the next tick", func(t *testing.T) {
+		ticks := make(chan time.Time)
+		var revoked atomic.Bool
+		h := startPrepared(t, func(c *Config) {
+			c.BuilderKeys = func(context.Context) (dispatchwire.BuilderKeys, error) {
+				return dispatchwire.BuilderKeys{Operator: testOperator, Current: pub(t, builderKeyHex), CurrentNonce: 1, CurrentActive: !revoked.Load()}, nil
+			}
+		}, func(s *Session) { s.keepaliveTicks = ticks })
+		c, _ := h.bind(t)
+		ticks <- time.Time{}
+		if f := c.recv(); f.GetKeepalive() == nil {
+			t.Fatalf("want a probe while the key is ACTIVE, got %v", f)
+		}
+		revoked.Store(true)
+		ticks <- time.Time{}
+		c.waitGone()
+	})
+
 	t.Run("missed keepalives force a reconnect", func(t *testing.T) {
 		ticks := make(chan time.Time)
 		h := startPrepared(t, func(c *Config) { c.MaxMissed = 2 }, func(s *Session) { s.keepaliveTicks = ticks })
@@ -456,6 +483,61 @@ func TestSession(t *testing.T) {
 		h := startSession(t, nil)
 		c, nonce := h.bind(t)
 		c.send(revokeFrame(nonce, 1, revoke(t, 1, cortexKeyHex)))
+		c.waitGone()
+		h.bind(t)
+		if n := len(h.handler.calls()); n != 0 {
+			t.Fatalf("handler called %d times", n)
+		}
+	})
+
+	// wire b30fba8: a retained message keeps the bytes its generation signed
+	// across the Builder's key cutover; its own nonce picks the key.
+	previousGen := func(c *Config) {
+		c.BuilderKeys = func(context.Context) (dispatchwire.BuilderKeys, error) {
+			return dispatchwire.BuilderKeys{Operator: testOperator, Current: pub(t, cortexKeyHex), CurrentNonce: 2, CurrentActive: true,
+				Previous: pub(t, builderKeyHex), PreviousNonce: 1, PreviousRetiredHeight: 90}, nil
+		}
+	}
+	t.Run("retained previous-generation message verifies by its nonce", func(t *testing.T) {
+		h := startSession(t, previousGen)
+		c, nonce := h.bind(t)
+		c.send(revokeFrame(nonce, 1, revokeGen(t, 1, builderKeyHex, 1)))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 1 {
+			t.Fatalf("want ack 1, got %v", f)
+		}
+		c.send(revokeFrame(nonce, 2, revokeGen(t, 2, cortexKeyHex, 2)))
+		if f := c.recvSkippingKeepalive(); f.GetAck().GetAckedCursor() != 2 {
+			t.Fatalf("want ack 2, got %v", f)
+		}
+		if n := len(h.handler.calls()); n != 2 {
+			t.Fatalf("handler called %d times, want 2", n)
+		}
+	})
+	for name, m := range map[string]func(t *testing.T) *nexusv1.DispatchRevokeV1{
+		"unknown generation":          func(t *testing.T) *nexusv1.DispatchRevokeV1 { return revokeGen(t, 1, builderKeyHex, 3) },
+		"zero nonce":                  func(t *testing.T) *nexusv1.DispatchRevokeV1 { return revokeGen(t, 1, cortexKeyHex, 0) },
+		"previous nonce, current key": func(t *testing.T) *nexusv1.DispatchRevokeV1 { return revokeGen(t, 1, cortexKeyHex, 1) },
+		"current nonce, previous key": func(t *testing.T) *nexusv1.DispatchRevokeV1 { return revokeGen(t, 1, builderKeyHex, 2) },
+	} {
+		t.Run(name+" drops the stream", func(t *testing.T) {
+			h := startSession(t, previousGen)
+			c, nonce := h.bind(t)
+			c.send(revokeFrame(nonce, 1, m(t)))
+			c.waitGone()
+			h.bind(t)
+			if n := len(h.handler.calls()); n != 0 {
+				t.Fatalf("handler called %d times", n)
+			}
+		})
+	}
+	t.Run("a revoked Builder key accepts no live message", func(t *testing.T) {
+		h := startSession(t, func(c *Config) {
+			c.BuilderKeys = func(context.Context) (dispatchwire.BuilderKeys, error) {
+				return dispatchwire.BuilderKeys{Operator: testOperator, Current: pub(t, builderKeyHex), CurrentNonce: 1, RevokedHeight: 99}, nil
+			}
+		})
+		c, nonce := h.bind(t)
+		c.send(revokeFrame(nonce, 1, revoke(t, 1, builderKeyHex)))
 		c.waitGone()
 		h.bind(t)
 		if n := len(h.handler.calls()); n != 0 {

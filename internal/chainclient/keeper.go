@@ -332,8 +332,26 @@ func serviceKeySnapshotFromWire(binding *hubv1.CurrentServiceKeyViewV1) (Service
 		snapshot.PendingRotation = PendingServiceKeyRotationSnapshot{
 			RegisteredHeight:       p.GetRegisteredHeight(),
 			EffectiveHeight:        p.GetEffectiveHeight(),
-			OldMaterialCloseHeight: p.GetOldMaterialCloseHeight(),
 			NextAuthorizationNonce: p.GetNextServiceAuthorizationNonce(),
+		}
+	}
+	if binding.RevokedHeight != nil {
+		if binding.GetRevokedHeight() == 0 {
+			return ServiceKeySnapshot{}, fmt.Errorf("Keeper current service key revoke height must be positive when present")
+		}
+		snapshot.RevokedHeight = Uint64String(binding.GetRevokedHeight())
+	}
+	// The previous generation's three fields are present together or not at all.
+	hasPubkey, hasNonce, hasRetired := binding.PreviousServicePubkey != nil, binding.PreviousServiceAuthorizationNonce != nil, binding.PreviousRetiredHeight != nil
+	if hasPubkey != hasNonce || hasNonce != hasRetired {
+		return ServiceKeySnapshot{}, fmt.Errorf("Keeper previous service key fields must be present together")
+	}
+	if hasPubkey {
+		snapshot.HasPrevious = true
+		snapshot.Previous = PreviousServiceKeySnapshot{
+			ServicePubkey:      hex.EncodeToString(binding.PreviousServicePubkey),
+			AuthorizationNonce: binding.GetPreviousServiceAuthorizationNonce(),
+			RetiredHeight:      binding.GetPreviousRetiredHeight(),
 		}
 	}
 	return snapshot, nil

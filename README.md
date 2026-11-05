@@ -593,10 +593,12 @@ including the generic method/body/nonce/height-bound auth path for
 `SubmitInferReceipt`; Cortex does not fall back to an operator key.
 
 Builder control messages travel on the per-Builder DispatchStream (wire
-916e393, `proto/CHAIN_BINDINGS.md` "Phase 1 dispatch"). The first frame binds
+b30fba8, `proto/CHAIN_BINDINGS.md` "Phase 1 dispatch"). The first frame binds
 the stream with this node's current service key; every Builder frame is
-checked against the Builder's current on-chain service key, read once per
-committed height, with no historical-key or unsigned fallback. Stream messages
+checked against the Builder's on-chain service-key binding, read once per
+committed height, by the generation its own signed nonce names (current, or
+the one previous generation the chain retains), and only while the Builder's
+current key is ACTIVE, with no older-key or unsigned fallback. Stream messages
 are hints: the dispatch record, compensation and challenges are read from the
 chain.
 
@@ -842,8 +844,8 @@ deployment policy for long-running Worker/Verifier capacity. The durable,
 restart-safe deadline scheduling tracked by issue #108 is also required before
 operators may enable `self_rescue` in real mode.
 
-Phase 1 dispatch is pinned to the wire `916e393` candidate contract; the
-release re-pin and the known drift past it are listed in
+Phase 1 dispatch is pinned to wire `b30fba8`, the contract the devnet Node and
+Builder run; the changes since `916e393` are listed in
 `proto/CHAIN_BINDINGS.md`. The `FetchTaskData(INPUT)` fallback authorized by a
 `DispatchAcceptV1` is not implemented: input is re-requested on the same
 stream.

@@ -175,8 +175,15 @@ func (x *QuerySessionRequest) GetSessionId() []byte {
 // callers must query the terminal summary instead.
 // QuerySessionResponse defines the QuerySessionResponse wire type.
 type QuerySessionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Session       *StreamState           `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Session *StreamState           `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	// Parameters frozen for this Session's lifecycle, including recording and
+	// compensation clocks and order lifetime. New Task execution policies and
+	// explicitly current registration checks still use their own current policy.
+	// A missing historical body must not be replaced with current parameters.
+	Params *TaskParamsV1 `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
+	// The Session's parameter version; initial version 0 is valid.
+	ParamsVersion uint64 `protobuf:"varint,3,opt,name=params_version,json=paramsVersion,proto3" json:"params_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -216,6 +223,20 @@ func (x *QuerySessionResponse) GetSession() *StreamState {
 		return x.Session
 	}
 	return nil
+}
+
+func (x *QuerySessionResponse) GetParams() *TaskParamsV1 {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *QuerySessionResponse) GetParamsVersion() uint64 {
+	if x != nil {
+		return x.ParamsVersion
+	}
+	return 0
 }
 
 // QuerySessionsByOwnerRequest lists the owner's active sessions.
@@ -622,9 +643,11 @@ const file_task_v1_query_session_proto_rawDesc = "" +
 	"\x04meta\x18\x02 \x01(\v2\x1c.task.v1.TaskParamsMetaStateB\t\xc8\xde\x1f\x00\xa8\xe7\xb0*\x01R\x04meta\":\n" +
 	"\x13QuerySessionRequest\x12#\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\tsessionId\"L\n" +
+	"session_id\x18\x01 \x01(\fB\x04\xc8\xf3\x18\x02R\tsessionId\"\xa8\x01\n" +
 	"\x14QuerySessionResponse\x124\n" +
-	"\asession\x18\x01 \x01(\v2\x14.task.v1.StreamStateB\x04\xc8\xde\x1f\x00R\asession\"\x93\x01\n" +
+	"\asession\x18\x01 \x01(\v2\x14.task.v1.StreamStateB\x04\xc8\xde\x1f\x00R\asession\x123\n" +
+	"\x06params\x18\x02 \x01(\v2\x15.task.v1.TaskParamsV1B\x04\xc8\xde\x1f\x00R\x06params\x12%\n" +
+	"\x0eparams_version\x18\x03 \x01(\x04R\rparamsVersion\"\x93\x01\n" +
 	"\x1bQuerySessionsByOwnerRequest\x12;\n" +
 	"\fuser_address\x18\x01 \x01(\tB\x18Ҵ-\x14cosmos.AddressStringR\vuserAddress\x127\n" +
 	"\x04page\x18\x02 \x01(\v2\x1d.shared.v1.QueryPageRequestV1B\x04\xc8\xde\x1f\x00R\x04page\"\x90\x01\n" +
@@ -685,16 +708,17 @@ var file_task_v1_query_session_proto_depIdxs = []int32{
 	12, // 0: task.v1.QueryTaskParamsResponse.params:type_name -> task.v1.TaskParamsV1
 	13, // 1: task.v1.QueryTaskParamsResponse.meta:type_name -> task.v1.TaskParamsMetaState
 	14, // 2: task.v1.QuerySessionResponse.session:type_name -> task.v1.StreamState
-	15, // 3: task.v1.QuerySessionsByOwnerRequest.page:type_name -> shared.v1.QueryPageRequestV1
-	14, // 4: task.v1.QuerySessionsByOwnerResponse.sessions:type_name -> task.v1.StreamState
-	16, // 5: task.v1.QuerySessionsByOwnerResponse.page:type_name -> shared.v1.QueryPageResponseV1
-	17, // 6: task.v1.QuerySessionTerminalSummaryResponse.summary:type_name -> task.v1.SessionTerminalSummaryState
-	18, // 7: task.v1.QueryOrderSequenceResponse.sequence:type_name -> task.v1.OrderSequenceState
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	12, // 3: task.v1.QuerySessionResponse.params:type_name -> task.v1.TaskParamsV1
+	15, // 4: task.v1.QuerySessionsByOwnerRequest.page:type_name -> shared.v1.QueryPageRequestV1
+	14, // 5: task.v1.QuerySessionsByOwnerResponse.sessions:type_name -> task.v1.StreamState
+	16, // 6: task.v1.QuerySessionsByOwnerResponse.page:type_name -> shared.v1.QueryPageResponseV1
+	17, // 7: task.v1.QuerySessionTerminalSummaryResponse.summary:type_name -> task.v1.SessionTerminalSummaryState
+	18, // 8: task.v1.QueryOrderSequenceResponse.sequence:type_name -> task.v1.OrderSequenceState
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_task_v1_query_session_proto_init() }

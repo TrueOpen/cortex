@@ -9,9 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TrueOpen/wire/dispatch"
+
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/dispatchstream"
+	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	nexusv1 "github.com/TrueOpen/cortex/proto/nexus/v1"
@@ -176,7 +179,9 @@ func TestDispatchFactsAreReadOncePerHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	for method, want := range map[string]int{
-		"DispatchParamsAt": 1, "WorkerLiabilityParamsAt": 1, "BuilderSetAt": 1, "CortexNodeAt": 1, "ServiceBondAt": 1,
+		// The record deadline comes from the Session's frozen policy, read
+		// once per offer with the Session itself (wire b30fba8).
+		"DispatchParamsAt": 0, "WorkerLiabilityParamsAt": 1, "BuilderSetAt": 1, "CortexNodeAt": 1, "ServiceBondAt": 1,
 		"BuilderVrfKeyAt": 1, "DispatchEpochAt": 1, "CurrentServiceKey": 2, "ModelSupportScopeAt": 1, "SessionAt": 2,
 	} {
 		if got := x.chain.callCount(method); got != want {
@@ -189,7 +194,7 @@ func TestDispatchFactsAreReadOncePerHeight(t *testing.T) {
 	if err := x.handle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := x.chain.callCount("DispatchParamsAt"); got != 2 {
+	if got := x.chain.callCount("WorkerLiabilityParamsAt"); got != 2 {
 		t.Fatalf("a new height reads again: %d", got)
 	}
 }
@@ -272,8 +277,13 @@ func TestDispatchInputIsBoundedAndCounted(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := uint32(len(in))
-	if err := y.d.HandleInputResponse(ctx, hrBuilderA, y.fx.inputResponse(0, n+1, in[:1])); err == nil || builderclient.IsRetryable(err) {
-		t.Fatalf("more chunks than bytes: err = %v, want permanent", err)
+	// More chunks than bytes: since wire b30fba8 the signing projection
+	// itself refuses it, so no Builder can sign such a response.
+	th := y.fx.ticketHash()
+	if _, err := dispatchwire.Digest(&nexusv1.DispatchInputResponseV1{TaskId: y.fx.ticket.TaskId, DispatchTicketHash: th[:],
+		InputHash: y.fx.ticket.InputHash, InputSizeBytes: uint64(n), Input: in[:1], ChunkIndex: 0, ChunkCount: n + 1,
+		ServiceAuthorizationNonce: 1}); !errors.Is(err, dispatch.ErrDecode) {
+		t.Fatalf("more chunks than bytes: err = %v, want the projection to refuse it", err)
 	}
 	for i := int(n) - 1; i >= 0; i-- { // one-byte chunks, last first
 		if err := y.d.HandleInputResponse(ctx, hrBuilderA, y.fx.inputResponse(uint32(i), n, in[i:i+1])); err != nil {
