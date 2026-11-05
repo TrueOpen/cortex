@@ -156,7 +156,7 @@ func newOfferFixture(t testing.TB) *offerFixture {
 		},
 		PriceBid: &sharedv1.Amount{AtomicUnits: "10"}, MaxFee: &sharedv1.Amount{AtomicUnits: "1000"},
 		AssignmentPriorityFee: &sharedv1.Amount{AtomicUnits: "50"}, TxFeeReserve: &sharedv1.Amount{AtomicUnits: "100"},
-		EarliestSubmitHeight: ep.Height, OrderExpireHeight: 10_000,
+		EarliestSubmitHeight: ep.Height, OrderExpireHeight: 7_000,
 		DeadlinePolicy:       &taskv1.DeadlinePolicyV1{LatencyClass: taskv1.DeadlineLatencyClass_DEADLINE_LATENCY_CLASS_STANDARD},
 		TimeoutBucketVersion: 6, SessionAnchorHeight: 50, BuilderSetId: "7", BuilderSetHash: bytes.Repeat([]byte{0x15}, 32),
 		PayloadMode: taskv1.PayloadModeV1_PAYLOAD_MODE_V1_PLAINTEXT, InputKeyCommitment: make([]byte, 32),
@@ -261,6 +261,7 @@ type fakeDispatchChain struct {
 	vrf         chainclient.VrfKeySnapshot
 	epoch       chainclient.DispatchEpochSnapshot
 	session     chainclient.SessionSnapshot
+	sessionErr  error // e.g. ErrNotFound: the Session was compacted
 	set         chainclient.BuilderSetSnapshot
 	params      chainclient.DispatchParamsSnapshot
 	liability   chainclient.WorkerLiabilityParamsSnapshot
@@ -342,7 +343,7 @@ func newFakeDispatchChain(t testing.TB, f *offerFixture) *fakeDispatchChain {
 			OwnerUserAddress: f.order.Order.UserAddress,
 			BoundBuilder:     hrBuilderA, BoundChangeHeight: 105},
 		set:         chainclient.BuilderSetSnapshot{BuilderSetVersion: 1, BuilderSetID: "7", SetHash: setHash, Builders: []string{hrBuilderA, hrBuilderB}},
-		params:      chainclient.DispatchParamsSnapshot{Height: 150, RecordDeadlineBlocks: dpRecordDeadline},
+		params:      chainclient.DispatchParamsSnapshot{Height: 150, RecordDeadlineBlocks: dpRecordDeadline, MaxOrderLifetimeBlocks: 7_200},
 		liability:   chainclient.WorkerLiabilityParamsSnapshot{Height: 150, MinTaskLiability: 10, OrderCoverageBps: 10_000},
 		scopes:      map[string]chainclient.CommittedModelSupportScope{config.MinPriceBidKey(hrModelAB, 1): freshScope(hrModelAB, 1)},
 		readHeights: map[uint64]int{}, calls: map[string]int{},
@@ -445,11 +446,22 @@ func (f *fakeDispatchChain) DispatchEpochAt(_ context.Context, _, height uint64)
 	return f.epoch, nil
 }
 
+// SessionAt serves f.session. Unless a test froze other Session params, the
+// Session's frozen dispatch policy is f.params, as for a Session opened under
+// the current params.
 func (f *fakeDispatchChain) SessionAt(_ context.Context, _ []byte, height uint64) (chainclient.SessionSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pinned(height)
-	return f.session, nil
+	if f.sessionErr != nil {
+		return chainclient.SessionSnapshot{}, f.sessionErr
+	}
+	s := f.session
+	if s.Dispatch.RecordDeadlineBlocks == 0 {
+		s.Dispatch = f.params
+	}
+	s.Dispatch.Height = height
+	return s, nil
 }
 
 func (f *fakeDispatchChain) DispatchParamsAt(_ context.Context, height uint64) (chainclient.DispatchParamsSnapshot, error) {

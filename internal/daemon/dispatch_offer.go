@@ -167,8 +167,18 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	if ev.oraw, err = dispatchwire.Raw(so); err != nil {
 		return ev, err, nil
 	}
-	if ev.params, err = d.chain.DispatchParamsAt(ctx, height); err != nil {
-		return ev, nil, builderclient.Retryable(fmt.Errorf("dispatch params: %w", err))
+	// The Session freezes its dispatch policy (wire b30fba8): the record
+	// deadline behind D_ticket is the Session's, not the current Task params.
+	// Check 2 reads the same snapshot; nil means the session is not on chain.
+	var session *chainclient.SessionSnapshot
+	if sid := so.GetOrder().GetSessionId(); len(sid) == 32 {
+		s, err := d.chain.SessionAt(ctx, sid, height)
+		switch {
+		case err == nil:
+			session, ev.params = &s, s.Dispatch
+		case !errors.Is(err, chainclient.ErrNotFound):
+			return ev, nil, builderclient.Retryable(fmt.Errorf("session: %w", err))
+		}
 	}
 	// issue #83: after check 1, before any accept. A pending rotation of this
 	// node's service key refuses new tickets with a signed NO_CAPACITY reject
@@ -194,7 +204,7 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 		return ev, nil, nil
 	}
 	// Checks 2, 2a, 3, 4, 6, 7.
-	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, height)
+	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, session, height)
 	return ev, nil, err
 }
 

@@ -102,6 +102,8 @@ func TestSessionReadsTheDispatchFields(t *testing.T) {
 		SessionKey: key, SessionKeySetHeight: 40, SessionKeyExpiryHeight: 2_000,
 		BoundBuilder: "trueopen1builder", BoundChangeHeight: 105,
 	}
+	// The Session's frozen policy differs from any current one on purpose.
+	frozen := &taskv1.TaskParamsV1{SchemaVersion: 1, Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 7, DispatchCompensationClaimWindowBlocks: 70}}
 	answer := func(s *taskv1.StreamState) *KeeperABCIClient {
 		server := newABCITestServer(t, func(path, height string, data []byte) (proto.Message, uint32, string) {
 			if path != taskQuery+"Session" || height != "900" {
@@ -117,7 +119,7 @@ func TestSessionReadsTheDispatchFields(t *testing.T) {
 			if s == nil {
 				return nil, 5, "rpc error: code = NotFound desc = compacted"
 			}
-			return &taskv1.QuerySessionResponse{Session: s}, 0, ""
+			return &taskv1.QuerySessionResponse{Session: s, Params: frozen, ParamsVersion: 3}, 0, ""
 		})
 		t.Cleanup(server.Close)
 		return NewKeeperABCIClient(server.URL)
@@ -130,6 +132,24 @@ func TestSessionReadsTheDispatchFields(t *testing.T) {
 		got.SessionKeySetHeight != 40 || got.SessionKeyExpiryHeight != 2_000 || got.BoundBuilder != "trueopen1builder" || got.Height != 900 {
 		t.Fatalf("session = %+v", got)
 	}
+	if got.Dispatch.RecordDeadlineBlocks != 7 || got.Dispatch.CompensationClaimWindowBlocks != 70 || got.Dispatch.Height != 900 || got.ParamsVersion != 3 || got.ClosedHeight != 0 {
+		t.Fatalf("frozen session params = %+v, version %d", got.Dispatch, got.ParamsVersion)
+	}
+	closed := gproto.Clone(stream).(*taskv1.StreamState)
+	closed.Status, closed.ClosedHeight = taskv1.SessionStatus_SESSION_STATUS_CLOSED, 880
+	if got, err := answer(closed).Session(context.Background(), sid); err != nil || got.ClosedHeight != 880 {
+		t.Fatalf("closed session = %+v, %v", got, err)
+	}
+	closed.ClosedHeight = 0
+	if _, err := answer(closed).Session(context.Background(), sid); err == nil {
+		t.Fatal("a CLOSED session without closed_height must be refused")
+	}
+	saved := frozen
+	frozen = &taskv1.TaskParamsV1{}
+	if _, err := answer(stream).Session(context.Background(), sid); err == nil {
+		t.Fatal("a session without its frozen params must be refused, never read as current params")
+	}
+	frozen = saved
 	if _, err := answer(nil).Session(context.Background(), sid); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("compacted session: err = %v, want ErrNotFound", err)
 	}
@@ -226,7 +246,8 @@ func TestDispatchReadsPinTheGivenHeight(t *testing.T) {
 			return &hubv1.QueryBeaconResponse{Beacon: &hubv1.BeaconState{Height: 700, RandomnessHex: hex.EncodeToString(bytes.Repeat([]byte{1}, 32)),
 				SourceTag: "proposer_vrf_v1", Verified: true}}, 0, ""
 		case taskQuery + "Session":
-			return &taskv1.QuerySessionResponse{Session: &taskv1.StreamState{SessionId: sid, Status: taskv1.SessionStatus_SESSION_STATUS_IDLE}}, 0, ""
+			return &taskv1.QuerySessionResponse{Session: &taskv1.StreamState{SessionId: sid, Status: taskv1.SessionStatus_SESSION_STATUS_IDLE},
+				Params: &taskv1.TaskParamsV1{SchemaVersion: 1, Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 5}}}, 0, ""
 		case taskQuery + "Params":
 			return &taskv1.QueryTaskParamsResponse{Params: &taskv1.TaskParamsV1{SchemaVersion: 1, Dispatch: &taskv1.DispatchParamsV1{RecordDeadlineBlocks: 5}}}, 0, ""
 		}

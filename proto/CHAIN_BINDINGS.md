@@ -213,6 +213,17 @@ Cortex maps neither. An omission proof from a newer root carries the round's
 signed bound root as `bound_handraise_root` and uses only roots with
 root_height + 2 <= earliest_submit_height.
 
+`QuerySessionResponse` now returns the Session's frozen params and version.
+Recording and claim timing use them, never the current Task params: D_ticket
+is the order anchor plus the Session's `record_deadline_blocks`, the claim
+window is the Session's, and check 2 bounds order_expire_height -
+earliest_submit_height by its `max_order_lifetime_blocks`. A claim needs the
+retained Session; a CLOSED one admits it only while max(order
+earliest_submit_height, ticket bound_change_height) is below `closed_height`.
+Claims are keyed by (session, sequence): a dismissed claim replaced by
+another ticket's no longer resolves by ticket, so a rebutted event read at or
+past its height dismisses the local claim instead of retrying.
+
 The new Builder-to-Builder `nexus/v1/builder_sync.proto` is not generated:
 Cortex is not a party to it and `ingress.proto` does not import it.
 

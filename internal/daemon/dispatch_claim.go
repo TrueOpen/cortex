@@ -52,13 +52,12 @@ func (d *Dispatcher) settleDeadlines(ctx context.Context, height uint64) error {
 		d.retrySettlement()
 		return fmt.Errorf("dispatcher: awaiting record: %w", err)
 	}
-	var params *chainclient.DispatchParamsSnapshot
 	var errs []error
 	for _, rec := range recs {
 		if rec.ClaimFromHeight == 0 || height < rec.ClaimFromHeight {
 			continue
 		}
-		if err := d.settleDeadline(ctx, rec, height, &params); err != nil {
+		if err := d.settleDeadline(ctx, rec, height); err != nil {
 			errs = append(errs, fmt.Errorf("ticket %s: %w", rec.TicketHash, err))
 		}
 	}
@@ -77,7 +76,7 @@ func (d *Dispatcher) retrySettlement() {
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) settleDeadline(ctx context.Context, rec layout.DispatchRecord, height uint64, params **chainclient.DispatchParamsSnapshot) error {
+func (d *Dispatcher) settleDeadline(ctx context.Context, rec layout.DispatchRecord, height uint64) error {
 	snap, err := d.cfg.Chain.DispatchRecord(ctx, rec.SessionID[:], rec.OrderSequence)
 	var why string
 	switch {
@@ -101,15 +100,41 @@ func (d *Dispatcher) settleDeadline(ctx context.Context, rec layout.DispatchReco
 	default:
 		return builderclient.Retryable(fmt.Errorf("query dispatch record: %w", err))
 	}
-	if *params == nil {
-		// The claim window of the settling height (S6 Q2).
-		p, err := d.cfg.Chain.DispatchParamsAt(ctx, height)
-		if err != nil {
-			return builderclient.Retryable(fmt.Errorf("dispatch params: %w", err))
-		}
-		*params = &p
+	// wire b30fba8: the claim window is the Session's frozen policy, and a
+	// claim needs the retained Session; a CLOSED one admits a claim only for
+	// max(order earliest_submit_height, ticket bound_change_height) below
+	// its closed_height.
+	session, err := d.cfg.Chain.SessionAt(ctx, rec.SessionID[:], height)
+	if errors.Is(err, chainclient.ErrNotFound) {
+		return d.release(ctx, rec, layout.DispatchNotClaimable, why+"; the Session is no longer retained, so no claim is admissible")
 	}
-	return d.makeClaimable(ctx, rec, **params, why)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("session: %w", err))
+	}
+	if session.Status == "CLOSED" {
+		anchor, err := orderAnchor(rec)
+		if err != nil {
+			return err
+		}
+		if anchor >= session.ClosedHeight {
+			return d.release(ctx, rec, layout.DispatchNotClaimable,
+				fmt.Sprintf("%s; the Session closed at %d, not after the order's anchor %d", why, session.ClosedHeight, anchor))
+		}
+	}
+	return d.makeClaimable(ctx, rec, session.Dispatch, why)
+}
+
+// orderAnchor is max(order earliest_submit_height, ticket
+// bound_change_height) from the ticket and order this node stored.
+func orderAnchor(rec layout.DispatchRecord) (uint64, error) {
+	t, so := &taskv1.DispatchTicketV1{}, &taskv1.SignedOrderV2{}
+	if err := proto.Unmarshal(rec.Ticket, t); err != nil {
+		return 0, fmt.Errorf("stored ticket %s: %w", rec.TicketHash, err)
+	}
+	if err := proto.Unmarshal(rec.SignedOrder, so); err != nil {
+		return 0, fmt.Errorf("stored order of ticket %s: %w", rec.TicketHash, err)
+	}
+	return max(so.GetOrder().GetEarliestSubmitHeight(), t.GetBoundChangeHeight()), nil
 }
 
 // conflictGrace handles a ticket the record names as winner but that cannot

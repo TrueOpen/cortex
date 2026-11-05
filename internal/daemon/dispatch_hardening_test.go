@@ -179,7 +179,9 @@ func TestDispatchFactsAreReadOncePerHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	for method, want := range map[string]int{
-		"DispatchParamsAt": 1, "WorkerLiabilityParamsAt": 1, "BuilderSetAt": 1, "CortexNodeAt": 1, "ServiceBondAt": 1,
+		// The record deadline comes from the Session's frozen policy, read
+		// once per offer with the Session itself (wire b30fba8).
+		"DispatchParamsAt": 0, "WorkerLiabilityParamsAt": 1, "BuilderSetAt": 1, "CortexNodeAt": 1, "ServiceBondAt": 1,
 		"BuilderVrfKeyAt": 1, "DispatchEpochAt": 1, "CurrentServiceKey": 2, "ModelSupportScopeAt": 1, "SessionAt": 2,
 	} {
 		if got := x.chain.callCount(method); got != want {
@@ -192,7 +194,7 @@ func TestDispatchFactsAreReadOncePerHeight(t *testing.T) {
 	if err := x.handle(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := x.chain.callCount("DispatchParamsAt"); got != 2 {
+	if got := x.chain.callCount("WorkerLiabilityParamsAt"); got != 2 {
 		t.Fatalf("a new height reads again: %d", got)
 	}
 }

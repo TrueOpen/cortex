@@ -87,6 +87,14 @@ type SessionSnapshot struct {
 	SessionKey             []byte // raw20 delegated order key; nil: wallet-only
 	SessionKeySetHeight    uint64
 	SessionKeyExpiryHeight uint64
+	// ClosedHeight is positive exactly for CLOSED (wire b30fba8).
+	ClosedHeight uint64
+	// Dispatch is the dispatch policy frozen for this Session's lifecycle
+	// (QuerySessionResponse.params, wire b30fba8): recording, claims and
+	// takeover timing use it, never the current Task params. Its Height is
+	// the height it was read at.
+	Dispatch      DispatchParamsSnapshot
+	ParamsVersion uint64
 }
 
 // Session is SessionAt the latest committed height.
@@ -131,6 +139,16 @@ func (c *KeeperABCIClient) SessionAt(ctx context.Context, sessionID []byte, heig
 		}
 		out.SessionKey = append([]byte(nil), key...)
 	}
+	out.ClosedHeight = s.GetClosedHeight()
+	if (out.Status == "CLOSED") != (out.ClosedHeight != 0) {
+		return SessionSnapshot{}, fmt.Errorf("Keeper Session closed_height %d does not match status %s", out.ClosedHeight, out.Status)
+	}
+	// A missing frozen body is never replaced with current parameters.
+	frozen, err := dispatchParamsSnapshot(height, response.GetParams())
+	if err != nil {
+		return SessionSnapshot{}, fmt.Errorf("Keeper Session frozen params: %w", err)
+	}
+	out.Dispatch, out.ParamsVersion = frozen, response.GetParamsVersion()
 	return out, nil
 }
 
@@ -145,6 +163,9 @@ type DispatchParamsSnapshot struct {
 	ChallengeResponseBlocks       uint64
 	EvidenceRetentionBlocks       uint64
 	MaxPrerecordOutputTokens      uint64
+	// MaxOrderLifetimeBlocks bounds order_expire_height -
+	// earliest_submit_height at admission (wire b30fba8; 1..7200 in V1).
+	MaxOrderLifetimeBlocks uint64
 }
 
 // DispatchParams is DispatchParamsAt the latest committed height.
@@ -166,7 +187,10 @@ func (c *KeeperABCIClient) DispatchParamsAt(ctx context.Context, height uint64) 
 	if err := c.query(ctx, taskQuery+"Params", height, &taskv1.QueryTaskParamsRequest{}, &response); err != nil {
 		return DispatchParamsSnapshot{}, err
 	}
-	params := response.GetParams()
+	return dispatchParamsSnapshot(height, response.GetParams())
+}
+
+func dispatchParamsSnapshot(height uint64, params *taskv1.TaskParamsV1) (DispatchParamsSnapshot, error) {
 	d := params.GetDispatch()
 	if params.GetSchemaVersion() != 1 || d == nil || d.GetRecordDeadlineBlocks() == 0 {
 		return DispatchParamsSnapshot{}, fmt.Errorf("Keeper Task params carry no dispatch record_deadline_blocks")
@@ -179,6 +203,7 @@ func (c *KeeperABCIClient) DispatchParamsAt(ctx context.Context, height uint64) 
 		ChallengeResponseBlocks:       d.GetDispatchChallengeResponseBlocks(),
 		EvidenceRetentionBlocks:       d.GetDispatchEvidenceRetentionBlocks(),
 		MaxPrerecordOutputTokens:      d.GetMaxPrerecordOutputTokens(),
+		MaxOrderLifetimeBlocks:        d.GetMaxOrderLifetimeBlocks(),
 	}, nil
 }
 
