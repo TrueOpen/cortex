@@ -60,8 +60,14 @@ type runtimeHandraiseLocal struct{ rt *Runtime }
 
 func (l runtimeHandraiseLocal) WorkloadReady(context.Context) bool          { return l.rt.LastWorkloadReady() }
 func (l runtimeHandraiseLocal) Draining() (bool, map[HandraiseProfile]bool) { return false, nil }
-func (l runtimeHandraiseLocal) FreeSlots(context.Context) (uint32, bool)    { return 0, false }
-func (r *Runtime) HandraiseLocal() HandraiseLocal                           { return runtimeHandraiseLocal{rt: r} }
+
+// FreeSlots reports only readiness: the count is the lease ledger's, which
+// WithLeaseSlots consults only when this says ok. Answering false here would
+// pin every standing handraise at free_slot_count 0.
+func (l runtimeHandraiseLocal) FreeSlots(context.Context) (uint32, bool) {
+	return 0, l.rt.LastWorkloadReady()
+}
+func (r *Runtime) HandraiseLocal() HandraiseLocal { return runtimeHandraiseLocal{rt: r} }
 
 type rosterClient interface {
 	GetDispatchRoster(ctx context.Context, endpoint string, req *nexusv1.GetDispatchRosterRequest) (*nexusv1.GetDispatchRosterResponse, error)
