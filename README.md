@@ -844,8 +844,8 @@ deployment policy for long-running Worker/Verifier capacity. The durable,
 restart-safe deadline scheduling tracked by issue #108 is also required before
 operators may enable `self_rescue` in real mode.
 
-Phase 1 dispatch is pinned to wire `b30fba8`, the contract the devnet Node and
-Builder run; the changes since `916e393` are listed in
-`proto/CHAIN_BINDINGS.md`. The `FetchTaskData(INPUT)` fallback authorized by a
+Phase 1 dispatch is pinned to wire `e365a48`, the contract the devnet Node and
+Builder run (`b30fba8`) plus the model support confirmation relay; the changes
+since `916e393` are listed in `proto/CHAIN_BINDINGS.md`. The `FetchTaskData(INPUT)` fallback authorized by a
 `DispatchAcceptV1` is not implemented: input is re-requested on the same
 stream.

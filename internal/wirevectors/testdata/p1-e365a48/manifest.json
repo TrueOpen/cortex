@@ -74,6 +74,13 @@
       "sha256": "578cc089816fa9f9bb89e2e15997529264e52f231310a87764154e6657ac6fa5"
     },
     {
+      "path": "hub/model_support_relay_v1.json",
+      "origin": "wire",
+      "contract_section": "Existing Hub confirmation transported through Nexus without a schema or signing change",
+      "bytes": 3362,
+      "sha256": "3c4c670f3b1faa41ad1c0f948e43182cb93120598a4efcc4b55c74e30dd3b15d"
+    },
+    {
       "path": "shared/account_signing_v1.json",
       "origin": "wire",
       "contract_section": "Phase 1 public contract: canonical bytes, authorization and fresh-genesis dispatch; see docs/PHASE1_CONTRACT.md",
