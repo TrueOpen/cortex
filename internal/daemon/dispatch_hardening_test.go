@@ -239,6 +239,29 @@ func TestDispatchAcceptDeadlineIsClampedLocally(t *testing.T) {
 	}
 }
 
+// #96: accept_deadline_ms is an absolute Unix-ms time. A real Builder stamps
+// "now + timeout" on its clock; read as a window, that huge number granted
+// every ticket the 5-minute cap, so tickets the Builder had already closed
+// were accepted and their input requested until D_ticket.
+func TestDispatchAcceptDeadlineIsAnAbsoluteTime(t *testing.T) {
+	x := newDispatchHarness(t, 2, nil)
+	x.fx.ticket.AcceptDeadlineMs = uint64(x.now.Add(1500 * time.Millisecond).UnixMilli())
+	x.fx.signTicket(hrBuilderKey)
+	if err := x.handle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := x.record(t).AcceptDeadlineUnixMs, x.now.Add(1500*time.Millisecond).UnixMilli(); got != want {
+		t.Fatalf("deadline = %d, want the Builder's absolute %d", got, want)
+	}
+
+	late := newDispatchHarness(t, 2, nil)
+	late.fx.ticket.AcceptDeadlineMs = uint64(late.now.Add(-time.Second).UnixMilli())
+	late.fx.signTicket(hrBuilderKey)
+	if err := late.handle(context.Background()); !errors.Is(err, ErrOfferDropped) {
+		t.Fatalf("a ticket past its deadline: err = %v, want dropped, never accepted", err)
+	}
+}
+
 // M-1: no time left to answer is decided before any chain read.
 func TestDispatchNoTimeLeftIsDroppedBeforeAnyChainRead(t *testing.T) {
 	x := newDispatchHarness(t, 2, nil)
@@ -506,6 +529,8 @@ func TestDispatchRefusedChunkResetsTheStaging(t *testing.T) {
 // the session's wall clock.
 func TestDispatchDeadlineIsWallClock(t *testing.T) {
 	x := newDispatchHarness(t, 2, func(c *DispatcherConfig) { c.Now = time.Now })
+	x.fx.ticket.AcceptDeadlineMs = uint64(time.Now().Add(time.Minute).UnixMilli())
+	x.fx.signTicket(hrBuilderKey)
 	if err := x.handle(context.Background()); err != nil {
 		t.Fatal(err)
 	}
