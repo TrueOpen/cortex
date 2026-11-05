@@ -56,6 +56,35 @@ func TestDispatchedInferFactsComeFromTheTicket(t *testing.T) {
 	}
 }
 
+// The chain holds only the digest of the generation parameters; the Worker
+// reads the parameters themselves from the ticket's signed order (#94).
+func TestDispatchedInferServesTheOrdersGenerationParameters(t *testing.T) {
+	ctx := context.Background()
+	x := newDispatchHarness(t, 2, nil)
+	rec := x.committed(t)
+	taskID := hex.EncodeToString(rec.TaskID[:])
+	d, err := loadDispatchedInfer(ctx, x.st, store.InferTask{TaskID: taskID, DispatchTicketHash: codec.Hash(rec.TicketHash)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reader worker.GenerationReader = d
+	accepted := codec.Hash(rec.TaskHash)
+	generation, err := reader.TaskGeneration(ctx, taskID, accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := dpGenerationDigest(t, x.fx)
+	if err := modelservice.ValidateGenerationContext(&generation, digest[:], generation.ModelID, fmt.Sprint(generation.ProfileVersion)); err != nil {
+		t.Fatalf("served parameters do not hash to the order's generation_params_digest: %v", err)
+	}
+	if _, err := reader.TaskGeneration(ctx, strings.Repeat("00", 32), accepted); err == nil {
+		t.Fatal("parameters for another task are refused")
+	}
+	if _, err := reader.TaskGeneration(ctx, taskID, codec.Hash{1}); err == nil {
+		t.Fatal("parameters for a task hash other than the accepted one are refused")
+	}
+}
+
 func TestDispatchGateFollowsTheRecord(t *testing.T) {
 	ctx := context.Background()
 	x := newDispatchHarness(t, 2, nil)
