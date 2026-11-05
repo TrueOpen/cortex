@@ -3,14 +3,12 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"testing"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
-	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/evidence"
 	"github.com/TrueOpen/cortex/internal/evidencebundle"
 	"github.com/TrueOpen/cortex/internal/modelservice"
@@ -54,23 +52,11 @@ func TestFakeInferWithoutProfileReaderBuildsV2Receipt(t *testing.T) {
 	_, binding := localInputServiceSigner(t)
 	stopAtRelay := errors.New("receipt captured before finalization")
 	data := &fakeProfileReceiptRelay{FakeClient: builderclient.NewFakeClient(), err: stopAtRelay}
-	// The order's generation parameters, which the record carries; the ticket's
-	// task_hash and the order's digest are the facts the receipt signs.
-	raw, err := dispatchwire.Raw(x.fx.order)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, orderFacts, err := nodewire.TaskOrderHashAndFactsSignedOrderHex(hex.EncodeToString(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	generation := *orderFacts.Generation
+	// No GenerationReader is injected: the production executor must read the
+	// order's generation parameters from the ticket's signed order itself (#94).
 	generationDigest := dpGenerationDigest(t, x.fx)
 	executor := newProductionInferExecutor(TaskRunnerConfig{
 		Store: db, Evidence: evidenceStore, FakeOutput: true,
-		GenerationReader: generationReaderFunc(func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error) {
-			return generation.Clone(), nil
-		}),
 		LocalWorkerAddress: hrCortex, ModelServiceID: "fake-model-service", Model: modelservice.NewFakeService(),
 		Builder: builderclient.NewFakeClient(), TaskData: data, TaskDataAuth: auth, OutputPackages: packages,
 		ChainID: outputTestChainID, Signer: signing, SignerKeyRef: inputTestKeyRef,
@@ -178,12 +164,6 @@ func receiptCommitmentsForTest(items []builderclient.EvidenceCommitment) []nodew
 		out[i] = nodewire.EvidenceCommitmentV1{EvidenceKind: item.EvidenceKind, EvidenceHashOrRoot: root[:], EncodedSizeBytes: item.EncodedSizeBytes}
 	}
 	return out
-}
-
-type generationReaderFunc func(context.Context, string, codec.Hash) (nodewire.GenerationContext, error)
-
-func (f generationReaderFunc) TaskGeneration(ctx context.Context, taskID string, hash codec.Hash) (nodewire.GenerationContext, error) {
-	return f(ctx, taskID, hash)
 }
 
 // streamLimitedTaskReader also serves the governed output stream limits, which

@@ -91,7 +91,12 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 	// signed order (S4 Q12); the record is checked against the chain once, by
 	// the Dispatcher. Delivery waits on the ticket's record (S5).
 	wcfg.TaskFacts, wcfg.SnapshotReader, wcfg.Dispatch = dispatched, dispatched, dispatchGate{st: e.cfg.Store}
-	wcfg.GenerationReader = e.cfg.GenerationReader
+	// The generation parameters come from the same signed order; an injected
+	// reader only replaces it in tests.
+	wcfg.GenerationReader = dispatched
+	if e.cfg.GenerationReader != nil {
+		wcfg.GenerationReader = e.cfg.GenerationReader
+	}
 	wcfg.MaxOutputBytes = e.cfg.MaxOutputBytes
 	from, until := dispatched.localHeights(task)
 	// OrderDigest is sha256 of the SignedOrderV2 bytes (S5 Q14): it only

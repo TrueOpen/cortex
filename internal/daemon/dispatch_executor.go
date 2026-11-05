@@ -12,6 +12,8 @@ import (
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
+	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/nodewire"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/taskfacts"
@@ -64,6 +66,27 @@ func (d dispatchedInfer) TaskFacts(_ context.Context, taskID string) (taskfacts.
 		AcceptedTaskHash:       chainclient.ProtoBytes32(bytes.Clone(d.rec.TaskHash[:])),
 		GenerationParamsDigest: chainclient.ProtoBytes32(bytes.Clone(d.generationDigest[:])),
 	}}, nil
+}
+
+// TaskGeneration serves the Worker the order's frozen generation parameters
+// from the SignedOrderV2 retained with the ticket: the chain holds only their
+// digest, which the Worker checks this context against. The order must be the
+// one the Worker was told it accepted, for the task it is running.
+func (d dispatchedInfer) TaskGeneration(_ context.Context, taskID string, acceptedHash codec.Hash) (nodewire.GenerationContext, error) {
+	if taskID != d.taskID() {
+		return nodewire.GenerationContext{}, fmt.Errorf("ticket %s answers for task %s, not %s", d.rec.TicketHash, d.taskID(), taskID)
+	}
+	hash, facts, err := nodewire.TaskOrderHashAndFactsSignedOrderHex(hex.EncodeToString(d.rec.SignedOrder))
+	if err != nil {
+		return nodewire.GenerationContext{}, fmt.Errorf("decode the ticket's signed order: %w", err)
+	}
+	if hash != acceptedHash || hash != codec.Hash(d.rec.TaskHash) || identity.TaskIDString(facts.SessionID, facts.OrderSequence) != taskID {
+		return nodewire.GenerationContext{}, fmt.Errorf("ticket %s's signed order does not match the accepted task %s", d.rec.TicketHash, taskID)
+	}
+	if facts.Generation == nil {
+		return nodewire.GenerationContext{}, fmt.Errorf("ticket %s's signed order carries no generation parameters", d.rec.TicketHash)
+	}
+	return facts.Generation.Clone(), nil
 }
 
 // TaskSnapshot answers the Worker's assignment re-read from the ticket: before
