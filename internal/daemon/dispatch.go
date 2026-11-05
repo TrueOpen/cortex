@@ -18,6 +18,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/dispatchstream"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
 	"github.com/TrueOpen/cortex/internal/evidence"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/store"
 	"github.com/TrueOpen/cortex/internal/store/layout"
 	"github.com/TrueOpen/cortex/internal/txclient"
@@ -164,6 +165,11 @@ type DispatcherConfig struct {
 	// ticket the record names as winner may keep conflicting with the chain's
 	// task view before it fails closed (default ClaimRecheckBlocks).
 	ConflictGraceBlocks uint64
+
+	// Anchor probes the local engine for ADR-0040 anchor commitments: an
+	// offer for a Profile requiring WORKER_ANCHOR_OPENING is refused unless it
+	// reports a capable engine (nil: always refused).
+	Anchor modelservice.AnchorCommitProber
 }
 
 // Dispatcher answers DispatchOfferV1, DispatchRevokeV1 and

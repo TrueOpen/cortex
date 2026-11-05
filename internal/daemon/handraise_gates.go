@@ -12,6 +12,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 // HandraiseChainView is the chain authority the standing handraise reads.
@@ -126,6 +127,9 @@ type handraiseGates struct {
 	profiles []gateProfile // ascending
 	minBid   map[string]uint64
 	log      *slog.Logger
+	// anchor probes the local engine for ADR-0040 anchor commitments; nil
+	// means it cannot serve them. Read only for a Profile requiring kind 5.
+	anchor modelservice.AnchorCommitProber
 
 	// Only the evaluating goroutine touches these.
 	facts        *chainFacts
@@ -333,7 +337,12 @@ func (g *handraiseGates) support(ctx context.Context, height uint64, bond chainc
 	if err != nil {
 		return errScopeRead{err}
 	}
-	return scopeSupportProblem(scope, bond, g.operator, p.modelHex, p.Version)
+	if err := scopeSupportProblem(scope, bond, g.operator, p.modelHex, p.Version); err != nil {
+		return err
+	}
+	// Not a failed read: an engine without the anchor sidecar is a local fact,
+	// so the Profile is left out (and logged by logEligible) rather than kept.
+	return anchorCapabilityProblem(ctx, g.anchor, scope.Profile)
 }
 
 // scopeSupportProblem is H2 (and CD §5.1 check 4) on an already read scope:
