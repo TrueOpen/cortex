@@ -18,6 +18,11 @@ model_management:
   # short so readiness and capacity decisions do not stall. 0 falls back to
   # 5 seconds.
   probe_timeout_ms: 5000
+  # Only for Profiles that require WORKER_ANCHOR_OPENING (ADR-0040): how long
+  # to wait, after the generation, for the engine's anchor sidecar to serve
+  # GET /slp/commit/{id} (503 = still finalizing, polled with backoff). Not
+  # shared with infer_timeout_ms. 0 falls back to 120 seconds.
+  anchor_commit_timeout_ms: 120000
 node:
   rpc_endpoint: https://rpc.trueopen.example.org
   rest_endpoint: https://api.trueopen.example.org

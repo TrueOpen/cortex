@@ -364,12 +364,24 @@ type ModelManagementConfig struct {
 	// ProbeTimeoutMs bounds /health, /v1/models, and /metrics probes. It should
 	// stay short so readiness decisions do not stall on a stuck vLLM.
 	ProbeTimeoutMs uint32 `yaml:"probe_timeout_ms"`
+	// AnchorCommitTimeoutMs bounds how long a Worker waits, after the
+	// generation has ended, for the engine's anchor sidecar to serve the
+	// ADR-0040 AnchorCommitV1 of a task whose Profile requires
+	// WORKER_ANCHOR_OPENING. It is separate from InferTimeoutMs and from the
+	// max_output_duration grace. Zero means the model service default (120 s).
+	AnchorCommitTimeoutMs uint32 `yaml:"anchor_commit_timeout_ms"`
 }
 
 // InferTimeout returns the inference timeout as a time.Duration. A value of
 // zero means "use the model service default".
 func (m ModelManagementConfig) InferTimeout() time.Duration {
 	return time.Duration(m.InferTimeoutMs) * time.Millisecond
+}
+
+// AnchorCommitTimeout returns the anchor commitment window as a
+// time.Duration. A value of zero means "use the model service default".
+func (m ModelManagementConfig) AnchorCommitTimeout() time.Duration {
+	return time.Duration(m.AnchorCommitTimeoutMs) * time.Millisecond
 }
 
 // ProbeTimeout returns the probe timeout as a time.Duration. A value of zero
