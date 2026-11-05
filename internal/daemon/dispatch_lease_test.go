@@ -67,3 +67,34 @@ func TestDispatchLeasesBoundCapacityAndAnswerFreeSlots(t *testing.T) {
 		t.Fatal("capacity 0 is refused")
 	}
 }
+
+// The production base, not a fake: a ready runtime must let the ledger answer,
+// or every standing handraise carries free_slot_count 0 and no order is ever
+// admitted (#92). A runtime that is not ready still offers nothing (H3).
+func TestRuntimeHandraiseLocalLetsTheLedgerAnswerFreeSlots(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	leases, err := NewDispatchLeases(ctx, st, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := &Runtime{}
+	local := WithLeaseSlots(rt.HandraiseLocal(), leases)
+	if n, ok := local.FreeSlots(ctx); ok || n != 0 {
+		t.Fatalf("not ready: free = %d %v, want 0 false", n, ok)
+	}
+	rt.lastReady.Store(true)
+	if n, ok := local.FreeSlots(ctx); !ok || n != 4 {
+		t.Fatalf("ready: free = %d %v, want the ledger's capacity 4", n, ok)
+	}
+	if ok, err := leases.Acquire(ctx, layout.WorkerLease{TicketHash: layout.StoredHash{1}, TaskID: layout.StoredHash{1}, Builder: hrBuilderA, ExpiryHeight: 9}); err != nil || !ok {
+		t.Fatalf("acquire = %v, %v", ok, err)
+	}
+	if n, ok := local.FreeSlots(ctx); !ok || n != 3 {
+		t.Fatalf("ready with one lease: free = %d %v, want 3", n, ok)
+	}
+}
