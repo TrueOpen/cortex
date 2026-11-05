@@ -668,12 +668,17 @@ type ChallengeVerifierConfig struct {
 // on submitting Cosmos transactions directly -- i.e. whether the absence of a
 // working broadcaster must hold the whole node down.
 //
-// Only the two scheduled direct paths do. Everything the protocol asks of a
-// Worker travels through Nexus, which relays it as its own transaction: infer
-// receipt (MsgSubmitInferReceipt), verifier handraise
-// (MsgSubmitVerifierHandraises) and the Verifier result receipt
+// Only the two scheduled direct paths do. The per-task protocol messages travel
+// through the receiving Builder, which relays them as its own transaction:
+// infer receipt (MsgSubmitInferReceipt), verifier handraise
+// (MsgSubmitVerifierHandraises), and -- relay first, self-submission only as a
+// fallback -- the Verifier's commit (MsgSubmitVerifyCommit) and result
 // (MsgSubmitVerifyResult). A node whose signer cannot produce Cosmos
-// transactions can still do all of that.
+// transactions can still do all of that. What it cannot do is anything that
+// has no relay: daily model support renewal (MsgBatchConfirmModelSupport),
+// compensation claims, receipt self-rescue, omission challenges,
+// data-unavailable reports and settlement. Those are not a whole-node gate;
+// cortexd warns about them at startup instead.
 //
 // This condition used to include UsesRealDependencies(), because a selected
 // Verifier's commit was self-submission or nothing

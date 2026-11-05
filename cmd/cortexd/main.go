@@ -829,6 +829,7 @@ func newTaskRunner(cfg config.Config, rt *daemon.Runtime) (*daemon.TaskRunner, e
 		OutputConfirmer:      rt.OutputConfirmer,
 		EvidenceConfirmer:    rt.EvidenceConfirmer,
 		VerifyCommitRelay:    rt.VerifyCommitRelay,
+		VerifyResultRelay:    rt.VerifyResultRelay,
 		Trace:                rt.TaskTrace(),
 		FakeOutput:           fakeOutput,
 		HandraiseEligibility: handraiseEligibility,

@@ -189,9 +189,9 @@ func (m *SettlementManager) SubmitVerifyCommitDirect(ctx context.Context, in Dir
 	return SettlementObservation{Submitted: true, Tx: tx}, nil
 }
 
-// SubmitVerifyResultDirect self-submits the signed result (CD §6.2 V15). The
-// result relay through the Task Builder is deferred (S7 Q7), so this is the
-// result's only exit; it shares the commit exit's operator checks and fee cap.
+// SubmitVerifyResultDirect self-submits the signed result (CD §6.2 V15). It is
+// the result's second exit, after the Task Builder relay (ResultRelay) is
+// absent or refuses; it shares the commit exit's operator checks and fee cap.
 func (m *SettlementManager) SubmitVerifyResultDirect(ctx context.Context, in DirectResultInput) (SettlementObservation, error) {
 	if strings.TrimSpace(in.TaskID) == "" || in.DeadlineHeight == 0 {
 		return SettlementObservation{}, fmt.Errorf("verify result self-submission requires a task id and the reveal deadline height")
