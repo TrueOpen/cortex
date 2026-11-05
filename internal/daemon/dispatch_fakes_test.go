@@ -134,7 +134,8 @@ func newOfferFixture(t testing.TB) *offerFixture {
 	tk.VrfEpoch, tk.ReferenceHeight = ep.Epoch, ep.Start
 	tk.VrfProof, tk.VrfOutput = dpHex(t, ep.ProofHex), dpHex(t, vrf.RandomnessHex)
 	tk.HandraiseRootDigest = bytes.Clone(f.root[:])
-	tk.AcceptDeadlineMs = 2_000
+	// Absolute Unix ms (#96): two seconds after the harness clock, UnixMilli(10_000_000).
+	tk.AcceptDeadlineMs = 10_002_000
 	tk.BoundChangeHeight = 105
 	user, err := evmAccountAddress("trueopen", dpUserKey.PubKey().SerializeUncompressed())
 	if err != nil {

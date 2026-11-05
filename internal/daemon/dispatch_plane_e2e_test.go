@@ -222,6 +222,8 @@ func (x *planeE2E) accepted(conn *streamtest.Conn) [32]byte {
 		x.t.Fatal(err)
 	}
 	x.fx.ticket.HandraiseRootDigest = d[:]
+	// The plane runs on the real clock; the deadline is absolute (#96).
+	x.fx.ticket.AcceptDeadlineMs = uint64(time.Now().Add(time.Minute).UnixMilli())
 	x.fx.signTicket(hrBuilderKey)
 	th := x.fx.ticketHash()
 	conn.Push(x.t, x.fx.offer())

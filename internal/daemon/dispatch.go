@@ -29,8 +29,9 @@ import (
 // DispatchRejectV1, as in wire's dispatch vectors.
 const dispatchMessageSchemaVersion = 1
 
-// maxAcceptWindow caps the local C4 window taken from accept_deadline_ms (a
-// Builder-clock number this node does not trust): a Builder cannot make this
+// maxAcceptWindow caps how far ahead of this node's clock the C4 deadline
+// taken from accept_deadline_ms (an absolute Unix-ms time on the Builder's
+// clock, which this node does not trust) may lie: a Builder cannot make this
 // node hold an answer, a lease or a deadline entry open for longer. Real
 // windows are seconds; it needs no configuration.
 const maxAcceptWindow = 5 * time.Minute
@@ -312,9 +313,11 @@ func (d *Dispatcher) HandleFrame(ctx context.Context, from string, f *nexusv1.Di
 }
 
 // noteReceipt fixes the C4 accept deadline at this node's first receipt of
-// the offer: monotonic in this process, the persisted wall-clock value after
-// a restart. It only ever decides "do not sign or send late".
-func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, windowMs uint64, rec layout.DispatchRecord, persisted bool) time.Time {
+// the offer, the persisted value after a restart. accept_deadline_ms is an
+// absolute Unix-ms time stamped by the Builder (#96), not a window: a ticket
+// whose deadline has passed is already closed at the Builder, so it must not
+// be accepted. It only ever decides "do not sign or send late".
+func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, deadlineMs uint64, rec layout.DispatchRecord, persisted bool) time.Time {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if at, ok := d.deadline[ticket]; ok {
@@ -324,13 +327,13 @@ func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, windowMs uint64, rec 
 	if persisted && rec.AcceptDeadlineUnixMs != 0 {
 		at = time.UnixMilli(rec.AcceptDeadlineUnixMs)
 	} else {
-		window := maxAcceptWindow
-		if windowMs < uint64(maxAcceptWindow/time.Millisecond) {
-			window = time.Duration(windowMs) * time.Millisecond
-		}
 		// Round(0) strips the monotonic reading: the session decides expiry
 		// on wall-clock milliseconds, and so must every comparison here.
-		at = d.cfg.Now().Round(0).Add(window)
+		limit := d.cfg.Now().Round(0).Add(maxAcceptWindow)
+		at = limit
+		if deadlineMs < uint64(limit.UnixMilli()) {
+			at = time.UnixMilli(int64(deadlineMs))
+		}
 	}
 	d.deadline[ticket] = at
 	return at
