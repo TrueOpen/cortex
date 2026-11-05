@@ -332,6 +332,11 @@ type InferRequest struct {
 	Input                  []byte
 	Generation             *nodewire.GenerationContext
 	GenerationParamsDigest []byte
+	// RequireAnchorCommit is set when the task's locked Profile requires the
+	// C-level WORKER_ANCHOR_OPENING (ADR-0040): the model service must then
+	// return the engine's AnchorCommitV1 as AnchorCommitRef or fail the call.
+	// Unset, the engine's anchor sidecar is never asked.
+	RequireAnchorCommit bool
 }
 
 type InferResponse struct {
@@ -351,7 +356,8 @@ type InferResponse struct {
 	PositionValuesRef string
 	// EngineRequestID is the engine-side request id (vLLM completion id) and
 	// AnchorCommitRef names the AnchorCommitV1 artifact fetched from the
-	// engine sidecar (ADR-0040); both empty when the engine has no sidecar.
+	// engine sidecar (ADR-0040). AnchorCommitRef is set only for a request
+	// with RequireAnchorCommit.
 	EngineRequestID     string
 	AnchorCommitRef     string
 	Error               *ServiceError

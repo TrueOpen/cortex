@@ -489,6 +489,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			TaskID: event.TaskID, ModelID: event.ModelID, ProfileVersion: profileVersion,
 			RequestDigest: requestDigest[:], Capability: event.Capability, Input: append([]byte(nil), event.Input...),
 			Generation: generation, GenerationParamsDigest: generationDigest,
+			RequireAnchorCommit: builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements),
 		})
 	}
 	if err != nil {
@@ -560,8 +561,16 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
 	}
+	// ADR-0040: only a Profile that requires WORKER_ANCHOR_OPENING carries the
+	// engine's AnchorCommitV1; any other task ignores whatever the model
+	// service returned. A required commitment the service did not return fails
+	// here, before anything is uploaded or signed.
 	var anchorCommit []byte
-	if resp.AnchorCommitRef != "" {
+	if builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements) {
+		if resp.AnchorCommitRef == "" {
+			return nil, nil, nil, outputDescriptor{}, fmt.Errorf("%w: the locked Profile requires WORKER_ANCHOR_OPENING but the model service returned no anchor commitment",
+				builderclient.ErrInferReceiptInputUnavailable)
+		}
 		anchorArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "anchor_commit", resp.AnchorCommitRef)
 		if err != nil {
 			return nil, nil, nil, outputDescriptor{}, err
