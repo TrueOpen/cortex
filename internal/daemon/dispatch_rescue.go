@@ -96,6 +96,9 @@ func inferReceiptRescueMessage(r builderclient.SignedInferReceipt, submitter str
 	kinds := map[nodewire.EvidenceKind]string{
 		nodewire.EvidenceKindWorkerValueOpening: txclient.EvidenceKindWorkerValueOpening,
 		nodewire.EvidenceKindWorkerTokenOpening: txclient.EvidenceKindWorkerTokenOpening,
+		// ADR-0040: a Profile requiring the anchor opening signs a third
+		// commitment, which the rescue must carry unchanged.
+		nodewire.EvidenceKindWorkerAnchorOpening: txclient.EvidenceKindWorkerAnchorOpening,
 	}
 	commitments := make([]txclient.EvidenceCommitmentMessage, len(r.RequiredEvidenceCommitments))
 	for i, c := range r.RequiredEvidenceCommitments {
