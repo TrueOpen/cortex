@@ -421,13 +421,49 @@ func (d *Dispatcher) ObserveDispatchEvent(ctx context.Context, f DispatchEventFa
 	if !rec.State.Claiming() {
 		return nil
 	}
+	// Read before the claim query, so the query is served at this height or
+	// later: a NotFound at or past the event height is not a lagging node.
+	before, err := d.cfg.Chain.CommittedHeight(ctx)
+	if err != nil {
+		return builderclient.Retryable(fmt.Errorf("committed height: %w", err))
+	}
 	landed, err := d.syncClaim(ctx, rec)
 	if err != nil {
 		return err
 	}
-	if !landed {
+	if landed {
+		return nil
+	}
+	if before < f.Height {
 		return builderclient.Retryable(fmt.Errorf("%s for ticket %s at %d: the claim query lags", f.Type, f.TicketHash, f.Height))
 	}
+	return d.claimGone(ctx, rec, f)
+}
+
+// claimGone handles a claim event whose ticket no longer resolves although
+// the query is served at or past the event. Since wire b30fba8 claims are
+// keyed by (session, sequence), and a DISMISSED claim may be replaced by a
+// claim for another ticket at the same sequence; the old ticket then answers
+// NotFound for good. Retrying would hold the event page back forever.
+func (d *Dispatcher) claimGone(ctx context.Context, rec layout.DispatchRecord, f DispatchEventFact) error {
+	if f.Type != chainclient.KeeperEventDispatchCompensationRebutted {
+		// PENDING and PAID claims are never replaced; only their own
+		// retention removes them. Nothing to learn from a re-read.
+		d.cfg.Logger.Warn("compensation claim no longer queryable", "ticket", rec.TicketHash.String(), "event", f.Type, "event_height", f.Height)
+		return nil
+	}
+	_, moved, err := d.updateLocked(ctx, rec.TicketHash, func(r *layout.DispatchRecord) error {
+		if !r.State.Claiming() {
+			return errClaimMoved
+		}
+		r.State = layout.DispatchClaimDismissed
+		r.StateReason = fmt.Sprintf("compensation claim rebutted at height %d and replaced at its sequence (no longer queryable by ticket)", f.Height)
+		return nil
+	})
+	if err != nil || moved {
+		return err
+	}
+	d.cfg.Logger.Warn("compensation claim dismissed", "alert", AlertDispatchClaimDismissed, "ticket", rec.TicketHash.String(), "replaced", true)
 	return nil
 }
 
