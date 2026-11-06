@@ -163,13 +163,15 @@ func TestTxSupportConfirmerDailyConfirmationCoversEveryConfiguredProfile(t *test
 		}
 	}
 
-	if len(tx.requests) != 2 || len(signed) != 2 {
-		t.Fatalf("tx requests = %d, signatures = %d, want 2 each", len(tx.requests), len(signed))
+	// Both requests are the same (operator, epoch) confirmation, so the second
+	// reuses the first signature rather than asking the signer again.
+	if len(tx.requests) != 2 || len(signed) != 1 {
+		t.Fatalf("tx requests = %d, signatures = %d, want 2 and 1", len(tx.requests), len(signed))
+	}
+	if signed[0] != wantDigest {
+		t.Fatalf("signed %s, want the digest over every configured profile %s", signed[0], wantDigest)
 	}
 	for index, request := range tx.requests {
-		if signed[index] != wantDigest {
-			t.Fatalf("confirmation %d signed %s, want the digest over every configured profile %s", index, signed[index], wantDigest)
-		}
 		var batch txclient.BatchConfirmModelSupportMessage
 		if err := json.Unmarshal(request.Payload, &batch); err != nil {
 			t.Fatalf("decode batch request %d: %v", index, err)
@@ -276,7 +278,7 @@ func TestTxSupportConfirmerResolvesTheWorkloadLazily(t *testing.T) {
 	}
 
 	_, err := confirmer.ConfirmSupport(ctx, material)
-	if err == nil || !strings.Contains(err.Error(), "no Builder relay carries MsgBatchConfirmModelSupport") ||
+	if err == nil || !strings.Contains(err.Error(), "no Builder relay is configured") ||
 		!strings.Contains(err.Error(), "workload is not active") {
 		t.Fatalf("inactive workload: err = %v, want an explicit no-relay / not-active refusal", err)
 	}

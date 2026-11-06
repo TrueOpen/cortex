@@ -1,11 +1,12 @@
 # Wire Bindings
 
 Cortex consumes the descriptor built from `TrueOpen/wire` commit
-`b30fba873bd5b7553947f0ad32731fdd6e6ae93b` (b30fba8), the Phase 1 contract the
-devnet Node and Builder binaries are built on; Cortex must match them exactly or
-dispatch signatures and proof checks between Cortex and Builders disagree. It is
-not a release: go.mod pins the pseudo-version
-`v0.5.2-0.20261104040334-b30fba873bd5`, and the pin moves to the release asset
+`e365a4850d5276508aa3ec5cee0307b4ce5e6590` (e365a48): the Phase 1 contract the
+devnet Node and Builder binaries are built on (b30fba8) plus the model support
+confirmation relay. Cortex must match them exactly or dispatch signatures and
+proof checks between Cortex and Builders disagree. It is not a release: go.mod
+pins the pseudo-version `v0.5.2-0.20261105094325-e365a4850d52`, and the pin
+moves to the release asset
 once wire tags it. Hub, Task, shared, Nexus and Cortex use one Google Protobuf
 descriptor graph. The previous mixed Node revisions, handwritten `Frozen*`
 subsets and duplicate Bus Task types are retired.
@@ -227,18 +228,36 @@ past its height dismisses the local claim instead of retrying.
 The new Builder-to-Builder `nexus/v1/builder_sync.proto` is not generated:
 Cortex is not a party to it and `ingress.proto` does not import it.
 
+## Model support relay (e365a48)
+
+e365a48 adds `IngressAPI.SubmitModelSupportConfirmation` (wire
+`docs/MODEL_SUPPORT_RELAY.md`); no other message, signing byte or chain message
+changes. The request carries `epoch_index` and the protobuf binary of the
+existing `hub.v1.ModelSupportConfirmationV1`; the Builder batches it into
+`MsgBatchConfirmModelSupport` and pays the fee.
+
+Cortex submits the daily support confirmation with its own transaction when
+its signer can build Cosmos transactions. Otherwise (a `file://` keystore) it
+relays the same signed confirmation to the first Builder in
+`dispatch.builders` that accepts it, and checks the echoed
+`confirmation_signing_digest`. Within an epoch every retry resends the
+material already signed. `relay_accepted` is only the Builder's queue: the
+SupportRenewer keeps reading the chain's support rows, and while they still
+read stale it resubmits the same confirmation every
+`SupportResubmitInterval` (2 minutes) instead of every Keeper poll.
+
 ## Reproduction
 
-The descriptor is committed as `proto/testdata/wire-b30fba8.binpb`.
+The descriptor is committed as `proto/testdata/wire-e365a48.binpb`.
 Its SHA-256 is
-`9cc6b5d931d5c5895effc4c1025a732ff8c3734c3e29ead7c1d18145210a82cd`.
+`c20a85c3a87d4a830af9d7e8a0d4e748476791f350d7d446622e6cb99f1ae3ae`.
 
-There is no release asset for b30fba8; it is `buf build` of that commit with
+There is no release asset for e365a48; it is `buf build` of that commit with
 the buf version wire's `contract.yml` pins:
 
 ```sh
 git clone https://github.com/TrueOpen/wire && cd wire
-git checkout b30fba873bd5b7553947f0ad32731fdd6e6ae93b && mkdir -p build
+git checkout e365a4850d5276508aa3ec5cee0307b4ce5e6590 && mkdir -p build
 go run github.com/bufbuild/buf/cmd/buf@v1.71.0 build -o build/wire.binpb
 shasum -a 256 build/wire.binpb
 ```
@@ -257,7 +276,7 @@ plugin over the other's file would emit a second, unused client for the same
 service.
 
 ```sh
-make proto-gen-chain CHAIN_GEN_OUT=bin/wire-b30fba8-review
+make proto-gen-chain CHAIN_GEN_OUT=bin/wire-e365a48-review
 make proto-drift-chain
 ```
 
@@ -278,7 +297,7 @@ Nexus provenance is also recorded in `proto/nexus/v1/README.md`.
 
 ## Active Contracts
 
-Released fixture bytes are kept unchanged under `internal/wirevectors/testdata/p1-b30fba8`.
+Released fixture bytes are kept unchanged under `internal/wirevectors/testdata/p1-e365a48`.
 wire v0.3.0 is a reviewed breaking release:
 
 - `model_id` is a Hash32 (`TRUEOPEN_MODEL_ID_V1`). Cortex carries it as 64

@@ -67,6 +67,10 @@ type Runtime struct {
 	// VerifyResultRelay is the same relay for the signed result receipt, asked
 	// before any self-submission; nil when the node lacks the task-data plane.
 	VerifyResultRelay VerifyResultRelay
+	// ModelSupportRelay hands the daily support confirmation to a dispatch
+	// Builder when the node cannot submit it itself; nil without the task-data
+	// plane or without dispatch Builders.
+	ModelSupportRelay *NexusModelSupportRelay
 	// taskTrace is the per-task protocol trace sink this runtime was built
 	// with. It is held so the task runner built afterwards traces into the same
 	// sink as the output confirmer built here.
@@ -565,6 +569,14 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 			return nil, err
 		}
 	}
+	var modelSupportRelay *NexusModelSupportRelay
+	if supportClient, ok := deps.TaskData.(builderclient.ModelSupportRelayClient); ok && cfg.UsesRealDependencies() &&
+		builderEndpointResolver != nil && len(cfg.Dispatch.Builders) > 0 {
+		modelSupportRelay, err = NewNexusModelSupportRelay(supportClient, builderEndpointResolver, cfg.Dispatch.Builders)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	runtime := &Runtime{
 		Store:                       db,
@@ -576,6 +588,7 @@ func BuildRuntimeWithOptions(ctx context.Context, cfg config.Config, opts Runtim
 		EvidenceConfirmer:           evidenceConfirmer,
 		VerifyCommitRelay:           verifyCommitRelay,
 		VerifyResultRelay:           verifyResultRelay,
+		ModelSupportRelay:           modelSupportRelay,
 		taskTrace:                   taskTrace,
 		Reconciler:                  reconciler,
 		cfg:                         cfg,

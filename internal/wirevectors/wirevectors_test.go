@@ -36,7 +36,7 @@ func TestHubDomainRefusesAnUnpublishedDomain(t *testing.T) {
 	}
 }
 
-// Every b30fba8 file this repository derives must be registered in the
+// Every e365a48 file this repository derives must be registered in the
 // release manifest.
 func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 	for _, path := range []string{
@@ -59,13 +59,14 @@ func TestReleasedVectorsMatchTheirManifest(t *testing.T) {
 		"hub/model_manifest_v4.json",
 		"hub/model_profile_canonical_v3.json",
 		"hub/manifest_uri_v1.json",
+		"hub/model_support_relay_v1.json",
 	} {
 		if _, err := File(path); err != nil {
 			t.Fatalf("File(%s): %v", path, err)
 		}
 	}
 	if _, err := File("task/infer_receipt_v2.json"); err == nil {
-		t.Fatal("File() error = nil for a file wire b30fba8 does not publish")
+		t.Fatal("File() error = nil for a file wire e365a48 does not publish")
 	}
 }
 

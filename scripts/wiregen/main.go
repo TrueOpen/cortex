@@ -19,13 +19,13 @@ import (
 // descriptorSHA256 pins the exact bytes the bindings were generated from.
 //
 // It is `buf build` (buf v1.71.0, the version wire's contract workflow pins)
-// of wire commit b30fba873bd5b7553947f0ad32731fdd6e6ae93b, the Phase 1
-// contract the devnet Node and Builder are built on. That commit is not a
+// of wire commit e365a4850d5276508aa3ec5cee0307b4ce5e6590, the Phase 1
+// contract plus the model support confirmation relay. That commit is not a
 // release; re-pin to the release asset once it is tagged.
-const descriptorSHA256 = "9cc6b5d931d5c5895effc4c1025a732ff8c3734c3e29ead7c1d18145210a82cd"
+const descriptorSHA256 = "c20a85c3a87d4a830af9d7e8a0d4e748476791f350d7d446622e6cb99f1ae3ae"
 
 func main() {
-	descriptor := flag.String("descriptor", "proto/testdata/wire-b30fba8.binpb", "pinned wire descriptor")
+	descriptor := flag.String("descriptor", "proto/testdata/wire-e365a48.binpb", "pinned wire descriptor")
 	out := flag.String("out", "bin/.chain-bindings", "empty scratch output directory")
 	flag.Parse()
 	data, err := os.ReadFile(*descriptor)

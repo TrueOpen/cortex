@@ -23,6 +23,10 @@ import (
 // the rest of it as retry budget.
 type SupportRenewer struct {
 	cfg SupportRenewerConfig
+	// submittedAt is when the last successful submission was made while support
+	// still reads stale; zero once the chain shows support fresh. Only Run's
+	// goroutine touches it.
+	submittedAt time.Time
 }
 
 // SupportConfirmer renews the declared support for one model. It is the same
@@ -42,11 +46,27 @@ type SupportRenewerConfig struct {
 	// height-window branch, which is the one a node without a committed scope
 	// is judged by anyway.
 	EpochLength uint64
+	// ResubmitAfter spaces submissions while support still reads stale after a
+	// successful one; zero means SupportResubmitInterval. Now is the clock, nil
+	// meaning time.Now.
+	ResubmitAfter time.Duration
+	Now           func() time.Time
 	// OnRenewal and OnFailure report what happened. Failures are reported
 	// rather than returned: see Run.
 	OnRenewal func(modelID string, remaining uint64)
 	OnFailure func(modelID string, err error)
 }
+
+// SupportResubmitInterval is how long a successful submission is given to show
+// on chain before the same confirmation is submitted again.
+//
+// A relayed confirmation succeeds when a Builder queues it, and the Builder
+// flushes its batch on its own timer, so support keeps reading stale for a
+// while afterwards. Without spacing the renewer would resubmit on every Keeper
+// poll. Resubmitting at all is still needed: a Builder restart or a failed
+// batch loses the entry, and the relay contract recovers by retrying the same
+// material while it is valid.
+const SupportResubmitInterval = 2 * time.Minute
 
 // SupportRenewalThreshold is the fraction of the freshness window that must
 // remain for support to be left alone. Below it, renewal is attempted.
@@ -63,6 +83,12 @@ func NewSupportRenewer(cfg SupportRenewerConfig) *SupportRenewer {
 	}
 	if cfg.Interval <= 0 {
 		cfg.Interval = time.Minute
+	}
+	if cfg.ResubmitAfter <= 0 {
+		cfg.ResubmitAfter = SupportResubmitInterval
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 	return &SupportRenewer{cfg: cfg}
 }
@@ -124,15 +150,22 @@ func (r *SupportRenewer) RunOnce(ctx context.Context) {
 		if !needed {
 			continue
 		}
+		now := r.cfg.Now()
+		if !r.submittedAt.IsZero() && now.Sub(r.submittedAt) < r.cfg.ResubmitAfter {
+			// The last submission has not shown on chain yet.
+			return
+		}
 		if err := r.cfg.Confirmer.RenewDailySupport(ctx, profile.ModelID); err != nil {
 			r.report(profile.ModelID, fmt.Errorf("renew daily support: %w", err))
 			return
 		}
+		r.submittedAt = now
 		if r.cfg.OnRenewal != nil {
 			r.cfg.OnRenewal(profile.ModelID, remaining)
 		}
 		return
 	}
+	r.submittedAt = time.Time{}
 }
 
 // remainingFreshness reports how much of the window is left and whether that is
