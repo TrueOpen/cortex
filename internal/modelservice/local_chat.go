@@ -686,6 +686,9 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 		if payload == "[DONE]" {
 			break
 		}
+		if err := streamFrameError([]byte(payload)); err != nil {
+			return err
+		}
 		var chunk chatCompletionChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			return fmt.Errorf("modelservice local chat: decode stream frame: %w", err)
@@ -774,6 +777,16 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("modelservice local chat: read completion stream: %w", err)
+	}
+	if err := ctx.Err(); err != nil && !chatBudgetStopped(out) {
+		return err
+	}
+	if !sawChoice || out.Choices[0].FinishReason == "" {
+		tokens := 0
+		if sawChoice {
+			tokens = len(out.Choices[0].TokenIDs)
+		}
+		return errStreamTruncated("chat", tokens)
 	}
 
 	if rest := text.finish(); observerActive && rest != "" {

@@ -1650,6 +1650,9 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 		if payload == "[DONE]" {
 			break
 		}
+		if err := streamFrameError([]byte(payload)); err != nil {
+			return err
+		}
 		var chunk completionResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			return fmt.Errorf("modelservice local: decode stream frame: %w", err)
@@ -1731,12 +1734,16 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 	if err := ctx.Err(); err != nil && !budgetStopped(out) {
 		return err
 	}
+	if len(out.Choices) == 0 || out.Choices[0].FinishReason == "" {
+		tokens := 0
+		if len(out.Choices) > 0 {
+			tokens = len(out.Choices[0].TokenIDs)
+		}
+		return errStreamTruncated("completions", tokens)
+	}
 
 	if observerActive {
-		finish := ""
-		if len(out.Choices) > 0 {
-			finish = out.Choices[0].FinishReason
-		}
+		finish := out.Choices[0].FinishReason
 		_ = observer.ObserveInferFrame(ctx, InferStreamFrame{
 			RequestID:    ident.requestID,
 			JobID:        ident.jobID,
