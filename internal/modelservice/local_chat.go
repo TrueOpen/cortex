@@ -200,7 +200,22 @@ type chatRespTopLogprob struct {
 // carrying a "messages" field is a chat request served over /v1/chat/completions;
 // anything else is the legacy raw-text prompt served by inferV0. (Capability-based
 // routing via a dedicated llm_chat_v1 is the eventual mechanism.)
+//
+// When req.RequireAnchorCommit is set, the engine's ADR-0040 AnchorCommitV1 of
+// the completion is fetched after the generation, under its own timeout
+// (attachAnchorCommit); otherwise the engine sidecar is never asked.
 func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferResponse, error) {
+	resp, err := s.inferGenerate(ctx, req)
+	if err != nil {
+		return InferResponse{}, err
+	}
+	// ctx here is the caller's: none of the generation's deadlines (budget
+	// grace, request deadline, infer timeout) applies to the commitment fetch.
+	return s.attachAnchorCommit(ctx, req, resp)
+}
+
+// inferGenerate is the generation itself, routed by input shape.
+func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (InferResponse, error) {
 	if err := validateCapability(req.Capability); err != nil {
 		return InferResponse{}, err
 	}
@@ -482,6 +497,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmani
 	// localGenerationFinishReason maps an id in eos_token_ids to EOS and refuses
 	// any other.
 	return completionResponse{
+		ID: chatResp.ID,
 		Choices: []completionChoice{{
 			Text:           text,
 			FinishReason:   finishReason,

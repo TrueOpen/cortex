@@ -54,7 +54,8 @@ func newDispatchPlane(cfg config.Config, rt *daemon.Runtime, runner *daemon.Task
 		Streams: rt.Dispatch, Runner: runner, Evidence: ev, Store: rt.Store,
 		ChainID: cfg.ChainID, Operator: cfg.LocalIdentity.OperatorAddress, FeeDenom: cfg.Tx.FeeDenom,
 		Profiles: profiles, Dispatch: cfg.Dispatch, Capacity: cfg.ModelManagement.MaxConcurrency,
-		Local: rt.HandraiseLocal(), Sign: rt.DispatchSigner(), Submitter: submitter,
+		Local: rt.HandraiseLocal(), Anchor: daemon.AnchorProberOf(rt.Dependencies.Model),
+		Sign: rt.DispatchSigner(), Submitter: submitter,
 		HandraiseChain: chain, DispatchChain: chain, VerifierChain: chain, OmissionChain: chain,
 		Rosters: rt.DispatchRosters(),
 	})

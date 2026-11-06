@@ -32,6 +32,9 @@ const (
 	// EvidenceKindWorkerTokenOpening is the A-level Worker evidence: the token
 	// ids a Verifier teacher-forces over.
 	EvidenceKindWorkerTokenOpening EvidenceKind = 4
+	// EvidenceKindWorkerAnchorOpening is the C-level Worker evidence (ADR-0040):
+	// the engine-side anchor commitment made at inference time.
+	EvidenceKindWorkerAnchorOpening EvidenceKind = 5
 )
 
 // Duty is the frozen hub/v1/common.proto duty enum. Which of the two live
