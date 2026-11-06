@@ -305,13 +305,17 @@ func (s *Session) Run(ctx context.Context) error {
 	}
 }
 
-// conn is the per-binding state; only serve's goroutine touches it.
+// conn is the per-binding state. Only serve's goroutine touches it, except
+// that the reader goroutine answers keepalives (answerKeepalive): ka is
+// guarded by kaMu, and every Send by sendMu.
 type conn struct {
 	stream  *connect.BidiStreamForClient[rawFrame, rawFrame]
 	nonce   []byte
 	in      inbound
 	out     outbound
+	kaMu    sync.Mutex
 	ka      keepalive
+	sendMu  sync.Mutex
 	seqOf   map[uint64]uint64 // outbound cursor -> outbox seq
 	sentSeq uint64            // highest outbox seq sent on this binding
 }
@@ -342,7 +346,7 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 		wg.Wait() // the reader is out of Receive before the response closes
 		_ = c.stream.CloseResponse()
 	}()
-	if err := c.stream.Send(&rawFrame{b: wrapEnvelope(bindingFrame)}); err != nil {
+	if err := c.send(&rawFrame{b: wrapEnvelope(bindingFrame)}); err != nil {
 		return false, fmt.Errorf("send binding: %w", err)
 	}
 	if s.cfg.OnBound != nil {
@@ -359,6 +363,14 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 				r.err = err
 			} else {
 				r.raw = msg.b
+				// Answered here, not in the loop: see answerKeepalive.
+				handled, kaErr := s.answerKeepalive(c, msg.b)
+				if handled && kaErr == nil {
+					continue
+				}
+				if kaErr != nil {
+					r.raw, r.err, err = nil, kaErr, kaErr
+				}
 			}
 			select {
 			case frames <- r:
@@ -399,10 +411,13 @@ func (s *Session) serve(ctx context.Context) (progressed bool, err error) {
 			if keys, err := s.cfg.BuilderKeys(ctx); err == nil && !keys.CurrentActive {
 				return progressed, fmt.Errorf("Builder %s current service key is no longer ACTIVE", s.cfg.BuilderOperator)
 			}
+			c.kaMu.Lock()
 			v, ok := c.ka.probe(uint64(max(s.cfg.Now().UnixMilli(), 0)))
+			missed := c.ka.missed
+			c.kaMu.Unlock()
 			if !ok {
-				if c.ka.missed >= s.cfg.MaxMissed {
-					return progressed, fmt.Errorf("peer missed %d keepalive periods", c.ka.missed)
+				if missed >= s.cfg.MaxMissed {
+					return progressed, fmt.Errorf("peer missed %d keepalive periods", missed)
 				}
 				continue
 			}
@@ -485,7 +500,7 @@ func (s *Session) sendPending(ctx context.Context, c *conn) error {
 	}
 	send := s.sendFrame
 	if send == nil {
-		send = func(c *conn, f *rawFrame) error { return c.stream.Send(f) }
+		send = func(c *conn, f *rawFrame) error { return c.stream.Send(f) } // under c.sendMu below
 	}
 	for _, p := range ps {
 		// Marked before Send: a failed Send may still have put bytes on the
@@ -503,7 +518,10 @@ func (s *Session) sendPending(ctx context.Context, c *conn) error {
 		if err != nil {
 			return err
 		}
-		if err := send(c, &rawFrame{b: wrapEnvelope(encodeFrame(c.nonce, cursor, p.Variant, p.Payload))}); err != nil {
+		c.sendMu.Lock()
+		err = send(c, &rawFrame{b: wrapEnvelope(encodeFrame(c.nonce, cursor, p.Variant, p.Payload))})
+		c.sendMu.Unlock()
+		if err != nil {
 			return fmt.Errorf("send cursor %d: %w", cursor, err)
 		}
 		c.seqOf[cursor] = p.Seq
@@ -517,7 +535,52 @@ func (s *Session) sendControl(c *conn, msg proto.Message) error {
 	if err != nil {
 		return err
 	}
-	return c.stream.Send(&rawFrame{b: wrapEnvelope(frame)})
+	return c.send(&rawFrame{b: wrapEnvelope(frame)})
+}
+
+// send is the one way onto the stream: the loop and the reader both send, and
+// a connect stream is not safe for concurrent Send.
+func (c *conn) send(f *rawFrame) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return c.stream.Send(f)
+}
+
+// answerKeepalive handles a keepalive frame on the reader goroutine and
+// reports whether raw was one.
+//
+// The Builder measures this node's RTT with its probe and refuses to admit a
+// handraise above its threshold. Answered in the loop, a probe waited behind
+// whatever Handler was running -- a ticket or root check that reads the chain
+// -- and the Builder measured that wait as network latency: 300+ ms between
+// processes on one host, enough to drop every Worker from the roster
+// (TrueOpen/cortex#100). The echo carries no business state, so it does not
+// need the loop's ordering.
+//
+// Anything that is not a well-formed keepalive on this binding is left to the
+// loop, which applies the same checks and drops the binding on failure.
+func (s *Session) answerKeepalive(c *conn, envelope []byte) (bool, error) {
+	raw, err := unwrapEnvelope(envelope)
+	if err != nil || dispatch.ValidateMessage(frameName, raw) != nil {
+		return false, nil
+	}
+	frame := &nexusv1.DispatchStreamFrameV1{}
+	if proto.Unmarshal(raw, frame) != nil || !bytes.Equal(frame.GetStreamNonce(), c.nonce) {
+		return false, nil
+	}
+	if v, _, _ := inner(frame); v != variantKeepalive {
+		return false, nil
+	}
+	c.kaMu.Lock()
+	echo, reply := c.ka.received(frame.GetKeepalive().GetSentAtMs())
+	c.kaMu.Unlock()
+	if !reply {
+		return true, nil
+	}
+	if err := s.sendControl(c, &nexusv1.StreamKeepaliveV1{SentAtMs: echo}); err != nil {
+		return true, fmt.Errorf("dispatchstream: echo keepalive: %w", err)
+	}
+	return true, nil
 }
 
 // handleFrame applies one received frame. business reports progress (see
@@ -568,7 +631,11 @@ func (s *Session) handleFrame(ctx context.Context, c *conn, envelope []byte) (bu
 		}
 		return c.out.acked > prev, nil
 	case v == variantKeepalive:
-		if echo, reply := c.ka.received(frame.GetKeepalive().GetSentAtMs()); reply {
+		// Normally answered by the reader (answerKeepalive); kept for parity.
+		c.kaMu.Lock()
+		echo, reply := c.ka.received(frame.GetKeepalive().GetSentAtMs())
+		c.kaMu.Unlock()
+		if reply {
 			return false, s.sendControl(c, &nexusv1.StreamKeepaliveV1{SentAtMs: echo})
 		}
 		return false, nil
