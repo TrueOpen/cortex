@@ -75,6 +75,51 @@ curl -sL "<manifest-uri>" | cmp - out/qwen3-8b-0/manifest.canonical.json && echo
 Host `manifest.canonical.json`, never `manifest.pretty.json`: retrievers hash
 the exact bytes they download.
 
+## Registering vs updating a model
+
+There is one registration Msg, `MsgRegisterModelProfile`; a new model and a
+new version of an existing model go through the same flow. Only two flags
+differ:
+
+| Flag | Default | New model | Update (new version) |
+|---|---|---|---|
+| `--profile-version` | `1` | `1` | latest on-chain version + 1 |
+| `--previous-profile-version` | `0` | `0` | latest on-chain version |
+
+The chain enforces:
+
+- A continuous version chain: `profile_version = latest + 1` and
+  `previous_profile_version = latest`. Gaps or reuse are rejected; the same
+  version with different content is `ERR_PROFILE_ALREADY_EXISTS`. Resubmitting
+  identical content is an idempotent replay and is not charged again.
+- The update must be signed by the original registrant, so keep the same
+  `--proposer-address` (registrant transfer is not supported). Keep
+  `--chain-id` and the model repo too, so `model_id` stays the same.
+- Old versions are never overwritten; versions coexist, and existing model
+  support carries over.
+
+When updating:
+
+- `evidence_schema_hash` is bound to `profile_version`, so a new version always
+  has a new manifest and `manifest_hash`. Run the full two-pass flow again.
+- Host the new manifest at a new path and pass that as `--manifest-uri`; never
+  change the bytes hosted for an earlier version.
+- A new version is required for any change that affects inference or
+  verification: weights, tokenizer / chat template, quantization,
+  `verification_thresholds`, `verification_profile`, `schema_hash`, pricing,
+  `output_decoding` / decode vectors, tool-call or reasoning parser. Display-only
+  fields such as `license_ref` do not need one.
+- Each version pays its non-refundable `registration_fee`.
+
+```bash
+# final pass for version 2 of an existing model
+./tools/modelprofilebuilder/build_model_profile.py \
+  ...same flags as version 1... \
+  --profile-version 2 --previous-profile-version 1 \
+  --manifest-uri "<new manifest-uri>" \
+  --output-dir out/qwen3-8b-v2-1
+```
+
 ## Outputs
 
 | File | Use |
