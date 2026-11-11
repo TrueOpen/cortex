@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -151,6 +153,7 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	if err := d.checkHandraise(builder, height); err != nil {
 		return ev, err, nil
 	}
+	pre := d.prefetchOffer(ctx, builder, so.GetOrder(), height)
 	tc, builderPendingAt, err := d.ticketContext(ctx, builder, t, so.GetOrder(), height)
 	if err != nil {
 		if builderclient.IsRetryable(err) {
@@ -172,7 +175,7 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	// Check 2 reads the same snapshot; nil means the session is not on chain.
 	var session *chainclient.SessionSnapshot
 	if sid := so.GetOrder().GetSessionId(); len(sid) == 32 {
-		s, err := d.chain.SessionAt(ctx, sid, height)
+		s, err := pre.session, pre.sessionErr
 		switch {
 		case err == nil:
 			session, ev.params = &s, s.Dispatch
@@ -206,6 +209,46 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	// Checks 2, 2a, 3, 4, 6, 7.
 	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, session, height)
 	return ev, nil, err
+}
+
+// offerPrefetch is the Session read prefetchOffer made; the Session is per
+// order and is not memoised, so it is handed over instead.
+type offerPrefetch struct {
+	session    chainclient.SessionSnapshot
+	sessionErr error
+}
+
+// prefetchOffer issues together every chain read an offer evaluation makes at
+// height. They are independent of one another, and the Builder's accept
+// window is a few hundred ms (nexus defaults to 300 ms for the lowest RTT
+// tier), so read one after another a short chain stall alone outlasts it.
+// Successes land in the per-height memo, from which the checks then read in
+// their original order; a failure is not memoised, so the check that needs
+// the value reads again and reports its own error, as before.
+func (d *Dispatcher) prefetchOffer(ctx context.Context, builder string, o *taskv1.TaskOrderV3, height uint64) offerPrefetch {
+	var pre offerPrefetch
+	var wg sync.WaitGroup
+	if sid := o.GetSessionId(); len(sid) == 32 {
+		wg.Go(func() { pre.session, pre.sessionErr = d.chain.SessionAt(ctx, sid, height) })
+	}
+	modelHex, version := hex.EncodeToString(o.GetModelId()), strconv.FormatUint(uint64(o.GetProfileVersion()), 10)
+	for _, read := range []func(){
+		func() { _, _ = d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeBuilder, builder, height) },
+		func() { _, _ = d.chain.BuilderVrfKeyAt(ctx, builder, height) },
+		func() { _, _ = d.chain.DispatchEpochAt(ctx, o.GetEarliestSubmitHeight(), height) },
+		func() {
+			_, _ = d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeCortexNode, d.cfg.Operator, height)
+		},
+		func() { _, _ = d.chain.BuilderSetAt(ctx, height) },
+		func() { _, _ = d.chain.ModelSupportScopeAt(ctx, d.cfg.Operator, modelHex, version, height) },
+		func() { _, _ = d.chain.CortexNodeAt(ctx, d.cfg.Operator, height) },
+		func() { _, _ = d.chain.ServiceBondAt(ctx, d.cfg.Operator, height) },
+		func() { _, _ = d.chain.WorkerLiabilityParamsAt(ctx, height) },
+	} {
+		wg.Go(read)
+	}
+	wg.Wait()
+	return pre
 }
 
 // localStop is the local part of checks 3 and 4 (workload readiness, node
