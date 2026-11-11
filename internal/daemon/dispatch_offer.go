@@ -144,10 +144,26 @@ type offerEval struct {
 // at one committed height, without the work lock. drop is a check-1 failure
 // (no reject is signed); err is a failed read (retryable).
 func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2) (ev offerEval, drop, err error) {
+	// #107: at the held read-ahead height (RunWarm) the offer is answered
+	// from facts already read, the Session included once one of its orders
+	// was seen. Only an accept is decided there: a drop, a reject or a failed
+	// read is decided again at the committed height, since the held height
+	// may predate the Session or a change of key or bond.
+	d.noteSession(so.GetOrder().GetSessionId())
+	if h := d.warmHeight(); h != 0 {
+		if ev, drop, err := d.evaluateOfferAt(ctx, builder, t, so, h); err == nil && drop == nil && ev.verdict == nil {
+			return ev, nil, nil
+		}
+	}
 	height, err := d.chain.CommittedHeight(ctx)
 	if err != nil {
 		return ev, nil, builderclient.Retryable(fmt.Errorf("committed height: %w", err))
 	}
+	return d.evaluateOfferAt(ctx, builder, t, so, height)
+}
+
+// evaluateOfferAt runs checks 1-7 with every chain read pinned to height.
+func (d *Dispatcher) evaluateOfferAt(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, height uint64) (ev offerEval, drop, err error) {
 	ev.height = height
 	// Check 1: legitimacy.
 	if err := d.checkHandraise(builder, height); err != nil {

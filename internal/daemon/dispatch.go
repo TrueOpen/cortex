@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -121,6 +122,7 @@ type DispatcherConfig struct {
 	InputRequestTTL  time.Duration // expiry of a re-sent input request; default 30s
 	InputRetryEvery  time.Duration // re-request input this long after the last request; default 5s
 	SweepEvery       time.Duration // default 250ms
+	WarmEvery        time.Duration // RunWarm's committed-height poll; default 200ms
 
 	Chain     DispatchChainView
 	Local     HandraiseLocal // WorkloadReady and Draining; capacity is Leases
@@ -176,6 +178,9 @@ type Dispatcher struct {
 	profiles map[HandraiseProfile]bool
 
 	chain *dispatchFacts // cfg.Chain with per-height memo (I3)
+	// head is the newest committed height RunWarm read; it judges whether the
+	// held read-ahead height is fresh enough to answer an offer at.
+	head atomic.Uint64
 
 	// work serialises the store-side state machine: offer answers, revokes,
 	// input responses and sweeps. It is a semaphore so a waiter gives up with
@@ -185,6 +190,7 @@ type Dispatcher struct {
 	mu       sync.Mutex
 	deadline map[layout.StoredHash]time.Time // C4 accept deadlines seen by this process
 	rebound  map[string]bool
+	recent   map[[32]byte]time.Time // Sessions RunWarm reads ahead (noteSession)
 	wake     chan struct{}
 	// recordCheckedAt is the committed height of the last notice-driven
 	// record re-check (sweepRecords): the chain is asked again only once the
@@ -242,6 +248,9 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	}
 	if cfg.SweepEvery <= 0 {
 		cfg.SweepEvery = 250 * time.Millisecond
+	}
+	if cfg.WarmEvery <= 0 {
+		cfg.WarmEvery = 200 * time.Millisecond
 	}
 	if cfg.ClaimRetryBlocks == 0 {
 		cfg.ClaimRetryBlocks = 5
