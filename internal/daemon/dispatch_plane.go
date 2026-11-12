@@ -137,7 +137,7 @@ func NewDispatchPlane(ctx context.Context, cfg DispatchPlaneConfig) (*DispatchPl
 // Runners are the plane's workload loops; they stop with the workload, so a
 // node that is not ready sends no handraise (CD §4.2.2).
 func (p *DispatchPlane) Runners() []func(context.Context) error {
-	out := []func(context.Context) error{p.runStreams, p.handraiser.Run, p.dispatcher.Run}
+	out := []func(context.Context) error{p.runStreams, p.handraiser.Run, p.dispatcher.Run, p.dispatcher.RunWarm}
 	if p.omission != nil {
 		out = append(out, p.omission.Run)
 	}
