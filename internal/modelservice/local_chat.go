@@ -130,6 +130,9 @@ type chatCompletionRequest struct {
 	ReturnTokenIDs         bool               `json:"return_token_ids"`
 	ReturnTokensAsTokenIDs bool               `json:"return_tokens_as_token_ids"`
 	SkipSpecialTokens      *bool              `json:"skip_special_tokens,omitempty"`
+	// VLLMXArgs is set only for a generation that requires an anchor
+	// commitment (anchorSeedXArgs).
+	VLLMXArgs map[string]string `json:"vllm_xargs,omitempty"`
 }
 
 // chatStreamOptions is set only when Cortex streams the generation. include_usage
@@ -436,6 +439,7 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 		ReturnTokenIDs:         true,
 		ReturnTokensAsTokenIDs: true,
 		SkipSpecialTokens:      &skipSpecial,
+		VLLMXArgs:              anchorSeedXArgs(req),
 	}
 	if streaming {
 		// Ask vLLM for the terminal usage-only chunk so the committed output's

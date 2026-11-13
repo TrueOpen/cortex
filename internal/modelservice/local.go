@@ -340,6 +340,9 @@ type completionRequest struct {
 	// text renders adjacent special tokens without inserting a space between
 	// them (see checkRawTextCommittedOutput). Verify leaves it unset.
 	SpacesBetweenSpecialTokens *bool `json:"spaces_between_special_tokens,omitempty"`
+	// VLLMXArgs is set only for a generation that requires an anchor
+	// commitment (anchorSeedXArgs). Verify leaves it unset.
+	VLLMXArgs map[string]string `json:"vllm_xargs,omitempty"`
 }
 
 // logprobEntry is a single "token id -> detail" entry in a prompt_logprobs

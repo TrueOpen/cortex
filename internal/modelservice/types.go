@@ -337,6 +337,12 @@ type InferRequest struct {
 	// return the engine's AnchorCommitV1 as AnchorCommitRef or fail the call.
 	// Unset, the engine's anchor sidecar is never asked.
 	RequireAnchorCommit bool
+	// ChainID is the chain the task lives on. It is used only together with
+	// RequireAnchorCommit: the local model service hands (chain id, task id,
+	// order seed) to the engine so the canonical sampler derives its seed from
+	// them (anchorSeedXArgs) instead of from anything this node chooses. It is
+	// node-local and never carried on the gRPC model-service contract.
+	ChainID string
 }
 
 type InferResponse struct {

@@ -67,6 +67,12 @@ func TestWorkerCommitsTheAnchorBundleWhenTheProfileRequiresIt(t *testing.T) {
 	if len(model.requests) != 1 || !model.requests[0].RequireAnchorCommit {
 		t.Fatalf("infer requests %+v, want one asking for the anchor commitment", model.requests)
 	}
+	// The seed facts the engine binds its sampler to: the node's chain, the
+	// task and the order's own seed, none of them chosen here.
+	if got := model.requests[0]; h.worker.cfg.ChainID == "" || got.ChainID != h.worker.cfg.ChainID || got.TaskID != event.TaskID || got.Generation == nil {
+		t.Fatalf("infer request chain %q task %q generation %v, want chain %q task %q and the order's generation",
+			got.ChainID, got.TaskID, got.Generation, h.worker.cfg.ChainID, event.TaskID)
+	}
 	commitments := result.TaskDataReceipt.RequiredEvidenceCommitments
 	if len(commitments) != 3 || commitments[2].EvidenceKind != nodewire.EvidenceKindWorkerAnchorOpening ||
 		commitments[2].EncodedSizeBytes != uint64(len(workerTestAnchorCommit)) {
