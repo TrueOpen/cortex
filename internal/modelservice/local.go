@@ -91,6 +91,19 @@ type LocalService struct {
 	// always non-streaming.
 	streamInference bool
 
+	// anchorCommitTimeout bounds how long Infer waits, after the generation
+	// has ended, for the engine sidecar to finalize and serve the ADR-0040
+	// AnchorCommitV1 of the completion. It is its own budget: the generation's
+	// max_output_duration grace and the infer timeout never shorten it, so a
+	// generation stopped at its budget still gets the full window. Zero means
+	// defaultAnchorCommitTimeout.
+	anchorCommitTimeout time.Duration
+	// anchorCommitBackoff is the first wait between polls of a commitment the
+	// engine still reports as being finalized (503). Zero means the default.
+	anchorCommitBackoff time.Duration
+	// anchorInfo caches the last /slp/info probe (AnchorCommitCapable).
+	anchorInfo anchorInfoCache
+
 	// detokenizeCorroboration, when true, makes Infer refuse to commit an
 	// output whose bytes do not equal the engine's own decode of the committed
 	// token ids (corroborateOutputDecodes). Off by default; the daemon enables
@@ -411,6 +424,7 @@ type completionChoice struct {
 }
 
 type completionResponse struct {
+	ID      string             `json:"id"`
 	Choices []completionChoice `json:"choices"`
 }
 
@@ -1167,7 +1181,6 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	tokenIDsRef := s.putArtifact(tokenIDsBytes)
 	positionValuesRef := s.putArtifact(positionValuesBytes)
 	generatedTokenCount := uint64(len(generatedIDs))
-
 	return InferResponse{
 		RequestID:              req.RequestID,
 		ModelServiceID:         s.serviceID,
@@ -1183,6 +1196,7 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		GeneratedTokenCount:    generatedTokenCount,
 		WorkUnit:               generatedTokenCount,
 		FinishReason:           finishReason,
+		EngineRequestID:        resp.ID,
 	}, nil
 }
 
@@ -1656,6 +1670,9 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 		var chunk completionResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			return fmt.Errorf("modelservice local: decode stream frame: %w", err)
+		}
+		if out.ID == "" && chunk.ID != "" {
+			out.ID = chunk.ID
 		}
 		if len(chunk.Choices) == 0 {
 			continue

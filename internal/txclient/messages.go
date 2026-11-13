@@ -338,6 +338,7 @@ const (
 	EvidenceKindVerifierValueOpening  = "EVIDENCE_KIND_VERIFIER_VALUE_OPENING"
 	EvidenceKindSettlementRootOpening = "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING"
 	EvidenceKindWorkerTokenOpening    = "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
+	EvidenceKindWorkerAnchorOpening   = "EVIDENCE_KIND_WORKER_ANCHOR_OPENING"
 )
 
 // Frozen task.v1.DeadlineKindV1 value names a MsgSweepDeadline
@@ -754,9 +755,10 @@ func validateSubmitInferReceipt(m SubmitInferReceiptMessage) error {
 			return fmt.Errorf("infer receipt %s must be ZERO32 in plaintext", slot.name)
 		}
 	}
-	if len(r.RequiredEvidenceCommitments) != 2 || r.RequiredEvidenceCommitments[0].EvidenceKind != EvidenceKindWorkerValueOpening ||
-		r.RequiredEvidenceCommitments[1].EvidenceKind != EvidenceKindWorkerTokenOpening {
-		return fmt.Errorf("infer receipt must commit exactly the Worker value and token openings, in that order")
+	if (len(r.RequiredEvidenceCommitments) != 2 && len(r.RequiredEvidenceCommitments) != 3) || r.RequiredEvidenceCommitments[0].EvidenceKind != EvidenceKindWorkerValueOpening ||
+		r.RequiredEvidenceCommitments[1].EvidenceKind != EvidenceKindWorkerTokenOpening ||
+		(len(r.RequiredEvidenceCommitments) == 3 && r.RequiredEvidenceCommitments[2].EvidenceKind != EvidenceKindWorkerAnchorOpening) {
+		return fmt.Errorf("infer receipt must commit the Worker value and token openings, in that order, optionally followed by the anchor opening")
 	}
 	if err := requireStrings(r.ChainID, r.WorkerOperatorAddress); err != nil {
 		return err
@@ -830,6 +832,8 @@ func evidenceKindRank(name string) (int, bool) {
 		return 3, true
 	case EvidenceKindWorkerTokenOpening:
 		return 4, true
+	case EvidenceKindWorkerAnchorOpening:
+		return 5, true
 	default:
 		return 0, false
 	}
@@ -1034,6 +1038,7 @@ func ValidateModelProfileProjection(profile ModelProfileProjectionMessage) error
 		"EVIDENCE_KIND_VERIFIER_VALUE_OPENING":  2,
 		"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3,
 		"EVIDENCE_KIND_WORKER_TOKEN_OPENING":    4,
+		"EVIDENCE_KIND_WORKER_ANCHOR_OPENING":   5,
 	}
 	previousEvidenceKind := uint32(0)
 	for index, requirement := range verification.EvidenceSchema.RequiredInferEvidence {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 )
 
 // HandraiseChainView is the chain authority the standing handraise reads.
@@ -56,6 +57,9 @@ type profileVerdict struct {
 	HandraiseProfile
 	class int
 	why   string
+	// anchor: the Profile requires WORKER_ANCHOR_OPENING, so serving it takes
+	// on an audit obligation (ADR-0040). Known only for an eligible Profile.
+	anchor bool
 }
 
 // gateResult is one evaluation of the gates.
@@ -126,6 +130,13 @@ type handraiseGates struct {
 	profiles []gateProfile // ascending
 	minBid   map[string]uint64
 	log      *slog.Logger
+	// anchor probes the local engine for ADR-0040 anchor commitments; nil
+	// means it cannot serve them. Read only for a Profile requiring kind 5.
+	anchor modelservice.AnchorCommitProber
+	// admission is the anchor sidecar's admission signal (nil: no gate). Like
+	// drain it is local and read every pass, and only when an otherwise
+	// eligible Profile requires kind 5.
+	admission *AnchorAdmission
 
 	// Only the evaluating goroutine touches these.
 	facts        *chainFacts
@@ -182,6 +193,7 @@ func (g *handraiseGates) evaluate(ctx context.Context, height uint64, intervalKn
 			res.profiles[i].class, res.profiles[i].why = profileExcluded, "draining"
 		}
 	}
+	g.applyAnchorAdmission(res.profiles)
 	g.logEligible(res.profiles)
 	free, ok := g.local.FreeSlots(ctx)
 	if !ok {
@@ -265,11 +277,11 @@ func (g *handraiseGates) readProfiles(ctx context.Context, height uint64, bond c
 			out[i].why = "no min_price_bid (H4)"
 			continue
 		}
-		err := g.support(ctx, height, bond, p)
+		anchor, err := g.support(ctx, height, bond, p)
 		var read errScopeRead
 		switch {
 		case err == nil:
-			out[i].class = profileEligible
+			out[i].class, out[i].anchor = profileEligible, anchor
 		case errors.As(err, &read):
 			out[i].class, out[i].why = profileReadFailed, err.Error()
 			f.readFailed = true
@@ -278,6 +290,30 @@ func (g *handraiseGates) readProfiles(ctx context.Context, height uint64, bond c
 		}
 	}
 	return out
+}
+
+// applyAnchorAdmission leaves every eligible Profile that requires
+// WORKER_ANCHOR_OPENING out while the anchor sidecar admits no new audit
+// obligation. It is a local fact, not a failed read, so a Profile offered
+// before is not kept. The signal is not read at all when no such Profile is
+// eligible.
+func (g *handraiseGates) applyAnchorAdmission(vs []profileVerdict) {
+	if g.admission == nil {
+		return
+	}
+	var refusal error
+	read := false
+	for i := range vs {
+		if vs[i].class != profileEligible || !vs[i].anchor {
+			continue
+		}
+		if !read {
+			refusal, read = g.admission.Refusal(), true
+		}
+		if refusal != nil {
+			vs[i].class, vs[i].why = profileExcluded, "anchor admission: "+refusal.Error()
+		}
+	}
 }
 
 // logEligible logs the profiles left out, only when the eligible set changes.
@@ -324,16 +360,22 @@ func (e errScopeRead) Unwrap() error { return e.err }
 
 // support is H2 for one profile on the committed facts the dispatch pool is
 // built from (KC §4.4), with the same rules as the Verifier eligibility in
-// handraise_eligibility.go.
-func (g *handraiseGates) support(ctx context.Context, height uint64, bond chainclient.ServiceBondSnapshot, p gateProfile) error {
+// handraise_eligibility.go. anchor reports whether the Profile requires
+// WORKER_ANCHOR_OPENING.
+func (g *handraiseGates) support(ctx context.Context, height uint64, bond chainclient.ServiceBondSnapshot, p gateProfile) (anchor bool, err error) {
 	scope, err := g.chain.ModelSupportScopeAt(ctx, g.operator, p.modelHex, strconv.FormatUint(uint64(p.Version), 10), height)
 	if errors.Is(err, chainclient.ErrNotFound) {
-		return err
+		return false, err
 	}
 	if err != nil {
-		return errScopeRead{err}
+		return false, errScopeRead{err}
 	}
-	return scopeSupportProblem(scope, bond, g.operator, p.modelHex, p.Version)
+	if err := scopeSupportProblem(scope, bond, g.operator, p.modelHex, p.Version); err != nil {
+		return false, err
+	}
+	// Not a failed read: an engine without the anchor sidecar is a local fact,
+	// so the Profile is left out (and logged by logEligible) rather than kept.
+	return profileRequiresAnchorOpening(scope.Profile), anchorCapabilityProblem(ctx, g.anchor, scope.Profile)
 }
 
 // scopeSupportProblem is H2 (and CD §5.1 check 4) on an already read scope:

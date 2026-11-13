@@ -46,6 +46,9 @@ const (
 	classInputTooLarge          = "input_too_large"
 	classNoFreeSlot             = "no_free_slot"
 	classBuilderRetiring        = "builder_retiring"
+	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
+	// right now (ADR-0040); a moment, like no_free_slot.
+	classAnchorAdmission = "anchor_admission"
 )
 
 // verdict is one signed-reject decision.
@@ -81,7 +84,7 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 	if v != nil || err != nil {
 		return v, err
 	}
-	if v := d.checkProfile(modelHex, version, scope, haveScope, bond); v != nil {
+	if v := d.checkProfile(ctx, modelHex, version, scope, haveScope, bond); v != nil {
 		return v, nil
 	}
 	if v := d.checkPrice(o, modelHex, version); v != nil {
@@ -249,7 +252,7 @@ func requiredTaskLiability(maxOutputTokens uint64, priceBid string, verifyRatioB
 
 // checkProfile is check 4: local supported profile, not draining, and H2 on
 // the committed scope.
-func (d *Dispatcher) checkProfile(modelHex string, version uint32, scope chainclient.CommittedModelSupportScope, haveScope bool, bond chainclient.ServiceBondSnapshot) *verdict {
+func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version uint32, scope chainclient.CommittedModelSupportScope, haveScope bool, bond chainclient.ServiceBondSnapshot) *verdict {
 	p, err := profileOf(modelHex, version)
 	if err != nil || !d.profiles[p] {
 		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is not in supported_model_profiles", modelHex, version)
@@ -262,6 +265,18 @@ func (d *Dispatcher) checkProfile(modelHex string, version uint32, scope chaincl
 	}
 	if err := scopeSupportProblem(scope, bond, d.cfg.Operator, modelHex, version); err != nil {
 		return refuse(reasonProfile, classProfileUnavailable, "H2: %v", err)
+	}
+	if err := anchorCapabilityProblem(ctx, d.cfg.Anchor, scope.Profile); err != nil {
+		return refuse(reasonProfile, classProfileUnavailable, "%v", err)
+	}
+	// The Profile itself is fine; the node cannot take on its audit
+	// obligation at this moment. The standing handraise already leaves the
+	// Profile out while the gate is closed, so this answers an offer that was
+	// routed before the Builder saw that.
+	if d.cfg.AnchorAdmission != nil && profileRequiresAnchorOpening(scope.Profile) {
+		if err := d.cfg.AnchorAdmission.Refusal(); err != nil {
+			return refuse(reasonNoCapacity, classAnchorAdmission, "%v", err)
+		}
 	}
 	return nil
 }

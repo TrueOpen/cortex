@@ -47,9 +47,14 @@ type InferReceiptV3 struct {
 // the Worker value commitment (kind 1) followed by the Worker token commitment
 // (kind 4). EvidenceCommitmentsHash then frames them like any other list.
 func RequireWorkerEvidenceCommitmentsV3(items []EvidenceCommitmentV1) error {
-	want := [...]EvidenceKind{EvidenceKindWorkerValueOpening, EvidenceKindWorkerTokenOpening}
+	want := []EvidenceKind{EvidenceKindWorkerValueOpening, EvidenceKindWorkerTokenOpening}
+	// A Profile may additionally require the C-level anchor commitment
+	// (ADR-0040); it always follows the two v0.3.0 commitments.
+	if len(items) == 3 {
+		want = append(want, EvidenceKindWorkerAnchorOpening)
+	}
 	if len(items) != len(want) {
-		return fmt.Errorf("a V3 receipt carries exactly %d evidence commitments, got %d", len(want), len(items))
+		return fmt.Errorf("a V3 receipt carries the Worker value and token commitments, optionally followed by the anchor commitment; got %d", len(items))
 	}
 	for index, item := range items {
 		if item.EvidenceKind != want[index] {
