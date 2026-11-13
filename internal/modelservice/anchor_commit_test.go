@@ -16,7 +16,9 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-const testAnchorCommit = `{"request_id":"chatcmpl-test","roots":["00"]}`
+// testAnchorCommit names the tokens chatGenResponse delivers (prompt 1 2 3,
+// generated 10 11): the Worker-side self-check compares them.
+const testAnchorCommit = `{"request_id":"chatcmpl-test","roots":["00"],"token_ids":[1,2,3,10,11],"prompt_tokens":3,"rows":4}`
 
 // anchorSidecar fronts an engine stub with the ADR-0040 /slp routes. commit
 // answers GET /slp/commit/{id}; info answers GET /slp/info (nil: 404).
@@ -262,5 +264,43 @@ func TestAnchorCommitCapableWithoutSidecar(t *testing.T) {
 	svc := anchorTestService(t, &anchorSidecar{})
 	if err := svc.AnchorCommitCapable(context.Background()); !errors.Is(err, ErrAnchorCommitUnsupported) {
 		t.Fatalf("err = %v, want ErrAnchorCommitUnsupported", err)
+	}
+}
+
+// The Worker refuses to sign a receipt over a commitment that names other
+// tokens than the completion delivered: the validators would reject it
+// deterministically (slash and jail), so the task fails here instead.
+func TestInferRefusesAnchorCommitWithOtherTokens(t *testing.T) {
+	cases := map[string]string{
+		"one generated token differs": `{"request_id":"chatcmpl-test","roots":["00"],"token_ids":[1,2,3,10,12],"prompt_tokens":3,"rows":4}`,
+		"prompt length forged":        `{"request_id":"chatcmpl-test","roots":["00"],"token_ids":[1,2,3,10,11],"prompt_tokens":2,"rows":4}`,
+		"rows forged":                 `{"request_id":"chatcmpl-test","roots":["00"],"token_ids":[1,2,3,10,11],"prompt_tokens":3,"rows":5}`,
+		"another trajectory":          `{"request_id":"chatcmpl-test","roots":["00"],"token_ids":[7,8,9,10,11,12],"prompt_tokens":3,"rows":5}`,
+		"no token ids":                `{"request_id":"chatcmpl-test","roots":["00"]}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, body }}
+			svc := anchorTestService(t, a)
+			req := chatInferReq(t)
+			req.RequireAnchorCommit = true
+			_, err := svc.Infer(context.Background(), req)
+			if !errors.Is(err, ErrAnchorCommitMismatch) {
+				t.Fatalf("err = %v, want ErrAnchorCommitMismatch", err)
+			}
+		})
+	}
+}
+
+func TestCheckAnchorCommitTokens(t *testing.T) {
+	ids := TokenIDs{Input: []uint32{1, 2, 3}, Generated: []uint32{10, 11}}
+	if err := checkAnchorCommitTokens([]byte(testAnchorCommit), ids); err != nil {
+		t.Fatalf("matching commitment refused: %v", err)
+	}
+	if err := checkAnchorCommitTokens([]byte(`{"request_id":"x","token_ids":[1,2,3,10,11]}`), ids); err != nil {
+		t.Fatalf("prompt_tokens and rows are optional: %v", err)
+	}
+	if err := checkAnchorCommitTokens([]byte(`{"request_id":"x","token_ids":[1,2,3,10,-1]}`), ids); !errors.Is(err, ErrAnchorCommitMismatch) {
+		t.Fatalf("negative id accepted: %v", err)
 	}
 }

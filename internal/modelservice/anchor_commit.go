@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -43,6 +44,54 @@ var ErrAnchorCommitNotFound = errors.New("engine has no anchor commitment for th
 // ErrAnchorCommitUnsupported means the model service cannot serve ADR-0040
 // anchor commitments at all.
 var ErrAnchorCommitUnsupported = errors.New("model service does not serve anchor commitments")
+
+// ErrAnchorCommitMismatch means the engine's AnchorCommitV1 commits to a token
+// sequence other than the one this completion delivered. The validators bind
+// the commitment's token_ids to the receipt's token hashes, so signing a receipt
+// over such a commitment would hand them a deterministic reason to slash and
+// jail the Worker; the call fails instead and no receipt is produced.
+var ErrAnchorCommitMismatch = errors.New("anchor commitment does not match the delivered tokens")
+
+// checkAnchorCommitTokens is the Worker-side self-check of a fetched
+// AnchorCommitV1 against the token ids this completion delivered: token_ids must
+// be exactly input ++ generated, prompt_tokens (when present) the input length
+// and rows (when present) input + generated − 1 — the relations the chain
+// (anchorRowsOf) and the validators (check_token_binding) enforce.
+func checkAnchorCommitTokens(data []byte, ids TokenIDs) error {
+	var doc struct {
+		TokenIDs     []int64 `json:"token_ids"`
+		PromptTokens *int64  `json:"prompt_tokens"`
+		Rows         *int64  `json:"rows"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("%w: %v", ErrAnchorCommitMismatch, err)
+	}
+	l, g := len(ids.Input), len(ids.Generated)
+	if doc.TokenIDs == nil {
+		return fmt.Errorf("%w: the commitment carries no token_ids", ErrAnchorCommitMismatch)
+	}
+	if len(doc.TokenIDs) != l+g {
+		return fmt.Errorf("%w: the commitment names %d token ids, the completion delivered %d prompt + %d generated", ErrAnchorCommitMismatch, len(doc.TokenIDs), l, g)
+	}
+	for i, id := range doc.TokenIDs {
+		want := uint32(0)
+		if i < l {
+			want = ids.Input[i]
+		} else {
+			want = ids.Generated[i-l]
+		}
+		if id < 0 || id > math.MaxUint32 || uint32(id) != want {
+			return fmt.Errorf("%w: token id at position %d is %d in the commitment, %d delivered", ErrAnchorCommitMismatch, i, id, want)
+		}
+	}
+	if doc.PromptTokens != nil && *doc.PromptTokens != int64(l) {
+		return fmt.Errorf("%w: prompt_tokens %d in the commitment, %d prompt ids delivered", ErrAnchorCommitMismatch, *doc.PromptTokens, l)
+	}
+	if doc.Rows != nil && l+g > 0 && *doc.Rows != int64(l+g-1) {
+		return fmt.Errorf("%w: rows %d in the commitment, %d expected (prompt + generated − 1)", ErrAnchorCommitMismatch, *doc.Rows, l+g-1)
+	}
+	return nil
+}
 
 // AnchorCommitProber is implemented by a model service that can tell whether
 // its engine serves ADR-0040 anchor commitments. A Worker consults it before
@@ -92,6 +141,19 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 			return InferResponse{}, fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING: %w", err)
 		}
 		return InferResponse{}, err
+	}
+	// Self-check before anything is signed: the commitment must name
+	// exactly the tokens this completion delivered.
+	artifact, err := s.FetchArtifact(ctx, FetchArtifactRequest{Ref: resp.TokenIDsRef})
+	if err != nil {
+		return InferResponse{}, fmt.Errorf("modelservice local: anchor commitment self-check: token ids artifact: %w", err)
+	}
+	ids, err := DecodeTokenIDsArtifact(artifact.Data)
+	if err != nil {
+		return InferResponse{}, fmt.Errorf("modelservice local: anchor commitment self-check: %w", err)
+	}
+	if err := checkAnchorCommitTokens(data, ids); err != nil {
+		return InferResponse{}, fmt.Errorf("modelservice local: refusing to sign a receipt over an anchor commitment that does not match this completion: %w", err)
 	}
 	resp.AnchorCommitRef = s.putArtifact(data)
 	return resp, nil
