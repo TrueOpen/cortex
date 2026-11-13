@@ -101,3 +101,21 @@ func TestMetricsReportDispatchAnswers(t *testing.T) {
 		}
 	}
 }
+
+func TestMetricsReportAnchorAdmissionOnlyWhenConfigured(t *testing.T) {
+	_, body := scrape(t, func(context.Context) (NodeState, error) { return NodeState{}, nil })
+	if strings.Contains(body, "cortex_anchor_admission") {
+		t.Fatalf("an unconfigured gate is reported:\n%s", body)
+	}
+	state := NodeState{AnchorAdmission: &AnchorAdmissionState{Accepting: false, RefusedOffers: 7}}
+	_, body = scrape(t, func(context.Context) (NodeState, error) { return state, nil })
+	for _, want := range []string{
+		"cortex_anchor_admission_accepting 0",
+		"cortex_anchor_admission_refused_offers_total 7",
+		"# TYPE cortex_anchor_admission_refused_offers_total counter",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q:\n%s", want, body)
+		}
+	}
+}

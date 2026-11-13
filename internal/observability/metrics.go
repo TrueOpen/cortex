@@ -26,6 +26,16 @@ type NodeState struct {
 	Dependencies      map[string]bool
 	TaskQueue         []TaskQueueRow
 	DispatchAnswers   []DispatchAnswerRow
+	// AnchorAdmission is nil unless dispatch.anchor_admission.file is set.
+	AnchorAdmission *AnchorAdmissionState
+}
+
+// AnchorAdmissionState is the ADR-0040 admission gate: whether the anchor
+// sidecar's signal, read at scrape, admits new audit obligations, and how
+// many offers the gate has refused since the process started.
+type AnchorAdmissionState struct {
+	Accepting     bool
+	RefusedOffers uint64
 }
 
 // DispatchAnswerRow counts retained tickets one Builder sent this node by
@@ -60,6 +70,8 @@ var (
 	taskQueueRowsDesc   = prometheus.NewDesc("cortex_task_queue_rows", "Active task queue rows by role and status.", []string{"role", "status"}, nil)
 	autoHaltedDesc      = prometheus.NewDesc("cortex_task_queue_auto_halted", "Active task queue rows the scheduler has deliberately halted, by role.", []string{"role"}, nil)
 	dispatchAnswersDesc = prometheus.NewDesc("cortex_dispatch_answers", "Retained dispatch tickets by Builder and answer; side=builder rejects are the Builder's (CD §5.1 2a).", []string{"builder", "answer", "side"}, nil)
+	anchorAcceptingDesc = prometheus.NewDesc("cortex_anchor_admission_accepting", "1 when the anchor sidecar's admission signal admits new audit obligations, 0 while the gate is closed; absent when no gate is configured.", nil, nil)
+	anchorRefusedDesc   = prometheus.NewDesc("cortex_anchor_admission_refused_offers_total", "Dispatch offers refused NO_CAPACITY because the anchor admission gate was closed, since process start.", nil, nil)
 	scrapeErrorDesc     = prometheus.NewDesc("cortex_node_state_scrape_error", "The node state could not be read.", nil, nil)
 )
 
@@ -82,7 +94,7 @@ type nodeCollector struct {
 }
 
 func (c nodeCollector) Describe(ch chan<- *prometheus.Desc) {
-	for _, desc := range []*prometheus.Desc{buildInfoDesc, chainCursorDesc, chainTipDesc, chainLagDesc, readyDesc, dependencyReadyDesc, taskQueueRowsDesc, autoHaltedDesc, dispatchAnswersDesc, scrapeErrorDesc} {
+	for _, desc := range []*prometheus.Desc{buildInfoDesc, chainCursorDesc, chainTipDesc, chainLagDesc, readyDesc, dependencyReadyDesc, taskQueueRowsDesc, autoHaltedDesc, dispatchAnswersDesc, anchorAcceptingDesc, anchorRefusedDesc, scrapeErrorDesc} {
 		ch <- desc
 	}
 }
@@ -127,6 +139,10 @@ func (c nodeCollector) Collect(ch chan<- prometheus.Metric) {
 			side = "builder"
 		}
 		gauge(dispatchAnswersDesc, float64(a.Count), a.Builder, a.Answer, side)
+	}
+	if a := state.AnchorAdmission; a != nil {
+		gauge(anchorAcceptingDesc, boolGauge(a.Accepting))
+		ch <- prometheus.MustNewConstMetric(anchorRefusedDesc, prometheus.CounterValue, float64(a.RefusedOffers))
 	}
 }
 

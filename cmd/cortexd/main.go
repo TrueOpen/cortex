@@ -424,6 +424,9 @@ func nodeStateSource(rt *daemon.Runtime, health *observability.Health, tasks *da
 			Ready:             ready,
 			Dependencies:      dependencies,
 		}
+		if a, ok := rt.AnchorAdmission().Status(); ok {
+			state.AnchorAdmission = &observability.AnchorAdmissionState{Accepting: a.Accepting, RefusedOffers: a.RefusedOffers}
+		}
 		if rt.Store != nil && rt.Dispatch != nil {
 			answers, err := layout.DispatchAnswerCounts(ctx, rt.Store)
 			if err != nil {
