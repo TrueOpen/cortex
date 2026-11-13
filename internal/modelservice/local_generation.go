@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"time"
 )
 
@@ -103,5 +104,37 @@ func localGenerationRequest(req InferRequest, profile localModelProfile, streami
 		Logprobs: &topK, Stream: streaming, ReturnTokenIDs: true,
 		ReturnTokensAsTokenIDs: true, SkipSpecialTokens: &skipSpecial,
 		SpacesBetweenSpecialTokens: &spacesBetweenSpecial,
+		VLLMXArgs:                  anchorSeedXArgs(req),
 	}, duration, nil
+}
+
+// Keys of the vllm_xargs entries the anchor engine reads.
+const (
+	anchorXArgChainID   = "slp_chain_id"
+	anchorXArgTaskID    = "slp_task_id"
+	anchorXArgOrderSeed = "slp_order_seed"
+)
+
+// anchorSeedXArgs binds the engine's canonical sampler to the task (ADR-0040,
+// seed rule "seed-v2"). For a generation that requires an anchor commitment it
+// returns the vllm_xargs the engine derives its sampling seed from:
+//
+//	seed = blake3("TRUEOPEN_ANCHOR_SAMPLING_SEED_V1" || u32(len(chain_id)) || chain_id || task_id || u64(order seed))
+//
+// All three inputs are fixed by the chain and the order before this node
+// computes anything, and the validators recompute the same seed from the chain,
+// so the Worker has no seed to choose. The derivation itself lives in the
+// engine (one definition shared with the validators); this node only passes
+// facts. The order seed travels as a decimal string so a uint64 above 2^53
+// survives JSON. Any other request, or one without a chain or task id, gets no
+// xargs and the engine keeps its previous behaviour.
+func anchorSeedXArgs(req InferRequest) map[string]string {
+	if !req.RequireAnchorCommit || req.ChainID == "" || req.TaskID == "" || req.Generation == nil {
+		return nil
+	}
+	return map[string]string{
+		anchorXArgChainID:   req.ChainID,
+		anchorXArgTaskID:    req.TaskID,
+		anchorXArgOrderSeed: strconv.FormatUint(req.Generation.Params.DecodingParams.Seed, 10),
+	}
 }
