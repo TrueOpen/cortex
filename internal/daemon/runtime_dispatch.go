@@ -69,6 +69,19 @@ func (l runtimeHandraiseLocal) FreeSlots(context.Context) (uint32, bool) {
 }
 func (r *Runtime) HandraiseLocal() HandraiseLocal { return runtimeHandraiseLocal{rt: r} }
 
+// AnchorAdmission is the node's one ADR-0040 admission gate, shared by the
+// dispatch plane and /metrics; nil when dispatch.anchor_admission.file is
+// unset.
+func (r *Runtime) AnchorAdmission() *AnchorAdmission {
+	if r == nil {
+		return nil
+	}
+	r.anchorAdmissionOnce.Do(func() {
+		r.anchorAdmission = NewAnchorAdmission(r.cfg.Dispatch.AnchorAdmission, nil, nil)
+	})
+	return r.anchorAdmission
+}
+
 type rosterClient interface {
 	GetDispatchRoster(ctx context.Context, endpoint string, req *nexusv1.GetDispatchRosterRequest) (*nexusv1.GetDispatchRosterResponse, error)
 }

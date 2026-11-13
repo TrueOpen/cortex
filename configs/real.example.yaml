@@ -18,6 +18,11 @@ model_management:
   # short so readiness and capacity decisions do not stall. 0 falls back to
   # 5 seconds.
   probe_timeout_ms: 5000
+  # Only for Profiles that require WORKER_ANCHOR_OPENING (ADR-0040): how long
+  # to wait, after the generation, for the engine's anchor sidecar to serve
+  # GET /slp/commit/{id} (503 = still finalizing, polled with backoff). Not
+  # shared with infer_timeout_ms. 0 falls back to 120 seconds.
+  anchor_commit_timeout_ms: 120000
 node:
   rpc_endpoint: https://rpc.trueopen.example.org
   rest_endpoint: https://api.trueopen.example.org
@@ -173,5 +178,14 @@ dispatch:
   omission:
     roster_grace_blocks: 20
     challenge_margin_blocks: 5
+  # Only on a Worker whose engine runs the anchor sidecar (ADR-0040). The
+  # sidecar writes {"accept": bool, "reason": string, "updated": unix seconds}
+  # to this file; while it says no, or the file is missing, unreadable or
+  # older than max_age_s, the node takes no new task under a Profile that
+  # requires WORKER_ANCHOR_OPENING. Verifier duty is not affected. Unset, there
+  # is no gate.
+  # anchor_admission:
+  #   file: /var/lib/cortex/anchor_admission.json
+  #   max_age_s: 90
 health:
   bind: 127.0.0.1:8081

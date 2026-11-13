@@ -164,6 +164,10 @@ type outputDescriptor struct {
 	FinishReason        nodewire.FinishReasonV1 `json:"finish_reason"`
 	GeneratedTokenCount uint64                  `json:"generated_token_count"`
 	OutputChunkLengths  []uint64                `json:"output_chunk_lengths"`
+	// AnchorCommit is the engine's AnchorCommitV1 artifact (ADR-0040), fetched
+	// from the model service right after inference; empty when the engine has
+	// no anchor sidecar. It is small (roots and token ids only).
+	AnchorCommit []byte `json:"anchor_commit,omitempty"`
 }
 
 // InferOutputCheckpoint carries the durable identities produced by one
@@ -485,6 +489,8 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			TaskID: event.TaskID, ModelID: event.ModelID, ProfileVersion: profileVersion,
 			RequestDigest: requestDigest[:], Capability: event.Capability, Input: append([]byte(nil), event.Input...),
 			Generation: generation, GenerationParamsDigest: generationDigest,
+			RequireAnchorCommit: builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements),
+			ChainID:             w.cfg.ChainID,
 		})
 	}
 	if err != nil {
@@ -555,6 +561,22 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 	positionValuesArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "position_values", resp.PositionValuesRef)
 	if err != nil {
 		return nil, nil, nil, outputDescriptor{}, err
+	}
+	// ADR-0040: only a Profile that requires WORKER_ANCHOR_OPENING carries the
+	// engine's AnchorCommitV1; any other task ignores whatever the model
+	// service returned. A required commitment the service did not return fails
+	// here, before anything is uploaded or signed.
+	var anchorCommit []byte
+	if builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements) {
+		if resp.AnchorCommitRef == "" {
+			return nil, nil, nil, outputDescriptor{}, fmt.Errorf("%w: the locked Profile requires WORKER_ANCHOR_OPENING but the model service returned no anchor commitment",
+				builderclient.ErrInferReceiptInputUnavailable)
+		}
+		anchorArtifact, err := w.fetchInferArtifact(ctx, event.TaskID, "anchor_commit", resp.AnchorCommitRef)
+		if err != nil {
+			return nil, nil, nil, outputDescriptor{}, err
+		}
+		anchorCommit = append([]byte(nil), anchorArtifact.Data...)
 	}
 	output = append([]byte(nil), outputArtifact.Data...)
 	tokenIDs = append([]byte(nil), tokenIDsArtifact.Data...)
@@ -669,7 +691,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 		PositionValuesRef: resp.PositionValuesRef, OutputHash: outputHash,
 		PackageHash: packageHash, OutputCID: outputCID,
 		FinishReason: resp.FinishReason, GeneratedTokenCount: resp.GeneratedTokenCount,
-		OutputChunkLengths: lengths,
+		OutputChunkLengths: lengths, AnchorCommit: anchorCommit,
 	}
 	descriptorJSON, err := json.Marshal(descriptor)
 	if err != nil {
@@ -772,7 +794,7 @@ func (w *Worker) buildAndPersistReceipt(ctx context.Context, event chainclient.A
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}
-	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, generationParams, tokenIDs, positionValues)
+	derived, err := w.deriveWorkerEvidence(event.TaskID, facts.AcceptedTaskHash, generationParams, tokenIDs, positionValues, descriptor.AnchorCommit)
 	if err != nil {
 		return builderclient.SignedInferReceipt{}, InferResult{}, err
 	}

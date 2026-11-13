@@ -440,6 +440,9 @@ func (d *Dispatcher) reject(ctx context.Context, enq DispatchEnqueuer, rec layou
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("persist reject: %w", err))
 	}
+	if v.class == classAnchorAdmission {
+		d.cfg.AnchorAdmission.noteRefusedOffer()
+	}
 	d.cfg.Logger.Info("dispatch ticket rejected", "builder", rec.Builder, "ticket", rec.TicketHash.String(),
 		"reason", v.reason.String(), "class", v.class, "builder_side", v.builderSide, "detail", v.detail)
 	// A lease an earlier attempt took for this ticket goes back (I1).

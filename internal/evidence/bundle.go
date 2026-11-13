@@ -63,6 +63,11 @@ func WorkerValueBundle(taskHash codec.Hash) BundleID {
 	return BundleID{taskHash: taskHash, segments: []string{workerProducerName, "value"}}
 }
 
+// WorkerAnchorBundle is the C-level WORKER_ANCHOR_OPENING bundle of a task (ADR-0040).
+func WorkerAnchorBundle(taskHash codec.Hash) BundleID {
+	return BundleID{taskHash: taskHash, segments: []string{workerProducerName, "anchor"}}
+}
+
 func (id BundleID) valid() error {
 	if id.taskHash == (codec.Hash{}) {
 		return ErrTaskHashRequired
