@@ -173,6 +173,10 @@ type DispatcherConfig struct {
 	// offer for a Profile requiring WORKER_ANCHOR_OPENING is refused unless it
 	// reports a capable engine (nil: always refused).
 	Anchor modelservice.AnchorCommitProber
+	// AnchorAdmission is the anchor sidecar's admission signal: while it
+	// refuses, an offer for a Profile requiring WORKER_ANCHOR_OPENING is
+	// refused NO_CAPACITY. Nil means no gate.
+	AnchorAdmission *AnchorAdmission
 }
 
 // Dispatcher answers DispatchOfferV1, DispatchRevokeV1 and

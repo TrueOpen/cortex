@@ -46,6 +46,9 @@ const (
 	classInputTooLarge          = "input_too_large"
 	classNoFreeSlot             = "no_free_slot"
 	classBuilderRetiring        = "builder_retiring"
+	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
+	// right now (ADR-0040); a moment, like no_free_slot.
+	classAnchorAdmission = "anchor_admission"
 )
 
 // verdict is one signed-reject decision.
@@ -265,6 +268,15 @@ func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version 
 	}
 	if err := anchorCapabilityProblem(ctx, d.cfg.Anchor, scope.Profile); err != nil {
 		return refuse(reasonProfile, classProfileUnavailable, "%v", err)
+	}
+	// The Profile itself is fine; the node cannot take on its audit
+	// obligation at this moment. The standing handraise already leaves the
+	// Profile out while the gate is closed, so this answers an offer that was
+	// routed before the Builder saw that.
+	if d.cfg.AnchorAdmission != nil && profileRequiresAnchorOpening(scope.Profile) {
+		if err := d.cfg.AnchorAdmission.Refusal(); err != nil {
+			return refuse(reasonNoCapacity, classAnchorAdmission, "%v", err)
+		}
 	}
 	return nil
 }

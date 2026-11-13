@@ -59,6 +59,10 @@ type StandingHandraiseConfig struct {
 	// Profile requiring WORKER_ANCHOR_OPENING is offered only when it reports
 	// a capable engine; nil means never.
 	Anchor modelservice.AnchorCommitProber
+	// AnchorAdmission is the anchor sidecar's admission signal: while it
+	// refuses, a Profile requiring WORKER_ANCHOR_OPENING is left out. Nil
+	// means no gate.
+	AnchorAdmission *AnchorAdmission
 }
 
 // StandingHandraiser keeps one current StandingHandraiseV1 per Builder and
@@ -159,7 +163,7 @@ func NewStandingHandraiser(ctx context.Context, cfg StandingHandraiseConfig) (*S
 	if err != nil {
 		return nil, err
 	}
-	gates.anchor = cfg.Anchor
+	gates.anchor, gates.admission = cfg.Anchor, cfg.AnchorAdmission
 	h := &StandingHandraiser{
 		cfg: cfg, gates: gates, db: handraiseStore{st: cfg.Store},
 		builders: slices.Sorted(maps.Keys(cfg.Builders)), wake: make(chan struct{}, 1),

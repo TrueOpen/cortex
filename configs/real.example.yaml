@@ -178,5 +178,14 @@ dispatch:
   omission:
     roster_grace_blocks: 20
     challenge_margin_blocks: 5
+  # Only on a Worker whose engine runs the anchor sidecar (ADR-0040). The
+  # sidecar writes {"accept": bool, "reason": string, "updated": unix seconds}
+  # to this file; while it says no, or the file is missing, unreadable or
+  # older than max_age_s, the node takes no new task under a Profile that
+  # requires WORKER_ANCHOR_OPENING. Verifier duty is not affected. Unset, there
+  # is no gate.
+  # anchor_admission:
+  #   file: /var/lib/cortex/anchor_admission.json
+  #   max_age_s: 90
 health:
   bind: 127.0.0.1:8081

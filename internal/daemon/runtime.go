@@ -112,6 +112,10 @@ type Runtime struct {
 	Dispatch *DispatchStreams
 	// lastReady is the last CheckWorkloadReadiness verdict.
 	lastReady atomic.Bool
+
+	// anchorAdmission is the ADR-0040 admission gate, built on first use.
+	anchorAdmissionOnce sync.Once
+	anchorAdmission     *AnchorAdmission
 }
 
 // ObserveChainProgress records what the last Keeper poll saw. The poller calls

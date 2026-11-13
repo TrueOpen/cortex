@@ -123,6 +123,8 @@ type daemonFlags struct {
 	nodeTLSPubkeyHash            string
 	healthBind                   string
 	dispatchBuilders             string
+	anchorAdmissionFile          string
+	anchorAdmissionMaxAgeS       string
 }
 
 func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
@@ -167,6 +169,8 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 				"node-tls-pubkey-hash":            "node_tls_pubkey_hash",
 				"health-bind":                     "health_bind",
 				"dispatch-builders":               "dispatch_builders",
+				"anchor-admission-file":           "anchor_admission_file",
+				"anchor-admission-max-age-s":      "anchor_admission_max_age_s",
 			} {
 				if cmd.Flags().Changed(flagName) {
 					overrides[key] = cmd.Flags().Lookup(flagName).Value.String()
@@ -223,6 +227,8 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.nodeTLSPubkeyHash, "node-tls-pubkey-hash", "", "sha256 of the chain node certificate SubjectPublicKeyInfo (64 lowercase hex)")
 	flags.StringVar(&values.healthBind, "health-bind", "", "health HTTP bind address")
 	flags.StringVar(&values.dispatchBuilders, "dispatch-builders", "", "comma-separated Builder operators to keep a standing handraise with (dispatch.builders)")
+	flags.StringVar(&values.anchorAdmissionFile, "anchor-admission-file", "", "anchor sidecar admission signal; while it refuses, is missing or stale, no task is taken under a Profile requiring WORKER_ANCHOR_OPENING (dispatch.anchor_admission.file)")
+	flags.StringVar(&values.anchorAdmissionMaxAgeS, "anchor-admission-max-age-s", "", "oldest anchor admission signal still trusted, in seconds; 0 takes the default of 90 (dispatch.anchor_admission.max_age_s)")
 	return cmd
 }
 
