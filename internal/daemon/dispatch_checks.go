@@ -18,6 +18,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
@@ -84,8 +85,8 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 	if v != nil || err != nil {
 		return v, err
 	}
-	if v := d.checkProfile(ctx, modelHex, version, scope, haveScope, bond); v != nil {
-		return v, nil
+	if v, err := d.checkProfile(ctx, modelHex, version, scope, haveScope, bond); v != nil || err != nil {
+		return v, err
 	}
 	if v := d.checkPrice(o, modelHex, version); v != nil {
 		return v, nil
@@ -251,23 +252,27 @@ func requiredTaskLiability(maxOutputTokens uint64, priceBid string, verifyRatioB
 }
 
 // checkProfile is check 4: local supported profile, not draining, and H2 on
-// the committed scope.
-func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version uint32, scope chainclient.CommittedModelSupportScope, haveScope bool, bond chainclient.ServiceBondSnapshot) *verdict {
+// the committed scope. An anchor capability probe the engine did not answer
+// is a failed read (retryable), not a refusal.
+func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version uint32, scope chainclient.CommittedModelSupportScope, haveScope bool, bond chainclient.ServiceBondSnapshot) (*verdict, error) {
 	p, err := profileOf(modelHex, version)
 	if err != nil || !d.profiles[p] {
-		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is not in supported_model_profiles", modelHex, version)
+		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is not in supported_model_profiles", modelHex, version), nil
 	}
 	if _, drain := d.cfg.Local.Draining(); drain[p] {
-		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is draining", modelHex, version)
+		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is draining", modelHex, version), nil
 	}
 	if !haveScope {
-		return refuse(reasonProfile, classProfileUnavailable, "no support scope on chain for %s@%d", modelHex, version)
+		return refuse(reasonProfile, classProfileUnavailable, "no support scope on chain for %s@%d", modelHex, version), nil
 	}
 	if err := scopeSupportProblem(scope, bond, d.cfg.Operator, modelHex, version); err != nil {
-		return refuse(reasonProfile, classProfileUnavailable, "H2: %v", err)
+		return refuse(reasonProfile, classProfileUnavailable, "H2: %v", err), nil
 	}
 	if err := anchorCapabilityProblem(ctx, d.cfg.Anchor, scope.Profile); err != nil {
-		return refuse(reasonProfile, classProfileUnavailable, "%v", err)
+		if errors.Is(err, modelservice.ErrAnchorCommitProbeFailed) {
+			return nil, builderclient.Retryable(err)
+		}
+		return refuse(reasonProfile, classProfileUnavailable, "%v", err), nil
 	}
 	// The Profile itself is fine; the node cannot take on its audit
 	// obligation at this moment. The standing handraise already leaves the
@@ -275,10 +280,10 @@ func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version 
 	// routed before the Builder saw that.
 	if d.cfg.AnchorAdmission != nil && profileRequiresAnchorOpening(scope.Profile) {
 		if err := d.cfg.AnchorAdmission.Refusal(); err != nil {
-			return refuse(reasonNoCapacity, classAnchorAdmission, "%v", err)
+			return refuse(reasonNoCapacity, classAnchorAdmission, "%v", err), nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // checkPrice is check 6's hard part: price_bid >= local min_price_bid.

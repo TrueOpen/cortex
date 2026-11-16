@@ -282,7 +282,7 @@ func (g *handraiseGates) readProfiles(ctx context.Context, height uint64, bond c
 		switch {
 		case err == nil:
 			out[i].class, out[i].anchor = profileEligible, anchor
-		case errors.As(err, &read):
+		case errors.As(err, &read), errors.Is(err, modelservice.ErrAnchorCommitProbeFailed):
 			out[i].class, out[i].why = profileReadFailed, err.Error()
 			f.readFailed = true
 		default:
@@ -375,6 +375,8 @@ func (g *handraiseGates) support(ctx context.Context, height uint64, bond chainc
 	}
 	// Not a failed read: an engine without the anchor sidecar is a local fact,
 	// so the Profile is left out (and logged by logEligible) rather than kept.
+	// A probe the engine did not answer (ErrAnchorCommitProbeFailed) is a
+	// failed read, and readProfiles keeps the Profile as it was offered.
 	return profileRequiresAnchorOpening(scope.Profile), anchorCapabilityProblem(ctx, g.anchor, scope.Profile)
 }
 

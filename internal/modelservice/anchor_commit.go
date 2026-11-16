@@ -44,6 +44,11 @@ var ErrAnchorCommitNotFound = errors.New("engine has no anchor commitment for th
 // anchor commitments at all.
 var ErrAnchorCommitUnsupported = errors.New("model service does not serve anchor commitments")
 
+// ErrAnchorCommitProbeFailed means the capability probe got no answer: the
+// engine did not respond in time, refused the connection or answered 5xx.
+// It says nothing about whether the engine serves anchor commitments.
+var ErrAnchorCommitProbeFailed = errors.New("anchor capability probe failed")
+
 // AnchorCommitProber is implemented by a model service that can tell whether
 // its engine serves ADR-0040 anchor commitments. A Worker consults it before
 // offering a Profile that requires WORKER_ANCHOR_OPENING.
@@ -186,8 +191,10 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completion
 }
 
 // AnchorCommitCapable probes GET /slp/info under the probe timeout. A 2xx
-// answer means the engine serves anchor commitments; anything else, including
-// a 404 from an engine without the sidecar, is an error. The verdict is cached
+// answer means the engine serves anchor commitments; any other answer,
+// including a 404 from an engine without the sidecar, is
+// ErrAnchorCommitUnsupported. No answer in time, a refused connection, 429 or
+// 5xx is ErrAnchorCommitProbeFailed instead. The verdict is cached
 // (anchorInfoOKTTL, anchorInfoFailTTL) so a caller may ask on every pass.
 func (s *LocalService) AnchorCommitCapable(ctx context.Context) error {
 	s.anchorInfo.mu.Lock()
@@ -223,10 +230,13 @@ func (s *LocalService) probeAnchorInfo(ctx context.Context) error {
 	}
 	resp, err := s.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: GET %s: %v", ErrAnchorCommitUnsupported, path, err)
+		return fmt.Errorf("%w: GET %s: %v", ErrAnchorCommitProbeFailed, path, err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return fmt.Errorf("%w: GET %s returned status %d", ErrAnchorCommitProbeFailed, path, resp.StatusCode)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("%w: GET %s returned status %d", ErrAnchorCommitUnsupported, path, resp.StatusCode)
 	}

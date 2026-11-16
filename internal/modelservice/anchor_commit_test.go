@@ -285,3 +285,40 @@ func TestAnchorCommitCapableWithoutSidecar(t *testing.T) {
 		t.Fatalf("err = %v, want ErrAnchorCommitUnsupported", err)
 	}
 }
+
+// An engine that does not answer the probe in time, refuses the connection or
+// answers 5xx says nothing about the sidecar: the probe failed, and the error
+// is not ErrAnchorCommitUnsupported.
+func TestAnchorCommitCapableTransientFailureIsNotAVerdict(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		svc  func(t *testing.T) *LocalService
+	}{
+		{"503", func(t *testing.T) *LocalService {
+			return anchorTestService(t, &anchorSidecar{info: func() int { return http.StatusServiceUnavailable }})
+		}},
+		{"500", func(t *testing.T) *LocalService {
+			return anchorTestService(t, &anchorSidecar{info: func() int { return http.StatusInternalServerError }})
+		}},
+		{"timeout", func(t *testing.T) *LocalService {
+			svc := anchorTestService(t, &anchorSidecar{info: func() int {
+				time.Sleep(200 * time.Millisecond)
+				return http.StatusOK
+			}})
+			svc.probeTimeout = 20 * time.Millisecond
+			return svc
+		}},
+		{"connection refused", func(t *testing.T) *LocalService {
+			srv := httptest.NewServer(http.NotFoundHandler())
+			srv.Close()
+			return newBoundLocalService(srv.URL, "local", 4, 0, 0)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := c.svc(t).AnchorCommitCapable(context.Background())
+			if !errors.Is(err, ErrAnchorCommitProbeFailed) || errors.Is(err, ErrAnchorCommitUnsupported) {
+				t.Fatalf("err = %v, want ErrAnchorCommitProbeFailed and not ErrAnchorCommitUnsupported", err)
+			}
+		})
+	}
+}
