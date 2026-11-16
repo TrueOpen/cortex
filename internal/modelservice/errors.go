@@ -75,6 +75,11 @@ const (
 	// one task hash. Raised by the Worker, not by a model call — the code lives
 	// here so every fault code an operator can see has one registry.
 	FaultCodeOutputFramesAlreadySigned = "OUTPUT_FRAMES_ALREADY_SIGNED"
+	// FaultCodeAnchorCommitTokenMismatch: the engine's AnchorCommitV1 names
+	// other tokens than the completion delivered (ErrAnchorCommitMismatch), so
+	// no receipt may be signed over it. Another generation cannot repair this
+	// completion's commitment.
+	FaultCodeAnchorCommitTokenMismatch = "ANCHOR_COMMIT_TOKEN_MISMATCH"
 )
 
 // FaultField is one scalar diagnostic value carried by a Fault.

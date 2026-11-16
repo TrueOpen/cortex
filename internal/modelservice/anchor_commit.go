@@ -158,7 +158,12 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 		return InferResponse{}, fmt.Errorf("modelservice local: anchor commitment self-check: %w", err)
 	}
 	if err := checkAnchorCommitTokens(data, ids); err != nil {
-		return InferResponse{}, fmt.Errorf("modelservice local: refusing to sign a receipt over an anchor commitment that does not match this completion: %w", err)
+		// Deterministic: retrying spends another generation (and on the
+		// streaming path stops at OUTPUT_FRAMES_ALREADY_SIGNED, hiding this
+		// reason) on an engine that commits to other tokens.
+		return InferResponse{}, Deterministic(FaultCodeAnchorCommitTokenMismatch,
+			fmt.Errorf("modelservice local: refusing to sign a receipt over an anchor commitment that does not match this completion: %w", err),
+			FaultStr("completion_id", resp.EngineRequestID))
 	}
 	resp.AnchorCommitRef = s.putArtifact(data)
 	return resp, nil

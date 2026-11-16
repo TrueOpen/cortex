@@ -327,7 +327,11 @@ func TestAnchorCommitCapableTransientFailureIsNotAVerdict(t *testing.T) {
 
 // The Worker refuses to sign a receipt over a commitment that names other
 // tokens than the completion delivered: the validators would reject it
-// deterministically (slash and jail), so the task fails here instead.
+// deterministically (slash and jail), so the task fails here instead. The
+// refusal is itself deterministic: another generation cannot make this
+// completion's commitment name other tokens, and on the streaming path the
+// frames are already signed, so the scheduler must halt with this reason
+// rather than retry into OUTPUT_FRAMES_ALREADY_SIGNED.
 func TestInferRefusesAnchorCommitWithOtherTokens(t *testing.T) {
 	cases := map[string]string{
 		"one generated token differs": `{"request_id":"chatcmpl-test","roots":["00"],"token_ids":[1,2,3,10,12],"prompt_tokens":3,"rows":4}`,
@@ -345,6 +349,9 @@ func TestInferRefusesAnchorCommitWithOtherTokens(t *testing.T) {
 			_, err := svc.Infer(context.Background(), req)
 			if !errors.Is(err, ErrAnchorCommitMismatch) {
 				t.Fatalf("err = %v, want ErrAnchorCommitMismatch", err)
+			}
+			if ClassOf(err) != FaultDeterministic || IsRetryable(err) || FaultCode(err) != "ANCHOR_COMMIT_TOKEN_MISMATCH" {
+				t.Fatalf("err = %v (class %v, code %q), want a deterministic ANCHOR_COMMIT_TOKEN_MISMATCH", err, ClassOf(err), FaultCode(err))
 			}
 		})
 	}
