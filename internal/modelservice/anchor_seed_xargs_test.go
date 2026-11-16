@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
@@ -104,28 +106,72 @@ func TestInferSendsSeedXArgsOnlyForAnchorTasks(t *testing.T) {
 		if _, err := svc.Infer(context.Background(), req); err != nil {
 			t.Fatalf("anchor=%v: %v", anchor, err)
 		}
-		sent := bodies()
-		if len(sent) != 1 {
-			t.Fatalf("anchor=%v: %d generation requests, want 1", anchor, len(sent))
-		}
-		var body struct {
-			XArgs map[string]string `json:"vllm_xargs"`
-		}
-		if err := json.Unmarshal([]byte(sent[0]), &body); err != nil {
+		checkSeedXArgsBody(t, "chat", anchor, req, bodies())
+	}
+}
+
+// The raw-text path (localGenerationRequest) carries the same xargs: an
+// anchor task's /v1/completions request names the three seed facts, any other
+// task's request has no vllm_xargs key at all.
+func TestInferSendsSeedXArgsOnlyForAnchorTasksRaw(t *testing.T) {
+	for _, anchor := range []bool{true, false} {
+		a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, testAnchorCommit }}
+		gen := genResponse() // prompt 1 2 3, generated 10 11: what testAnchorCommit names
+		gen.ID = "cmpl-test"
+		engine, _ := newVLLMStub(t, gen, verifyResponse())
+		front, bodies := generationBodies(t, a.front(t, engine))
+		svc := newBoundLocalService(front.URL, "local", 4, 0, 0)
+		svc.SetStreamInference(false)
+		svc.anchorCommitBackoff = time.Millisecond
+		req := boundLocalInferFixture(t, InferRequest{
+			RequestID:  "raw-seed",
+			TaskID:     "raw-task",
+			ModelID:    testQwenModelID(),
+			Capability: CapabilityLLMTextV1,
+			Input:      []byte("say cat"),
+		})
+		req.Generation.Params.DecodingParams.Seed = 1<<53 + 1 // above 2^53, within the backend integer range
+		digest, err := req.Generation.Digest()
+		if err != nil {
 			t.Fatal(err)
 		}
-		if !anchor {
-			if strings.Contains(sent[0], "vllm_xargs") {
-				t.Fatalf("a task without an anchor commitment carries vllm_xargs: %s", sent[0])
-			}
-			continue
+		req.GenerationParamsDigest = digest[:]
+		req.ChainID, req.RequireAnchorCommit = "trueopen-localnet-1", anchor
+		resp, err := svc.Infer(context.Background(), req)
+		if err != nil {
+			t.Fatalf("anchor=%v: %v", anchor, err)
 		}
-		seed, ok := body.XArgs[anchorXArgOrderSeed]
-		if len(body.XArgs) != 3 || body.XArgs[anchorXArgChainID] != "trueopen-localnet-1" || body.XArgs[anchorXArgTaskID] != req.TaskID || !ok {
-			t.Fatalf("vllm_xargs = %v", body.XArgs)
+		if got := resp.AnchorCommitRef != ""; got != anchor {
+			t.Fatalf("anchor=%v: anchor ref set=%t", anchor, got)
 		}
-		if want := anchorSeedXArgs(req)[anchorXArgOrderSeed]; seed != want {
-			t.Fatalf("order seed %q, want the order's %q", seed, want)
+		checkSeedXArgsBody(t, "raw", anchor, req, bodies())
+	}
+}
+
+// checkSeedXArgsBody asserts the one generation request sent: with anchor it
+// carries exactly the three seed facts of req, without it no vllm_xargs key.
+func checkSeedXArgsBody(t *testing.T, path string, anchor bool, req InferRequest, sent []string) {
+	t.Helper()
+	if len(sent) != 1 {
+		t.Fatalf("%s anchor=%v: %d generation requests, want 1", path, anchor, len(sent))
+	}
+	var body struct {
+		XArgs map[string]string `json:"vllm_xargs"`
+	}
+	if err := json.Unmarshal([]byte(sent[0]), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !anchor {
+		if strings.Contains(sent[0], "vllm_xargs") {
+			t.Fatalf("%s: a task without an anchor commitment carries vllm_xargs: %s", path, sent[0])
 		}
+		return
+	}
+	seed, ok := body.XArgs[anchorXArgOrderSeed]
+	if len(body.XArgs) != 3 || body.XArgs[anchorXArgChainID] != "trueopen-localnet-1" || body.XArgs[anchorXArgTaskID] != req.TaskID || !ok {
+		t.Fatalf("%s: vllm_xargs = %v", path, body.XArgs)
+	}
+	if want := strconv.FormatUint(req.Generation.Params.DecodingParams.Seed, 10); seed != want {
+		t.Fatalf("%s: order seed %q, want the order's %q", path, seed, want)
 	}
 }
