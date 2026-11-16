@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -101,6 +102,11 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 		ev.verdict = d.localStop(ctx, rec)
 	}
 	if ev.verdict != nil {
+		if ev.verdict.class == classAnchorAdmission {
+			if err := d.closeHandraiseBeforeAdmissionReject(ctx, builder, rec); err != nil {
+				return err
+			}
+		}
 		return d.reject(ctx, enq, rec, t, ev.nonce, ev.verdict)
 	}
 	// W3: only a round that passed every check replaces an older one, and
@@ -129,6 +135,35 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 		return d.reject(ctx, enq, rec, t, ev.nonce, refuse(reasonNoCapacity, classNoFreeSlot, "no free slot"))
 	}
 	return d.accept(ctx, enq, rec, t, ev.nonce)
+}
+
+// closeHandraiseBeforeAdmissionReject is CD §5.1 "a capacity change re-signs
+// the standing handraise before the reject" for the anchor admission gate.
+//
+// The Dispatcher reads the gate on every offer, the standing handraise once
+// per evaluation pass, so an offer can meet the closed gate while the last
+// handraise this Builder holds still lists the Profile with free slots. A
+// Builder counts a signed reject against the Worker's reject rate only when
+// its current handraise advertises a free slot, so the reject must not reach
+// it ahead of the handraise that takes the Profile back: one evaluation runs
+// now, and what it signs enters the same Builder outbox before the reject. A
+// node whose only servable Profiles require kind 5 withdraws there (zero free
+// slots), and the reject that follows is not a reject-rate sample. Once the
+// current handraise is a withdrawal or no longer lists the Profile there is
+// nothing to re-sign.
+func (d *Dispatcher) closeHandraiseBeforeAdmissionReject(ctx context.Context, builder string, rec layout.DispatchRecord) error {
+	p, err := profileOf(rec.ModelID, rec.ProfileVersion)
+	if err != nil {
+		return nil
+	}
+	cur, found := d.cfg.Handraise.Current(builder)
+	if !found || cur.Withdrawn || cur.State.FreeSlots == 0 || !slices.Contains(cur.State.Profiles, p) {
+		return nil
+	}
+	if err := d.cfg.Handraise.Refresh(ctx, builder); err != nil {
+		return builderclient.Retryable(fmt.Errorf("re-sign the standing handraise before an anchor admission reject: %w", err))
+	}
+	return nil
 }
 
 // offerEval is what one offer evaluation read and decided before the lock.
