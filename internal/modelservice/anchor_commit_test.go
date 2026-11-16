@@ -172,6 +172,27 @@ func TestInferRefusesMalformedAnchorCommit(t *testing.T) {
 	}
 }
 
+// A document recorded under another completion id is refused, not signed
+// into this completion's receipt, and is not polled again.
+func TestInferRefusesAnchorCommitOfAnotherCompletion(t *testing.T) {
+	a := &anchorSidecar{commit: func(int, string) (int, string) {
+		return http.StatusOK, `{"request_id":"chatcmpl-SOMEONE-ELSE","roots":["00"]}`
+	}}
+	svc := anchorTestService(t, a)
+	req := chatInferReq(t)
+	req.RequireAnchorCommit = true
+	resp, err := svc.Infer(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), "chatcmpl-SOMEONE-ELSE") {
+		t.Fatalf("Infer() = %+v, %v, want a refusal naming the foreign request_id", resp, err)
+	}
+	if IsRetryable(err) {
+		t.Fatal("a mismatched commitment must not re-run the generation")
+	}
+	if calls := a.calls(); len(calls) != 1 || calls[0] != "chatcmpl-test" {
+		t.Fatalf("sidecar calls %v, want one for chatcmpl-test", calls)
+	}
+}
+
 // A generation stopped at max_output_duration has spent its budget and the
 // budget grace, but the commitment fetch has its own window: the task is not
 // failed by the time the sidecar needs, and without the requirement the

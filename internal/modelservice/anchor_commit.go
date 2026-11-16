@@ -115,7 +115,7 @@ func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID st
 	}
 	var last error
 	for attempt := 1; ; attempt++ {
-		data, retry, err := s.getAnchorCommitOnce(ctx, path)
+		data, retry, err := s.getAnchorCommitOnce(ctx, path, completionID)
 		if err == nil {
 			return data, nil
 		}
@@ -138,8 +138,9 @@ func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID st
 }
 
 // getAnchorCommitOnce is one GET. retry reports a failure worth polling again
-// within the window.
-func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path string) (data []byte, retry bool, err error) {
+// within the window. A document recorded under another completion id is
+// refused: signing it into this completion's receipt would fail the audit.
+func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completionID string) (data []byte, retry bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+path, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("modelservice local: create request %s: %w", path, err)
@@ -177,6 +178,9 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path string) (da
 	}
 	if !json.Valid(data) || json.Unmarshal(data, &head) != nil || head.RequestID == "" {
 		return nil, false, fmt.Errorf("modelservice local: %s is not an AnchorCommitV1 document", path)
+	}
+	if head.RequestID != completionID {
+		return nil, false, fmt.Errorf("modelservice local: %s serves the anchor commitment of request_id %q, not of completion %q", path, head.RequestID, completionID)
 	}
 	return data, false, nil
 }
