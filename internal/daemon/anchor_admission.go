@@ -31,6 +31,13 @@ import (
 // anything. The refusal describes a moment, like a full engine, and ends when
 // the sidecar says yes again.
 //
+// A read that fails or cannot be parsed is not a signal, though: a sidecar
+// that replaces the file without a rename is caught mid-write now and then.
+// While the last signal that was parsed is itself inside max_age_s, its
+// verdict stands, so the gate (and with it the standing handraise) does not
+// close and reopen between two good writes. Every parsed signal is taken as
+// it is.
+//
 // Accepted tasks are not affected, Profiles without kind 5 are not affected,
 // and Verifier duty is not gated (verifying creates no anchor obligation).
 // Without the setting there is no gate at all.
@@ -47,6 +54,7 @@ type AnchorAdmission struct {
 	log    *slog.Logger
 
 	mu            sync.Mutex
+	last          *parsedAnchorAdmission // the last signal that was parsed
 	refusing      bool
 	loggedAt      time.Time
 	refusedOffers uint64
@@ -87,23 +95,62 @@ func (a *AnchorAdmission) Refusal() error {
 	return err
 }
 
+// parsedAnchorAdmission is a signal that was parsed and the verdict it gave.
+type parsedAnchorAdmission struct {
+	updated time.Time
+	verdict error
+}
+
+// read returns the verdict of the signal, or of the last parsed one while the
+// file cannot be read or parsed and that signal is inside max_age.
 func (a *AnchorAdmission) read() error {
+	sig, err := a.parse()
+	if err != nil {
+		a.mu.Lock()
+		last := a.last
+		a.mu.Unlock()
+		if last != nil && a.fresh(last.updated) == nil {
+			return last.verdict
+		}
+		return err
+	}
+	parsed := &parsedAnchorAdmission{updated: time.Unix(0, int64(sig.Updated*float64(time.Second)))}
+	parsed.verdict = a.judge(sig, parsed.updated)
+	a.mu.Lock()
+	a.last = parsed
+	a.mu.Unlock()
+	return parsed.verdict
+}
+
+func (a *AnchorAdmission) parse() (anchorAdmissionSignal, error) {
+	var sig anchorAdmissionSignal
 	raw, err := os.ReadFile(a.path)
 	if err != nil {
-		return fmt.Errorf("anchor admission signal is unreadable (is the anchor sidecar running?): %w", err)
+		return sig, fmt.Errorf("anchor admission signal is unreadable (is the anchor sidecar running?): %w", err)
 	}
-	var sig anchorAdmissionSignal
 	if err := json.Unmarshal(raw, &sig); err != nil {
-		return fmt.Errorf("anchor admission signal %s is malformed: %w", a.path, err)
+		return sig, fmt.Errorf("anchor admission signal %s is malformed: %w", a.path, err)
 	}
 	if sig.Accept == nil {
-		return fmt.Errorf("anchor admission signal %s is malformed: no \"accept\"", a.path)
+		return sig, fmt.Errorf("anchor admission signal %s is malformed: no \"accept\"", a.path)
 	}
+	return sig, nil
+}
+
+// fresh refuses a signal written at updated that is older than max_age.
+func (a *AnchorAdmission) fresh(updated time.Time) error {
 	// A signal from the future is as untrustworthy as an old one: either the
 	// clocks disagree or the file was not written by a live sidecar.
-	age := a.now().Sub(time.Unix(0, int64(sig.Updated*float64(time.Second))))
+	age := a.now().Sub(updated)
 	if age > a.maxAge || age < -a.maxAge {
 		return fmt.Errorf("anchor admission signal is %.0fs old (limit %.0fs): the anchor sidecar is not updating it", age.Seconds(), a.maxAge.Seconds())
+	}
+	return nil
+}
+
+func (a *AnchorAdmission) judge(sig anchorAdmissionSignal, updated time.Time) error {
+	if err := a.fresh(updated); err != nil {
+		return err
 	}
 	if !*sig.Accept {
 		if sig.Reason == "" {

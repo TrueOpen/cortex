@@ -98,6 +98,89 @@ func TestAnchorAdmissionMaxAge(t *testing.T) {
 	}
 }
 
+// A read that fails or cannot be parsed (the sidecar replacing the file
+// without a rename, say) is not a signal: the last parsed signal stands while
+// its own "updated" is inside max_age, so the gate does not close and reopen
+// between two good writes. A parsed signal is always taken as it is.
+func TestAnchorAdmissionRidesOutABadRead(t *testing.T) {
+	good := fmt.Sprintf(`{"accept":true,"updated":%d}`, admissionAt.Unix())
+	bad := map[string]func(t *testing.T, path string){
+		"truncated": func(t *testing.T, path string) { writeAdmission(t, path, good[:len(good)/2]) },
+		"empty":     func(t *testing.T, path string) { writeAdmission(t, path, ``) },
+		"no accept": func(t *testing.T, path string) {
+			writeAdmission(t, path, fmt.Sprintf(`{"updated":%d}`, admissionAt.Unix()))
+		},
+		"missing": func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	gate := func(t *testing.T, body string) (*AnchorAdmission, string, *time.Time) {
+		t.Helper()
+		now := admissionAt
+		path := filepath.Join(t.TempDir(), "a.json")
+		if body != admissionAbsent {
+			writeAdmission(t, path, body)
+		}
+		return NewAnchorAdmission(config.AnchorAdmissionConfig{File: path, MaxAgeS: 30}, func() time.Time { return now }, nil), path, &now
+	}
+	for name, spoil := range bad {
+		t.Run(name, func(t *testing.T) {
+			t.Run("inside max_age of the last good read", func(t *testing.T) {
+				a, path, now := gate(t, good)
+				if err := a.Refusal(); err != nil {
+					t.Fatal(err)
+				}
+				spoil(t, path)
+				*now = admissionAt.Add(30 * time.Second)
+				if err := a.Refusal(); err != nil {
+					t.Fatalf("a bad read 30 s after a good signal closed the gate: %v", err)
+				}
+				if status, _ := a.Status(); !status.Accepting {
+					t.Fatal("status reports the gate closed on a bad read")
+				}
+			})
+			t.Run("past max_age of the last good read", func(t *testing.T) {
+				a, path, now := gate(t, good)
+				if err := a.Refusal(); err != nil {
+					t.Fatal(err)
+				}
+				spoil(t, path)
+				*now = admissionAt.Add(31 * time.Second)
+				if err := a.Refusal(); err == nil {
+					t.Fatal("a bad read past max_age of the last good signal admitted")
+				}
+			})
+			t.Run("no good read before", func(t *testing.T) {
+				a, path, _ := gate(t, good)
+				spoil(t, path)
+				if err := a.Refusal(); err == nil {
+					t.Fatal("a bad first read admitted")
+				}
+			})
+		})
+	}
+	for name, body := range map[string]string{
+		"drain":       fmt.Sprintf(`{"accept":false,"reason":"full","updated":%d}`, admissionAt.Unix()),
+		"stale":       fmt.Sprintf(`{"accept":true,"updated":%d}`, admissionAt.Unix()-31),
+		"future":      fmt.Sprintf(`{"accept":true,"updated":%d}`, admissionAt.Unix()+600),
+		"no updated":  `{"accept":true}`,
+		"updated = 0": `{"accept":true,"updated":0}`,
+	} {
+		t.Run("parsed "+name+" after a good read", func(t *testing.T) {
+			a, path, _ := gate(t, good)
+			if err := a.Refusal(); err != nil {
+				t.Fatal(err)
+			}
+			writeAdmission(t, path, body)
+			if err := a.Refusal(); err == nil {
+				t.Fatalf("%s did not close the gate at once", body)
+			}
+		})
+	}
+}
+
 // Unset, there is no gate: nothing is read, nothing refuses, nothing is
 // reported.
 func TestAnchorAdmissionUnsetIsNoGate(t *testing.T) {
