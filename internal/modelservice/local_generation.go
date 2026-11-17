@@ -183,6 +183,10 @@ func anchorSeedXArgs(req InferRequest) (map[string]string, error) {
 // every such generation from the task (anchorSeedXArgs).
 func (s *LocalService) SetAnchorSeedRule(rule string) {
 	s.anchorSeedRule = rule
+	// What the capability probe requires of the engine depends on the rule.
+	s.anchorInfo.mu.Lock()
+	s.anchorInfo.checked, s.anchorInfo.err = time.Time{}, nil
+	s.anchorInfo.mu.Unlock()
 }
 
 // seedXArgs is anchorSeedXArgs when the seed binding is on, and nothing when

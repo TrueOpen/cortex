@@ -90,6 +90,10 @@ const (
 	// task id, the order's generation parameters). Nothing is generated: the
 	// validators would not reproduce a seed derived from anything else.
 	FaultCodeAnchorSeedInputs = "ANCHOR_SEED_INPUTS"
+	// FaultCodeAnchorCommitSeedRule: the seed binding is on and the engine's
+	// AnchorCommitV1 of a sampled order does not declare the seed rule
+	// (ErrAnchorCommitSeedRule), so no receipt may be signed over it.
+	FaultCodeAnchorCommitSeedRule = "ANCHOR_COMMIT_SEED_RULE"
 )
 
 // FaultField is one scalar diagnostic value carried by a Fault.

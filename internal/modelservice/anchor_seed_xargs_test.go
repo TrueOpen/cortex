@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -239,6 +240,103 @@ func TestInferRefusesToGenerateWithoutTheSeedFacts(t *testing.T) {
 			}
 			if sent := bodies(); len(sent) != 0 || len(a.calls()) != 0 {
 				t.Fatalf("%d generation requests and %d commitment fetches after the refusal, want none", len(sent), len(a.calls()))
+			}
+		})
+	}
+}
+
+// With the seed binding on, the engine must declare the rule on /slp/info or
+// it is not capable: it would ignore the xargs and sample with the order's
+// seed, and no answer of its would show that. Off, the declaration is not
+// looked at.
+func TestAnchorCommitCapableRequiresTheDeclaredSeedRule(t *testing.T) {
+	ok := func() int { return http.StatusOK }
+	for _, c := range []struct {
+		name, rule, body string
+		capable          bool
+	}{
+		{"declared", AnchorSeedRuleV2, `{"fmt":"anc2","seed_rules":["seed-v2"]}`, true},
+		{"declared among others", AnchorSeedRuleV2, `{"seed_rules":["seed-v3","seed-v2"]}`, true},
+		{"not declared", AnchorSeedRuleV2, `{"fmt":"anc2"}`, false},
+		{"another rule only", AnchorSeedRuleV2, `{"seed_rules":["seed-v1"]}`, false},
+		{"empty list", AnchorSeedRuleV2, `{"seed_rules":[]}`, false},
+		{"a string, not a list", AnchorSeedRuleV2, `{"seed_rules":"seed-v2"}`, false},
+		{"not JSON", AnchorSeedRuleV2, `ok`, false},
+		{"binding off, not declared", "", `{"fmt":"anc2"}`, true},
+		{"binding off, not JSON", "", `ok`, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			svc := anchorTestService(t, &anchorSidecar{info: ok, infoBody: c.body})
+			svc.SetAnchorSeedRule(c.rule)
+			err := svc.AnchorCommitCapable(context.Background())
+			switch {
+			case c.capable && err != nil:
+				t.Fatalf("err = %v, want a capable engine", err)
+			case !c.capable && (!errors.Is(err, ErrAnchorCommitUnsupported) || errors.Is(err, ErrAnchorCommitProbeFailed)):
+				t.Fatalf("err = %v, want ErrAnchorCommitUnsupported (a fact, so the Profile is left out)", err)
+			}
+		})
+	}
+	t.Run("turning the binding on asks the engine again", func(t *testing.T) {
+		a := &anchorSidecar{info: ok, infoBody: `{}`}
+		svc := anchorTestService(t, a)
+		if err := svc.AnchorCommitCapable(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		svc.SetAnchorSeedRule(AnchorSeedRuleV2)
+		if err := svc.AnchorCommitCapable(context.Background()); !errors.Is(err, ErrAnchorCommitUnsupported) || a.infoCalls.Load() != 2 {
+			t.Fatalf("err = %v after %d probes, want the cached verdict dropped and the engine refused", err, a.infoCalls.Load())
+		}
+	})
+}
+
+// With the seed binding on, the commitment of a sampled order must declare
+// the rule, or no receipt is signed over it. A greedy order draws nothing
+// from the seed and is not checked; nor is anything while the binding is off.
+func TestInferChecksTheCommitmentSeedRuleOfSampledOrders(t *testing.T) {
+	withRule := strings.Replace(testAnchorCommit, `"roots":["00"]`, `"roots":["00"],"sampling":"canon-v1","seed_rule":"seed-v2"`, 1)
+	otherRule := strings.Replace(withRule, `"seed-v2"`, `"seed-v1"`, 1)
+	for _, c := range []struct {
+		name    string
+		rule    string
+		sampled bool
+		commit  string
+		signed  bool
+	}{
+		{"sampled, rule declared", AnchorSeedRuleV2, true, withRule, true},
+		{"sampled, rule missing", AnchorSeedRuleV2, true, testAnchorCommit, false},
+		{"sampled, another rule", AnchorSeedRuleV2, true, otherRule, false},
+		{"greedy, rule missing", AnchorSeedRuleV2, false, testAnchorCommit, true},
+		{"binding off, sampled, rule missing", "", true, testAnchorCommit, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, c.commit }}
+			svc := anchorTestService(t, a)
+			svc.SetAnchorSeedRule(c.rule)
+			req := chatInferReq(t)
+			req.TaskID, req.ChainID, req.RequireAnchorCommit = seedTestTaskID, "trueopen-localnet-1", true
+			if c.sampled {
+				req.Generation.Params.DecodingParams.SamplingEnabled = true
+				req.Generation.Params.DecodingParams.TemperatureMilli = 700
+				req.Generation.Params.DecodingParams.TopPPPM = 1_000_000
+			}
+			digest, err := req.Generation.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.GenerationParamsDigest = digest[:]
+			resp, err := svc.Infer(context.Background(), req)
+			if c.signed {
+				if err != nil || resp.AnchorCommitRef == "" {
+					t.Fatalf("Infer() = %+v, %v, want the commitment signed", resp, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrAnchorCommitSeedRule) || resp.AnchorCommitRef != "" {
+				t.Fatalf("Infer() = %+v, %v, want ErrAnchorCommitSeedRule", resp, err)
+			}
+			if ClassOf(err) != FaultDeterministic || IsRetryable(err) || FaultCode(err) != FaultCodeAnchorCommitSeedRule {
+				t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitSeedRule)
 			}
 		})
 	}

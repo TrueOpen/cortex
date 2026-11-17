@@ -264,8 +264,48 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 			fmt.Errorf("modelservice local: refusing to sign a receipt over an anchor commitment that does not match this completion: %w", err),
 			FaultStr("completion_id", resp.EngineRequestID))
 	}
+	if err := s.checkAnchorCommitSeedRule(data, req); err != nil {
+		// Deterministic for the same reason: the commitment of this
+		// completion will not change.
+		return InferResponse{}, Deterministic(FaultCodeAnchorCommitSeedRule,
+			fmt.Errorf("modelservice local: refusing to sign a receipt over an anchor commitment sampled outside the seed rule: %w", err),
+			FaultStr("completion_id", resp.EngineRequestID))
+	}
 	resp.AnchorCommitRef = s.putArtifact(data)
 	return resp, nil
+}
+
+// ErrAnchorCommitSeedRule means the seed binding is on, the order was
+// sampled, and the engine's AnchorCommitV1 does not declare the seed rule:
+// the engine sampled with a seed the validators will not reproduce.
+var ErrAnchorCommitSeedRule = errors.New("anchor commitment does not declare the seed rule")
+
+// checkAnchorCommitSeedRule is the second half of the self-check, made only
+// while the seed binding is on and only for an order that samples
+// (sampling_enabled with a temperature above zero): the commitment's
+// "seed_rule" must be the configured rule. The validators require exactly
+// that field of a sampled order's commitment before they recompute the seed.
+// A greedy order draws nothing from the seed and is not checked.
+func (s *LocalService) checkAnchorCommitSeedRule(data []byte, req InferRequest) error {
+	if s.anchorSeedRule == "" || req.Generation == nil {
+		return nil
+	}
+	if d := req.Generation.Params.DecodingParams; !d.SamplingEnabled || d.TemperatureMilli == 0 {
+		return nil
+	}
+	var doc struct {
+		SeedRule *string `json:"seed_rule"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("%w: %v", ErrAnchorCommitSeedRule, err)
+	}
+	if doc.SeedRule == nil {
+		return fmt.Errorf("%w: no \"seed_rule\", %q is required of a sampled order (does the engine predate the rule?)", ErrAnchorCommitSeedRule, s.anchorSeedRule)
+	}
+	if *doc.SeedRule != s.anchorSeedRule {
+		return fmt.Errorf("%w: \"seed_rule\" is %q, %q is required", ErrAnchorCommitSeedRule, *doc.SeedRule, s.anchorSeedRule)
+	}
+	return nil
 }
 
 // fetchAnchorCommit polls GET /slp/commit/{id}, with ?generated=<generated>
@@ -404,7 +444,10 @@ func anchorCommitNamesCompletion(requestID, completionID string) bool {
 }
 
 // AnchorCommitCapable probes GET /slp/info under the probe timeout. A 2xx
-// answer means the engine serves anchor commitments; any other answer,
+// answer means the engine serves anchor commitments, provided, while the
+// seed binding is on, that its JSON lists the configured rule under
+// "seed_rules" (an engine that does not is ErrAnchorCommitUnsupported: the
+// Profile is not offered rather than served with a seed nobody can check); any other answer,
 // including a 404 from an engine without the sidecar, is
 // ErrAnchorCommitUnsupported. No answer in time, a refused connection, 429 or
 // 5xx is ErrAnchorCommitProbeFailed instead. The verdict is cached
@@ -465,5 +508,23 @@ func (s *LocalService) probeAnchorInfo(ctx context.Context) error {
 		_ = json.Unmarshal(body, &info)
 	}
 	s.anchorInfo.info = info
+	if s.anchorSeedRule == "" {
+		return nil
+	}
+	// The seed binding is on: the engine must say it implements the rule. An
+	// engine that does not know the vllm_xargs ignores them and samples with
+	// the order's seed, and nothing in its answers would show it.
+	if readErr != nil {
+		return fmt.Errorf("%w: read %s: %v", ErrAnchorCommitProbeFailed, path, readErr)
+	}
+	var declared struct {
+		SeedRules []string `json:"seed_rules"`
+	}
+	if err := json.Unmarshal(body, &declared); err != nil {
+		return fmt.Errorf("%w: GET %s is not a JSON object, so it declares no seed rule (%q is required)", ErrAnchorCommitUnsupported, path, s.anchorSeedRule)
+	}
+	if !slices.Contains(declared.SeedRules, s.anchorSeedRule) {
+		return fmt.Errorf("%w: the engine does not declare seed rule %q (GET %s \"seed_rules\" is %q)", ErrAnchorCommitUnsupported, s.anchorSeedRule, path, declared.SeedRules)
+	}
 	return nil
 }
