@@ -80,6 +80,11 @@ const (
 	// no receipt may be signed over it. Another generation cannot repair this
 	// completion's commitment.
 	FaultCodeAnchorCommitTokenMismatch = "ANCHOR_COMMIT_TOKEN_MISMATCH"
+	// FaultCodeAnchorCommitEmptyGeneration: the completion delivered no
+	// generated token (ErrAnchorCommitEmptyGeneration). The engine issues no
+	// anchor commitment over a prompt alone, so a task whose Profile requires
+	// WORKER_ANCHOR_OPENING ends without a receipt.
+	FaultCodeAnchorCommitEmptyGeneration = "ANCHOR_COMMIT_EMPTY_GENERATION"
 )
 
 // FaultField is one scalar diagnostic value carried by a Fault.

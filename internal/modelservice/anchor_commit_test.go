@@ -32,6 +32,8 @@ type anchorSidecar struct {
 	commitAt func(call int, id, generated string) (int, string)
 	queries  []string // the raw query of every commit call
 	info     func() int
+	// infoBody is what GET /slp/info answers with; "" means {}.
+	infoBody string
 }
 
 func (a *anchorSidecar) front(t *testing.T, engine *httptest.Server) *httptest.Server {
@@ -67,7 +69,11 @@ func (a *anchorSidecar) front(t *testing.T, engine *httptest.Server) *httptest.S
 				status = a.info()
 			}
 			w.WriteHeader(status)
-			_, _ = w.Write([]byte(`{}`))
+			body := a.infoBody
+			if body == "" {
+				body = `{}`
+			}
+			_, _ = w.Write([]byte(body))
 		default:
 			proxy.ServeHTTP(w, r)
 		}
@@ -469,14 +475,17 @@ func TestAnchorCommitCapableRetriesAFailedProbeSoonerThanAVerdict(t *testing.T) 
 // point the Worker stopped reading: chatGenResponse delivers prompt 1 2 3 and
 // generated 10 11, the engine's own trajectory went on to 12.
 func TestInferFetchesTheAnchorCommitAtTheDeliveredPrefix(t *testing.T) {
+	// An engine that finalises at a prefix says so on /slp/info.
+	const prefixInfo = `{"fmt":"anc2","commit_prefix":["generated","rows"]}`
+	prefixEngine := func() int { return http.StatusOK }
 	const ranAhead = `{"request_id":"chatcmpl-test","roots":["ff"],"token_ids":[1,2,3,10,11,12],"prompt_tokens":3,"rows":5}`
 	t.Run("the sidecar finalises at the prefix", func(t *testing.T) {
-		a := &anchorSidecar{commitAt: func(call int, _, generated string) (int, string) {
+		a := &anchorSidecar{info: prefixEngine, infoBody: prefixInfo, commitAt: func(call int, _, generated string) (int, string) {
 			switch {
 			case generated != "2":
 				return http.StatusOK, ranAhead
 			case call == 1:
-				return http.StatusServiceUnavailable, `{"error":"finalising the prefix"}`
+				return http.StatusServiceUnavailable, `{"error":"request still finishing"}`
 			}
 			return http.StatusOK, testAnchorCommit
 		}}
@@ -498,8 +507,34 @@ func TestInferFetchesTheAnchorCommitAtTheDeliveredPrefix(t *testing.T) {
 			t.Fatalf("commit queries %q, want generated=2 on every poll", queries)
 		}
 	})
+	t.Run("an engine that does not declare the prefix is asked without it", func(t *testing.T) {
+		for name, info := range map[string]string{
+			"declares nothing":     `{"fmt":"anc2"}`,
+			"declares only rows":   `{"commit_prefix":["rows"]}`,
+			"declares a string":    `{"commit_prefix":"generated"}`,
+			"answers no JSON":      `ok`,
+			"has no /slp/info yet": "",
+		} {
+			a := &anchorSidecar{infoBody: info, commit: func(int, string) (int, string) { return http.StatusOK, testAnchorCommit }}
+			if info != "" {
+				a.info = prefixEngine
+			}
+			svc := anchorTestService(t, a)
+			req := chatInferReq(t)
+			req.RequireAnchorCommit = true
+			if resp, err := svc.Infer(context.Background(), req); err != nil || resp.AnchorCommitRef == "" {
+				t.Fatalf("%s: Infer() = %+v, %v, want the whole-trajectory commitment signed", name, resp, err)
+			}
+			a.mu.Lock()
+			queries := append([]string(nil), a.queries...)
+			a.mu.Unlock()
+			if len(queries) != 1 || queries[0] != "" {
+				t.Fatalf("%s: commit queries %q, want one fetch without a parameter", name, queries)
+			}
+		}
+	})
 	t.Run("a sidecar that ignores the prefix is refused, not signed", func(t *testing.T) {
-		a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, ranAhead }}
+		a := &anchorSidecar{info: prefixEngine, infoBody: prefixInfo, commit: func(int, string) (int, string) { return http.StatusOK, ranAhead }}
 		svc := anchorTestService(t, a)
 		req := chatInferReq(t)
 		req.RequireAnchorCommit = true
@@ -511,15 +546,18 @@ func TestInferFetchesTheAnchorCommitAtTheDeliveredPrefix(t *testing.T) {
 			t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitTokenMismatch)
 		}
 	})
-	t.Run("a prefix the engine never reached is not polled", func(t *testing.T) {
-		a := &anchorSidecar{commit: func(int, string) (int, string) {
-			return http.StatusConflict, `{"error":"generated 1 token, asked for 2"}`
-		}}
-		svc := anchorTestService(t, a)
-		req := chatInferReq(t)
-		req.RequireAnchorCommit = true
-		if _, err := svc.Infer(context.Background(), req); err == nil || IsRetryable(err) || len(a.calls()) != 1 {
-			t.Fatalf("err = %v after %d polls, want one poll and a permanent failure", err, len(a.calls()))
+	t.Run("a prefix the engine cannot serve is not polled", func(t *testing.T) {
+		for status, body := range map[int]string{
+			http.StatusConflict:   `{"error":"generated 1 token, asked for 2"}`,
+			http.StatusBadRequest: `{"error":"generated must be a non-negative integer"}`,
+		} {
+			a := &anchorSidecar{info: prefixEngine, infoBody: prefixInfo, commit: func(int, string) (int, string) { return status, body }}
+			svc := anchorTestService(t, a)
+			req := chatInferReq(t)
+			req.RequireAnchorCommit = true
+			if _, err := svc.Infer(context.Background(), req); err == nil || IsRetryable(err) || len(a.calls()) != 1 {
+				t.Fatalf("status %d: err = %v after %d polls, want one poll and a permanent failure", status, err, len(a.calls()))
+			}
 		}
 	})
 }
@@ -567,5 +605,38 @@ func TestInferAcceptsTheEngineKeyOfTheAskedCompletion(t *testing.T) {
 	artifact, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.AnchorCommitRef})
 	if err != nil || string(artifact.Data) != body {
 		t.Fatalf("anchor artifact %q, %v, want the served bytes unchanged", artifact.Data, err)
+	}
+}
+
+// A completion that delivered no generated token (a budget that ran out
+// before the first one) has no anchor commitment: the engine issues none
+// over a prompt alone and would answer 409. The Worker does not ask, does
+// not loop and signs nothing: the call ends with a deterministic fault.
+func TestAttachAnchorCommitRefusesAnEmptyGeneration(t *testing.T) {
+	a := &anchorSidecar{
+		info: func() int { return http.StatusOK }, infoBody: `{"commit_prefix":["generated","rows"]}`,
+		commit: func(int, string) (int, string) {
+			return http.StatusConflict, `{"error":"generated=0: no commitment over a prompt alone"}`
+		},
+	}
+	svc := anchorTestService(t, a)
+	raw, err := EncodeTokenIDsArtifact(TokenIDs{Input: []uint32{1, 2, 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivered := InferResponse{EngineRequestID: "chatcmpl-test", TokenIDsRef: svc.putArtifact(raw)}
+	resp, err := svc.attachAnchorCommit(context.Background(), InferRequest{RequireAnchorCommit: true}, delivered)
+	if !errors.Is(err, ErrAnchorCommitEmptyGeneration) || resp.AnchorCommitRef != "" {
+		t.Fatalf("attachAnchorCommit() = %+v, %v, want ErrAnchorCommitEmptyGeneration and no anchor ref", resp, err)
+	}
+	if ClassOf(err) != FaultDeterministic || IsRetryable(err) || FaultCode(err) != FaultCodeAnchorCommitEmptyGeneration {
+		t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitEmptyGeneration)
+	}
+	if n := len(a.calls()); n != 0 {
+		t.Fatalf("the sidecar was asked %d times for a commitment that cannot exist", n)
+	}
+	// Without the requirement an empty generation is what it always was.
+	if resp, err := svc.attachAnchorCommit(context.Background(), InferRequest{}, delivered); err != nil || resp.AnchorCommitRef != "" {
+		t.Fatalf("a task that requires no anchor: %+v, %v", resp, err)
 	}
 }

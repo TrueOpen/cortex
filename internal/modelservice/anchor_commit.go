@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,16 +34,29 @@ import (
 // parameter answers with the commitment finalised at exactly that prefix:
 // token_ids is the prompt followed by the first n generated ids,
 // prompt_tokens the prompt length, rows prompt + n - 1, and every root is
-// over those rows only. It answers 503 while it is still finalising that
-// prefix and 409 when it generated fewer than n tokens. A sidecar that does
-// not know the parameter ignores it and serves the whole trajectory; the
-// self-check below then refuses a commitment that names more than was
-// delivered, so nothing is signed over it either way.
+// over those rows only. It finalises the prefix while it answers, and
+// answers 409 when it cannot serve that prefix: it generated fewer than n
+// tokens, it already finalised this completion at another n, n is 0 (it
+// issues no commitment over a prompt alone), or the prefix ends inside a
+// prefill segment that was preempted and recomputed; 400 is a malformed
+// parameter. Neither is polled.
+//
+// An engine says that it knows the parameter by listing "generated" under
+// "commit_prefix" in GET /slp/info, and the parameter is sent only to an
+// engine that does. One that does not is asked without it and serves the
+// whole trajectory; the self-check below then refuses a commitment that
+// names more than was delivered, so nothing is signed over it either way.
+//
+// A completion that delivered no generated token (a budget that ran out
+// before the first one) has no commitment to fetch and none is asked for:
+// the call fails with ErrAnchorCommitEmptyGeneration.
 
 const (
 	// maxAnchorCommitBytes bounds the AnchorCommitV1 document: it holds token
 	// ids, Merkle roots and checkpoint hashes, never anchors themselves.
 	maxAnchorCommitBytes = 16 << 20
+	// maxAnchorInfoBytes bounds what is read of GET /slp/info.
+	maxAnchorInfoBytes = 1 << 20
 	// anchorCommitGeneratedParam is the query parameter of GET
 	// /slp/commit/{id} that names the delivered prefix.
 	anchorCommitGeneratedParam = "generated"
@@ -151,6 +165,27 @@ type anchorInfoCache struct {
 	mu      sync.Mutex
 	checked time.Time
 	err     error
+	// info is what the last answered probe declared; it outlives a later
+	// probe that got no answer.
+	info anchorEngineInfo
+}
+
+// anchorEngineInfo is the part of GET /slp/info this node reads. An engine
+// that predates a field simply does not send it.
+type anchorEngineInfo struct {
+	// CommitPrefix lists the query parameters of GET /slp/commit/{id} that
+	// name a prefix to finalise the commitment at.
+	CommitPrefix []string `json:"commit_prefix"`
+}
+
+// anchorCommitPrefixDeclared reports whether the engine declared, on its last
+// answered probe, that it finalises a commitment at ?generated=<n>. The probe
+// is cached, so this costs a request only when the cache has run out.
+func (s *LocalService) anchorCommitPrefixDeclared(ctx context.Context) bool {
+	_ = s.AnchorCommitCapable(ctx)
+	s.anchorInfo.mu.Lock()
+	defer s.anchorInfo.mu.Unlock()
+	return slices.Contains(s.anchorInfo.info.CommitPrefix, anchorCommitGeneratedParam)
 }
 
 // SetAnchorCommitTimeout sets the commitment window after the generation
@@ -189,6 +224,14 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 	if err != nil {
 		return InferResponse{}, fmt.Errorf("modelservice local: anchor commitment self-check: %w", err)
 	}
+	if len(ids.Generated) == 0 {
+		// Deterministic: the engine commits to rows, and a prompt with no
+		// generated token has none to open. Asking would be answered 409;
+		// generating again would spend another generation on the same order.
+		return InferResponse{}, Deterministic(FaultCodeAnchorCommitEmptyGeneration,
+			fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING: %w", ErrAnchorCommitEmptyGeneration),
+			FaultStr("completion_id", resp.EngineRequestID))
+	}
 	data, err := s.fetchAnchorCommit(ctx, resp.EngineRequestID, len(ids.Generated))
 	if err != nil {
 		if errors.Is(err, ErrAnchorCommitNotFound) {
@@ -208,8 +251,9 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 	return resp, nil
 }
 
-// fetchAnchorCommit polls GET /slp/commit/{id}?generated=<generated> until
-// the engine serves the commitment or the anchorCommitWindow ends. 503 means the sidecar is still
+// fetchAnchorCommit polls GET /slp/commit/{id}, with ?generated=<generated>
+// for an engine that declares the parameter, until the engine serves the
+// commitment or the anchorCommitWindow ends. 503 means the sidecar is still
 // finalizing it and is retried with backoff, as are transport errors and other
 // 5xx; 404 is polled for anchorCommitNotFoundGrace from the first one and then
 // ends the poll with ErrAnchorCommitNotFound; any other answer, or a body
@@ -220,7 +264,10 @@ func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID st
 	window := s.anchorCommitWindow()
 	ctx, cancel := context.WithTimeout(parent, window)
 	defer cancel()
-	path := "/slp/commit/" + url.PathEscape(completionID) + "?" + anchorCommitGeneratedParam + "=" + strconv.Itoa(generated)
+	path := "/slp/commit/" + url.PathEscape(completionID)
+	if s.anchorCommitPrefixDeclared(ctx) {
+		path += "?" + anchorCommitGeneratedParam + "=" + strconv.Itoa(generated)
+	}
 	backoff := s.anchorCommitBackoff
 	if backoff <= 0 {
 		backoff = defaultAnchorCommitBackoff
@@ -310,6 +357,11 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completion
 	return data, false, nil
 }
 
+// ErrAnchorCommitEmptyGeneration means the completion delivered no generated
+// token, so the engine has no anchor commitment for it and the Worker has
+// nothing to put into the receipt's WORKER_ANCHOR_OPENING commitment.
+var ErrAnchorCommitEmptyGeneration = errors.New("the completion delivered no generated token: there is no anchor commitment to sign")
+
 // anchorEngineKeyTail is what the engine appends to a completion id to form
 // its own request key: "-<choice index>-<8 hex>", the choice index optional.
 var anchorEngineKeyTail = regexp.MustCompile(`^(?:[0-9]+-)?[0-9a-f]{8}$`)
@@ -379,12 +431,20 @@ func (s *LocalService) probeAnchorInfo(ctx context.Context) error {
 		return fmt.Errorf("%w: GET %s: %v", ErrAnchorCommitProbeFailed, path, err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxAnchorInfoBytes))
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return fmt.Errorf("%w: GET %s returned status %d", ErrAnchorCommitProbeFailed, path, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("%w: GET %s returned status %d", ErrAnchorCommitUnsupported, path, resp.StatusCode)
 	}
+	// The engine answered: what it declares replaces what was known. A body
+	// that cannot be read or parsed declares nothing, like an engine that
+	// predates the fields. The caller holds anchorInfo.mu.
+	var info anchorEngineInfo
+	if readErr == nil {
+		_ = json.Unmarshal(body, &info)
+	}
+	s.anchorInfo.info = info
 	return nil
 }
