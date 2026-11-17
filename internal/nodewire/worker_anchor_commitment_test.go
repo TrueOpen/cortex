@@ -2,6 +2,9 @@ package nodewire
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -14,17 +17,71 @@ func anchorVectorInput() WorkerAnchorCommitmentV1 {
 	}
 }
 
-// The digest is the one Nexus computes (nodecontract.WorkerAnchorCommitmentV1)
-// for the same inputs, and the one the chain stores as the receipt's kind 5
-// evidence_hash_or_root.
-func TestWorkerAnchorCommitmentV1DigestMatchesNexus(t *testing.T) {
-	digest, size, err := WorkerAnchorCommitmentV1Digest(anchorVectorInput())
+// workerAnchorCommitmentVectors is where the shared digest vectors are read
+// from. It is this repository's copy until wire publishes the vector; the
+// file names its own provenance.
+const workerAnchorCommitmentVectors = "testdata/worker_anchor_commitment_v1.json"
+
+type workerAnchorCommitmentVector struct {
+	Name                  string `json:"name"`
+	Source                string `json:"source"`
+	SchemaVersion         uint32 `json:"schema_version"`
+	ChainID               string `json:"chain_id"`
+	TaskID                string `json:"task_id"`
+	AcceptedTaskHash      string `json:"accepted_task_hash"`
+	WorkerOperatorAddress string `json:"worker_operator_address"`
+	EvidenceSchemaHash    string `json:"evidence_schema_hash"`
+	AnchorCommitHash      string `json:"anchor_commit_hash"`
+	AnchorCommitSizeBytes uint64 `json:"anchor_commit_size_bytes"`
+	Digest                string `json:"digest"`
+}
+
+// The digest is the one the Builder computes for the same inputs
+// (nexus internal/nodecontract.WorkerAnchorCommitmentV1.Digest), and the one
+// the chain stores as the receipt's kind 5 evidence_hash_or_root. Every
+// vector was produced outside this package; none is derived from the function
+// under test.
+func TestWorkerAnchorCommitmentV1DigestVectors(t *testing.T) {
+	raw, err := os.ReadFile(workerAnchorCommitmentVectors)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const nexusVector = "55c179b8d51b00fa00e8126d8c4d65a8ead6b99d2ed37ff184395314482d80dc"
-	if digest.String() != nexusVector || size != 1234 {
-		t.Fatalf("digest %s size %d, want %s 1234", digest, size, nexusVector)
+	var file struct {
+		Domain  string                         `json:"domain"`
+		Vectors []workerAnchorCommitmentVector `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if file.Domain != DomainWorkerAnchorCommitmentV1 || len(file.Vectors) < 2 {
+		t.Fatalf("%s: domain %q with %d vectors", workerAnchorCommitmentVectors, file.Domain, len(file.Vectors))
+	}
+	unhex := func(t *testing.T, field, value string) []byte {
+		t.Helper()
+		out, err := hex.DecodeString(value)
+		if err != nil {
+			t.Fatalf("%s: %v", field, err)
+		}
+		return out
+	}
+	for _, v := range file.Vectors {
+		t.Run(v.Name, func(t *testing.T) {
+			if v.Source == "" {
+				t.Fatal("a vector must name where its digest came from")
+			}
+			digest, size, err := WorkerAnchorCommitmentV1Digest(WorkerAnchorCommitmentV1{
+				SchemaVersion: v.SchemaVersion, ChainID: v.ChainID,
+				TaskID: unhex(t, "task_id", v.TaskID), AcceptedTaskHash: unhex(t, "accepted_task_hash", v.AcceptedTaskHash),
+				WorkerOperatorAddress: v.WorkerOperatorAddress, EvidenceSchemaHash: unhex(t, "evidence_schema_hash", v.EvidenceSchemaHash),
+				AnchorCommitHash: unhex(t, "anchor_commit_hash", v.AnchorCommitHash), AnchorCommitSizeBytes: v.AnchorCommitSizeBytes,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if digest.String() != v.Digest || size != v.AnchorCommitSizeBytes {
+				t.Fatalf("digest %s size %d, want %s %d", digest, size, v.Digest, v.AnchorCommitSizeBytes)
+			}
+		})
 	}
 }
 
