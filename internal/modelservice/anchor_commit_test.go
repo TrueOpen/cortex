@@ -2,7 +2,9 @@ package modelservice
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -688,4 +690,163 @@ func TestAnchorCommitNamesCompletionRealForms(t *testing.T) {
 	if resp, err := svc.Infer(context.Background(), req); err != nil || resp.AnchorCommitRef == "" {
 		t.Fatalf("Infer() = %+v, %v, want the chat-form commitment signed", resp, err)
 	}
+}
+
+// zeroTokenRawEngine is a /v1/completions stream that emits the prompt and
+// no generated token before the output budget runs out.
+func zeroTokenRawEngine(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "Qwen/Qwen3-8B"}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		for i := 0; i < 2; i++ {
+			frame := `{"id":"cmpl-test","choices":[{"text":"","prompt_token_ids":[1,2,3],"token_ids":[]}]}`
+			if i > 0 {
+				frame = `{"id":"cmpl-test","choices":[{"text":"","token_ids":[]}]}`
+			}
+			fmt.Fprintf(w, "data: %s\n\n", frame)
+			flusher.Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// zeroTokenChatEngine is a /v1/chat/completions stream that names the
+// completion and the prompt and then generates nothing before the output
+// budget runs out, or (finishAtOnce) ends at once with no token at all.
+func zeroTokenChatEngine(t *testing.T, finishAtOnce bool) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/metrics":
+			writeVLLMMetrics(w, 0, 0)
+			return
+		case "/v1/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []map[string]any{{"id": "Qwen/Qwen3-8B", "object": "model"}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"chatcmpl-test","model":"Qwen/Qwen3-8B","prompt_token_ids":[1,2,3],"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}`)
+		flusher.Flush()
+		if finishAtOnce {
+			fmt.Fprintf(w, "data: %s\n\n", `{"id":"chatcmpl-test","model":"Qwen/Qwen3-8B","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+			return
+		}
+		// The engine is still working on its first token when the budget
+		// runs out: frames keep arriving, none carries a token.
+		for i := 0; i < 2; i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
+			fmt.Fprintf(w, "data: %s\n\n", `{"id":"chatcmpl-test","model":"Qwen/Qwen3-8B","choices":[{"index":0,"delta":{"content":""}}]}`)
+			flusher.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A generation that delivered no token, through Infer, on both paths. Without
+// the anchor requirement a budget that ran out before the first token is the
+// legal empty MAX_OUTPUT_DURATION generation on the raw path and on the chat
+// path alike. Under a Profile requiring WORKER_ANCHOR_OPENING both end with
+// the same deterministic ANCHOR_COMMIT_EMPTY_GENERATION, the sidecar is not
+// asked, and no anchor ref is produced.
+func TestInferEmptyGenerationOnBothPaths(t *testing.T) {
+	type path struct {
+		name   string
+		engine func(t *testing.T) *httptest.Server
+		req    func(t *testing.T) InferRequest
+	}
+	budget := func(t *testing.T, req InferRequest) InferRequest {
+		t.Helper()
+		req.Generation.Params.MaxOutputDuration = 50
+		digest, err := req.Generation.Digest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.GenerationParamsDigest = digest[:]
+		return req
+	}
+	paths := []path{
+		{"raw", zeroTokenRawEngine, func(t *testing.T) InferRequest {
+			return budget(t, localGenerationInfer(t, localTestGeneration(testQwenModelID(), 1)))
+		}},
+		{"chat", func(t *testing.T) *httptest.Server { return zeroTokenChatEngine(t, false) }, func(t *testing.T) InferRequest {
+			return budget(t, chatInferReq(t))
+		}},
+	}
+	for _, p := range paths {
+		t.Run(p.name+", no anchor required", func(t *testing.T) {
+			a := &anchorSidecar{}
+			svc := newBoundLocalService(a.front(t, p.engine(t)).URL, "local", 4, 0, 0)
+			resp, err := svc.Infer(context.Background(), p.req(t))
+			if err != nil {
+				t.Fatalf("Infer() error = %v, want the legal empty generation", err)
+			}
+			if resp.GeneratedTokenCount != 0 || resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration || resp.AnchorCommitRef != "" {
+				t.Fatalf("response = %+v, want zero tokens, MAX_OUTPUT_DURATION and no anchor ref", resp)
+			}
+			if n := len(a.calls()); n != 0 {
+				t.Fatalf("the sidecar was asked %d times for a task that requires no anchor", n)
+			}
+		})
+		t.Run(p.name+", anchor required", func(t *testing.T) {
+			a := &anchorSidecar{
+				info: func() int { return http.StatusOK }, infoBody: `{"commit_prefix":["generated","rows"]}`,
+				commit: func(int, string) (int, string) { return http.StatusConflict, `{"error":"generated=0"}` },
+			}
+			svc := newBoundLocalService(a.front(t, p.engine(t)).URL, "local", 4, 0, 0)
+			req := p.req(t)
+			req.RequireAnchorCommit = true
+			resp, err := svc.Infer(context.Background(), req)
+			if !errors.Is(err, ErrAnchorCommitEmptyGeneration) || resp.AnchorCommitRef != "" {
+				t.Fatalf("Infer() = %+v, %v, want ErrAnchorCommitEmptyGeneration and no anchor ref", resp, err)
+			}
+			if ClassOf(err) != FaultDeterministic || IsRetryable(err) || FaultCode(err) != FaultCodeAnchorCommitEmptyGeneration {
+				t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitEmptyGeneration)
+			}
+			if n := len(a.calls()); n != 0 {
+				t.Fatalf("the sidecar was asked %d times for a commitment that cannot exist", n)
+			}
+		})
+	}
+	// A chat completion the engine ends at once, with a finish reason and no
+	// token. The chat path used to fail here on its own, with an unclassified
+	// "token_ids (0) / logprobs (0) length mismatch". Now it is treated as on
+	// the completions path: the model service reports it and the Worker's
+	// finish check refuses it by name; under an anchor Profile the missing
+	// commitment is named first.
+	t.Run("chat, finished at once", func(t *testing.T) {
+		svc := newBoundLocalService(zeroTokenChatEngine(t, true).URL, "local", 4, 0, 0)
+		req := chatInferReq(t)
+		resp, err := svc.Infer(context.Background(), req)
+		if err != nil || resp.GeneratedTokenCount != 0 {
+			t.Fatalf("Infer() = %+v, %v, want the zero-token response reported", resp, err)
+		}
+		if err := ValidateFinishReason(req.Generation, nil, resp.FinishReason); FaultCode(err) != FaultCodeFinishReasonInconsistent {
+			t.Fatalf("finish check = %v, want %s", err, FaultCodeFinishReasonInconsistent)
+		}
+		a := &anchorSidecar{}
+		svc = newBoundLocalService(a.front(t, zeroTokenChatEngine(t, true)).URL, "local", 4, 0, 0)
+		req.RequireAnchorCommit = true
+		if _, err := svc.Infer(context.Background(), req); FaultCode(err) != FaultCodeAnchorCommitEmptyGeneration || len(a.calls()) != 0 {
+			t.Fatalf("err = %v after %d sidecar calls, want %s and none", err, len(a.calls()), FaultCodeAnchorCommitEmptyGeneration)
+		}
+	})
 }

@@ -23,9 +23,16 @@ import (
 // task whose locked Profile requires WORKER_ANCHOR_OPENING ever asks for it.
 //
 // The delivered prefix. The Worker signs a receipt over the tokens it
-// delivered, and those can be fewer than the engine generated: at the output
-// budget the Worker stops reading at a frame boundary while the engine runs
-// on until the disconnect reaches it. So the fetch names the prefix it wants,
+// delivered, and those can be fewer than the engine generated. There is one
+// place where this node, not the engine, ends a generation that then gets a
+// receipt: max_output_duration. The stream readers stop at the first frame
+// boundary past that budget (reassembleChatStream and its completions
+// counterpart) while the engine runs on until the disconnect reaches it.
+// max_output_tokens is not such a place: it is handed to the engine as
+// max_tokens, the engine stops there itself and does not run ahead of it. A
+// caller that goes away fails the call, and no commitment is fetched for it.
+// So it is duration cut-offs that exercise the prefix. The fetch names the
+// prefix it wants,
 //
 //	GET /slp/commit/{id}?generated=<n>
 //

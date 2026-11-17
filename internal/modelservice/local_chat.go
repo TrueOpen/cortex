@@ -515,10 +515,19 @@ func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmani
 // is in decoding.EOSTokenIDs. It also verifies that content[i]'s token id equals
 // tokenIDs[i] (under return_tokens_as_token_ids=true content[i].Token is the
 // "token_id:X" form), so the bytes being decoded provably belong to the token_ids
-// the Verifier scores. A length or per-position mismatch fails closed. Special
+// the Verifier scores. A length or per-position mismatch fails closed; no
+// token and no logprobs entry is not a mismatch. Special
 // tokens are decoded like any other; an EOS token anywhere but the last position
 // is kept.
 func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs, decoding modelmanifest.OutputDecoding) (string, error) {
+	if len(tokenIDs) == 0 && (lp == nil || len(lp.Content) == 0) {
+		// No token was generated, so there is no logprobs entry either and
+		// the two agree: the committed output is empty. A stream cut at
+		// max_output_duration before its first token arrives here with no
+		// logprobs object at all. Whether an empty generation is legal is
+		// the finish-reason check's to say, as on the completions path.
+		return "", nil
+	}
 	if lp == nil || len(lp.Content) != len(tokenIDs) {
 		n := 0
 		if lp != nil {
