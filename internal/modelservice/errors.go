@@ -90,6 +90,11 @@ const (
 	// task id, the order's generation parameters). Nothing is generated: the
 	// validators would not reproduce a seed derived from anything else.
 	FaultCodeAnchorSeedInputs = "ANCHOR_SEED_INPUTS"
+	// FaultCodeAnchorSeedXArgsRejected: the engine refused the seed facts of
+	// a generation request (400, slp_seed_xargs_unsupported) rather than
+	// sample with a seed the validators would not reproduce. The task is not
+	// generated again: it would send the same facts.
+	FaultCodeAnchorSeedXArgsRejected = "ANCHOR_SEED_XARGS_REJECTED"
 	// FaultCodeAnchorCommitSeedRule: the seed binding is on and the engine's
 	// AnchorCommitV1 of a sampled order does not declare the seed rule
 	// (ErrAnchorCommitSeedRule), so no receipt may be signed over it.

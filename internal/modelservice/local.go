@@ -1592,6 +1592,11 @@ func (s *LocalService) doPost(ctx context.Context, path string, body any) (*http
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, retryableError{err: err}
 		}
+		if resp.StatusCode == http.StatusBadRequest && bytes.Contains(detail, []byte(engineSeedXArgsRejected)) {
+			// Deterministic: the engine refused the seed facts of this
+			// request, and the same task yields the same facts again.
+			return nil, Deterministic(FaultCodeAnchorSeedXArgsRejected, err)
+		}
 		return nil, err
 	}
 	return resp, nil

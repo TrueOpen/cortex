@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -296,6 +297,7 @@ func TestAnchorCommitCapableRequiresTheDeclaredSeedRule(t *testing.T) {
 func TestInferChecksTheCommitmentSeedRuleOfSampledOrders(t *testing.T) {
 	withRule := strings.Replace(testAnchorCommit, `"roots":["00"]`, `"roots":["00"],"sampling":"canon-v1","seed_rule":"seed-v2"`, 1)
 	otherRule := strings.Replace(withRule, `"seed-v2"`, `"seed-v1"`, 1)
+	greedyWithRule := strings.Replace(testAnchorCommit, `"roots":["00"]`, `"roots":["00"],"sampling":"greedy","temperature":0.0,"seed":"","seed_rule":"seed-v2"`, 1)
 	for _, c := range []struct {
 		name    string
 		rule    string
@@ -307,6 +309,11 @@ func TestInferChecksTheCommitmentSeedRuleOfSampledOrders(t *testing.T) {
 		{"sampled, rule missing", AnchorSeedRuleV2, true, testAnchorCommit, false},
 		{"sampled, another rule", AnchorSeedRuleV2, true, otherRule, false},
 		{"greedy, rule missing", AnchorSeedRuleV2, false, testAnchorCommit, true},
+		// The engine writes the rule whenever it was given the three facts,
+		// with an empty seed for a greedy order; that is not asserted absent.
+		{"greedy, rule declared with an empty seed", AnchorSeedRuleV2, false, greedyWithRule, true},
+		{"greedy, another rule", AnchorSeedRuleV2, false, otherRule, true},
+		{"binding off, rule declared", "", true, withRule, true},
 		{"binding off, sampled, rule missing", "", true, testAnchorCommit, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -337,6 +344,53 @@ func TestInferChecksTheCommitmentSeedRuleOfSampledOrders(t *testing.T) {
 			}
 			if ClassOf(err) != FaultDeterministic || IsRetryable(err) || FaultCode(err) != FaultCodeAnchorCommitSeedRule {
 				t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitSeedRule)
+			}
+		})
+	}
+}
+
+// An engine that implements the seed rule answers 400 with the code
+// slp_seed_xargs_unsupported to a generation request whose seed facts it
+// cannot use, instead of sampling with another seed. The task halts with
+// that reason and is not generated again; any other 400 is what it was.
+func TestInferHaltsWhenTheEngineRefusesTheSeedXArgs(t *testing.T) {
+	for _, c := range []struct {
+		name, body string
+		rejected   bool
+	}{
+		{"seed xargs refused", `{"error":{"message":"slp_task_id must be 64 hex characters","type":"BadRequestError","code":"slp_seed_xargs_unsupported"}}`, true},
+		{"another bad request", `{"error":{"message":"max_tokens is too large","type":"BadRequestError","code":400}}`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var calls atomic.Int32
+			engine, _ := newChatVLLMStub(t, chatGenResponse(), []string{"Qwen/Qwen3-8B"})
+			target, err := url.Parse(engine.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy := httputil.NewSingleHostReverseProxy(target)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/completions") {
+					calls.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(c.body))
+					return
+				}
+				proxy.ServeHTTP(w, r)
+			}))
+			t.Cleanup(srv.Close)
+			svc := newBoundLocalService(srv.URL, "local", 4, 0, 0)
+			svc.SetStreamInference(false)
+			svc.SetAnchorSeedRule(AnchorSeedRuleV2)
+			req := chatInferReq(t)
+			req.TaskID, req.ChainID, req.RequireAnchorCommit = seedTestTaskID, "trueopen-localnet-1", true
+			_, err = svc.Infer(context.Background(), req)
+			if err == nil || IsRetryable(err) || calls.Load() != 1 {
+				t.Fatalf("err = %v after %d generation requests, want one request and no retry", err, calls.Load())
+			}
+			if got := ClassOf(err) == FaultDeterministic && FaultCode(err) == FaultCodeAnchorSeedXArgsRejected; got != c.rejected {
+				t.Fatalf("err = %v (class %v, code %q), deterministic %s = %v, want %v", err, ClassOf(err), FaultCode(err), FaultCodeAnchorSeedXArgsRejected, got, c.rejected)
 			}
 		})
 	}

@@ -117,6 +117,11 @@ const (
 	anchorXArgOrderSeed = "slp_order_seed"
 )
 
+// engineSeedXArgsRejected is the error code with which an engine that
+// implements the seed rule answers 400 to a generation request whose seed
+// xargs are malformed or incomplete, instead of sampling with another seed.
+const engineSeedXArgsRejected = "slp_seed_xargs_unsupported"
+
 // AnchorSeedRuleV2 names the only seed rule this node can bind a generation
 // to (model_management.anchor_seed_rule).
 const AnchorSeedRuleV2 = "seed-v2"
