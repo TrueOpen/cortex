@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,11 +19,32 @@ import (
 // every finished completion, an AnchorCommitV1 document under the completion
 // id (GET /slp/commit/{id}) and advertises itself on GET /slp/info. Only a
 // task whose locked Profile requires WORKER_ANCHOR_OPENING ever asks for it.
+//
+// The delivered prefix. The Worker signs a receipt over the tokens it
+// delivered, and those can be fewer than the engine generated: at the output
+// budget the Worker stops reading at a frame boundary while the engine runs
+// on until the disconnect reaches it. So the fetch names the prefix it wants,
+//
+//	GET /slp/commit/{id}?generated=<n>
+//
+// where n is the number of generated token ids this completion delivered
+// (the prompt is not counted, a delivered EOS is). A sidecar that knows the
+// parameter answers with the commitment finalised at exactly that prefix:
+// token_ids is the prompt followed by the first n generated ids,
+// prompt_tokens the prompt length, rows prompt + n - 1, and every root is
+// over those rows only. It answers 503 while it is still finalising that
+// prefix and 409 when it generated fewer than n tokens. A sidecar that does
+// not know the parameter ignores it and serves the whole trajectory; the
+// self-check below then refuses a commitment that names more than was
+// delivered, so nothing is signed over it either way.
 
 const (
 	// maxAnchorCommitBytes bounds the AnchorCommitV1 document: it holds token
 	// ids, Merkle roots and checkpoint hashes, never anchors themselves.
 	maxAnchorCommitBytes = 16 << 20
+	// anchorCommitGeneratedParam is the query parameter of GET
+	// /slp/commit/{id} that names the delivered prefix.
+	anchorCommitGeneratedParam = "generated"
 	// defaultAnchorCommitTimeout is the default commitment window after the
 	// generation has ended.
 	defaultAnchorCommitTimeout = 120 * time.Second
@@ -155,15 +177,9 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 	if resp.EngineRequestID == "" {
 		return InferResponse{}, fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING but the engine returned no completion id to fetch its anchor commitment by")
 	}
-	data, err := s.fetchAnchorCommit(ctx, resp.EngineRequestID)
-	if err != nil {
-		if errors.Is(err, ErrAnchorCommitNotFound) {
-			return InferResponse{}, fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING: %w", err)
-		}
-		return InferResponse{}, err
-	}
-	// Self-check before anything is signed: the commitment must name
-	// exactly the tokens this completion delivered.
+	// The delivered token ids come first: the fetch names their count as the
+	// prefix the commitment must be finalised at, and the self-check compares
+	// the commitment with them before anything is signed.
 	artifact, err := s.FetchArtifact(ctx, FetchArtifactRequest{Ref: resp.TokenIDsRef})
 	if err != nil {
 		return InferResponse{}, fmt.Errorf("modelservice local: anchor commitment self-check: token ids artifact: %w", err)
@@ -171,6 +187,13 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 	ids, err := DecodeTokenIDsArtifact(artifact.Data)
 	if err != nil {
 		return InferResponse{}, fmt.Errorf("modelservice local: anchor commitment self-check: %w", err)
+	}
+	data, err := s.fetchAnchorCommit(ctx, resp.EngineRequestID, len(ids.Generated))
+	if err != nil {
+		if errors.Is(err, ErrAnchorCommitNotFound) {
+			return InferResponse{}, fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING: %w", err)
+		}
+		return InferResponse{}, err
 	}
 	if err := checkAnchorCommitTokens(data, ids); err != nil {
 		// Deterministic: retrying spends another generation (and on the
@@ -184,19 +207,19 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 	return resp, nil
 }
 
-// fetchAnchorCommit polls GET /slp/commit/{id} until the engine serves the
-// commitment or the anchorCommitWindow ends. 503 means the sidecar is still
+// fetchAnchorCommit polls GET /slp/commit/{id}?generated=<generated> until
+// the engine serves the commitment or the anchorCommitWindow ends. 503 means the sidecar is still
 // finalizing it and is retried with backoff, as are transport errors and other
 // 5xx; 404 is polled for anchorCommitNotFoundGrace from the first one and then
 // ends the poll with ErrAnchorCommitNotFound; any other answer, or a body
 // that is not an AnchorCommitV1 document, ends it with an error. None of
 // these errors is retryable at the Infer level: generating again would yield
 // another completion, not this one's commitment.
-func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID string) ([]byte, error) {
+func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID string, generated int) ([]byte, error) {
 	window := s.anchorCommitWindow()
 	ctx, cancel := context.WithTimeout(parent, window)
 	defer cancel()
-	path := "/slp/commit/" + url.PathEscape(completionID)
+	path := "/slp/commit/" + url.PathEscape(completionID) + "?" + anchorCommitGeneratedParam + "=" + strconv.Itoa(generated)
 	backoff := s.anchorCommitBackoff
 	if backoff <= 0 {
 		backoff = defaultAnchorCommitBackoff

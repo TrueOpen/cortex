@@ -27,7 +27,11 @@ type anchorSidecar struct {
 	commitCalls []string
 	infoCalls   atomic.Int32
 	commit      func(call int, id string) (int, string)
-	info        func() int
+	// commitAt, when set, answers instead of commit and also sees the
+	// delivered prefix the fetch named ("" when it named none).
+	commitAt func(call int, id, generated string) (int, string)
+	queries  []string // the raw query of every commit call
+	info     func() int
 }
 
 func (a *anchorSidecar) front(t *testing.T, engine *httptest.Server) *httptest.Server {
@@ -44,10 +48,14 @@ func (a *anchorSidecar) front(t *testing.T, engine *httptest.Server) *httptest.S
 			id := strings.TrimPrefix(r.URL.Path, "/slp/commit/")
 			a.mu.Lock()
 			a.commitCalls = append(a.commitCalls, id)
+			a.queries = append(a.queries, r.URL.RawQuery)
 			call := len(a.commitCalls)
 			a.mu.Unlock()
 			status, body := http.StatusNotFound, `{"error":"no such route"}`
-			if a.commit != nil {
+			switch {
+			case a.commitAt != nil:
+				status, body = a.commitAt(call, id, r.URL.Query().Get(anchorCommitGeneratedParam))
+			case a.commit != nil:
 				status, body = a.commit(call, id)
 			}
 			w.WriteHeader(status)
@@ -454,4 +462,64 @@ func TestAnchorCommitCapableRetriesAFailedProbeSoonerThanAVerdict(t *testing.T) 
 	if err := none.AnchorCommitCapable(ctx); !errors.Is(err, ErrAnchorCommitUnsupported) || b.infoCalls.Load() != 1 {
 		t.Fatalf("err = %v after %d probes, want the verdict still cached", err, b.infoCalls.Load())
 	}
+}
+
+// The fetch names the delivered prefix, and a sidecar that honours it serves
+// a commitment the Worker can sign even though the engine generated past the
+// point the Worker stopped reading: chatGenResponse delivers prompt 1 2 3 and
+// generated 10 11, the engine's own trajectory went on to 12.
+func TestInferFetchesTheAnchorCommitAtTheDeliveredPrefix(t *testing.T) {
+	const ranAhead = `{"request_id":"chatcmpl-test","roots":["ff"],"token_ids":[1,2,3,10,11,12],"prompt_tokens":3,"rows":5}`
+	t.Run("the sidecar finalises at the prefix", func(t *testing.T) {
+		a := &anchorSidecar{commitAt: func(call int, _, generated string) (int, string) {
+			switch {
+			case generated != "2":
+				return http.StatusOK, ranAhead
+			case call == 1:
+				return http.StatusServiceUnavailable, `{"error":"finalising the prefix"}`
+			}
+			return http.StatusOK, testAnchorCommit
+		}}
+		svc := anchorTestService(t, a)
+		req := chatInferReq(t)
+		req.RequireAnchorCommit = true
+		resp, err := svc.Infer(context.Background(), req)
+		if err != nil || resp.AnchorCommitRef == "" {
+			t.Fatalf("Infer() = %+v, %v, want the prefix commitment signed", resp, err)
+		}
+		artifact, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.AnchorCommitRef})
+		if err != nil || string(artifact.Data) != testAnchorCommit {
+			t.Fatalf("anchor artifact %q, %v", artifact.Data, err)
+		}
+		a.mu.Lock()
+		queries := append([]string(nil), a.queries...)
+		a.mu.Unlock()
+		if len(queries) != 2 || queries[0] != "generated=2" || queries[1] != "generated=2" {
+			t.Fatalf("commit queries %q, want generated=2 on every poll", queries)
+		}
+	})
+	t.Run("a sidecar that ignores the prefix is refused, not signed", func(t *testing.T) {
+		a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, ranAhead }}
+		svc := anchorTestService(t, a)
+		req := chatInferReq(t)
+		req.RequireAnchorCommit = true
+		resp, err := svc.Infer(context.Background(), req)
+		if !errors.Is(err, ErrAnchorCommitMismatch) || resp.AnchorCommitRef != "" {
+			t.Fatalf("Infer() = %+v, %v, want ErrAnchorCommitMismatch", resp, err)
+		}
+		if ClassOf(err) != FaultDeterministic || FaultCode(err) != FaultCodeAnchorCommitTokenMismatch {
+			t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitTokenMismatch)
+		}
+	})
+	t.Run("a prefix the engine never reached is not polled", func(t *testing.T) {
+		a := &anchorSidecar{commit: func(int, string) (int, string) {
+			return http.StatusConflict, `{"error":"generated 1 token, asked for 2"}`
+		}}
+		svc := anchorTestService(t, a)
+		req := chatInferReq(t)
+		req.RequireAnchorCommit = true
+		if _, err := svc.Infer(context.Background(), req); err == nil || IsRetryable(err) || len(a.calls()) != 1 {
+			t.Fatalf("err = %v after %d polls, want one poll and a permanent failure", err, len(a.calls()))
+		}
+	})
 }
