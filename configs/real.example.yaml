@@ -23,12 +23,14 @@ model_management:
   # GET /slp/commit/{id} (503 = still finalizing, polled with backoff). Not
   # shared with infer_timeout_ms. 0 falls back to 120 seconds.
   anchor_commit_timeout_ms: 120000
-  # Only with the chain's content verdict track on
-  # (anchor_content_verdict_window_blocks > 0), and then required: bind the
-  # sampling seed of every generation under such a Profile to (chain id, task
-  # id, order seed). The engine must declare the rule in /slp/info
-  # ("seed_rules") or the Profile is not offered. Unset, such a generation is
-  # sampled like any other, with the order's seed.
+  # Bind the sampling seed of every generation under such a Profile to
+  # (chain id, task id, order seed). Required once the chain's content verdict
+  # track is on (anchor_content_verdict_window_blocks > 0): set it on every
+  # Worker before that change takes effect, since a late Worker is rejected
+  # on sampled orders while an early one only stops reproducing user seeds.
+  # The engine must declare the rule in /slp/info ("seed_rules") or the
+  # Profile is not offered. Unset, such a generation is sampled like any
+  # other, with the order's seed.
   # anchor_seed_rule: seed-v2
 node:
   rpc_endpoint: https://rpc.trueopen.example.org

@@ -183,9 +183,11 @@ func anchorSeedXArgs(req InferRequest) (map[string]string, error) {
 // SetAnchorSeedRule turns the seed binding on ("seed-v2") or off (""). Off,
 // which is the default, a generation that requires an anchor commitment is
 // sampled exactly as any other: no vllm_xargs, the order's seed. It must be
-// turned on together with the chain's content verdict track, and only with
-// an engine that implements the rule: on, such an engine derives the seed of
-// every such generation from the task (anchorSeedXArgs).
+// on before the chain's content verdict track (see
+// model_management.anchor_seed_rule), and only with an engine that
+// implements the rule: on, such an engine derives the seed of every such
+// generation from the task (anchorSeedXArgs). Call it while the service is
+// built, before it serves: the rule is read by every Infer without a lock.
 func (s *LocalService) SetAnchorSeedRule(rule string) {
 	s.anchorSeedRule = rule
 	// What the capability probe requires of the engine depends on the rule.
