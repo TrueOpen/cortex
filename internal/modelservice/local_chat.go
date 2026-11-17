@@ -131,7 +131,7 @@ type chatCompletionRequest struct {
 	ReturnTokensAsTokenIDs bool               `json:"return_tokens_as_token_ids"`
 	SkipSpecialTokens      *bool              `json:"skip_special_tokens,omitempty"`
 	// VLLMXArgs is set only for a generation that requires an anchor
-	// commitment (anchorSeedXArgs).
+	// commitment while the seed binding is on (LocalService.seedXArgs).
 	VLLMXArgs map[string]string `json:"vllm_xargs,omitempty"`
 }
 
@@ -257,6 +257,9 @@ func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (Inf
 	streaming := s.streamInferenceEnabled()
 	chatReq, duration, err := localChatGenerationRequest(req, profile, input, streaming)
 	if err != nil {
+		return InferResponse{}, err
+	}
+	if chatReq.VLLMXArgs, err = s.seedXArgs(req); err != nil {
 		return InferResponse{}, err
 	}
 	// max_output_duration ends the generation successfully rather than failing
@@ -441,7 +444,6 @@ func localChatGenerationRequest(req InferRequest, profile localModelProfile, in 
 		ReturnTokenIDs:         true,
 		ReturnTokensAsTokenIDs: true,
 		SkipSpecialTokens:      &skipSpecial,
-		VLLMXArgs:              anchorSeedXArgs(req),
 	}
 	if streaming {
 		// Ask vLLM for the terminal usage-only chunk so the committed output's

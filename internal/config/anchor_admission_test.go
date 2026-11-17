@@ -124,3 +124,25 @@ dispatch:
 		}
 	})
 }
+
+func TestAnchorSeedRuleConfig(t *testing.T) {
+	load := func(t *testing.T, rule string) (Config, error) {
+		t.Helper()
+		body := anchorAdmissionTestConfig
+		if rule != "" {
+			body = strings.Replace(body, "  max_concurrency: 1\n", "  max_concurrency: 1\n  anchor_seed_rule: "+rule+"\n", 1)
+		}
+		return LoadFileWithOverrides(writeConfig(t, body), nil)
+	}
+	cfg, err := load(t, "")
+	if err != nil || cfg.ModelManagement.AnchorSeedRule != "" {
+		t.Fatalf("unset: rule %q, err %v, want the binding off", cfg.ModelManagement.AnchorSeedRule, err)
+	}
+	cfg, err = load(t, "seed-v2")
+	if err != nil || cfg.ModelManagement.AnchorSeedRule != AnchorSeedRuleV2 {
+		t.Fatalf("seed-v2: rule %q, err %v", cfg.ModelManagement.AnchorSeedRule, err)
+	}
+	if _, err = load(t, "seed-v1"); err == nil || !strings.Contains(err.Error(), "model_management.anchor_seed_rule") {
+		t.Fatalf("seed-v1: err = %v, want the field named", err)
+	}
+}

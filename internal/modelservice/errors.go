@@ -85,6 +85,11 @@ const (
 	// anchor commitment over a prompt alone, so a task whose Profile requires
 	// WORKER_ANCHOR_OPENING ends without a receipt.
 	FaultCodeAnchorCommitEmptyGeneration = "ANCHOR_COMMIT_EMPTY_GENERATION"
+	// FaultCodeAnchorSeedInputs: the seed binding is on and the request lacks
+	// a fact the engine derives the sampling seed from (chain id, a canonical
+	// task id, the order's generation parameters). Nothing is generated: the
+	// validators would not reproduce a seed derived from anything else.
+	FaultCodeAnchorSeedInputs = "ANCHOR_SEED_INPUTS"
 )
 
 // FaultField is one scalar diagnostic value carried by a Fault.

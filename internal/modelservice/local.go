@@ -105,6 +105,10 @@ type LocalService struct {
 	// polled before it is taken as final. Zero means the default; negative
 	// means a 404 is final at once.
 	anchorCommitNotFoundGrace time.Duration
+	// anchorSeedRule is the seed rule generations that require an anchor
+	// commitment are bound to: "" (off, the default) or AnchorSeedRuleV2.
+	// See SetAnchorSeedRule.
+	anchorSeedRule string
 	// anchorInfo caches the last /slp/info probe (AnchorCommitCapable).
 	anchorInfo anchorInfoCache
 
@@ -365,7 +369,8 @@ type completionRequest struct {
 	// them (see checkRawTextCommittedOutput). Verify leaves it unset.
 	SpacesBetweenSpecialTokens *bool `json:"spaces_between_special_tokens,omitempty"`
 	// VLLMXArgs is set only for a generation that requires an anchor
-	// commitment (anchorSeedXArgs). Verify leaves it unset.
+	// commitment while the seed binding is on (LocalService.seedXArgs).
+	// Verify leaves it unset.
 	VLLMXArgs map[string]string `json:"vllm_xargs,omitempty"`
 }
 
@@ -1002,6 +1007,9 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	streaming := s.streamInferenceEnabled()
 	genReq, duration, err := localGenerationRequest(req, profile, streaming)
 	if err != nil {
+		return InferResponse{}, err
+	}
+	if genReq.VLLMXArgs, err = s.seedXArgs(req); err != nil {
 		return InferResponse{}, err
 	}
 	// max_output_duration is a generation budget, not a transport timeout, and

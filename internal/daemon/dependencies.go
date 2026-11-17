@@ -188,6 +188,7 @@ func BuildDependencies(cfg config.Config, opts DependencyOptions) (Dependencies,
 			return Dependencies{}, fmt.Errorf("model_manifest: %w", err)
 		}
 		local.SetAnchorCommitTimeout(cfg.ModelManagement.AnchorCommitTimeout())
+		local.SetAnchorSeedRule(cfg.ModelManagement.AnchorSeedRule)
 		local.SetOutputDecodingSource(manifests)
 		// A manifest that declares DECODE_VECTORS makes this engine prove,
 		// before any decode is committed or compared, that it reproduces every
