@@ -124,10 +124,11 @@ func TestInferPollsAnchorCommitThroughFinalizing(t *testing.T) {
 }
 
 // 404 under a Profile that requires kind 5 is an explicit failure, not a
-// silently missing commitment, and it is not polled.
+// silently missing commitment. Without a grace it is not polled.
 func TestInferRequiredAnchorCommitNotFoundFails(t *testing.T) {
 	a := &anchorSidecar{}
 	svc := anchorTestService(t, a)
+	svc.anchorCommitNotFoundGrace = -1
 	req := chatInferReq(t)
 	req.RequireAnchorCommit = true
 	_, err := svc.Infer(context.Background(), req)
@@ -140,6 +141,54 @@ func TestInferRequiredAnchorCommitNotFoundFails(t *testing.T) {
 	if n := len(a.calls()); n != 1 {
 		t.Fatalf("404 polled %d times, want once", n)
 	}
+}
+
+// A 404 for a completion that has just ended is polled for the grace: a
+// sidecar that registers the completion a moment late is waited for, and one
+// that never does fails the task with ErrAnchorCommitNotFound, not with the
+// end of the whole commitment window.
+func TestInferPollsAnchorCommitThroughAnEarlyNotFound(t *testing.T) {
+	t.Run("registered late", func(t *testing.T) {
+		a := &anchorSidecar{commit: func(call int, _ string) (int, string) {
+			switch call {
+			case 1, 2:
+				return http.StatusNotFound, `{"error":"unknown request"}`
+			case 3:
+				return http.StatusServiceUnavailable, `{"error":"request still finishing"}`
+			}
+			return http.StatusOK, testAnchorCommit
+		}}
+		svc := anchorTestService(t, a)
+		svc.anchorCommitNotFoundGrace = time.Minute
+		req := chatInferReq(t)
+		req.RequireAnchorCommit = true
+		resp, err := svc.Infer(context.Background(), req)
+		if err != nil || resp.AnchorCommitRef == "" {
+			t.Fatalf("Infer() = %+v, %v, want the commitment served on the fourth poll", resp, err)
+		}
+		if n := len(a.calls()); n != 4 {
+			t.Fatalf("polled %d times, want 4", n)
+		}
+	})
+	t.Run("never registered", func(t *testing.T) {
+		a := &anchorSidecar{}
+		svc := anchorTestService(t, a)
+		svc.anchorCommitNotFoundGrace = 30 * time.Millisecond
+		svc.SetAnchorCommitTimeout(time.Minute)
+		req := chatInferReq(t)
+		req.RequireAnchorCommit = true
+		start := time.Now()
+		_, err := svc.Infer(context.Background(), req)
+		if !errors.Is(err, ErrAnchorCommitNotFound) || IsRetryable(err) {
+			t.Fatalf("err = %v, want a non-retryable ErrAnchorCommitNotFound", err)
+		}
+		if n := len(a.calls()); n < 2 {
+			t.Fatalf("404 polled %d times, want it polled through the grace", n)
+		}
+		if took := time.Since(start); took > 10*time.Second {
+			t.Fatalf("gave up after %s, want the grace, not the commitment window", took)
+		}
+	})
 }
 
 // A sidecar that never finishes is given up on at the end of the anchor

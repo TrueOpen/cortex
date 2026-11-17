@@ -101,6 +101,10 @@ type LocalService struct {
 	// anchorCommitBackoff is the first wait between polls of a commitment the
 	// engine still reports as being finalized (503). Zero means the default.
 	anchorCommitBackoff time.Duration
+	// anchorCommitNotFoundGrace is how long a 404 from /slp/commit/{id} is
+	// polled before it is taken as final. Zero means the default; negative
+	// means a 404 is final at once.
+	anchorCommitNotFoundGrace time.Duration
 	// anchorInfo caches the last /slp/info probe (AnchorCommitCapable).
 	anchorInfo anchorInfoCache
 

@@ -30,6 +30,15 @@ const (
 	// to maxAnchorCommitBackoff.
 	defaultAnchorCommitBackoff = 250 * time.Millisecond
 	maxAnchorCommitBackoff     = 5 * time.Second
+	// defaultAnchorCommitNotFoundGrace is how long a 404 for a completion
+	// that has just ended is polled before it is believed. The sidecar
+	// answers 503 from the engine step that first schedules a request until
+	// its commitment is final, and 404 only for an id it does not hold, so a
+	// 404 here should already be final; the grace covers a sidecar (or a
+	// proxy in front of it) that learns of the completion a moment after the
+	// response was written, at the price of failing a truly lost commitment
+	// ten seconds later.
+	defaultAnchorCommitNotFoundGrace = 10 * time.Second
 	// anchorInfoOKTTL and anchorInfoFailTTL are how long a /slp/info verdict
 	// is reused. A failure is retried sooner so an engine that has just come
 	// up is picked up quickly.
@@ -37,8 +46,9 @@ const (
 	anchorInfoFailTTL = time.Minute
 )
 
-// ErrAnchorCommitNotFound is a 404 from /slp/commit/{id}: the engine has no
-// anchor sidecar, or the sidecar never recorded the completion.
+// ErrAnchorCommitNotFound is a 404 from /slp/commit/{id} that outlasted
+// anchorCommitNotFoundGrace: the engine has no anchor sidecar, or the sidecar
+// does not hold the completion.
 var ErrAnchorCommitNotFound = errors.New("engine has no anchor commitment for the completion")
 
 // ErrAnchorCommitUnsupported means the model service cannot serve ADR-0040
@@ -172,8 +182,9 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 // fetchAnchorCommit polls GET /slp/commit/{id} until the engine serves the
 // commitment or the anchorCommitWindow ends. 503 means the sidecar is still
 // finalizing it and is retried with backoff, as are transport errors and other
-// 5xx; 404 ends the poll with ErrAnchorCommitNotFound; any other answer, or a
-// body that is not an AnchorCommitV1 document, ends it with an error. None of
+// 5xx; 404 is polled for anchorCommitNotFoundGrace from the first one and then
+// ends the poll with ErrAnchorCommitNotFound; any other answer, or a body
+// that is not an AnchorCommitV1 document, ends it with an error. None of
 // these errors is retryable at the Infer level: generating again would yield
 // another completion, not this one's commitment.
 func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID string) ([]byte, error) {
@@ -185,7 +196,12 @@ func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID st
 	if backoff <= 0 {
 		backoff = defaultAnchorCommitBackoff
 	}
+	grace := s.anchorCommitNotFoundGrace
+	if grace == 0 {
+		grace = defaultAnchorCommitNotFoundGrace
+	}
 	var last error
+	var notFoundSince time.Time
 	for attempt := 1; ; attempt++ {
 		data, retry, err := s.getAnchorCommitOnce(ctx, path, completionID)
 		if err == nil {
@@ -193,6 +209,14 @@ func (s *LocalService) fetchAnchorCommit(parent context.Context, completionID st
 		}
 		if !retry {
 			return nil, err
+		}
+		if errors.Is(err, ErrAnchorCommitNotFound) {
+			if notFoundSince.IsZero() {
+				notFoundSince = time.Now()
+			}
+			if time.Since(notFoundSince) >= grace {
+				return nil, err
+			}
 		}
 		last = err
 		timer := time.NewTimer(backoff)
@@ -230,7 +254,7 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completion
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, false, fmt.Errorf("%w (GET %s returned 404: no anchor sidecar, or the completion was not recorded)", ErrAnchorCommitNotFound, path)
+		return nil, true, fmt.Errorf("%w (GET %s returned 404: no anchor sidecar, or the completion was not recorded)", ErrAnchorCommitNotFound, path)
 	case resp.StatusCode == http.StatusServiceUnavailable:
 		return nil, true, fmt.Errorf("modelservice local: %s returned 503: the anchor commitment is still being finalized", path)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
