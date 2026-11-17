@@ -44,6 +44,11 @@ const (
 	// up is picked up quickly.
 	anchorInfoOKTTL   = 5 * time.Minute
 	anchorInfoFailTTL = time.Minute
+	// anchorInfoProbeFailTTL is how long a probe that got no answer
+	// (ErrAnchorCommitProbeFailed) is reused. It is not a verdict about the
+	// engine, and while it is cached every offer for a kind 5 Profile is left
+	// unanswered, so it is asked again after a few seconds, not a minute.
+	anchorInfoProbeFailTTL = 5 * time.Second
 )
 
 // ErrAnchorCommitNotFound is a 404 from /slp/commit/{id} that outlasted
@@ -286,14 +291,18 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completion
 // including a 404 from an engine without the sidecar, is
 // ErrAnchorCommitUnsupported. No answer in time, a refused connection, 429 or
 // 5xx is ErrAnchorCommitProbeFailed instead. The verdict is cached
-// (anchorInfoOKTTL, anchorInfoFailTTL) so a caller may ask on every pass.
+// (anchorInfoOKTTL, anchorInfoFailTTL, anchorInfoProbeFailTTL) so a caller
+// may ask on every pass.
 func (s *LocalService) AnchorCommitCapable(ctx context.Context) error {
 	s.anchorInfo.mu.Lock()
 	defer s.anchorInfo.mu.Unlock()
 	now := time.Now()
 	if !s.anchorInfo.checked.IsZero() {
 		ttl := anchorInfoOKTTL
-		if s.anchorInfo.err != nil {
+		switch {
+		case errors.Is(s.anchorInfo.err, ErrAnchorCommitProbeFailed):
+			ttl = anchorInfoProbeFailTTL
+		case s.anchorInfo.err != nil:
 			ttl = anchorInfoFailTTL
 		}
 		if now.Sub(s.anchorInfo.checked) < ttl {

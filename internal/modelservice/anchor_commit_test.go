@@ -418,3 +418,40 @@ func TestCheckAnchorCommitTokens(t *testing.T) {
 		t.Fatalf("negative id accepted: %v", err)
 	}
 }
+
+// A probe that got no answer is asked again after a few seconds: while it is
+// cached every offer for a kind 5 Profile goes unanswered. A definitive "no
+// sidecar" keeps its longer cache.
+func TestAnchorCommitCapableRetriesAFailedProbeSoonerThanAVerdict(t *testing.T) {
+	age := func(svc *LocalService, d time.Duration) {
+		svc.anchorInfo.mu.Lock()
+		svc.anchorInfo.checked = svc.anchorInfo.checked.Add(-d)
+		svc.anchorInfo.mu.Unlock()
+	}
+	status := atomic.Int32{}
+	status.Store(http.StatusServiceUnavailable)
+	a := &anchorSidecar{info: func() int { return int(status.Load()) }}
+	svc := anchorTestService(t, a)
+	ctx := context.Background()
+	if err := svc.AnchorCommitCapable(ctx); !errors.Is(err, ErrAnchorCommitProbeFailed) {
+		t.Fatalf("err = %v, want ErrAnchorCommitProbeFailed", err)
+	}
+	status.Store(http.StatusOK)
+	if err := svc.AnchorCommitCapable(ctx); !errors.Is(err, ErrAnchorCommitProbeFailed) || a.infoCalls.Load() != 1 {
+		t.Fatalf("err = %v after %d probes, want the failure reused at once", err, a.infoCalls.Load())
+	}
+	age(svc, anchorInfoProbeFailTTL)
+	if err := svc.AnchorCommitCapable(ctx); err != nil || a.infoCalls.Load() != 2 {
+		t.Fatalf("err = %v after %d probes, want a fresh probe after anchorInfoProbeFailTTL", err, a.infoCalls.Load())
+	}
+
+	b := &anchorSidecar{}
+	none := anchorTestService(t, b)
+	if err := none.AnchorCommitCapable(ctx); !errors.Is(err, ErrAnchorCommitUnsupported) {
+		t.Fatalf("err = %v, want ErrAnchorCommitUnsupported", err)
+	}
+	age(none, anchorInfoProbeFailTTL)
+	if err := none.AnchorCommitCapable(ctx); !errors.Is(err, ErrAnchorCommitUnsupported) || b.infoCalls.Load() != 1 {
+		t.Fatalf("err = %v after %d probes, want the verdict still cached", err, b.infoCalls.Load())
+	}
+}
