@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -303,10 +304,32 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completion
 	if !json.Valid(data) || json.Unmarshal(data, &head) != nil || head.RequestID == "" {
 		return nil, false, fmt.Errorf("modelservice local: %s is not an AnchorCommitV1 document", path)
 	}
-	if head.RequestID != completionID {
+	if !anchorCommitNamesCompletion(head.RequestID, completionID) {
 		return nil, false, fmt.Errorf("modelservice local: %s serves the anchor commitment of request_id %q, not of completion %q", path, head.RequestID, completionID)
 	}
 	return data, false, nil
+}
+
+// anchorEngineKeyTail is what the engine appends to a completion id to form
+// its own request key: "-<choice index>-<8 hex>", the choice index optional.
+var anchorEngineKeyTail = regexp.MustCompile(`^(?:[0-9]+-)?[0-9a-f]{8}$`)
+
+// anchorCommitNamesCompletion reports whether a commitment's request_id is
+// the one of the completion asked for. The Worker asks by the completion id
+// of the response ("cmpl-822ecaa38c0c278b"); the engine records the
+// commitment under its own key for that completion, which is the completion
+// id itself or the completion id followed by "-<choice index>-<8 hex>"
+// ("cmpl-822ecaa38c0c278b-0-bd50afd1"), and that key is what request_id
+// carries. The sidecar resolves the id it is asked for by the same rule and
+// answers 409 when more than one key matches, so a document it serves under
+// this rule is the asked completion's. Anything else is another completion's
+// commitment.
+func anchorCommitNamesCompletion(requestID, completionID string) bool {
+	if requestID == completionID {
+		return true
+	}
+	tail, ok := strings.CutPrefix(requestID, completionID+"-")
+	return ok && anchorEngineKeyTail.MatchString(tail)
 }
 
 // AnchorCommitCapable probes GET /slp/info under the probe timeout. A 2xx

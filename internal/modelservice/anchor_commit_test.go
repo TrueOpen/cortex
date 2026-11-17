@@ -523,3 +523,49 @@ func TestInferFetchesTheAnchorCommitAtTheDeliveredPrefix(t *testing.T) {
 		}
 	})
 }
+
+// The engine records a commitment under its own key for the completion, the
+// completion id followed by "-<choice index>-<8 hex>", and request_id
+// carries that key. Such a document is the asked completion's and is signed;
+// any other request_id is another completion's.
+func TestInferAcceptsTheEngineKeyOfTheAskedCompletion(t *testing.T) {
+	for id, want := range map[string]bool{
+		"chatcmpl-test":                 true,
+		"chatcmpl-test-0-bd50afd1":      true,
+		"chatcmpl-test-12-0123abcd":     true,
+		"chatcmpl-test-bd50afd1":        true,
+		"chatcmpl-test2-0-bd50afd1":     false,
+		"chatcmpl-test-0-BD50AFD1":      false,
+		"chatcmpl-test-0-bd50afd":       false,
+		"chatcmpl-test-0-bd50afd1-x":    false,
+		"chatcmpl-test-other":           false,
+		"chatcmpl-tes":                  false,
+		"xchatcmpl-test-0-bd50afd1":     false,
+		"chatcmpl-test-0-1-bd50afd1":    false,
+		"chatcmpl-SOMEONE-0-bd50afd1":   false,
+		"chatcmpl-test--bd50afd1":       false,
+		"chatcmpl-test-0-bd50afd1\n":    false,
+		"chatcmpl-test-0-bd50afd1 ":     false,
+		"chatcmpl-test-0-bd50afd10":     false,
+		"chatcmpl-test-0x-bd50afd1":     false,
+		"chatcmpl-test-00000000":        true,
+		"chatcmpl-test-0-00000000-0000": false,
+	} {
+		if got := anchorCommitNamesCompletion(id, "chatcmpl-test"); got != want {
+			t.Errorf("anchorCommitNamesCompletion(%q) = %v, want %v", id, got, want)
+		}
+	}
+	body := strings.Replace(testAnchorCommit, `"request_id":"chatcmpl-test"`, `"request_id":"chatcmpl-test-0-bd50afd1"`, 1)
+	a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, body }}
+	svc := anchorTestService(t, a)
+	req := chatInferReq(t)
+	req.RequireAnchorCommit = true
+	resp, err := svc.Infer(context.Background(), req)
+	if err != nil || resp.AnchorCommitRef == "" {
+		t.Fatalf("Infer() = %+v, %v, want the commitment recorded under the engine's key signed", resp, err)
+	}
+	artifact, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.AnchorCommitRef})
+	if err != nil || string(artifact.Data) != body {
+		t.Fatalf("anchor artifact %q, %v, want the served bytes unchanged", artifact.Data, err)
+	}
+}
