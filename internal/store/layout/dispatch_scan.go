@@ -56,6 +56,20 @@ func DispatchScopeOwner(ctx context.Context, s *store.Store, scope StoredHash) (
 	return out, found, err
 }
 
+// DispatchDutiesWithoutReceipt returns the records that hold a duty
+// (accepted, pending-claim or recorded) and carry no signed receipt: the
+// tickets of tasks still in flight.
+func DispatchDutiesWithoutReceipt(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
+	var out []DispatchRecord
+	err := scanDispatchRecords(ctx, s, func(r DispatchRecord) error {
+		if r.State.HoldsDuty() && len(r.Receipt) == 0 {
+			out = append(out, r)
+		}
+		return nil
+	})
+	return out, err
+}
+
 // DispatchAnswer is one row of the reject-rate metric (S4 Q16).
 type DispatchAnswer struct {
 	Builder     string

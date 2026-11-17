@@ -1,14 +1,17 @@
 package daemon
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/config"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 )
 
 // ADR-0040 audit admission gate.
@@ -52,6 +55,32 @@ import (
 // bounds the other lag: how long the last "accept" of a sidecar that died
 // goes on admitting.
 //
+// The slot protocol. "accept" does not say how many: the sidecar learns of a
+// task only once its commitment exists, so between two writes of the signal
+// a node could take any number of tasks against headroom the sidecar counted
+// once. A sidecar that also publishes
+//
+//	"slots": n      tasks this node may have in flight beyond those in "seen"
+//	"seen":  [...]  the tasks the sidecar accounts for or has settled, each by
+//	                the first 16 lowercase hex characters of its task id
+//
+// is read by those instead of "accept". The node takes a slot when it
+// accepts an offer (Reserve, in the same step as the lease) and holds it
+// until the sidecar lists the task as seen, the ticket ends without a signed
+// receipt (rejected, revoked, superseded, lost, task ended), or a TTL runs
+// out. It accepts only while the slots it holds number fewer than "slots".
+// The sidecar computes the slots against the tasks it has seen and the node
+// adds exactly those it has not, so no task is counted twice or missed,
+// whatever the age of the signal inside max_age_s; a task that became
+// visible after the signal was written stays reserved until the next one,
+// which errs on the safe side. The standing handraise advertises what is
+// left (see handraiseGates.applyAnchorAdmission). A signal without "slots"
+// is the boolean gate described above.
+//
+// The table of slots held is in memory. After a restart it is rebuilt from
+// the dispatch records (every accepted ticket without a signed receipt), and
+// the TTL is the net under every path that might forget to give a slot back.
+//
 // Accepted tasks are not affected, Profiles without kind 5 are not affected,
 // and Verifier duty is not gated (verifying creates no anchor obligation).
 // Without the setting there is no gate at all.
@@ -72,6 +101,22 @@ type AnchorAdmission struct {
 	refusing      bool
 	loggedAt      time.Time
 	refusedOffers uint64
+	// reserved holds, by ticket, the tasks this node took on that the sidecar
+	// does not list as seen yet (see the slot protocol above).
+	reserved   map[layout.StoredHash]anchorReservation
+	reserveTTL time.Duration
+}
+
+// anchorReservation is one slot held by a ticket this node accepted.
+type anchorReservation struct {
+	task string    // the task id as the sidecar lists it (anchorAdmissionKey)
+	at   time.Time // when the slot was taken, for the TTL
+}
+
+// anchorAdmissionKey is the form task ids take in the sidecar's "seen" list:
+// the first 16 lowercase hex characters.
+func anchorAdmissionKey(taskID layout.StoredHash) string {
+	return hex.EncodeToString(taskID[:8])
 }
 
 // NewAnchorAdmission returns the gate cfg describes, or nil when cfg names no
@@ -86,7 +131,8 @@ func NewAnchorAdmission(cfg config.AnchorAdmissionConfig, now func() time.Time, 
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &AnchorAdmission{path: cfg.File, maxAge: cfg.MaxAge(), now: now, log: logger.With("component", "anchor-admission")}
+	return &AnchorAdmission{path: cfg.File, maxAge: cfg.MaxAge(), now: now, log: logger.With("component", "anchor-admission"),
+		reserved: map[layout.StoredHash]anchorReservation{}, reserveTTL: cfg.ReserveTTL()}
 }
 
 // anchorAdmissionSignal is the sidecar's file. Fields it does not know are
@@ -95,24 +141,193 @@ type anchorAdmissionSignal struct {
 	Accept  *bool   `json:"accept"`
 	Reason  string  `json:"reason"`
 	Updated float64 `json:"updated"`
+	// Slots, when present, makes this a slot signal: how many tasks beyond
+	// those listed in Seen this node may have in flight. Seen lists the tasks
+	// the sidecar accounts for or has settled, by anchorAdmissionKey. A
+	// sidecar that does not publish Slots is read by Accept alone.
+	Slots *int     `json:"slots"`
+	Seen  []string `json:"seen"`
 }
 
 // Refusal is nil when a new audit obligation may be taken, and otherwise says
-// why not. The file is read on every call: it is small, local, and replaced
-// by the sidecar every few seconds.
+// why not: the signal says no, is missing or stale, or it is a slot signal
+// and every slot is reserved. The file is read on every call: it is small,
+// local, and replaced by the sidecar every few seconds.
 func (a *AnchorAdmission) Refusal() error {
+	return a.RefusalForTask(layout.StoredHash{})
+}
+
+// RefusalForTask is Refusal for an offer of taskID: a task that already
+// holds a slot here, or that the sidecar already lists as seen, needs no
+// further slot. It reserves nothing; Reserve does, under the same rule.
+func (a *AnchorAdmission) RefusalForTask(taskID layout.StoredHash) error {
 	if a == nil {
 		return nil
 	}
-	err := a.read()
-	a.note(err)
-	return err
+	verdict := a.read()
+	a.note(verdict)
+	if verdict != nil {
+		return verdict
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.fullLocked(layout.StoredHash{}, taskID)
+}
+
+// Capacity reads the signal for the standing handraise. refusal is the
+// signal saying no (or being missing or stale). Otherwise limited reports a
+// slot signal and free the slots not reserved; a boolean signal is not
+// limited.
+func (a *AnchorAdmission) Capacity() (free int, limited bool, refusal error) {
+	if a == nil {
+		return 0, false, nil
+	}
+	verdict := a.read()
+	a.note(verdict)
+	if verdict != nil {
+		return 0, false, verdict
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	slots, limited := a.slotsLocked()
+	return max(0, slots-len(a.reserved)), limited, nil
+}
+
+// Reserve takes a slot for ticket, an offer of taskID this node is about to
+// accept, and reports whether it took a new one. It is the one place a slot
+// is taken, and it checks and takes under one lock, so the tickets holding a
+// slot never outnumber the slots of the signal they were taken against. A
+// ticket that already holds a slot, and a task the sidecar already lists as
+// seen, take none. Against a boolean signal nothing is reserved and the
+// answer is the signal's.
+func (a *AnchorAdmission) Reserve(ticket, taskID layout.StoredHash) (taken bool, err error) {
+	if a == nil {
+		return false, nil
+	}
+	verdict := a.read()
+	a.note(verdict)
+	if verdict != nil {
+		return false, verdict
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, limited := a.slotsLocked(); !limited {
+		return false, nil
+	}
+	if _, held := a.reserved[ticket]; held {
+		return false, nil
+	}
+	if err := a.fullLocked(ticket, taskID); err != nil {
+		return false, err
+	}
+	key := anchorAdmissionKey(taskID)
+	if _, seen := a.last.seen[key]; seen {
+		return false, nil
+	}
+	a.reserved[ticket] = anchorReservation{task: key, at: a.now()}
+	return true, nil
+}
+
+// slotsLocked prunes the reservations and returns the slots of the last
+// parsed signal; limited is false for a boolean signal. A reservation ends
+// when the sidecar lists its task as seen (the sidecar counts it from then
+// on) or at the TTL. The caller holds mu and has just read the signal.
+func (a *AnchorAdmission) slotsLocked() (slots int, limited bool) {
+	last := a.last
+	if last == nil || last.slots == nil {
+		return 0, false
+	}
+	now := a.now()
+	for ticket, r := range a.reserved {
+		_, seen := last.seen[r.task]
+		if expired := now.Sub(r.at) > a.reserveTTL; seen || expired {
+			delete(a.reserved, ticket)
+			if expired && !seen {
+				a.log.Warn("anchor admission slot released at its TTL: the sidecar never listed the task as seen",
+					"ticket", ticket.String(), "task", r.task, "held", now.Sub(r.at).Round(time.Second).String())
+			}
+		}
+	}
+	return max(0, *last.slots), true
+}
+
+// fullLocked is the slot rule for one more task: nil against a boolean
+// signal, for a ticket or task that already holds a slot, for a task the
+// sidecar lists as seen, and while a slot is free. The caller holds mu.
+func (a *AnchorAdmission) fullLocked(ticket, taskID layout.StoredHash) error {
+	slots, limited := a.slotsLocked()
+	if !limited {
+		return nil
+	}
+	if !taskID.IsZero() {
+		key := anchorAdmissionKey(taskID)
+		if _, seen := a.last.seen[key]; seen {
+			return nil
+		}
+		for held, r := range a.reserved {
+			if held == ticket || (ticket.IsZero() && r.task == key) {
+				return nil
+			}
+		}
+	}
+	if len(a.reserved) < slots {
+		return nil
+	}
+	why := a.last.reason
+	if why == "" {
+		why = "no free audit slot"
+	}
+	return fmt.Errorf("the anchor sidecar has %d audit slots and %d tasks of this node are in flight: %s", slots, len(a.reserved), why)
+}
+
+// Release gives back the slot ticket holds, if any: the ticket will create
+// no audit obligation here (it was rejected, revoked, superseded, lost, or
+// its task ended before a receipt was signed).
+func (a *AnchorAdmission) Release(ticket layout.StoredHash) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	delete(a.reserved, ticket)
+	a.mu.Unlock()
+}
+
+// ReleaseTask gives back every slot held for taskID.
+func (a *AnchorAdmission) ReleaseTask(taskID layout.StoredHash) {
+	if a == nil {
+		return
+	}
+	key := anchorAdmissionKey(taskID)
+	a.mu.Lock()
+	for ticket, r := range a.reserved {
+		if r.task == key {
+			delete(a.reserved, ticket)
+		}
+	}
+	a.mu.Unlock()
+}
+
+// restore re-takes, after a restart, the slot of a ticket this node had
+// accepted and not yet signed a receipt for. The table is in memory only, so
+// it is rebuilt from the dispatch records; it is rebuilt without a limit,
+// because the tasks are in flight whatever the signal says now.
+func (a *AnchorAdmission) restore(ticket, taskID layout.StoredHash) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.reserved[ticket] = anchorReservation{task: anchorAdmissionKey(taskID), at: a.now()}
+	a.mu.Unlock()
 }
 
 // parsedAnchorAdmission is a signal that was parsed and the verdict it gave.
 type parsedAnchorAdmission struct {
 	updated time.Time
 	verdict error
+	// slots is nil for a boolean signal.
+	slots  *int
+	seen   map[string]struct{}
+	reason string
 }
 
 // read returns the verdict of the signal, or of the last parsed one while the
@@ -130,6 +345,14 @@ func (a *AnchorAdmission) read() error {
 	}
 	parsed := &parsedAnchorAdmission{updated: time.Unix(0, int64(sig.Updated*float64(time.Second)))}
 	parsed.verdict = a.judge(sig, parsed.updated)
+	if sig.Slots != nil {
+		n := *sig.Slots
+		parsed.slots, parsed.reason = &n, sig.Reason
+		parsed.seen = make(map[string]struct{}, len(sig.Seen))
+		for _, id := range sig.Seen {
+			parsed.seen[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+		}
+	}
 	a.mu.Lock()
 	a.last = parsed
 	a.mu.Unlock()
@@ -165,6 +388,11 @@ func (a *AnchorAdmission) fresh(updated time.Time) error {
 func (a *AnchorAdmission) judge(sig anchorAdmissionSignal, updated time.Time) error {
 	if err := a.fresh(updated); err != nil {
 		return err
+	}
+	if sig.Slots != nil {
+		// A slot signal is read by its slots: "accept" is the sidecar's
+		// answer for a service that does not know them.
+		return nil
 	}
 	if !*sig.Accept {
 		if sig.Reason == "" {
@@ -204,8 +432,12 @@ func (a *AnchorAdmission) noteRefusedOffer() {
 
 // AnchorAdmissionStatus is the gate as /metrics reports it.
 type AnchorAdmissionStatus struct {
-	Accepting     bool   // the signal, read now, admits new audit obligations
+	Accepting     bool   // the signal, read now, admits one more audit obligation
 	RefusedOffers uint64 // offers refused by the gate since this process started
+	// Limited reports a slot signal; Slots, Reserved and Free are then the
+	// sidecar's slots, the slots tickets of this node hold, and the rest.
+	Limited               bool
+	Slots, Reserved, Free int
 }
 
 // Status reads the signal and reports the gate; ok is false for the
@@ -214,8 +446,16 @@ func (a *AnchorAdmission) Status() (status AnchorAdmissionStatus, ok bool) {
 	if a == nil {
 		return AnchorAdmissionStatus{}, false
 	}
-	accepting := a.read() == nil
+	verdict := a.read()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return AnchorAdmissionStatus{Accepting: accepting, RefusedOffers: a.refusedOffers}, true
+	status = AnchorAdmissionStatus{Accepting: verdict == nil, RefusedOffers: a.refusedOffers}
+	if verdict == nil {
+		if slots, limited := a.slotsLocked(); limited {
+			status.Limited, status.Slots, status.Reserved = true, slots, len(a.reserved)
+			status.Free = max(0, slots-len(a.reserved))
+			status.Accepting = status.Free > 0
+		}
+	}
+	return status, true
 }

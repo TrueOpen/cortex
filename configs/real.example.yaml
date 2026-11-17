@@ -188,8 +188,14 @@ dispatch:
   # rewrites the file every 15 s. Keep it at three or more write periods (a
   # shorter value closes the gate on every late write), and no longer than
   # you accept a dead sidecar to keep admitting.
+  # A sidecar that also writes "slots" and "seen" is read by those: the node
+  # holds one slot per accepted task the sidecar does not list as seen yet,
+  # accepts only while slots are free, and advertises what is left. A slot is
+  # given back when the task is seen or ends without a receipt, and at
+  # reserve_ttl_s (default 1800) at the latest.
   # anchor_admission:
   #   file: /var/lib/cortex/anchor_admission.json
   #   max_age_s: 45
+  #   reserve_ttl_s: 1800
 health:
   bind: 127.0.0.1:8081

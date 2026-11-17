@@ -191,6 +191,30 @@ func (d *Dispatcher) pruneDeadlines(now time.Time) {
 // whatever became of its accept: after a restart an earlier process may have
 // sent it (Q9). A recorded ticket whose lease a crash left on the ticket key
 // finishes its move to (task_id, WORKER).
+// recoverAnchorSlots rebuilds the admission gate's table of slots held,
+// which is in memory only: every ticket that holds a duty and has no signed
+// receipt is a task in flight the sidecar cannot see yet. The record does
+// not say whether its Profile requires WORKER_ANCHOR_OPENING, so on a node
+// that also serves other Profiles this counts their in-flight tasks as well
+// until they end or the TTL passes: too many slots held for a while after a
+// restart, never too few.
+func (d *Dispatcher) recoverAnchorSlots(ctx context.Context) error {
+	if d.cfg.AnchorAdmission == nil {
+		return nil
+	}
+	recs, err := layout.DispatchDutiesWithoutReceipt(ctx, d.cfg.Store)
+	if err != nil {
+		return fmt.Errorf("dispatcher: list tickets in flight: %w", err)
+	}
+	for _, rec := range recs {
+		d.cfg.AnchorAdmission.restore(rec.TicketHash, rec.TaskID)
+	}
+	if len(recs) > 0 {
+		d.cfg.Logger.Info("restored anchor admission slots of tickets in flight", "tickets", len(recs))
+	}
+	return nil
+}
+
 func (d *Dispatcher) recoverLeases(ctx context.Context) error {
 	tickets, err := layout.WorkerTicketLeases(ctx, d.cfg.Store)
 	if err != nil {

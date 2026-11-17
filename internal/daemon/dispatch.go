@@ -298,6 +298,9 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	if err := d.recoverLeases(ctx); err != nil {
 		return nil, err
 	}
+	if err := d.recoverAnchorSlots(ctx); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -428,6 +431,13 @@ func (d *Dispatcher) releaseWith(ctx context.Context, rec layout.DispatchRecord,
 	if err := d.releaseTaskLeaseOf(ctx, rec); err != nil {
 		return err
 	}
+	if len(rec.Receipt) == 0 {
+		// Released before a receipt was signed: no anchor commitment of this
+		// ticket can reach the chain, so its audit slot goes back. With a
+		// signed receipt the slot stays until the sidecar lists the task as
+		// seen (or the TTL): the commitment may be on its way.
+		d.cfg.AnchorAdmission.Release(rec.TicketHash)
+	}
 	if _, err := layout.UpdateDispatchDroppingInput(ctx, d.cfg.Store, rec.TicketHash, func(r *layout.DispatchRecord) error {
 		r.State, r.StateReason = state, why
 		if set != nil {
@@ -448,6 +458,10 @@ func (d *Dispatcher) releaseLease(ctx context.Context, ticket layout.StoredHash)
 		return builderclient.Retryable(fmt.Errorf("release lease: %w", err))
 	}
 	if released {
+		// A lease still under its ticket key belongs to a ticket whose order
+		// is not recorded yet, so no receipt was signed for it: the audit
+		// slot it holds, if any, goes back with it.
+		d.cfg.AnchorAdmission.Release(ticket)
 		d.cfg.Handraise.Notify()
 	}
 	return nil
@@ -511,7 +525,9 @@ func (d *Dispatcher) ReleaseTaskLease(ctx context.Context, taskID layout.StoredH
 	if err != nil {
 		return fmt.Errorf("records for task %s: %w", taskID, err)
 	}
+	receipt := false
 	for _, rec := range recs {
+		receipt = receipt || len(rec.Receipt) > 0
 		if rec.State != layout.DispatchRecorded {
 			continue
 		}
@@ -520,6 +536,13 @@ func (d *Dispatcher) ReleaseTaskLease(ctx context.Context, taskID layout.StoredH
 			return err
 		}
 		released = released || dropped
+	}
+	if !receipt {
+		// The task ended here without a signed receipt (the inference
+		// failed, an empty generation, the infer deadline passed): it leaves
+		// no anchor commitment, so its audit slot goes back. A task that did
+		// sign one keeps the slot until the sidecar lists it as seen.
+		d.cfg.AnchorAdmission.ReleaseTask(taskID)
 	}
 	if released {
 		d.cfg.Handraise.Notify()

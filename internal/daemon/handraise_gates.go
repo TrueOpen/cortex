@@ -198,11 +198,11 @@ func (g *handraiseGates) evaluate(ctx context.Context, height uint64, intervalKn
 	// flips do not make every Profile left out for a standing reason be
 	// logged again.
 	g.logEligible(res.profiles)
-	g.applyAnchorAdmission(res.profiles)
 	free, ok := g.local.FreeSlots(ctx)
 	if !ok {
 		free = 0 // H3
 	}
+	g.applyAnchorAdmission(res.profiles, &free)
 	res.open = true
 	res.base = handraiseState{Member: f.member, AuthNonce: f.authNonce, FreeSlots: free}
 	res.state, res.factual, res.why = res.offer(nil)
@@ -296,26 +296,60 @@ func (g *handraiseGates) readProfiles(ctx context.Context, height uint64, bond c
 	return out
 }
 
-// applyAnchorAdmission leaves every eligible Profile that requires
-// WORKER_ANCHOR_OPENING out while the anchor sidecar admits no new audit
-// obligation. It is a local fact, not a failed read, so a Profile offered
-// before is not kept. The signal is not read at all when no such Profile is
-// eligible.
-func (g *handraiseGates) applyAnchorAdmission(vs []profileVerdict) {
+// applyAnchorAdmission applies the anchor sidecar's admission signal to one
+// evaluation: vs are the Profile verdicts and free the slots about to be
+// advertised. The signal is local and read every pass, and not at all when no
+// eligible Profile requires WORKER_ANCHOR_OPENING.
+//
+//   - The signal says no (or is missing or stale): every such Profile is left
+//     out. It is a fact, not a failed read, so a Profile offered before is not
+//     kept, and a node with nothing else to offer withdraws.
+//   - A slot signal on a node whose eligible Profiles all require kind 5: the
+//     Profiles stay and free becomes min(free, free audit slots). A Builder
+//     sends no offer to a handraise with no free slot, and counts a reject
+//     against the node only while the handraise advertises one, so zero is
+//     advertised as zero. This is ordinary capacity: a lower count is signed
+//     at once and a higher one waits for the minimum change interval
+//     (decideHandraise), so the count is never re-signed faster than that
+//     interval however the slots move, and nothing is withdrawn or reopened.
+//   - A slot signal on a node that also offers other Profiles: the one
+//     free_slot_count cannot say "none for these Profiles", so they are left
+//     out while no audit slot is free and offered while one is.
+func (g *handraiseGates) applyAnchorAdmission(vs []profileVerdict, free *uint32) {
 	if g.admission == nil {
 		return
 	}
-	var refusal error
-	read := false
+	gated, others := 0, 0
+	for _, v := range vs {
+		switch {
+		case v.class != profileEligible:
+		case v.anchor:
+			gated++
+		default:
+			others++
+		}
+	}
+	if gated == 0 {
+		return
+	}
+	slots, limited, refusal := g.admission.Capacity()
+	why := ""
+	switch {
+	case refusal != nil:
+		why = "anchor admission: " + refusal.Error()
+	case !limited:
+		return
+	case others == 0:
+		*free = min(*free, uint32(slots))
+		return
+	case slots == 0:
+		why = "anchor admission: no free audit slot"
+	default:
+		return
+	}
 	for i := range vs {
-		if vs[i].class != profileEligible || !vs[i].anchor {
-			continue
-		}
-		if !read {
-			refusal, read = g.admission.Refusal(), true
-		}
-		if refusal != nil {
-			vs[i].class, vs[i].why = profileExcluded, "anchor admission: "+refusal.Error()
+		if vs[i].class == profileEligible && vs[i].anchor {
+			vs[i].class, vs[i].why = profileExcluded, why
 		}
 	}
 }

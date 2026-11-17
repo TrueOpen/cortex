@@ -126,6 +126,24 @@ type AnchorAdmissionConfig struct {
 	// bound is what a dead sidecar may cost: for up to MaxAgeS the node goes
 	// on admitting on the last "accept".
 	MaxAgeS uint64 `yaml:"max_age_s"`
+	// ReserveTTLS bounds how long an audit slot is held for a ticket the
+	// sidecar never lists as seen (slot signals only); 0 takes
+	// DefaultAnchorAdmissionReserveTTLS. It must exceed the longest time from
+	// accepting an offer to the receipt being visible to the sidecar, or a
+	// task still in flight would stop being counted.
+	ReserveTTLS uint64 `yaml:"reserve_ttl_s"`
+}
+
+// DefaultAnchorAdmissionReserveTTLS is the safety net under a slot that was
+// never given back.
+const DefaultAnchorAdmissionReserveTTLS = 1800
+
+// ReserveTTL is how long a slot is held at most.
+func (a AnchorAdmissionConfig) ReserveTTL() time.Duration {
+	if a.ReserveTTLS == 0 {
+		return DefaultAnchorAdmissionReserveTTLS * time.Second
+	}
+	return time.Duration(a.ReserveTTLS) * time.Second
 }
 
 // Enabled reports whether the gate is configured.
@@ -231,6 +249,9 @@ func (d DispatchConfig) problems() []string {
 	}
 	if d.AnchorAdmission.MaxAgeS > maxAnchorAdmissionMaxAgeS {
 		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.max_age_s must be at most %d", maxAnchorAdmissionMaxAgeS))
+	}
+	if d.AnchorAdmission.ReserveTTLS > maxAnchorAdmissionMaxAgeS {
+		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.reserve_ttl_s must be at most %d", maxAnchorAdmissionMaxAgeS))
 	}
 	keys := make([]string, 0, len(d.MinPriceBid))
 	for key := range d.MinPriceBid {

@@ -115,15 +115,40 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 		return err
 	}
 
+	// The audit obligation is taken on here, with the lease, and so is its
+	// admission slot (ADR-0040): checked and taken in one step under the
+	// gate's lock, so the offers accepted against one signal never outnumber
+	// its slots. Without a slot the handraise is re-signed first, as for a
+	// full engine, and the offer refused NO_CAPACITY. A slot taken for a
+	// lease that is then not acquired goes straight back; one taken for an
+	// accepted ticket is given back with its lease (releaseLease) or when
+	// the sidecar lists the task as seen.
+	slotTaken := false
+	if ev.anchor {
+		taken, aerr := d.cfg.AnchorAdmission.Reserve(ticket, rec.TaskID)
+		if aerr != nil {
+			if err := d.closeHandraiseBeforeAdmissionReject(ctx, builder, rec); err != nil {
+				return err
+			}
+			return d.reject(ctx, enq, rec, t, ev.nonce, refuse(reasonNoCapacity, classAnchorAdmission, "%v", aerr))
+		}
+		slotTaken = taken
+	}
 	// Check 5 and W3: the lease is the capacity reservation.
 	ok, err = d.cfg.Leases.Acquire(ctx, layout.WorkerLease{
 		TicketHash: ticket, TaskID: rec.TaskID, ModelID: rec.ModelID, ProfileVersion: rec.ProfileVersion,
 		Builder: builder, ExpiryHeight: rec.ClaimFromHeight,
 	})
 	if err != nil {
+		if slotTaken {
+			d.cfg.AnchorAdmission.Release(ticket)
+		}
 		return builderclient.Retryable(fmt.Errorf("acquire lease: %w", err))
 	}
 	if !ok {
+		if slotTaken {
+			d.cfg.AnchorAdmission.Release(ticket)
+		}
 		// CD §5.1: a capacity change re-signs the standing handraise before
 		// the reject, so a reject never contradicts the newest offer. Only
 		// this Builder's handraise matters here.
@@ -173,6 +198,9 @@ type offerEval struct {
 	params     chainclient.DispatchParamsSnapshot
 	nonce      uint64   // this node's current service_authorization_nonce
 	verdict    *verdict // nil: accept if capacity allows
+	// anchor: the Profile requires WORKER_ANCHOR_OPENING; accepting takes on
+	// an audit obligation and, under a slot signal, an admission slot.
+	anchor bool
 }
 
 // evaluateOffer runs check 1, the rotation stop (issue #83) and checks 2–7
@@ -258,7 +286,7 @@ func (d *Dispatcher) evaluateOfferAt(ctx context.Context, builder string, t *tas
 		return ev, nil, nil
 	}
 	// Checks 2, 2a, 3, 4, 6, 7.
-	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, session, height)
+	ev.verdict, ev.anchor, err = d.prechecks(ctx, t, so, ev.oraw, session, height)
 	return ev, nil, err
 }
 

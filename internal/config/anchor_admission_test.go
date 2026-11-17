@@ -74,6 +74,25 @@ dispatch:
 			t.Fatalf("err = %v, want the variable named", err)
 		}
 	})
+	t.Run("the slot TTL", func(t *testing.T) {
+		cfg, err := LoadFileWithOverrides(writeConfig(t, anchorAdmissionTestConfig+`
+dispatch:
+  anchor_admission: {file: /run/a.json, reserve_ttl_s: 900}
+`), nil)
+		if err != nil || cfg.Dispatch.AnchorAdmission.ReserveTTL() != 15*time.Minute {
+			t.Fatalf("reserve_ttl_s 900: %s, %v", cfg.Dispatch.AnchorAdmission.ReserveTTL(), err)
+		}
+		if got := (AnchorAdmissionConfig{File: "/run/a.json"}).ReserveTTL(); got != DefaultAnchorAdmissionReserveTTLS*time.Second {
+			t.Fatalf("default slot TTL %s", got)
+		}
+		_, err = LoadFileWithOverrides(writeConfig(t, anchorAdmissionTestConfig+`
+dispatch:
+  anchor_admission: {file: /run/a.json, reserve_ttl_s: 86401}
+`), nil)
+		if err == nil || !strings.Contains(err.Error(), "dispatch.anchor_admission.reserve_ttl_s") {
+			t.Fatalf("err = %v, want the field named", err)
+		}
+	})
 	t.Run("a max age beyond a day is refused", func(t *testing.T) {
 		_, err := LoadFileWithOverrides(writeConfig(t, anchorAdmissionTestConfig+`
 dispatch:
