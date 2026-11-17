@@ -91,7 +91,14 @@ func TestAnchorAdmissionMaxAge(t *testing.T) {
 	writeAdmission(t, path, fmt.Sprintf(`{"accept":true,"updated":%d}`, admissionAt.Unix()-40))
 	now := func() time.Time { return admissionAt }
 	if err := NewAnchorAdmission(config.AnchorAdmissionConfig{File: path}, now, nil).Refusal(); err != nil {
-		t.Fatalf("40 s is inside the default 90 s: %v", err)
+		t.Fatalf("40 s is inside the default 45 s: %v", err)
+	}
+	writeAdmission(t, path, fmt.Sprintf(`{"accept":true,"updated":%d}`, admissionAt.Unix()-46))
+	if err := NewAnchorAdmission(config.AnchorAdmissionConfig{File: path}, now, nil).Refusal(); err == nil {
+		t.Fatal("46 s is past the default 45 s")
+	}
+	if err := NewAnchorAdmission(config.AnchorAdmissionConfig{File: path, MaxAgeS: 90}, now, nil).Refusal(); err != nil {
+		t.Fatalf("46 s is inside max_age_s 90: %v", err)
 	}
 	if err := NewAnchorAdmission(config.AnchorAdmissionConfig{File: path, MaxAgeS: 30}, now, nil).Refusal(); err == nil {
 		t.Fatal("40 s is past max_age_s 30")

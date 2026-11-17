@@ -57,7 +57,7 @@ dispatch:
 		}
 		a := cfg.Dispatch.AnchorAdmission
 		if a.File != "/env/admission.json" || a.MaxAge() != DefaultAnchorAdmissionMaxAgeS*time.Second {
-			t.Fatalf("anchor admission = %+v, want the environment file and the 90 s default", a)
+			t.Fatalf("anchor admission = %+v, want the environment file and the default max age", a)
 		}
 		t.Setenv("CORTEX_ANCHOR_ADMISSION_MAX_AGE_S", "30")
 		cfg, err = LoadFileWithOverrides(path, map[string]string{"anchor_admission_file": "/flag/admission.json"})

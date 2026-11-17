@@ -98,8 +98,12 @@ type DispatchConfig struct {
 }
 
 // DefaultAnchorAdmissionMaxAgeS is how old the anchor sidecar's admission
-// signal may be before it counts as absent.
-const DefaultAnchorAdmissionMaxAgeS = 90
+// signal may be before it counts as absent. It is three write periods of the
+// anchor sidecar, which rewrites the signal every 15 s from a thread of its
+// own: two late or lost writes are ridden out without closing the gate, and
+// a sidecar that wrote "accept" and then died stops admitting within 45 s,
+// well inside the minutes one opening takes.
+const DefaultAnchorAdmissionMaxAgeS = 45
 
 // maxAnchorAdmissionMaxAgeS is one day: a signal older than that says nothing
 // about a sidecar whose deadlines are counted in blocks.
@@ -116,7 +120,11 @@ type AnchorAdmissionConfig struct {
 	// {"accept": bool, "reason": string, "updated": unix seconds}.
 	File string `yaml:"file"`
 	// MaxAgeS bounds the age of "updated"; 0 takes
-	// DefaultAnchorAdmissionMaxAgeS.
+	// DefaultAnchorAdmissionMaxAgeS. Keep it at three or more of the
+	// sidecar's write periods: at one period every late write closes the
+	// gate, and each closing withdraws the standing handraise. Its upper
+	// bound is what a dead sidecar may cost: for up to MaxAgeS the node goes
+	// on admitting on the last "accept".
 	MaxAgeS uint64 `yaml:"max_age_s"`
 }
 

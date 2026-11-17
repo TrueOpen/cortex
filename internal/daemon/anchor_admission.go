@@ -38,6 +38,20 @@ import (
 // close and reopen between two good writes. Every parsed signal is taken as
 // it is.
 //
+// What the gate cannot see. The signal is the sidecar's estimate, written
+// every 15 s, and the sidecar only learns of a task when its receipt is on
+// chain. A task this node accepted since the last write, or is still
+// generating, is not in the sidecar's count of openings owed. The sidecar
+// covers that lag by adding a configured upper bound on such in-flight tasks
+// to the openings it plans for, so "accept" already means "there is room for
+// the tasks that may be on their way and for one more". The bound is the
+// sidecar operator's to set, at or above model_management.max_concurrency;
+// the gate itself keeps no count. It is the same class of lag as the bond
+// check, which does not count accepted but unrecorded offers in
+// reserved_liability either. max_age_s (default 45 s, three write periods)
+// bounds the other lag: how long the last "accept" of a sidecar that died
+// goes on admitting.
+//
 // Accepted tasks are not affected, Profiles without kind 5 are not affected,
 // and Verifier duty is not gated (verifying creates no anchor obligation).
 // Without the setting there is no gate at all.

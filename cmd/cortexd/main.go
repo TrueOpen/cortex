@@ -228,7 +228,7 @@ func newRootCommand(ctx context.Context, stdout io.Writer) *cobra.Command {
 	flags.StringVar(&values.healthBind, "health-bind", "", "health HTTP bind address")
 	flags.StringVar(&values.dispatchBuilders, "dispatch-builders", "", "comma-separated Builder operators to keep a standing handraise with (dispatch.builders)")
 	flags.StringVar(&values.anchorAdmissionFile, "anchor-admission-file", "", "anchor sidecar admission signal; while it refuses, is missing or stale, no task is taken under a Profile requiring WORKER_ANCHOR_OPENING (dispatch.anchor_admission.file)")
-	flags.StringVar(&values.anchorAdmissionMaxAgeS, "anchor-admission-max-age-s", "", "oldest anchor admission signal still trusted, in seconds; 0 takes the default of 90 (dispatch.anchor_admission.max_age_s)")
+	flags.StringVar(&values.anchorAdmissionMaxAgeS, "anchor-admission-max-age-s", "", "oldest anchor admission signal still trusted, in seconds; 0 takes the default of 45, three write periods of the anchor sidecar (dispatch.anchor_admission.max_age_s)")
 	return cmd
 }
 
