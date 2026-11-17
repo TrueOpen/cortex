@@ -363,7 +363,9 @@ func (s *LocalService) getAnchorCommitOnce(ctx context.Context, path, completion
 var ErrAnchorCommitEmptyGeneration = errors.New("the completion delivered no generated token: there is no anchor commitment to sign")
 
 // anchorEngineKeyTail is what the engine appends to a completion id to form
-// its own request key: "-<choice index>-<8 hex>", the choice index optional.
+// its own request key: "-<choice index>-<8 hex>" for a completion
+// ("cmpl-822ecaa38c0c278b-0-bd50afd1") and "-<8 hex>", without a choice
+// index, for a chat completion ("chatcmpl-9f3a61c2d4e5f607-bd50afd1").
 var anchorEngineKeyTail = regexp.MustCompile(`^(?:[0-9]+-)?[0-9a-f]{8}$`)
 
 // anchorCommitNamesCompletion reports whether a commitment's request_id is

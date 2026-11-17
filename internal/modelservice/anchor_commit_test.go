@@ -640,3 +640,52 @@ func TestAttachAnchorCommitRefusesAnEmptyGeneration(t *testing.T) {
 		t.Fatalf("a task that requires no anchor: %+v, %v", resp, err)
 	}
 }
+
+// The two shapes of the engine's key seen on a real engine, and what must
+// not pass for them: the tail is one optional run of digits and exactly
+// eight lowercase hex characters, each after its own "-", and the asked id
+// must be followed by that "-", so a completion whose id merely starts with
+// the asked one is another completion.
+func TestAnchorCommitNamesCompletionRealForms(t *testing.T) {
+	for _, c := range []struct {
+		requestID, asked string
+		want             bool
+	}{
+		{"cmpl-822ecaa38c0c278b-0-bd50afd1", "cmpl-822ecaa38c0c278b", true},         // completions
+		{"cmpl-822ecaa38c0c278b-3-bd50afd1", "cmpl-822ecaa38c0c278b", true},         // another choice index
+		{"chatcmpl-9f3a61c2d4e5f607-bd50afd1", "chatcmpl-9f3a61c2d4e5f607", true},   // chat completions: no index
+		{"chatcmpl-9f3a61c2d4e5f607", "chatcmpl-9f3a61c2d4e5f607", true},            // the id itself
+		{"chatcmpl-9f3a61c2d4e5f607-bd50afd", "chatcmpl-9f3a61c2d4e5f607", false},   // 7 hex
+		{"chatcmpl-9f3a61c2d4e5f607-bd50afd12", "chatcmpl-9f3a61c2d4e5f607", false}, // 9 hex
+		{"chatcmpl-9f3a61c2d4e5f607-BD50AFD1", "chatcmpl-9f3a61c2d4e5f607", false},  // upper case
+		{"chatcmpl-9f3a61c2d4e5f607-bd50afg1", "chatcmpl-9f3a61c2d4e5f607", false},  // not hex
+		{"chatcmpl-9f3a61c2d4e5f607-0-1-bd50afd1", "chatcmpl-9f3a61c2d4e5f607", false},
+		{"chatcmpl-9f3a61c2d4e5f607-bd50afd1-0", "chatcmpl-9f3a61c2d4e5f607", false},
+		{"chatcmpl-9f3a61c2d4e5f607-bd50afd1-bd50afd1", "chatcmpl-9f3a61c2d4e5f607", false},
+		{"chatcmpl-9f3a61c2d4e5f607--bd50afd1", "chatcmpl-9f3a61c2d4e5f607", false},
+		{"chatcmpl-9f3a61c2d4e5f607bd50afd1", "chatcmpl-9f3a61c2d4e5f607", false}, // no separator
+		{"cmpl-12-0-bd50afd1", "cmpl-1", false},                                   // id that starts with the asked one
+		{"cmpl-12-bd50afd1", "cmpl-1", false},
+		{"cmpl-1bd50afd1", "cmpl-1", false},
+		{"cmpl-10-bd50afd1", "cmpl-1", false},
+		{"cmpl-1-0-bd50afd1", "cmpl-1", true},
+		{"cmpl-1-bd50afd1", "cmpl-1", true},
+		{"cmpl-1-0-bd50afd1", "cmpl-1-0", true},   // asked by the id with its index
+		{"cmpl-1-0-bd50afd1", "cmpl-1-0-", false}, // not an id the engine issues
+		{"cmpl-1-0-bd50afd1", "", false},
+		{"", "cmpl-1", false},
+	} {
+		if got := anchorCommitNamesCompletion(c.requestID, c.asked); got != c.want {
+			t.Errorf("anchorCommitNamesCompletion(%q, asked %q) = %v, want %v", c.requestID, c.asked, got, c.want)
+		}
+	}
+	// End to end, in the chat form: the stub completion is chatcmpl-test.
+	body := strings.Replace(testAnchorCommit, `"request_id":"chatcmpl-test"`, `"request_id":"chatcmpl-test-bd50afd1"`, 1)
+	a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, body }}
+	svc := anchorTestService(t, a)
+	req := chatInferReq(t)
+	req.RequireAnchorCommit = true
+	if resp, err := svc.Infer(context.Background(), req); err != nil || resp.AnchorCommitRef == "" {
+		t.Fatalf("Infer() = %+v, %v, want the chat-form commitment signed", resp, err)
+	}
+}
