@@ -115,7 +115,10 @@ func TestInferSendsSeedXArgsOnlyForAnchorTasks(t *testing.T) {
 // task's request has no vllm_xargs key at all.
 func TestInferSendsSeedXArgsOnlyForAnchorTasksRaw(t *testing.T) {
 	for _, anchor := range []bool{true, false} {
-		a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, testAnchorCommit }}
+		// The commitment of the completion asked for: the fetch refuses one
+		// recorded under another completion id.
+		rawCommit := strings.Replace(testAnchorCommit, `"request_id":"chatcmpl-test"`, `"request_id":"cmpl-test"`, 1)
+		a := &anchorSidecar{commit: func(int, string) (int, string) { return http.StatusOK, rawCommit }}
 		gen := genResponse() // prompt 1 2 3, generated 10 11: what testAnchorCommit names
 		gen.ID = "cmpl-test"
 		engine, _ := newVLLMStub(t, gen, verifyResponse())
