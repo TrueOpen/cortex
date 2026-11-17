@@ -193,8 +193,12 @@ func (g *handraiseGates) evaluate(ctx context.Context, height uint64, intervalKn
 			res.profiles[i].class, res.profiles[i].why = profileExcluded, "draining"
 		}
 	}
-	g.applyAnchorAdmission(res.profiles)
+	// Logged before the admission gate is applied: the gate opens and closes
+	// with the sidecar's backlog and logs that itself (rate limited), so its
+	// flips do not make every Profile left out for a standing reason be
+	// logged again.
 	g.logEligible(res.profiles)
+	g.applyAnchorAdmission(res.profiles)
 	free, ok := g.local.FreeSlots(ctx)
 	if !ok {
 		free = 0 // H3

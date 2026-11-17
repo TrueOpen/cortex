@@ -410,3 +410,36 @@ func TestVerifierEligibilityIgnoresAnchorAdmission(t *testing.T) {
 		t.Fatalf("Verifier precheck input %+v", want)
 	}
 }
+
+// A gate that opens and closes with the sidecar's backlog does not make the
+// Profiles left out for a standing reason be logged again on every flip; the
+// gate logs its own state.
+func TestAnchorAdmissionFlipsDoNotRelogExcludedProfiles(t *testing.T) {
+	ctx := context.Background()
+	chain := newFakeHandraiseChain(t)
+	key := config.MinPriceBidKey(hrModelCD, 1)
+	chain.scopes[key] = requireAnchor(chain.scopes[key])
+	bids := hrBids()
+	delete(bids, config.MinPriceBidKey(hrModelAB, 2)) // left out for good (H4)
+	logs := &bytes.Buffer{}
+	g, err := newHandraiseGates(hrCortex, chain, &fakeHandraiseLocal{ready: true, free: 3, freeOK: true}, hrProfileRefs(), bids, slog.New(slog.NewTextHandler(logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.anchor = &fakeAnchorProbe{}
+	a, path, _ := newTestAdmission(t, admissionAbsent)
+	g.admission = a
+	for i := range 6 {
+		writeAdmission(t, path, fmt.Sprintf(`{"accept":%v,"reason":"backlog","updated":%d}`, i%2 == 0, admissionAt.Unix()))
+		want := 1
+		if i%2 == 0 {
+			want = 2
+		}
+		if r := g.evaluate(ctx, 100, true); r.state == nil || len(r.state.Profiles) != want {
+			t.Fatalf("pass %d: offer %+v (%s), want %d profiles", i, r.state, r.why, want)
+		}
+	}
+	if n := strings.Count(logs.String(), "profile left out of standing handraise"); n != 1 {
+		t.Fatalf("%d \"profile left out\" lines over six gate flips, want the one for the Profile without a price:\n%s", n, logs)
+	}
+}

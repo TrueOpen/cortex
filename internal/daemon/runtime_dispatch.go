@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
 	"github.com/TrueOpen/cortex/internal/chainclient"
@@ -77,7 +78,7 @@ func (r *Runtime) AnchorAdmission() *AnchorAdmission {
 		return nil
 	}
 	r.anchorAdmissionOnce.Do(func() {
-		r.anchorAdmission = NewAnchorAdmission(r.cfg.Dispatch.AnchorAdmission, nil, nil)
+		r.anchorAdmission = NewAnchorAdmission(r.cfg.Dispatch.AnchorAdmission, nil, slog.Default())
 	})
 	return r.anchorAdmission
 }
