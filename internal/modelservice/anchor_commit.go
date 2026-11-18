@@ -54,9 +54,19 @@ import (
 // whole trajectory; the self-check below then refuses a commitment that
 // names more than was delivered, so nothing is signed over it either way.
 //
-// A completion that delivered no generated token (a budget that ran out
-// before the first one) has no commitment to fetch and none is asked for:
-// the call fails with ErrAnchorCommitEmptyGeneration.
+// A completion that delivered no generated token has no commitment to fetch
+// and none is asked for: the call fails with ErrAnchorCommitEmptyGeneration.
+// The engine cannot issue one. Its rows are positions 0..L+G-2, the last of
+// them bound to the next token, so a prompt alone would end one row short of
+// its own prefill segment, and that segment cannot be cut (its length fixes
+// how the engine computed it). The one honest way to such a completion was a
+// max_output_duration that ran out before the first token, and for a request
+// with RequireAnchorCommit the stream readers no longer stop there: they take
+// the budget stop at the first frame that leaves a token delivered
+// (inferStreamIdentity.budgetStopNeedsToken), so the Worker has a
+// commitment, at ?generated=1 or later, and a receipt. What is left for
+// ErrAnchorCommitEmptyGeneration is an engine that ends a completion itself
+// with no token, which the finish-reason check refuses under every Profile.
 
 const (
 	// maxAnchorCommitBytes bounds the AnchorCommitV1 document: it holds token

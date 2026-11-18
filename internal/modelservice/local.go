@@ -316,6 +316,26 @@ type inferStreamIdentity struct {
 	jobID     string
 	taskID    string
 	modelID   string
+	// budgetStopNeedsToken is set for a request whose locked Profile requires
+	// WORKER_ANCHOR_OPENING (ADR-0040). The max_output_duration stop is then
+	// taken at the first frame boundary past the budget at which at least one
+	// generated token has been delivered, never before the first token. The
+	// engine commits to rows, and a prompt with no generated token has none: a
+	// generation ended at zero tokens leaves the Worker with no anchor
+	// commitment, so no receipt, and the task runs into the infer deadline as
+	// a Worker timeout. A frame that carries no token (the role preamble of a
+	// chat stream, an empty keep-alive delta) is therefore not a stopping
+	// point under such a Profile. The wait for the first token stays bounded
+	// by the context deadline budgetGrace behind the budget. Requests of every
+	// other Profile stop exactly as before.
+	budgetStopNeedsToken bool
+}
+
+// budgetStopAllowed reports whether a max_output_duration stop may be taken
+// after a frame that leaves delivered generated tokens (see
+// inferStreamIdentity.budgetStopNeedsToken).
+func (i inferStreamIdentity) budgetStopAllowed(delivered int) bool {
+	return !i.budgetStopNeedsToken || delivered > 0
 }
 
 // completionRequest is the OpenAI-compatible /v1/completions payload plus the
@@ -1017,6 +1037,8 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 				jobID:     req.JobID,
 				taskID:    req.TaskID,
 				modelID:   profile.ModelID,
+				// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
+				budgetStopNeedsToken: req.RequireAnchorCommit,
 			}
 			if err := s.postStreamingCompletion(ctx, "/v1/completions", genReq, &resp, ident, budgetAt); err != nil {
 				return InferResponse{}, err
@@ -1741,8 +1763,10 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 			}
 		}
 		// Checked after the frame is folded in, never in the middle of one: the
-		// budget truncates the generation, not a token.
-		if overBudget() && out.Choices[0].FinishReason == "" {
+		// budget truncates the generation, not a token. Under a Profile that
+		// requires the anchor commitment it is not taken before the first
+		// generated token (inferStreamIdentity.budgetStopNeedsToken).
+		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break
 		}

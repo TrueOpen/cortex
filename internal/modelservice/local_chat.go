@@ -277,6 +277,8 @@ func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (Inf
 			jobID:     req.JobID,
 			taskID:    req.TaskID,
 			modelID:   profile.ModelID,
+			// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
+			budgetStopNeedsToken: req.RequireAnchorCommit,
 		}
 		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident, budgetAt, profile.OutputDecoding); err != nil {
 			return InferResponse{}, err
@@ -794,8 +796,12 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 			}
 		}
 		// After the frame is folded in, never mid-frame: what the budget
-		// truncates is the generation, not a token.
-		if overBudget() && out.Choices[0].FinishReason == "" {
+		// truncates is the generation, not a token. Under a Profile that
+		// requires the anchor commitment the stop is not taken at a frame
+		// that leaves no generated token delivered -- the role preamble a
+		// chat stream opens with is such a frame, and it is followed at once
+		// by the first token (inferStreamIdentity.budgetStopNeedsToken).
+		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break
 		}

@@ -761,12 +761,15 @@ func zeroTokenChatEngine(t *testing.T, finishAtOnce bool) *httptest.Server {
 	return srv
 }
 
-// A generation that delivered no token, through Infer, on both paths. Without
-// the anchor requirement a budget that ran out before the first token is the
-// legal empty MAX_OUTPUT_DURATION generation on the raw path and on the chat
-// path alike. Under a Profile requiring WORKER_ANCHOR_OPENING both end with
-// the same deterministic ANCHOR_COMMIT_EMPTY_GENERATION, the sidecar is not
-// asked, and no anchor ref is produced.
+// An engine that never sends a generated token, through Infer, on both paths.
+// Without the anchor requirement a budget that ran out before the first token
+// is the legal empty MAX_OUTPUT_DURATION generation on the raw path and on
+// the chat path alike. Under a Profile requiring WORKER_ANCHOR_OPENING the
+// budget stop is not taken before the first token (an empty generation has no
+// anchor commitment, see TestBudgetStopUnderAnAnchorProfileWaitsForTheFirstToken
+// for an engine that does generate): a stream that ends without one is the
+// truncated stream it is on every path, the sidecar is not asked, and no
+// anchor ref is produced.
 func TestInferEmptyGenerationOnBothPaths(t *testing.T) {
 	type path struct {
 		name   string
@@ -815,11 +818,11 @@ func TestInferEmptyGenerationOnBothPaths(t *testing.T) {
 			req := p.req(t)
 			req.RequireAnchorCommit = true
 			resp, err := svc.Infer(context.Background(), req)
-			if !errors.Is(err, ErrAnchorCommitEmptyGeneration) || resp.AnchorCommitRef != "" {
-				t.Fatalf("Infer() = %+v, %v, want ErrAnchorCommitEmptyGeneration and no anchor ref", resp, err)
+			if err == nil || resp.AnchorCommitRef != "" || resp.GeneratedTokenCount != 0 {
+				t.Fatalf("Infer() = %+v, %v, want no empty generation and no anchor ref", resp, err)
 			}
-			if ClassOf(err) != FaultDeterministic || IsRetryable(err) || FaultCode(err) != FaultCodeAnchorCommitEmptyGeneration {
-				t.Fatalf("err = %v (class %v, code %q), want a deterministic %s", err, ClassOf(err), FaultCode(err), FaultCodeAnchorCommitEmptyGeneration)
+			if FaultCode(err) != "MODEL_STREAM_TRUNCATED" || errors.Is(err, ErrAnchorCommitEmptyGeneration) {
+				t.Fatalf("err = %v (code %q), want the truncated stream of an engine that sent no token", err, FaultCode(err))
 			}
 			if n := len(a.calls()); n != 0 {
 				t.Fatalf("the sidecar was asked %d times for a commitment that cannot exist", n)
@@ -849,4 +852,166 @@ func TestInferEmptyGenerationOnBothPaths(t *testing.T) {
 			t.Fatalf("err = %v after %d sidecar calls, want %s and none", err, len(a.calls()), FaultCodeAnchorCommitEmptyGeneration)
 		}
 	})
+}
+
+// lateTokenRawEngine is a /v1/completions stream of a real engine under a
+// budget that runs out during the prefill: a first frame that names the prompt
+// and carries no token, then one generated token per frame every gap.
+func lateTokenRawEngine(t *testing.T, gap time.Duration) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "Qwen/Qwen3-8B"}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		time.Sleep(gap) // the prefill outlasts the budget
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"cmpl-test","choices":[{"text":"","prompt_token_ids":[1,2,3],"token_ids":[]}]}`)
+		flusher.Flush()
+		for i := 0; i < 6; i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(gap):
+			}
+			id := 10 + i
+			frame := map[string]any{"id": "cmpl-test", "choices": []map[string]any{{"text": "x", "token_ids": []int{id},
+				"logprobs": map[string]any{"token_logprobs": []float64{-0.1},
+					"top_logprobs": []TopLogprobRow{fullTopRow(TopLogprob{Token: fmt.Sprintf("token_id:%d", id), Logprob: -0.1})}}}}}
+			payload, _ := json.Marshal(frame)
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// lateTokenChatEngine is the chat counterpart: the role preamble a chat
+// stream opens with (no token), then one generated token per frame.
+func lateTokenChatEngine(t *testing.T, gap time.Duration) *httptest.Server {
+	t.Helper()
+	chunks := []chatCompletionChunk{{
+		ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B", PromptTokenIDs: []int{1, 2, 3},
+		Choices: []chatChunkChoice{{Index: 0, Delta: chatChunkDelta{Role: "assistant"}}},
+	}}
+	for i := 0; i < 6; i++ {
+		id := 10 + i
+		key := fmt.Sprintf("token_id:%d", id)
+		chunks = append(chunks, chatCompletionChunk{
+			ID: "chatcmpl-test", Created: 1700000000, Model: "Qwen/Qwen3-8B",
+			Choices: []chatChunkChoice{{Index: 0, Delta: chatChunkDelta{Content: "x"}, TokenIDs: []int{id},
+				Logprobs: &chatRespLogprobs{Content: []chatRespLogprobContent{
+					{Token: key, Logprob: -0.1, Bytes: helloBytes, TopLogprobs: []chatRespTopLogprob{{Token: key, Logprob: -0.1}}},
+				}}}},
+		})
+	}
+	return newSlowChatStreamStub(t, chunks, gap, []string{"Qwen/Qwen3-8B"})
+}
+
+// The output budget runs out before the engine's first token (a long prefill,
+// a short max_output_duration). Without the anchor requirement the stop is
+// taken at the first frame past the budget and the generation is the legal
+// empty one, exactly as before. Under a Profile requiring
+// WORKER_ANCHOR_OPENING an empty generation would leave the Worker with no
+// commitment and no receipt, so the stop is taken at the first frame that
+// leaves a token delivered: one token, MAX_OUTPUT_DURATION, the commitment
+// fetched at ?generated=1 and signed.
+func TestBudgetStopUnderAnAnchorProfileWaitsForTheFirstToken(t *testing.T) {
+	const gap = 120 * time.Millisecond
+	budget := func(t *testing.T, req InferRequest) InferRequest {
+		t.Helper()
+		req.Generation.Params.MaxOutputDuration = 40 // over at the first frame of both engines
+		digest, err := req.Generation.Digest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.GenerationParamsDigest = digest[:]
+		return req
+	}
+	type path struct {
+		name, completion string
+		engine           func(t *testing.T) *httptest.Server
+		req              func(t *testing.T) InferRequest
+	}
+	paths := []path{
+		{"raw", "cmpl-test", func(t *testing.T) *httptest.Server { return lateTokenRawEngine(t, gap) }, func(t *testing.T) InferRequest {
+			return budget(t, localGenerationInfer(t, localTestGeneration(testQwenModelID(), 1)))
+		}},
+		{"chat", "chatcmpl-test", func(t *testing.T) *httptest.Server { return lateTokenChatEngine(t, gap) }, func(t *testing.T) InferRequest {
+			return budget(t, chatInferReq(t))
+		}},
+	}
+	for _, p := range paths {
+		t.Run(p.name+", no anchor required", func(t *testing.T) {
+			a := &anchorSidecar{}
+			svc := newBoundLocalService(a.front(t, p.engine(t)).URL, "local", 4, 0, 0)
+			resp, err := svc.Infer(context.Background(), p.req(t))
+			if err != nil {
+				t.Fatalf("Infer() error = %v, want the legal empty generation", err)
+			}
+			if resp.GeneratedTokenCount != 0 || resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration || resp.AnchorCommitRef != "" {
+				t.Fatalf("response = %+v, want zero tokens, MAX_OUTPUT_DURATION and no anchor ref (unchanged behaviour)", resp)
+			}
+			if n := len(a.calls()); n != 0 {
+				t.Fatalf("the sidecar was asked %d times for a task that requires no anchor", n)
+			}
+		})
+		t.Run(p.name+", anchor required", func(t *testing.T) {
+			commit := fmt.Sprintf(`{"request_id":%q,"roots":["00"],"token_ids":[1,2,3,10],"prompt_tokens":3,"rows":3}`, p.completion)
+			a := &anchorSidecar{
+				info: func() int { return http.StatusOK }, infoBody: `{"commit_prefix":["generated","rows"]}`,
+				commitAt: func(_ int, _, generated string) (int, string) {
+					if generated != "1" {
+						return http.StatusConflict, `{"error":"a commitment needs at least one generated token"}`
+					}
+					return http.StatusOK, commit
+				},
+			}
+			svc := newBoundLocalService(a.front(t, p.engine(t)).URL, "local", 4, 0, 0)
+			svc.anchorCommitBackoff = time.Millisecond
+			req := p.req(t)
+			req.RequireAnchorCommit = true
+			start := time.Now()
+			resp, err := svc.Infer(context.Background(), req)
+			if err != nil {
+				t.Fatalf("Infer() error = %v, want a one-token MAX_OUTPUT_DURATION generation with its commitment", err)
+			}
+			if resp.GeneratedTokenCount != 1 || resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration || resp.AnchorCommitRef == "" {
+				t.Fatalf("response = %+v, want exactly one token, MAX_OUTPUT_DURATION and an anchor ref", resp)
+			}
+			if took := time.Since(start); took > 3*gap+time.Second {
+				t.Fatalf("the stop was taken after %s, want it at the first token frame", took)
+			}
+			a.mu.Lock()
+			queries := append([]string(nil), a.queries...)
+			a.mu.Unlock()
+			if len(queries) != 1 || queries[0] != "generated=1" {
+				t.Fatalf("commit queries %q, want one fetch at generated=1", queries)
+			}
+			artifact, err := svc.FetchArtifact(context.Background(), FetchArtifactRequest{Ref: resp.AnchorCommitRef})
+			if err != nil || string(artifact.Data) != commit {
+				t.Fatalf("anchor artifact %q, %v, want the served commitment", artifact.Data, err)
+			}
+			if err := ValidateFinishReason(req.Generation, nil, resp.FinishReason); err != nil {
+				t.Fatalf("the Worker's finish check refuses the one-token budget stop: %v", err)
+			}
+		})
+	}
+}
+
+// budgetStopAllowed is the whole rule: without the anchor requirement any
+// frame boundary past the budget is a stopping point; with it, only one that
+// leaves a generated token delivered.
+func TestBudgetStopAllowed(t *testing.T) {
+	for _, c := range []struct {
+		needs     bool
+		delivered int
+		want      bool
+	}{{false, 0, true}, {false, 1, true}, {true, 0, false}, {true, 1, true}, {true, 7, true}} {
+		if got := (inferStreamIdentity{budgetStopNeedsToken: c.needs}).budgetStopAllowed(c.delivered); got != c.want {
+			t.Fatalf("budgetStopAllowed(needs=%t, delivered=%d) = %t, want %t", c.needs, c.delivered, got, c.want)
+		}
+	}
 }
