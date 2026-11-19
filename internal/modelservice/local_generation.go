@@ -1,10 +1,14 @@
 package modelservice
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"time"
+
+	"github.com/TrueOpen/cortex/internal/builderclient"
 )
 
 // generationDecoding is the backend-ready projection of a validated
@@ -104,4 +108,105 @@ func localGenerationRequest(req InferRequest, profile localModelProfile, streami
 		ReturnTokensAsTokenIDs: true, SkipSpecialTokens: &skipSpecial,
 		SpacesBetweenSpecialTokens: &spacesBetweenSpecial,
 	}, duration, nil
+}
+
+// Keys of the vllm_xargs entries the anchor engine reads.
+const (
+	anchorXArgChainID   = "slp_chain_id"
+	anchorXArgTaskID    = "slp_task_id"
+	anchorXArgOrderSeed = "slp_order_seed"
+)
+
+// engineSeedXArgsRejected is the error code with which an engine that
+// implements the seed rule answers 400 to a generation request whose seed
+// xargs are malformed or incomplete, instead of sampling with another seed.
+const engineSeedXArgsRejected = "slp_seed_xargs_unsupported"
+
+// AnchorSeedRuleV2 names the only seed rule this node can bind a generation
+// to (model_management.anchor_seed_rule).
+const AnchorSeedRuleV2 = "seed-v2"
+
+// anchorSeedXArgs returns the vllm_xargs that bind the engine's canonical
+// sampler to the task under seed rule "seed-v2" (ADR-0040 content track).
+// The engine does not sample with the order's seed; it derives
+//
+//	seed = BLAKE3-256( "TRUEOPEN_ANCHOR_SAMPLING_SEED_V1"   32 ASCII bytes, no terminator
+//	                 ‖ u32_be(len(chain_id))                4 bytes, length in bytes of the UTF-8 chain id
+//	                 ‖ chain_id                             UTF-8 bytes
+//	                 ‖ task_id                              32 raw bytes (not its hex text)
+//	                 ‖ u64_be(order seed) )                 8 bytes, DecodingParamsV1.seed
+//
+// and uses the 32-byte digest, as 64 lowercase hex characters, as the seed of
+// its sampler. All three inputs are fixed by the chain and the signed order
+// before this node computes anything, and the validators recompute the same
+// seed from the chain, so the Worker has no seed to choose. The derivation
+// has one definition, in the engine, shared with the validators; this node
+// computes no seed and only passes the three facts:
+//
+//	slp_chain_id    the chain id as it is
+//	slp_task_id     the task id as 64 lowercase hex characters, decoded
+//	                through the canonical Hash32 decoder first, so what the
+//	                engine turns back into 32 bytes is the chain's task id
+//	slp_order_seed  the order seed in decimal
+//
+// The order seed travels as a decimal string because a JSON number above
+// 2^53 does not survive every decoder on the way. That is about the encoding
+// only: an order seed above 2^63-1 never gets here, decodeGenerationParams
+// refuses it ("generation parameters exceed backend integer range"), so the
+// effective range of a seed is the backend's int64.
+//
+// A request that does not require an anchor commitment gets no xargs. One
+// that does must carry all three facts: a seed derived from a wrong or
+// missing fact is a seed the validators will not reproduce, so the call
+// fails instead of generating under it.
+func anchorSeedXArgs(req InferRequest) (map[string]string, error) {
+	if !req.RequireAnchorCommit {
+		return nil, nil
+	}
+	if req.ChainID == "" {
+		return nil, errors.New("modelservice local: the anchor seed rule needs the chain id of the task")
+	}
+	if req.Generation == nil {
+		return nil, errors.New("modelservice local: the anchor seed rule needs the order's generation parameters")
+	}
+	taskID, err := builderclient.CanonicalWireHash(req.TaskID, "task_id")
+	if err != nil {
+		return nil, fmt.Errorf("modelservice local: the anchor seed rule needs the task id: %w", err)
+	}
+	return map[string]string{
+		anchorXArgChainID:   req.ChainID,
+		anchorXArgTaskID:    taskID.String(),
+		anchorXArgOrderSeed: strconv.FormatUint(req.Generation.Params.DecodingParams.Seed, 10),
+	}, nil
+}
+
+// SetAnchorSeedRule turns the seed binding on ("seed-v2") or off (""). Off,
+// which is the default, a generation that requires an anchor commitment is
+// sampled exactly as any other: no vllm_xargs, the order's seed. It must be
+// on before the chain's content verdict track (see
+// model_management.anchor_seed_rule), and only with an engine that
+// implements the rule: on, such an engine derives the seed of every such
+// generation from the task (anchorSeedXArgs). Call it while the service is
+// built, before it serves: the rule is read by every Infer without a lock.
+func (s *LocalService) SetAnchorSeedRule(rule string) {
+	s.anchorSeedRule = rule
+	// What the capability probe requires of the engine depends on the rule.
+	s.anchorInfo.mu.Lock()
+	s.anchorInfo.checked, s.anchorInfo.err = time.Time{}, nil
+	s.anchorInfo.mu.Unlock()
+}
+
+// seedXArgs is anchorSeedXArgs when the seed binding is on, and nothing when
+// it is off.
+func (s *LocalService) seedXArgs(req InferRequest) (map[string]string, error) {
+	if s.anchorSeedRule == "" {
+		return nil, nil
+	}
+	xargs, err := anchorSeedXArgs(req)
+	if err != nil {
+		// Deterministic: the task id, the chain id and the order do not
+		// change between two attempts.
+		return nil, Deterministic(FaultCodeAnchorSeedInputs, err)
+	}
+	return xargs, nil
 }

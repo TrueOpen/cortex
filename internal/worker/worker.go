@@ -490,6 +490,7 @@ func (w *Worker) runInferenceAndPersistArtifacts(ctx context.Context, event chai
 			RequestDigest: requestDigest[:], Capability: event.Capability, Input: append([]byte(nil), event.Input...),
 			Generation: generation, GenerationParamsDigest: generationDigest,
 			RequireAnchorCommit: builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements),
+			ChainID:             w.cfg.ChainID,
 		})
 	}
 	if err != nil {

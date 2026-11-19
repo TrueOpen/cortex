@@ -105,6 +105,10 @@ type LocalService struct {
 	// polled before it is taken as final. Zero means the default; negative
 	// means a 404 is final at once.
 	anchorCommitNotFoundGrace time.Duration
+	// anchorSeedRule is the seed rule generations that require an anchor
+	// commitment are bound to: "" (off, the default) or AnchorSeedRuleV2.
+	// See SetAnchorSeedRule.
+	anchorSeedRule string
 	// anchorInfo caches the last /slp/info probe (AnchorCommitCapable).
 	anchorInfo anchorInfoCache
 
@@ -364,6 +368,10 @@ type completionRequest struct {
 	// text renders adjacent special tokens without inserting a space between
 	// them (see checkRawTextCommittedOutput). Verify leaves it unset.
 	SpacesBetweenSpecialTokens *bool `json:"spaces_between_special_tokens,omitempty"`
+	// VLLMXArgs is set only for a generation that requires an anchor
+	// commitment while the seed binding is on (LocalService.seedXArgs).
+	// Verify leaves it unset.
+	VLLMXArgs map[string]string `json:"vllm_xargs,omitempty"`
 }
 
 // logprobEntry is a single "token id -> detail" entry in a prompt_logprobs
@@ -1001,6 +1009,9 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	if err != nil {
 		return InferResponse{}, err
 	}
+	if genReq.VLLMXArgs, err = s.seedXArgs(req); err != nil {
+		return InferResponse{}, err
+	}
 	// max_output_duration is a generation budget, not a transport timeout, and
 	// the two need different behaviour at expiry. The budget ends the generation
 	// SUCCESSFULLY -- the tokens produced so far are committed and the finish
@@ -1580,6 +1591,11 @@ func (s *LocalService) doPost(ctx context.Context, path string, body any) (*http
 		err := fmt.Errorf("modelservice local: %s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(detail)))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, retryableError{err: err}
+		}
+		if resp.StatusCode == http.StatusBadRequest && bytes.Contains(detail, []byte(engineSeedXArgsRejected)) {
+			// Deterministic: the engine refused the seed facts of this
+			// request, and the same task yields the same facts again.
+			return nil, Deterministic(FaultCodeAnchorSeedXArgsRejected, err)
 		}
 		return nil, err
 	}

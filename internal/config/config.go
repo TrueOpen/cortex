@@ -443,7 +443,25 @@ type ModelManagementConfig struct {
 	// WORKER_ANCHOR_OPENING. It is separate from InferTimeoutMs and from the
 	// max_output_duration grace. Zero means the model service default (120 s).
 	AnchorCommitTimeoutMs uint32 `yaml:"anchor_commit_timeout_ms"`
+	// AnchorSeedRule binds the sampling seed of every generation under a
+	// Profile requiring WORKER_ANCHOR_OPENING to the task: "" (the default)
+	// leaves such a generation sampled like any other, with the order's seed;
+	// AnchorSeedRuleV2 makes the engine derive the seed from (chain id, task
+	// id, order seed). It belongs with the chain's content verdict track
+	// (anchor_content_verdict_window_blocks > 0), which the node cannot read
+	// where it generates, and a fleet cannot switch at the same instant as
+	// the chain. Turn it on on every Worker before the change that turns the
+	// track on takes effect. Early costs little: a user's seed stops
+	// reproducing on such orders, nothing on chain changes. Late slashes:
+	// with the track on, validators recompute the derived seed and reject a
+	// sampled order generated with any other. On, the engine must declare
+	// the rule or the Profile is not offered.
+	AnchorSeedRule string `yaml:"anchor_seed_rule"`
 }
+
+// AnchorSeedRuleV2 is the one value of model_management.anchor_seed_rule
+// besides "".
+const AnchorSeedRuleV2 = "seed-v2"
 
 // InferTimeout returns the inference timeout as a time.Duration. A value of
 // zero means "use the model service default".
@@ -1228,6 +1246,9 @@ func (c *Config) Validate() error {
 	}
 	if err := c.ModelManagement.TLS.validate("model_management.tls"); err != nil {
 		problems = append(problems, err.Error())
+	}
+	if rule := c.ModelManagement.AnchorSeedRule; rule != "" && rule != AnchorSeedRuleV2 {
+		problems = append(problems, fmt.Sprintf("model_management.anchor_seed_rule must be empty or %q", AnchorSeedRuleV2))
 	}
 	problems = append(problems, c.nodeTLSProblems()...)
 	if modelTransport == "local" && c.ModelManagement.MaxConcurrency == 0 {
