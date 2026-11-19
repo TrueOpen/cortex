@@ -1,0 +1,545 @@
+{
+  "schema": "trueopen-parser-tool-call-v1",
+  "source": "docs/TOOL_CALL_PARSER_V1.md, hermes@1",
+  "parser": "hermes@1",
+  "notes": [
+    "input_utf8 is committed output (or, for a tool-call file, the tool stage's input). Positions, splits and matching are on its UTF-8 bytes.",
+    "finish_reason, when present, is the verified finish reason from the signed Fin (TRUEOPEN_OUTPUT_FIN_V1), written as its FinishReasonV1 enum name. Absent means no verified finish reason.",
+    "stream_splits lists frame boundaries as byte offsets into input_utf8; each list cuts the input into frames at those offsets, and feeding the frames in order must give exactly expected. A boundary may fall inside a marker or inside a multi-byte UTF-8 sequence.",
+    "tool_calls compares name and arguments only, byte for byte; id, type and index are synthesised by the Provider and are not part of the vectors.",
+    "reasoning_parser \"unsupported@1\" names a reserved reasoning parser that no SDK supports, to exercise the Support rule."
+  ],
+  "vectors": [
+    {
+      "name": "single_block",
+      "input_utf8": "<tool_call>{\"name\":\"f\",\"arguments\":{\"a\":1}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\":1}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "qwen3_template_layout",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\": 1}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "text_before_and_after",
+      "input_utf8": "Checking.\n<tool_call>\n{\"name\": \"f\", \"arguments\": {}}\n</tool_call> Done.",
+      "expected": {
+        "content": "Checking.\n Done.",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two_blocks_layout_dropped",
+      "input_utf8": "<tool_call>\n{\"name\": \"a\"}\n</tool_call>\n<tool_call>\n{\"name\": \"b\"}\n</tool_call>\n",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          },
+          {
+            "name": "b",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two_blocks_text_between_kept",
+      "input_utf8": "<tool_call>{\"name\": \"a\"}</tool_call> and <tool_call>{\"name\": \"b\"}</tool_call>",
+      "expected": {
+        "content": " and ",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          },
+          {
+            "name": "b",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "non_ascii_arguments",
+      "input_utf8": "<tool_call>\n{\"name\":\"get_weather\",\"arguments\":{\"city\":\"São Paulo\"}}\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "get_weather",
+            "arguments": "{\"city\":\"São Paulo\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nested_arguments_raw",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": {\"q\": {\"x\": [1, {\"y\": \"a\\\"b\"}]}, \"z\": null}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"q\": {\"x\": [1, {\"y\": \"a\\\"b\"}]}, \"z\": null}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name_only_defaults_empty_object",
+      "input_utf8": "<tool_call>{\"name\": \"f\"}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "extra_top_level_key_ignored",
+      "input_utf8": "<tool_call>{\"id\": 7, \"name\": \"f\", \"arguments\": {}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "parameters_is_not_an_alias",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"parameters\": {\"a\": 1}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "huge_number_and_inner_duplicate_key",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": {\"n\": 1e999999, \"k\": 1, \"k\": 2}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"n\": 1e999999, \"k\": 1, \"k\": 2}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "escaped_arguments_key_matched",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"argu\\u006dents\": {\"a\": 1}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\": 1}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "depth_64_parses",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": 1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": 1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "depth_65_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": 1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\", \"arguments\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": {\"a\": 1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "missing_name_malformed",
+      "input_utf8": "<tool_call>{\"arguments\": {}}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"arguments\": {}}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "name_not_string_malformed",
+      "input_utf8": "<tool_call>{\"name\": 1, \"arguments\": {}}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": 1, \"arguments\": {}}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "arguments_null_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": null}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\", \"arguments\": null}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "arguments_string_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": \"x\"}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\", \"arguments\": \"x\"}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "arguments_array_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": [1]}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\", \"arguments\": [1]}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "duplicate_name_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"a\", \"name\": \"b\"}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"a\", \"name\": \"b\"}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "duplicate_arguments_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"a\", \"arguments\": {\"x\": 1}, \"arguments\": {\"y\": 2}}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"a\", \"arguments\": {\"x\": 1}, \"arguments\": {\"y\": 2}}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "duplicate_name_via_escape_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"a\", \"n\\u0061me\": \"b\"}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"a\", \"n\\u0061me\": \"b\"}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "lone_surrogate_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"\\ud800\", \"arguments\": {}}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"\\ud800\", \"arguments\": {}}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "trailing_bytes_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"f\"} x</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\"} x</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "illegal_json_malformed",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": {a: 1}}</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\", \"arguments\": {a: 1}}</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "close_marker_inside_string",
+      "input_utf8": "<tool_call>{\"name\": \"f\", \"arguments\": {\"x\": \"</tool_call>\"}}\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"f\", \"arguments\": {\"x\": \"</tool_call>\"}}\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "good_and_malformed_block",
+      "input_utf8": "<tool_call>{\"name\": \"a\"}</tool_call>\n<tool_call>not json</tool_call>",
+      "expected": {
+        "content": "<tool_call>not json</tool_call>",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "orphan_close_marker_is_text",
+      "input_utf8": "a</tool_call>b",
+      "expected": {
+        "content": "a</tool_call>b",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "bare_json_is_content",
+      "input_utf8": "{\"name\": \"f\", \"arguments\": {}}",
+      "expected": {
+        "content": "{\"name\": \"f\", \"arguments\": {}}",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "no_marker",
+      "input_utf8": "plain text",
+      "expected": {
+        "content": "plain text",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unsupported_reasoning_parser",
+      "input_utf8": "abc<tool_call>{\"name\": \"f\", \"arguments\": {}}</tool_call></think>ok",
+      "reasoning_parser": "unsupported@1",
+      "expected": {
+        "content": "abc<tool_call>{\"name\": \"f\", \"arguments\": {}}</tool_call></think>ok",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_finish_reason",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_recovered_eos",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "finish_reason": "FINISH_REASON_V1_EOS_TOKEN",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\": 1}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unclosed_recovered_stop_sequence",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "finish_reason": "FINISH_REASON_V1_STOP_SEQUENCE",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\": 1}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unclosed_recovered_stop_token",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "finish_reason": "FINISH_REASON_V1_STOP_TOKEN",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\": 1}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unclosed_max_output_tokens",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "finish_reason": "FINISH_REASON_V1_MAX_OUTPUT_TOKENS",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_max_output_duration",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "finish_reason": "FINISH_REASON_V1_MAX_OUTPUT_DURATION",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_user_stop",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+      "finish_reason": "FINISH_REASON_V1_USER_STOP",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_partial_close_marker",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}\n</tool_",
+      "finish_reason": "FINISH_REASON_V1_EOS_TOKEN",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}\n</tool_",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_stop_string_in_payload",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}END",
+      "finish_reason": "FINISH_REASON_V1_STOP_SEQUENCE",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"arguments\": {\"a\": 1}}END",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_truncated_json_untrimmed",
+      "input_utf8": "<tool_call>\n{\"name\": \"f\", \"argu\n",
+      "finish_reason": "FINISH_REASON_V1_EOS_TOKEN",
+      "expected": {
+        "content": "<tool_call>\n{\"name\": \"f\", \"argu\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_nested_start_marker",
+      "input_utf8": "<tool_call>{\"name\": \"a\"}<tool_call>{\"name\": \"b\"}",
+      "finish_reason": "FINISH_REASON_V1_EOS_TOKEN",
+      "expected": {
+        "content": "<tool_call>{\"name\": \"a\"}<tool_call>{\"name\": \"b\"}",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "closed_block_then_unclosed_recovered",
+      "input_utf8": "<tool_call>{\"name\": \"a\"}</tool_call>\n<tool_call>{\"name\": \"b\"}",
+      "finish_reason": "FINISH_REASON_V1_EOS_TOKEN",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          },
+          {
+            "name": "b",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stream_split_mid_arguments",
+      "input_utf8": "<tool_call>\n{\"name\":\"f\",\"arguments\":{\"city\":\"Paris\"}}\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"city\":\"Paris\"}"
+          }
+        ]
+      },
+      "stream_splits": [
+        [
+          47
+        ],
+        [
+          25,
+          47
+        ]
+      ]
+    },
+    {
+      "name": "stream_split_markers_and_layout",
+      "input_utf8": "x<tool_call>{\"name\": \"a\"}</tool_call>\n\n<tool_call>{\"name\": \"b\"}</tool_call>\n",
+      "expected": {
+        "content": "x",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          },
+          {
+            "name": "b",
+            "arguments": "{}"
+          }
+        ]
+      },
+      "stream_splits": [
+        [
+          5
+        ],
+        [
+          29
+        ],
+        [
+          38
+        ],
+        [
+          37,
+          38,
+          39
+        ]
+      ]
+    },
+    {
+      "name": "stream_split_multibyte_char",
+      "input_utf8": "<tool_call>{\"name\":\"f\",\"arguments\":{\"city\":\"São\"}}</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"city\":\"São\"}"
+          }
+        ]
+      },
+      "stream_splits": [
+        [
+          46
+        ]
+      ]
+    }
+  ]
+}

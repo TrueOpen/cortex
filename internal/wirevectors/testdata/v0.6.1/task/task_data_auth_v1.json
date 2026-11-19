@@ -3,7 +3,8 @@
     "Each TaskDataObjectRefV1 frame has nine fields, including evidence_kind.",
     "The five data-plane body domains are V2; the Cortex service request binds the updated upload digest.",
     "Finalizing one Worker bundle authenticates its evidence_kind in the V2 body digest.",
-    "A mutation row with expect digest_changes publishes the digest the mutated input produces. A row with expect reject_before_hash has no digest: its change produces an input an implementation must refuse before hashing, and reason names the rule it breaks. The evidence_kind rows are rejects because each +1 lands on a kind that is illegal for that object or request."
+    "A mutation row with expect digest_changes publishes the digest the mutated input produces. A row with expect reject_before_hash has no digest: its change produces an input an implementation must refuse before hashing, and reason names the rule it breaks. The evidence_kind rows are rejects because each +1 lands on a kind that is illegal for that object or request.",
+    "The three *_worker_anchor_opening vectors share one Worker evidence reference with EVIDENCE_KIND_WORKER_ANCHOR_OPENING (5): the metadata body, the fetch body with no range, and the fetch body with range offset 0 length 64. Kind 5 is valid only for Worker-produced evidence objects."
   ],
   "schema": "trueopen.task.data_auth.v1",
   "source": "Task data request and body wire contract",
@@ -617,6 +618,283 @@
       "preimage_hex": "000000000000001d545255454f50454e5f5441534b5f444154415f524551554553545f56310000000000000004000000010000000000000011747275656f70656e2d676f6c64656e2d31000000000000001477d7bb07580b39fb949df09f7bb9f80a1d0641b8000000000000002b2f6e657875732e76312e496e67726573734150492f55706c6f61645461736b526573756c744f626a65637400000000000000208476d08eda22ac87fa0c436c59f9ccfb18a92c834ae3154996bbef33f47acbd60000000000000004000000020000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000800000000000000070000000000000020a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf000000000000000800000000000007d0",
       "preimage_size_bytes": 305,
       "producer": "CortexTaskDataRequestDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "1f4fc8a0975ab3f34dbc37eccf7a3366c9616197c0a4d6a1c679d2999902d6fa",
+      "domain": "TRUEOPEN_TASK_DATA_METADATA_BODY_V2",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 3
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_WORKER",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 1
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "value",
+                  "type": "address"
+                }
+              ],
+              "name": "producer_operator",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "enum": "EVIDENCE_KIND_WORKER_ANCHOR_OPENING",
+              "name": "evidence_kind",
+              "type": "enum",
+              "value": 5
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "evidence_producer_kind 1 -> 2 (EVIDENCE_PRODUCER_KIND_V1_VERIFIER) with evidence_kind 5",
+          "expect": "reject_before_hash",
+          "field_path": "object_ref.evidence_producer_kind",
+          "name": "field.object_ref.evidence_producer_kind",
+          "reason": "EVIDENCE_KIND_WORKER_ANCHOR_OPENING is a Worker data-plane evidence kind; a Verifier-produced evidence object carries EVIDENCE_KIND_VERIFIER_VALUE_OPENING, so the reference is rejected before any body digest is computed."
+        }
+      ],
+      "name": "task_data_metadata_body_v2_worker_anchor_opening",
+      "preimage_hex": "0000000000000023545255454f50454e5f5441534b5f444154415f4d455441444154415f424f44595f563200000000000000f500000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000000400000001000000000000001d010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000400000005",
+      "preimage_size_bytes": 296,
+      "producer": "TaskDataMetadataBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "0c3349e2ea0565f4bc1be24d59f5d36f9231751e657abc9a185c954571a8fd6a",
+      "domain": "TRUEOPEN_TASK_DATA_FETCH_BODY_V2",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 3
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_WORKER",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 1
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "value",
+                  "type": "address"
+                }
+              ],
+              "name": "producer_operator",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "enum": "EVIDENCE_KIND_WORKER_ANCHOR_OPENING",
+              "name": "evidence_kind",
+              "type": "enum",
+              "value": 5
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        },
+        {
+          "name": "range",
+          "present": false,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "evidence_producer_kind 1 -> 2 (EVIDENCE_PRODUCER_KIND_V1_VERIFIER) with evidence_kind 5",
+          "expect": "reject_before_hash",
+          "field_path": "object_ref.evidence_producer_kind",
+          "name": "field.object_ref.evidence_producer_kind",
+          "reason": "EVIDENCE_KIND_WORKER_ANCHOR_OPENING is a Worker data-plane evidence kind; a Verifier-produced evidence object carries EVIDENCE_KIND_VERIFIER_VALUE_OPENING, so the reference is rejected before any body digest is computed."
+        }
+      ],
+      "name": "task_data_fetch_body_v2_worker_anchor_opening",
+      "preimage_hex": "0000000000000020545255454f50454e5f5441534b5f444154415f46455443485f424f44595f563200000000000000f500000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000000400000001000000000000001d010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3000000000000000400000005000000000000000100",
+      "preimage_size_bytes": 302,
+      "producer": "TaskDataFetchBodyDigest"
+    },
+    {
+      "contract_section": "Public wire fixture testdata/v1/task/task_data_auth_v1.json",
+      "digest_hex": "3c3a86a16e135f66fb2444aaf420bcd55ee6b66e1c5bf29613b44d9cdb38a281",
+      "domain": "TRUEOPEN_TASK_DATA_FETCH_BODY_V2",
+      "fields": [
+        {
+          "fields": [
+            {
+              "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+              "name": "task_hash",
+              "type": "bytes"
+            },
+            {
+              "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+              "name": "session_id",
+              "type": "bytes"
+            },
+            {
+              "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "task_id",
+              "type": "bytes"
+            },
+            {
+              "enum": "TASK_DATA_OBJECT_KIND_EVIDENCE_MANIFEST",
+              "name": "object_kind",
+              "type": "enum",
+              "value": 3
+            },
+            {
+              "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+              "name": "content_hash",
+              "type": "bytes"
+            },
+            {
+              "enum": "EVIDENCE_PRODUCER_KIND_V1_WORKER",
+              "name": "evidence_producer_kind",
+              "type": "enum",
+              "value": 1
+            },
+            {
+              "name": "verify_round",
+              "type": "uint32",
+              "value": 1
+            },
+            {
+              "fields": [
+                {
+                  "bech32": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+                  "hex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3",
+                  "name": "value",
+                  "type": "address"
+                }
+              ],
+              "name": "producer_operator",
+              "present": true,
+              "type": "optional"
+            },
+            {
+              "enum": "EVIDENCE_KIND_WORKER_ANCHOR_OPENING",
+              "name": "evidence_kind",
+              "type": "enum",
+              "value": 5
+            }
+          ],
+          "name": "object_ref",
+          "type": "frame"
+        },
+        {
+          "fields": [
+            {
+              "fields": [
+                {
+                  "name": "offset",
+                  "type": "uint64",
+                  "value": 0
+                },
+                {
+                  "name": "length",
+                  "type": "uint64",
+                  "value": 64
+                }
+              ],
+              "name": "value",
+              "type": "frame"
+            }
+          ],
+          "name": "range",
+          "present": true,
+          "type": "optional"
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "mutations": [
+        {
+          "change": "evidence_producer_kind 1 -> 2 (EVIDENCE_PRODUCER_KIND_V1_VERIFIER) with evidence_kind 5",
+          "expect": "reject_before_hash",
+          "field_path": "object_ref.evidence_producer_kind",
+          "name": "field.object_ref.evidence_producer_kind",
+          "reason": "EVIDENCE_KIND_WORKER_ANCHOR_OPENING is a Worker data-plane evidence kind; a Verifier-produced evidence object carries EVIDENCE_KIND_VERIFIER_VALUE_OPENING, so the reference is rejected before any body digest is computed."
+        }
+      ],
+      "name": "task_data_fetch_body_v2_worker_anchor_opening_range",
+      "preimage_hex": "0000000000000020545255454f50454e5f5441534b5f444154415f46455443485f424f44595f563200000000000000f500000000000000202222222222222222222222222222222222222222222222222222222222222222000000000000002033333333333333333333333333333333333333333333333333333333333333330000000000000020111111111111111111111111111111111111111111111111111111111111111100000000000000040000000300000000000000204444444444444444444444444444444444444444444444444444444444444444000000000000000400000001000000000000000400000001000000000000001d010000000000000014c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d300000000000000040000000500000000000000290100000000000000200000000000000008000000000000000000000000000000080000000000000040",
+      "preimage_size_bytes": 342,
+      "producer": "TaskDataFetchBodyDigest"
     }
   ]
 }

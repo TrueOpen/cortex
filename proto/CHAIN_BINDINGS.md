@@ -4,15 +4,19 @@ Cortex consumes the descriptor built from `TrueOpen/wire` commit
 `e365a4850d5276508aa3ec5cee0307b4ce5e6590` (e365a48): the Phase 1 contract the
 devnet Node and Builder binaries are built on (b30fba8) plus the model support
 confirmation relay. Cortex must match them exactly or dispatch signatures and
-proof checks between Cortex and Builders disagree. It is not a release: go.mod
-pins the pseudo-version `v0.5.2-0.20261105094325-e365a4850d52`, and the pin
-moves to the release asset
-once wire tags it. Hub, Task, shared, Nexus and Cortex use one Google Protobuf
+proof checks between Cortex and Builders disagree. The descriptor was built
+when go.mod pinned the pseudo-version `v0.5.2-0.20261105094325-e365a4850d52`.
+go.mod now pins the release `v0.6.1` (tag commit
+`b1f470f4030cf9d23f2ebe1e42665b5bf24609e2`); the generated bindings have not
+been regenerated from the v0.6.1 descriptor yet, so they still lack what
+v0.6.1 adds over e365a48 (`task/v1/anchor.proto`, `VerificationParamsV1`
+fields 7-13, `DeadlineKindV1.ANCHOR_VERDICT`, the `Query/TaskFrozenParams`
+rpc). Hub, Task, shared, Nexus and Cortex use one Google Protobuf
 descriptor graph. The previous mixed Node revisions, handwritten `Frozen*`
 subsets and duplicate Bus Task types are retired.
 
 The cross-language test vectors in `internal/wirevectors` are `testdata/v1` of
-the same commit. Against rc.2, v0.3.0 retires `ModelState.active_profile_count`
+the v0.6.1 release. Against rc.2, v0.3.0 retires `ModelState.active_profile_count`
 (field 4 is reserved: ACTIVE is derived from model support alone), adds the
 model-support deactivation cursor that runs after a model is FROZEN or DELISTED
 with its per-block budget
@@ -297,7 +301,7 @@ Nexus provenance is also recorded in `proto/nexus/v1/README.md`.
 
 ## Active Contracts
 
-Released fixture bytes are kept unchanged under `internal/wirevectors/testdata/p1-e365a48`.
+Released fixture bytes are kept unchanged under `internal/wirevectors/testdata/v0.6.1`.
 wire v0.3.0 is a reviewed breaking release:
 
 - `model_id` is a Hash32 (`TRUEOPEN_MODEL_ID_V1`). Cortex carries it as 64

@@ -1,0 +1,64 @@
+{
+  "notes": [
+    "Anchor commitment binds the SHA-256 and exact size of the single anchor_commit artifact of a WORKER_ANCHOR_OPENING bundle to the task and the Worker.",
+    "It is the third entry of an InferReceiptV3 commitment list, after the value and token commitments, and only for Profiles whose required_infer_evidence lists EVIDENCE_KIND_WORKER_ANCHOR_OPENING."
+  ],
+  "schema": "trueopen.task.worker_anchor_commitment.v1",
+  "source": "Worker anchor commitment wire contract",
+  "vectors": [
+    {
+      "contract_section": "Worker evidence commitment wire contract",
+      "digest_hex": "88373eed3d4b9d71e658c40a49026da66c03c83604f4eb0ea78ec04dc5620a14",
+      "domain": "TRUEOPEN_WORKER_ANCHOR_COMMITMENT_V1",
+      "expected_encoded_size_bytes": 123456,
+      "fields": [
+        {
+          "name": "schema_version",
+          "type": "uint32",
+          "value": 1
+        },
+        {
+          "name": "chain_id",
+          "type": "string",
+          "utf8": "trueopen-localnet-1"
+        },
+        {
+          "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "task_id",
+          "type": "bytes"
+        },
+        {
+          "hex": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "accepted_task_hash",
+          "type": "bytes"
+        },
+        {
+          "bech32": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+          "hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "name": "worker_operator_address",
+          "type": "address"
+        },
+        {
+          "hex": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "evidence_schema_hash",
+          "type": "bytes"
+        },
+        {
+          "hex": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "anchor_commit_hash",
+          "type": "bytes"
+        },
+        {
+          "name": "anchor_commit_size_bytes",
+          "type": "uint64",
+          "value": 123456
+        }
+      ],
+      "framing": "H_FIELDS_V1",
+      "name": "worker_anchor_commitment_v1",
+      "preimage_hex": "0000000000000024545255454f50454e5f574f524b45525f414e43484f525f434f4d4d49544d454e545f56310000000000000004000000010000000000000013747275656f70656e2d6c6f63616c6e65742d3100000000000000201111111111111111111111111111111111111111111111111111111111111111000000000000002022222222222222222222222222222222222222222222222222222222222222220000000000000014a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b300000000000000203333333333333333333333333333333333333333333333333333333333333333000000000000002044444444444444444444444444444444444444444444444444444444444444440000000000000008000000000001e240",
+      "preimage_size_bytes": 287,
+      "producer": "worker_anchor_commitment_v1"
+    }
+  ]
+}
