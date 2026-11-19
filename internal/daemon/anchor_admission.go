@@ -317,16 +317,28 @@ func (a *AnchorAdmission) ReleaseTask(taskID layout.StoredHash) {
 
 // restore re-takes, after a restart, the slot of a ticket that held one:
 // a task in flight, or a signed receipt the sidecar may not list as seen
-// yet. The table is in memory only, so
-// it is rebuilt from the dispatch records; it is rebuilt without a limit,
-// because the tasks are in flight whatever the signal says now.
-func (a *AnchorAdmission) restore(ticket, taskID layout.StoredHash) {
+// yet. The table is in memory only, so it is rebuilt from the dispatch
+// records; it is rebuilt without a limit, because the tasks are in flight
+// whatever the signal says now. received is when the offer arrived, from
+// which the slot's TTL ran while the node was up: a slot whose TTL has run
+// out since is not taken again (restored is false), and the others expire
+// when they would have. A zero received (a record older than the field) is
+// taken as now, and one ahead of the gate's clock is clamped to it.
+func (a *AnchorAdmission) restore(ticket, taskID layout.StoredHash, received time.Time) (restored bool) {
 	if a == nil {
-		return
+		return false
+	}
+	now := a.now()
+	if received.IsZero() || received.After(now) {
+		received = now
+	}
+	if now.Sub(received) >= a.reserveTTL {
+		return false
 	}
 	a.mu.Lock()
-	a.reserved[ticket] = anchorReservation{task: anchorAdmissionKey(taskID), at: a.now()}
+	a.reserved[ticket] = anchorReservation{task: anchorAdmissionKey(taskID), at: received}
 	a.mu.Unlock()
+	return true
 }
 
 // parsedAnchorAdmission is a signal that was parsed and the verdict it gave.

@@ -394,6 +394,20 @@ func slotOffer(t *testing.T, slots int) (*dispatchHarness, *AnchorAdmission, str
 	return x, a, path
 }
 
+// receivedByTheGateClock dates ticket's offer by the gate's clock: in the
+// daemon the Dispatcher and the gate read one wall clock, and a slot
+// restored after a restart keeps its TTL from the record's
+// ReceivedAtUnixMs; the harness runs the Dispatcher on a clock of its own.
+func receivedByTheGateClock(t *testing.T, x *dispatchHarness, ticket layout.StoredHash) {
+	t.Helper()
+	if _, err := layout.UpdateDispatch(context.Background(), x.st, ticket, func(r *layout.DispatchRecord) error {
+		r.ReceivedAtUnixMs = admissionAt.UnixMilli()
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func reservedSlots(a *AnchorAdmission) int {
 	st, _ := a.Status()
 	return st.Reserved
@@ -501,6 +515,7 @@ func TestDispatchOfferTakesAndReturnsTheAuditSlot(t *testing.T) {
 	t.Run("restart rebuilds the table from the records", func(t *testing.T) {
 		x, a, _ := slotOffer(t, 1)
 		accept(t, x, a)
+		receivedByTheGateClock(t, x, layout.StoredHash(x.fx.ticketHash()))
 		a.Release(layout.StoredHash(x.fx.ticketHash())) // the table is in memory: a restart loses it
 		if reservedSlots(a) != 0 {
 			t.Fatal("setup")
@@ -523,6 +538,7 @@ func TestDispatchOfferTakesAndReturnsTheAuditSlot(t *testing.T) {
 			if signed {
 				r.Receipt = []byte(`{"signed":"receipt"}`)
 			}
+			r.ReceivedAtUnixMs = admissionAt.UnixMilli() // see receivedByTheGateClock
 			return nil
 		})
 		if err != nil {
@@ -653,5 +669,71 @@ func TestAnchorAdmissionKeepsTheNewerSignal(t *testing.T) {
 	older.read = last.read + 1
 	if err := a.adopt(older); err == nil || err.Error() != "the older verdict" {
 		t.Fatalf("a later read of an older signal gave %v, want its own verdict", err)
+	}
+}
+
+// After a restart a slot keeps the reservation time it had: the TTL runs
+// from when the offer arrived, not from the restart, so a receipt signed
+// longer than the TTL ago (released by the TTL while the node ran) is not
+// held again. A record without a receipt time is held from the restart.
+func TestRecoverAnchorSlotsKeepsTheReservationTime(t *testing.T) {
+	ctx := context.Background()
+	const ttl = 30 * time.Minute
+	for _, c := range []struct {
+		name     string
+		received func(now time.Time) int64
+		held     time.Duration // how long after the restart the slot is still held; 0: not restored
+	}{
+		{"received TTL+1s ago", func(now time.Time) int64 { return now.Add(-ttl - time.Second).UnixMilli() }, 0},
+		{"received 10 min ago", func(now time.Time) int64 { return now.Add(-10 * time.Minute).UnixMilli() }, 20 * time.Minute},
+		{"no receipt time", func(time.Time) int64 { return 0 }, ttl},
+		{"received in the future", func(now time.Time) int64 { return now.Add(time.Hour).UnixMilli() }, ttl},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			now := admissionAt
+			path := filepath.Join(t.TempDir(), "a.json")
+			signal := func() { writeAdmission(t, path, slotSignal(now.Unix(), 1)) }
+			signal()
+			a := NewAnchorAdmission(config.AnchorAdmissionConfig{File: path, ReserveTTLS: uint64(ttl / time.Second)}, func() time.Time { return now }, nil)
+			x, _ := gatedOfferHarness(t, a, false)
+			x.capacity = 4
+			x.open()
+			if err := x.handle(ctx); err != nil {
+				t.Fatal(err)
+			}
+			rec := x.record(t)
+			if _, err := x.d.cfg.Leases.Rebind(ctx, rec.TicketHash, rec.TaskID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := layout.UpdateDispatch(ctx, x.st, rec.TicketHash, func(r *layout.DispatchRecord) error {
+				r.State, r.RecordedHeight, r.InferDeadlineHeight, r.WinnerTicketHash = layout.DispatchRecorded, 120, 300, r.TicketHash
+				r.Receipt = []byte(`{"signed":"receipt"}`)
+				r.ReceivedAtUnixMs = c.received(now)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := x.d.ReleaseTaskLease(ctx, rec.TaskID); err != nil {
+				t.Fatal(err)
+			}
+			a.Release(rec.TicketHash) // the table is in memory: a restart loses it
+			x.open()
+			if c.held == 0 {
+				if n := reservedSlots(a); n != 0 {
+					t.Fatalf("%d slots held after the restart, want none: the TTL had run out", n)
+				}
+				return
+			}
+			now = now.Add(c.held - time.Second)
+			signal()
+			if n := reservedSlots(a); n != 1 {
+				t.Fatalf("%d slots held %s after the restart, want the restored one", n, c.held-time.Second)
+			}
+			now = now.Add(2 * time.Second)
+			signal()
+			if n := reservedSlots(a); n != 0 {
+				t.Fatalf("%d slots held %s after the restart, want it released at the TTL", n, c.held+time.Second)
+			}
+		})
 	}
 }

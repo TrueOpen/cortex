@@ -189,7 +189,8 @@ func (d *Dispatcher) pruneDeadlines(now time.Time) {
 // which is in memory only, from the tickets that would hold one had the node
 // not stopped (layout.DispatchAnchorSlotHolders): tasks in flight, and
 // signed receipts the sidecar may not list as seen yet, which the next
-// signal or the TTL prunes. It runs after recoverLeases, so a recorded
+// signal or the TTL prunes. Each keeps the TTL it had, counted from when
+// its offer arrived (restore). It runs after recoverLeases, so a recorded
 // ticket's lease is under its task key by then. The record does not say
 // whether its Profile requires WORKER_ANCHOR_OPENING, so on a node that also
 // serves other Profiles this counts their in-flight tasks as well until they
@@ -203,11 +204,18 @@ func (d *Dispatcher) recoverAnchorSlots(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dispatcher: list tickets holding an audit slot: %w", err)
 	}
+	restored := 0
 	for _, rec := range recs {
-		d.cfg.AnchorAdmission.restore(rec.TicketHash, rec.TaskID)
+		var received time.Time
+		if rec.ReceivedAtUnixMs != 0 {
+			received = time.UnixMilli(rec.ReceivedAtUnixMs)
+		}
+		if d.cfg.AnchorAdmission.restore(rec.TicketHash, rec.TaskID, received) {
+			restored++
+		}
 	}
-	if len(recs) > 0 {
-		d.cfg.Logger.Info("restored anchor admission slots of tickets in flight", "tickets", len(recs))
+	if restored > 0 {
+		d.cfg.Logger.Info("restored anchor admission slots of tickets in flight", "tickets", restored)
 	}
 	return nil
 }
