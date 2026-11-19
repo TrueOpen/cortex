@@ -483,6 +483,64 @@ func TestDispatchOfferTakesAndReturnsTheAuditSlot(t *testing.T) {
 			t.Fatalf("%d slots held after the restart, want the accepted ticket's", reservedSlots(a))
 		}
 	})
+	// recordIt moves the accepted ticket to Recorded the way the order does:
+	// the lease to its task key, then the state, with a receipt if signed.
+	recordIt := func(t *testing.T, x *dispatchHarness, signed bool) layout.DispatchRecord {
+		t.Helper()
+		rec := x.record(t)
+		if _, err := x.d.cfg.Leases.Rebind(ctx, rec.TicketHash, rec.TaskID); err != nil {
+			t.Fatal(err)
+		}
+		rec, err := layout.UpdateDispatch(ctx, x.st, rec.TicketHash, func(r *layout.DispatchRecord) error {
+			r.State, r.RecordedHeight, r.InferDeadlineHeight, r.WinnerTicketHash = layout.DispatchRecorded, 120, 300, r.TicketHash
+			if signed {
+				r.Receipt = []byte(`{"signed":"receipt"}`)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rec
+	}
+	t.Run("restart keeps the slot of a recorded task still running", func(t *testing.T) {
+		x, a, _ := slotOffer(t, 1)
+		accept(t, x, a)
+		recordIt(t, x, false)
+		a.Release(layout.StoredHash(x.fx.ticketHash()))
+		x.open()
+		if reservedSlots(a) != 1 {
+			t.Fatalf("%d slots held after the restart, want the running task's", reservedSlots(a))
+		}
+	})
+	t.Run("restart does not revive the slot of a task that ended without a receipt", func(t *testing.T) {
+		x, a, _ := slotOffer(t, 1)
+		accept(t, x, a)
+		rec := recordIt(t, x, false)
+		if err := x.d.ReleaseTaskLease(ctx, rec.TaskID); err != nil {
+			t.Fatal(err)
+		}
+		if reservedSlots(a) != 0 {
+			t.Fatal("setup")
+		}
+		x.open()
+		if reservedSlots(a) != 0 {
+			t.Fatalf("%d slots held after the restart by a task that ended with no receipt", reservedSlots(a))
+		}
+	})
+	t.Run("restart keeps the slot of a signed receipt the sidecar has not seen", func(t *testing.T) {
+		x, a, _ := slotOffer(t, 1)
+		accept(t, x, a)
+		rec := recordIt(t, x, true)
+		if err := x.d.ReleaseTaskLease(ctx, rec.TaskID); err != nil {
+			t.Fatal(err)
+		}
+		a.Release(rec.TicketHash) // the table is in memory: a restart loses it
+		x.open()
+		if reservedSlots(a) != 1 {
+			t.Fatalf("%d slots held after the restart, want the slot of the receipt on its way", reservedSlots(a))
+		}
+	})
 }
 
 // With every slot held, an offer is refused NO_CAPACITY, after the handraise

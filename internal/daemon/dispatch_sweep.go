@@ -185,26 +185,23 @@ func (d *Dispatcher) pruneDeadlines(now time.Time) {
 	}
 }
 
-// recoverLeases releases pre-record leases whose ticket holds no duty: a
-// crash between a state change and its release, or an offer that will be
-// redelivered and re-evaluated anyway. An accepted ticket keeps its lease
-// whatever became of its accept: after a restart an earlier process may have
-// sent it (Q9). A recorded ticket whose lease a crash left on the ticket key
-// finishes its move to (task_id, WORKER).
 // recoverAnchorSlots rebuilds the admission gate's table of slots held,
-// which is in memory only: every ticket that holds a duty and has no signed
-// receipt is a task in flight the sidecar cannot see yet. The record does
-// not say whether its Profile requires WORKER_ANCHOR_OPENING, so on a node
-// that also serves other Profiles this counts their in-flight tasks as well
-// until they end or the TTL passes: too many slots held for a while after a
-// restart, never too few.
+// which is in memory only, from the tickets that would hold one had the node
+// not stopped (layout.DispatchAnchorSlotHolders): tasks in flight, and
+// signed receipts the sidecar may not list as seen yet, which the next
+// signal or the TTL prunes. It runs after recoverLeases, so a recorded
+// ticket's lease is under its task key by then. The record does not say
+// whether its Profile requires WORKER_ANCHOR_OPENING, so on a node that also
+// serves other Profiles this counts their in-flight tasks as well until they
+// end or the TTL passes: too many slots held for a while after a restart,
+// never too few.
 func (d *Dispatcher) recoverAnchorSlots(ctx context.Context) error {
 	if d.cfg.AnchorAdmission == nil {
 		return nil
 	}
-	recs, err := layout.DispatchDutiesWithoutReceipt(ctx, d.cfg.Store)
+	recs, err := layout.DispatchAnchorSlotHolders(ctx, d.cfg.Store)
 	if err != nil {
-		return fmt.Errorf("dispatcher: list tickets in flight: %w", err)
+		return fmt.Errorf("dispatcher: list tickets holding an audit slot: %w", err)
 	}
 	for _, rec := range recs {
 		d.cfg.AnchorAdmission.restore(rec.TicketHash, rec.TaskID)
@@ -215,6 +212,12 @@ func (d *Dispatcher) recoverAnchorSlots(ctx context.Context) error {
 	return nil
 }
 
+// recoverLeases releases pre-record leases whose ticket holds no duty: a
+// crash between a state change and its release, or an offer that will be
+// redelivered and re-evaluated anyway. An accepted ticket keeps its lease
+// whatever became of its accept: after a restart an earlier process may have
+// sent it (Q9). A recorded ticket whose lease a crash left on the ticket key
+// finishes its move to (task_id, WORKER).
 func (d *Dispatcher) recoverLeases(ctx context.Context) error {
 	tickets, err := layout.WorkerTicketLeases(ctx, d.cfg.Store)
 	if err != nil {

@@ -78,8 +78,9 @@ import (
 // is the boolean gate described above.
 //
 // The table of slots held is in memory. After a restart it is rebuilt from
-// the dispatch records (every accepted ticket without a signed receipt), and
-// the TTL is the net under every path that might forget to give a slot back.
+// the dispatch records and leases (every ticket that would hold a slot had
+// the node not stopped, see Dispatcher.recoverAnchorSlots), and the TTL is
+// the net under every path that might forget to give a slot back.
 //
 // Accepted tasks are not affected, Profiles without kind 5 are not affected,
 // and Verifier duty is not gated (verifying creates no anchor obligation).
@@ -307,8 +308,9 @@ func (a *AnchorAdmission) ReleaseTask(taskID layout.StoredHash) {
 	a.mu.Unlock()
 }
 
-// restore re-takes, after a restart, the slot of a ticket this node had
-// accepted and not yet signed a receipt for. The table is in memory only, so
+// restore re-takes, after a restart, the slot of a ticket that held one:
+// a task in flight, or a signed receipt the sidecar may not list as seen
+// yet. The table is in memory only, so
 // it is rebuilt from the dispatch records; it is rebuilt without a limit,
 // because the tasks are in flight whatever the signal says now.
 func (a *AnchorAdmission) restore(ticket, taskID layout.StoredHash) {

@@ -56,18 +56,41 @@ func DispatchScopeOwner(ctx context.Context, s *store.Store, scope StoredHash) (
 	return out, found, err
 }
 
-// DispatchDutiesWithoutReceipt returns the records that hold a duty
-// (accepted, pending-claim or recorded) and carry no signed receipt: the
-// tickets of tasks still in flight.
-func DispatchDutiesWithoutReceipt(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
-	var out []DispatchRecord
+// DispatchAnchorSlotHolders returns the records whose ticket holds an audit
+// slot of the anchor admission gate while the node runs: an accepted or
+// pending-claim ticket; a recorded ticket whose task still holds a Worker
+// lease (under the ticket key, or under (task_id, WORKER) for a task still
+// running); and a recorded ticket with a signed receipt, whose commitment may
+// be on its way. A recorded ticket without a receipt whose lease is gone is a
+// task that ended with no commitment: it holds nothing, though its record
+// stays until the GC.
+func DispatchAnchorSlotHolders(ctx context.Context, s *store.Store) ([]DispatchRecord, error) {
+	var recorded, out []DispatchRecord
 	err := scanDispatchRecords(ctx, s, func(r DispatchRecord) error {
-		if r.State.HoldsDuty() && len(r.Receipt) == 0 {
+		switch {
+		case r.State == DispatchRecorded && len(r.Receipt) == 0:
+			recorded = append(recorded, r)
+		case r.State.HoldsDuty():
 			out = append(out, r)
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range recorded {
+		held, err := hasWorkerLease(ctx, s, r.TicketHash)
+		if err == nil && !held {
+			held, err = hasWorkerTaskLease(ctx, s, r.TaskID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lease of ticket %s: %w", r.TicketHash, err)
+		}
+		if held {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 // DispatchAnswer is one row of the reject-rate metric (S4 Q16).
