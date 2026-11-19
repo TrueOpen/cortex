@@ -227,27 +227,12 @@ func (c *NexusOutputConfirmer) confirmFromTaskData(
 			"OUTPUT for task %s is %d bytes, above the %d byte confirmation bound",
 			commitments.TaskID, metadata.SizeBytes, c.cfg.MaxOutputBytes)
 	}
-	auth, err := c.cfg.Auth.SignFetch(ctx, key, commitments.BuilderOperatorAddress, nil)
+	// Read in signed ranges: the Builder refuses a whole-object read above its
+	// task_data.max_range_bytes. The buffer grows with the bytes that arrive.
+	output, err := fetchTaskDataRanges(ctx, c.cfg.TaskData, c.cfg.Auth, endpoint, commitments.BuilderOperatorAddress, key,
+		metadata.SizeBytes, taskDataFetchRangeBytes, make([]byte, 0, min(metadata.SizeBytes, maxEvidencePrealloc)))
 	if err != nil {
-		return builderclient.OutputPackage{}, err
-	}
-	output := make([]byte, 0, min(metadata.SizeBytes, maxEvidencePrealloc))
-	ended := false
-	err = c.cfg.TaskData.FetchTaskData(ctx, endpoint, builderclient.FetchTaskDataRequest{Key: key, Auth: auth},
-		func(chunk builderclient.TaskDataChunk) error {
-			if ended || chunk.Offset != uint64(len(output)) || uint64(len(output))+uint64(len(chunk.Data)) > metadata.SizeBytes {
-				return fmt.Errorf("OUTPUT stream for task %s exceeds the signed %d bytes", commitments.TaskID, metadata.SizeBytes)
-			}
-			output = append(output, chunk.Data...)
-			ended = chunk.EOF
-			return nil
-		})
-	if err != nil {
-		return builderclient.OutputPackage{}, err
-	}
-	if !ended || uint64(len(output)) != metadata.SizeBytes {
-		return builderclient.OutputPackage{}, fmt.Errorf(
-			"OUTPUT stream for task %s delivered %d of %d signed bytes", commitments.TaskID, len(output), metadata.SizeBytes)
+		return builderclient.OutputPackage{}, fmt.Errorf("read the %d signed bytes of OUTPUT for task %s: %w", metadata.SizeBytes, commitments.TaskID, err)
 	}
 	// The one binding that matters: the bytes the Builder served must hash to
 	// what Keeper committed. Everything upstream of this is metadata the Builder

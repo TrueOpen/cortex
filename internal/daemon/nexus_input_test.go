@@ -65,6 +65,9 @@ type inputTaskDataClient struct {
 	fetch            func(builderclient.FetchTaskDataRequest, func(builderclient.TaskDataChunk) error) error
 	metadataRequests []builderclient.GetTaskDataMetadataRequest
 	ranges           []builderclient.FetchTaskDataRequest
+	// wholeObjectFetches counts fetches that named no range, which a Builder
+	// refuses for any object above its task_data.max_range_bytes.
+	wholeObjectFetches int
 	// verify commit relay: records the endpoint and the request; returns relayErr when set.
 	commitEndpoints []string
 	commitPins      []string
@@ -90,6 +93,7 @@ func (c *inputTaskDataClient) GetTaskDataMetadata(_ context.Context, _ string, r
 
 func (c *inputTaskDataClient) FetchTaskData(_ context.Context, _ string, request builderclient.FetchTaskDataRequest, receive func(builderclient.TaskDataChunk) error) error {
 	if request.Range == nil {
+		c.wholeObjectFetches++
 		request.Range = &builderclient.TaskDataRange{Length: uint64(len(c.payload))}
 	}
 	c.ranges = append(c.ranges, request)
