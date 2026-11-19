@@ -91,6 +91,23 @@ type LocalService struct {
 	// always non-streaming.
 	streamInference bool
 
+	// anchorCommitTimeout bounds how long Infer waits, after the generation
+	// has ended, for the engine sidecar to finalize and serve the ADR-0040
+	// AnchorCommitV1 of the completion. It is its own budget: the generation's
+	// max_output_duration grace and the infer timeout never shorten it, so a
+	// generation stopped at its budget still gets the full window. Zero means
+	// defaultAnchorCommitTimeout.
+	anchorCommitTimeout time.Duration
+	// anchorCommitBackoff is the first wait between polls of a commitment the
+	// engine still reports as being finalized (503). Zero means the default.
+	anchorCommitBackoff time.Duration
+	// anchorCommitNotFoundGrace is how long a 404 from /slp/commit/{id} is
+	// polled before it is taken as final. Zero means the default; negative
+	// means a 404 is final at once.
+	anchorCommitNotFoundGrace time.Duration
+	// anchorInfo caches the last /slp/info probe (AnchorCommitCapable).
+	anchorInfo anchorInfoCache
+
 	// detokenizeCorroboration, when true, makes Infer refuse to commit an
 	// output whose bytes do not equal the engine's own decode of the committed
 	// token ids (corroborateOutputDecodes). Off by default; the daemon enables
@@ -299,6 +316,26 @@ type inferStreamIdentity struct {
 	jobID     string
 	taskID    string
 	modelID   string
+	// budgetStopNeedsToken is set for a request whose locked Profile requires
+	// WORKER_ANCHOR_OPENING (ADR-0040). The max_output_duration stop is then
+	// taken at the first frame boundary past the budget at which at least one
+	// generated token has been delivered, never before the first token. The
+	// engine commits to rows, and a prompt with no generated token has none: a
+	// generation ended at zero tokens leaves the Worker with no anchor
+	// commitment, so no receipt, and the task runs into the infer deadline as
+	// a Worker timeout. A frame that carries no token (the role preamble of a
+	// chat stream, an empty keep-alive delta) is therefore not a stopping
+	// point under such a Profile. The wait for the first token stays bounded
+	// by the context deadline budgetGrace behind the budget. Requests of every
+	// other Profile stop exactly as before.
+	budgetStopNeedsToken bool
+}
+
+// budgetStopAllowed reports whether a max_output_duration stop may be taken
+// after a frame that leaves delivered generated tokens (see
+// inferStreamIdentity.budgetStopNeedsToken).
+func (i inferStreamIdentity) budgetStopAllowed(delivered int) bool {
+	return !i.budgetStopNeedsToken || delivered > 0
 }
 
 // completionRequest is the OpenAI-compatible /v1/completions payload plus the
@@ -411,6 +448,7 @@ type completionChoice struct {
 }
 
 type completionResponse struct {
+	ID      string             `json:"id"`
 	Choices []completionChoice `json:"choices"`
 }
 
@@ -999,6 +1037,8 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 				jobID:     req.JobID,
 				taskID:    req.TaskID,
 				modelID:   profile.ModelID,
+				// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
+				budgetStopNeedsToken: req.RequireAnchorCommit,
 			}
 			if err := s.postStreamingCompletion(ctx, "/v1/completions", genReq, &resp, ident, budgetAt); err != nil {
 				return InferResponse{}, err
@@ -1167,7 +1207,6 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 	tokenIDsRef := s.putArtifact(tokenIDsBytes)
 	positionValuesRef := s.putArtifact(positionValuesBytes)
 	generatedTokenCount := uint64(len(generatedIDs))
-
 	return InferResponse{
 		RequestID:              req.RequestID,
 		ModelServiceID:         s.serviceID,
@@ -1183,6 +1222,7 @@ func (s *LocalService) buildInferResultFromCompletion(ctx context.Context, req I
 		GeneratedTokenCount:    generatedTokenCount,
 		WorkUnit:               generatedTokenCount,
 		FinishReason:           finishReason,
+		EngineRequestID:        resp.ID,
 	}, nil
 }
 
@@ -1657,6 +1697,9 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			return fmt.Errorf("modelservice local: decode stream frame: %w", err)
 		}
+		if out.ID == "" && chunk.ID != "" {
+			out.ID = chunk.ID
+		}
 		if len(chunk.Choices) == 0 {
 			continue
 		}
@@ -1720,8 +1763,10 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 			}
 		}
 		// Checked after the frame is folded in, never in the middle of one: the
-		// budget truncates the generation, not a token.
-		if overBudget() && out.Choices[0].FinishReason == "" {
+		// budget truncates the generation, not a token. Under a Profile that
+		// requires the anchor commitment it is not taken before the first
+		// generated token (inferStreamIdentity.budgetStopNeedsToken).
+		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break
 		}

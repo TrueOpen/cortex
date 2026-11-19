@@ -76,8 +76,9 @@ func taskDataObjectFrame(key TaskDataKey) (hfields.Field, error) {
 		}
 		switch key.EvidenceProducerKind {
 		case EvidenceProducerWorker:
-			if key.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening && key.EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
-				return hfields.Field{}, fmt.Errorf("Worker evidence must be WORKER_VALUE_OPENING or WORKER_TOKEN_OPENING")
+			if key.EvidenceKind != nodewire.EvidenceKindWorkerValueOpening && key.EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening &&
+				key.EvidenceKind != nodewire.EvidenceKindWorkerAnchorOpening {
+				return hfields.Field{}, fmt.Errorf("Worker evidence must be WORKER_VALUE_OPENING, WORKER_TOKEN_OPENING or WORKER_ANCHOR_OPENING")
 			}
 		default:
 			if key.EvidenceKind != nodewire.EvidenceKindVerifierValueOpening {
@@ -196,7 +197,7 @@ func TaskDataFinalizeResultBodyDigest(request FinalizeTaskResultRequest) (codec.
 // authenticates which of the two kinds it closes. Any other kind is refused
 // before hashing.
 func taskDataFinalizeResultDigest(scope []hfields.Field, receiptDigest, signatureDigest codec.Hash, kind nodewire.EvidenceKind) (codec.Hash, error) {
-	if kind != nodewire.EvidenceKindWorkerValueOpening && kind != nodewire.EvidenceKindWorkerTokenOpening {
+	if kind != nodewire.EvidenceKindWorkerValueOpening && kind != nodewire.EvidenceKindWorkerTokenOpening && kind != nodewire.EvidenceKindWorkerAnchorOpening {
 		return codec.Hash{}, fmt.Errorf("a result finalize must name one Worker evidence kind")
 	}
 	return hfields.Digest("TRUEOPEN_TASK_DATA_FINALIZE_RESULT_BODY_V2", append(scope, hfields.Hash(receiptDigest), hfields.Hash(signatureDigest), hfields.Uint32(uint32(kind)))...)

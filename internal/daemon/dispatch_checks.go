@@ -18,7 +18,9 @@ import (
 	"github.com/TrueOpen/cortex/internal/codec"
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/identity"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/nodewire"
+	"github.com/TrueOpen/cortex/internal/store/layout"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
 
@@ -46,6 +48,9 @@ const (
 	classInputTooLarge          = "input_too_large"
 	classNoFreeSlot             = "no_free_slot"
 	classBuilderRetiring        = "builder_retiring"
+	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
+	// right now (ADR-0040); a moment, like no_free_slot.
+	classAnchorAdmission = "anchor_admission"
 )
 
 // verdict is one signed-reject decision.
@@ -64,10 +69,11 @@ func refuse(reason taskv1.DispatchRejectReasonV1, class, format string, args ...
 // chain read pinned to height. oraw is the order carrier as received and
 // session its Session read at height (nil: not on chain). Check 5 is the
 // lease. A nil verdict and nil error means accept; an error is a failed read
-// (retryable).
-func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, session *chainclient.SessionSnapshot, height uint64) (*verdict, error) {
+// (retryable). anchor reports that the Profile requires
+// WORKER_ANCHOR_OPENING, so accepting takes on an audit obligation.
+func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, oraw []byte, session *chainclient.SessionSnapshot, height uint64) (v *verdict, anchor bool, err error) {
 	if v, err := d.checkOrder(ctx, t, so, oraw, session, height); v != nil || err != nil {
-		return v, err
+		return v, false, err
 	}
 	o := so.GetOrder()
 	modelHex := hex.EncodeToString(o.GetModelId())
@@ -75,19 +81,21 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 	scope, err := d.chain.ModelSupportScopeAt(ctx, d.cfg.Operator, modelHex, strconv.FormatUint(uint64(version), 10), height)
 	haveScope := err == nil
 	if err != nil && !errors.Is(err, chainclient.ErrNotFound) {
-		return nil, builderclient.Retryable(fmt.Errorf("support scope: %w", err))
+		return nil, false, builderclient.Retryable(fmt.Errorf("support scope: %w", err))
 	}
 	bond, v, err := d.checkNode(ctx, o, scope, haveScope, height)
 	if v != nil || err != nil {
-		return v, err
+		return v, false, err
 	}
-	if v := d.checkProfile(modelHex, version, scope, haveScope, bond); v != nil {
-		return v, nil
+	taskID, _ := hash32(t.GetTaskId())
+	if v, err := d.checkProfile(ctx, modelHex, version, scope, haveScope, bond, taskID); v != nil || err != nil {
+		return v, false, err
 	}
+	anchor = profileRequiresAnchorOpening(scope.Profile)
 	if v := d.checkPrice(o, modelHex, version); v != nil {
-		return v, nil
+		return v, anchor, nil
 	}
-	return d.checkInput(t, o), nil
+	return d.checkInput(t, o), anchor, nil
 }
 
 // checkOrder is check 2 (order structure, user signature, task identity,
@@ -248,22 +256,40 @@ func requiredTaskLiability(maxOutputTokens uint64, priceBid string, verifyRatioB
 }
 
 // checkProfile is check 4: local supported profile, not draining, and H2 on
-// the committed scope.
-func (d *Dispatcher) checkProfile(modelHex string, version uint32, scope chainclient.CommittedModelSupportScope, haveScope bool, bond chainclient.ServiceBondSnapshot) *verdict {
+// the committed scope. An anchor capability probe the engine did not answer
+// is a failed read (retryable), not a refusal.
+func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version uint32, scope chainclient.CommittedModelSupportScope, haveScope bool, bond chainclient.ServiceBondSnapshot, taskID layout.StoredHash) (*verdict, error) {
 	p, err := profileOf(modelHex, version)
 	if err != nil || !d.profiles[p] {
-		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is not in supported_model_profiles", modelHex, version)
+		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is not in supported_model_profiles", modelHex, version), nil
 	}
 	if _, drain := d.cfg.Local.Draining(); drain[p] {
-		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is draining", modelHex, version)
+		return refuse(reasonProfile, classProfileUnavailable, "profile %s@%d is draining", modelHex, version), nil
 	}
 	if !haveScope {
-		return refuse(reasonProfile, classProfileUnavailable, "no support scope on chain for %s@%d", modelHex, version)
+		return refuse(reasonProfile, classProfileUnavailable, "no support scope on chain for %s@%d", modelHex, version), nil
 	}
 	if err := scopeSupportProblem(scope, bond, d.cfg.Operator, modelHex, version); err != nil {
-		return refuse(reasonProfile, classProfileUnavailable, "H2: %v", err)
+		return refuse(reasonProfile, classProfileUnavailable, "H2: %v", err), nil
 	}
-	return nil
+	if err := anchorCapabilityProblem(ctx, d.cfg.Anchor, scope.Profile); err != nil {
+		if errors.Is(err, modelservice.ErrAnchorCommitProbeFailed) {
+			return nil, builderclient.Retryable(err)
+		}
+		return refuse(reasonProfile, classProfileUnavailable, "%v", err), nil
+	}
+	// The Profile itself is fine; the node cannot take on its audit
+	// obligation at this moment. The standing handraise already advertises
+	// that (the Profile left out, or no free slot), so this answers an offer
+	// that was routed before the Builder saw it. Nothing is reserved here:
+	// the slot is taken with the lease (HandleOffer), and this only spares
+	// an offer that cannot get one the rest of the way.
+	if d.cfg.AnchorAdmission != nil && profileRequiresAnchorOpening(scope.Profile) {
+		if err := d.cfg.AnchorAdmission.RefusalForTask(taskID); err != nil {
+			return refuse(reasonNoCapacity, classAnchorAdmission, "%v", err), nil
+		}
+	}
+	return nil, nil
 }
 
 // checkPrice is check 6's hard part: price_bid >= local min_price_bid.

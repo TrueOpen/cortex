@@ -1818,7 +1818,7 @@ func TestVerifierRejectsProfileWithEmptyEvidenceSchema(t *testing.T) {
 	state.OpenVerifyAccepted = true
 
 	_, err := h.verifier.HandleOpenVerifyAccepted(context.Background(), state)
-	if err == nil || !strings.Contains(err.Error(), "must require exactly the Worker value and token evidence") {
+	if err == nil || !strings.Contains(err.Error(), "must require the Worker value and token evidence") {
 		t.Fatalf("expected no evidence schema error, got: %v", err)
 	}
 }

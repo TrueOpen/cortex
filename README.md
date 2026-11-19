@@ -203,6 +203,8 @@ the corresponding flag always has higher precedence.
 | `CORTEX_NEXUS_DOWNGRADE_DESCRIPTOR_TLS` | `--nexus-downgrade-descriptor-tls` | `nexus.downgrade_descriptor_tls` |
 | `CORTEX_HEALTH_BIND` | `--health-bind` | `health.bind` |
 | `CORTEX_DISPATCH_BUILDERS` | `--dispatch-builders` | `dispatch.builders` |
+| `CORTEX_ANCHOR_ADMISSION_FILE` | `--anchor-admission-file` | `dispatch.anchor_admission.file` |
+| `CORTEX_ANCHOR_ADMISSION_MAX_AGE_S` | `--anchor-admission-max-age-s` | `dispatch.anchor_admission.max_age_s` |
 
 ### Model ids
 

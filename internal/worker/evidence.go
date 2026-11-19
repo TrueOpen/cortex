@@ -23,9 +23,16 @@ import (
 	"github.com/TrueOpen/cortex/internal/nodewire"
 )
 
-// workerEvidenceKinds are the Worker's two bundles in ascending kind order,
-// which is also the receipt's commitment order.
-var workerEvidenceKinds = [...]nodewire.EvidenceKind{nodewire.EvidenceKindWorkerValueOpening, nodewire.EvidenceKindWorkerTokenOpening}
+// workerEvidenceKinds are the Worker's bundles in ascending kind order, which
+// is also the receipt's commitment order: the two v0.3.0 bundles, plus the
+// C-level anchor bundle when the locked Profile requires it (ADR-0040).
+func (w *Worker) workerEvidenceKinds() []nodewire.EvidenceKind {
+	kinds := []nodewire.EvidenceKind{nodewire.EvidenceKindWorkerValueOpening, nodewire.EvidenceKindWorkerTokenOpening}
+	if builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements) {
+		kinds = append(kinds, nodewire.EvidenceKindWorkerAnchorOpening)
+	}
+	return kinds
+}
 
 // workerBundle is one published Worker bundle read back from the store.
 type workerBundle struct {
@@ -43,6 +50,11 @@ type workerEvidence struct {
 	generationParams                    []byte
 	inputHash, generatedHash, valueRoot codec.Hash
 	generatedCount                      uint64
+	// anchorCommit is the engine's AnchorCommitV1 artifact bytes and anchorHash
+	// their SHA-256; both empty unless the locked Profile requires the anchor
+	// opening (ADR-0040).
+	anchorCommit []byte
+	anchorHash   codec.Hash
 }
 
 // decodeMaterial reads the model service's two Infer artifacts.
@@ -75,12 +87,20 @@ func (w *Worker) valueBinding(taskID string, acceptedTaskHash []byte) (nodewire.
 
 // deriveWorkerEvidence encodes the protocol artifacts of both bundles from the
 // model material. It is deterministic, so a restart re-derives the same bytes.
-func (w *Worker) deriveWorkerEvidence(taskID string, acceptedTaskHash, generationParams []byte, tokenIDs, positionValues []byte) (workerEvidence, error) {
+func (w *Worker) deriveWorkerEvidence(taskID string, acceptedTaskHash, generationParams []byte, tokenIDs, positionValues, anchorCommit []byte) (workerEvidence, error) {
 	ids, values, err := decodeMaterial(tokenIDs, positionValues)
 	if err != nil {
 		return workerEvidence{}, err
 	}
 	out := workerEvidence{generationParams: generationParams}
+	if builderclient.ProfileRequiresAnchorOpening(w.cfg.ProfileEvidenceRequirements) {
+		if len(anchorCommit) == 0 {
+			return workerEvidence{}, fmt.Errorf("%w: the locked Profile requires WORKER_ANCHOR_OPENING but the model service returned no anchor commitment (engine without an anchor sidecar)",
+				builderclient.ErrInferReceiptInputUnavailable)
+		}
+		out.anchorCommit = append([]byte(nil), anchorCommit...)
+		out.anchorHash = codec.HashBytes(out.anchorCommit)
+	}
 	if out.inputTokenIDs, out.generatedTokenIDs, err = modelservice.ProtocolTokenIDs(ids); err != nil {
 		return workerEvidence{}, err
 	}
@@ -123,6 +143,10 @@ func (w *Worker) workerManifest(event chainclient.AssignmentFinalized, taskHash 
 		}
 		return manifest, [][]byte{ev.generatedTokenIDs, ev.generationParams, ev.inputTokenIDs}
 	}
+	if kind == nodewire.EvidenceKindWorkerAnchorOpening {
+		manifest.Artifacts = []evidencebundle.Artifact{evidencebundle.NewArtifact(builderclient.EvidenceArtifactAnchorCommit, ev.anchorCommit)}
+		return manifest, [][]byte{ev.anchorCommit}
+	}
 	manifest.Artifacts = []evidencebundle.Artifact{evidencebundle.NewArtifact(builderclient.EvidenceArtifactWorkerValues, ev.workerValues)}
 	return manifest, [][]byte{ev.workerValues}
 }
@@ -130,7 +154,7 @@ func (w *Worker) workerManifest(event chainclient.AssignmentFinalized, taskHash 
 // publishWorkerBundles publishes both bundles write-once. Republishing the same
 // bytes after a crash is an idempotent success.
 func (w *Worker) publishWorkerBundles(ctx context.Context, event chainclient.AssignmentFinalized, taskHash string, ev workerEvidence) error {
-	for _, kind := range workerEvidenceKinds {
+	for _, kind := range w.workerEvidenceKinds() {
 		manifest, artifacts := w.workerManifest(event, taskHash, kind, ev)
 		encoded, err := manifest.Encode()
 		if err != nil {
@@ -163,6 +187,8 @@ func (w *Worker) workerEvidenceFacts(in preparedReceiptInputs) builderclient.Wor
 		GeneratedTokenIDsSizeBytes:   uint64(len(in.evidence.generatedTokenIDs)),
 		WorkerValueRoot:              in.evidence.valueRoot,
 		WorkerValuesEncodedSizeBytes: uint64(len(in.evidence.workerValues)),
+		AnchorCommitHash:             in.evidence.anchorHash,
+		AnchorCommitSizeBytes:        uint64(len(in.evidence.anchorCommit)),
 	}
 }
 
@@ -177,9 +203,10 @@ func (w *Worker) readWorkerBundles(ctx context.Context, event chainclient.Assign
 	if err := builderclient.ValidateProfileEvidenceCommitments(w.cfg.ProfileEvidenceRequirements, receipt.RequiredEvidenceCommitments); err != nil {
 		return nil, err
 	}
-	bundles := make([]workerBundle, 0, len(workerEvidenceKinds))
+	kinds := w.workerEvidenceKinds()
+	bundles := make([]workerBundle, 0, len(kinds))
 	byKind := map[nodewire.EvidenceKind]workerBundle{}
-	for i, kind := range workerEvidenceKinds {
+	for i, kind := range kinds {
 		manifestBytes, artifacts, err := w.cfg.Persistence.WorkerBundle(ctx, event.TaskID, kind)
 		if err != nil {
 			return nil, fmt.Errorf("read Worker %d bundle: %w", kind, err)
@@ -245,6 +272,13 @@ func (w *Worker) readWorkerBundles(ctx context.Context, event chainclient.Assign
 	}
 	if ev.valueRoot, err = nodewire.WorkerValueRoot(binding, leaves); err != nil {
 		return nil, err
+	}
+	if anchor, ok := byKind[nodewire.EvidenceKindWorkerAnchorOpening]; ok {
+		ev.anchorCommit = anchor.artifacts[builderclient.EvidenceArtifactAnchorCommit]
+		if len(ev.anchorCommit) == 0 {
+			return nil, fmt.Errorf("Worker anchor bundle holds no anchor_commit artifact")
+		}
+		ev.anchorHash = codec.HashBytes(ev.anchorCommit)
 	}
 	derived, err := builderclient.WorkerEvidenceCommitments(w.workerEvidenceFacts(preparedReceiptInputs{
 		event: event, facts: facts, local: workerValueEvidenceInputs{EvidenceSchemaHash: w.cfg.EvidenceSchemaHash, FinishReason: descriptor.FinishReason},

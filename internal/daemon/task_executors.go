@@ -187,17 +187,20 @@ func (e *productionInferExecutor) RunInfer(ctx context.Context, taskHash codec.H
 // workerEvidenceLimits reads the locked Profile's two Worker evidence
 // requirements, refusing any other shape.
 func workerEvidenceLimits(profile chainclient.CurrentModelProfileSnapshot) (map[nodewire.EvidenceKind]uint64, error) {
-	requirements := profile.Profile.VerificationProfile.EvidenceSchema.RequiredInferEvidence
-	want := builderclient.WorkerEvidenceRequirementsV3()
-	if len(requirements) != len(want) {
-		return nil, fmt.Errorf("locked profile must require the Worker value and token openings")
-	}
-	limits := make(map[nodewire.EvidenceKind]uint64, len(want))
-	for i, requirement := range requirements {
-		if nodewire.EvidenceKind(requirement.EvidenceKind) != want[i].EvidenceKind || requirement.CommitmentSchemaVersion != want[i].CommitmentSchemaVersion {
-			return nil, fmt.Errorf("locked profile must require the Worker value opening (schema 3) and token opening (schema 1)")
+	raw := profile.Profile.VerificationProfile.EvidenceSchema.RequiredInferEvidence
+	requirements := make([]builderclient.InferEvidenceRequirement, len(raw))
+	for i, requirement := range raw {
+		requirements[i] = builderclient.InferEvidenceRequirement{
+			EvidenceKind: nodewire.EvidenceKind(requirement.EvidenceKind), CommitmentSchemaVersion: requirement.CommitmentSchemaVersion,
+			MaxEncodedSizeBytes: requirement.MaxEncodedSizeBytes.Uint64(),
 		}
-		limits[want[i].EvidenceKind] = requirement.MaxEncodedSizeBytes.Uint64()
+	}
+	if err := builderclient.ValidateWorkerEvidenceRequirementsV3(requirements); err != nil {
+		return nil, err
+	}
+	limits := make(map[nodewire.EvidenceKind]uint64, len(requirements))
+	for _, requirement := range requirements {
+		limits[requirement.EvidenceKind] = requirement.MaxEncodedSizeBytes
 	}
 	return limits, nil
 }
@@ -808,6 +811,8 @@ func (p *evidenceWorkerPersistence) workerBundleID(taskID string, kind nodewire.
 		return evidence.WorkerTokenBundle(p.key("")), nil
 	case nodewire.EvidenceKindWorkerValueOpening:
 		return evidence.WorkerValueBundle(p.key("")), nil
+	case nodewire.EvidenceKindWorkerAnchorOpening:
+		return evidence.WorkerAnchorBundle(p.key("")), nil
 	default:
 		return evidence.BundleID{}, fmt.Errorf("evidence kind %d is not a Worker bundle", kind)
 	}

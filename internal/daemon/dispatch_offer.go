@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -101,6 +102,11 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 		ev.verdict = d.localStop(ctx, rec)
 	}
 	if ev.verdict != nil {
+		if ev.verdict.class == classAnchorAdmission {
+			if err := d.closeHandraiseBeforeAdmissionReject(ctx, builder, rec); err != nil {
+				return err
+			}
+		}
 		return d.reject(ctx, enq, rec, t, ev.nonce, ev.verdict)
 	}
 	// W3: only a round that passed every check replaces an older one, and
@@ -109,15 +115,40 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 		return err
 	}
 
+	// The audit obligation is taken on here, with the lease, and so is its
+	// admission slot (ADR-0040): checked and taken in one step under the
+	// gate's lock, so the offers accepted against one signal never outnumber
+	// its slots. Without a slot the handraise is re-signed first, as for a
+	// full engine, and the offer refused NO_CAPACITY. A slot taken for a
+	// lease that is then not acquired goes straight back; one taken for an
+	// accepted ticket is given back with its lease (releaseLease) or when
+	// the sidecar lists the task as seen.
+	slotTaken := false
+	if ev.anchor {
+		taken, aerr := d.cfg.AnchorAdmission.Reserve(ticket, rec.TaskID)
+		if aerr != nil {
+			if err := d.closeHandraiseBeforeAdmissionReject(ctx, builder, rec); err != nil {
+				return err
+			}
+			return d.reject(ctx, enq, rec, t, ev.nonce, refuse(reasonNoCapacity, classAnchorAdmission, "%v", aerr))
+		}
+		slotTaken = taken
+	}
 	// Check 5 and W3: the lease is the capacity reservation.
 	ok, err = d.cfg.Leases.Acquire(ctx, layout.WorkerLease{
 		TicketHash: ticket, TaskID: rec.TaskID, ModelID: rec.ModelID, ProfileVersion: rec.ProfileVersion,
 		Builder: builder, ExpiryHeight: rec.ClaimFromHeight,
 	})
 	if err != nil {
+		if slotTaken {
+			d.cfg.AnchorAdmission.Release(ticket)
+		}
 		return builderclient.Retryable(fmt.Errorf("acquire lease: %w", err))
 	}
 	if !ok {
+		if slotTaken {
+			d.cfg.AnchorAdmission.Release(ticket)
+		}
 		// CD §5.1: a capacity change re-signs the standing handraise before
 		// the reject, so a reject never contradicts the newest offer. Only
 		// this Builder's handraise matters here.
@@ -131,6 +162,35 @@ func (d *Dispatcher) HandleOffer(ctx context.Context, builder string, offer *nex
 	return d.accept(ctx, enq, rec, t, ev.nonce)
 }
 
+// closeHandraiseBeforeAdmissionReject is CD §5.1 "a capacity change re-signs
+// the standing handraise before the reject" for the anchor admission gate.
+//
+// The Dispatcher reads the gate on every offer, the standing handraise once
+// per evaluation pass, so an offer can meet the closed gate while the last
+// handraise this Builder holds still lists the Profile with free slots. A
+// Builder counts a signed reject against the Worker's reject rate only when
+// its current handraise advertises a free slot, so the reject must not reach
+// it ahead of the handraise that takes the Profile back: one evaluation runs
+// now, and what it signs enters the same Builder outbox before the reject. A
+// node whose only servable Profiles require kind 5 withdraws there (zero free
+// slots), and the reject that follows is not a reject-rate sample. Once the
+// current handraise is a withdrawal or no longer lists the Profile there is
+// nothing to re-sign.
+func (d *Dispatcher) closeHandraiseBeforeAdmissionReject(ctx context.Context, builder string, rec layout.DispatchRecord) error {
+	p, err := profileOf(rec.ModelID, rec.ProfileVersion)
+	if err != nil {
+		return nil
+	}
+	cur, found := d.cfg.Handraise.Current(builder)
+	if !found || cur.Withdrawn || cur.State.FreeSlots == 0 || !slices.Contains(cur.State.Profiles, p) {
+		return nil
+	}
+	if err := d.cfg.Handraise.Refresh(ctx, builder); err != nil {
+		return builderclient.Retryable(fmt.Errorf("re-sign the standing handraise before an anchor admission reject: %w", err))
+	}
+	return nil
+}
+
 // offerEval is what one offer evaluation read and decided before the lock.
 type offerEval struct {
 	traw, oraw []byte // ticket and order exactly as received, encoded once
@@ -138,6 +198,9 @@ type offerEval struct {
 	params     chainclient.DispatchParamsSnapshot
 	nonce      uint64   // this node's current service_authorization_nonce
 	verdict    *verdict // nil: accept if capacity allows
+	// anchor: the Profile requires WORKER_ANCHOR_OPENING; accepting takes on
+	// an audit obligation and, under a slot signal, an admission slot.
+	anchor bool
 }
 
 // evaluateOffer runs check 1, the rotation stop (issue #83) and checks 2–7
@@ -223,7 +286,7 @@ func (d *Dispatcher) evaluateOfferAt(ctx context.Context, builder string, t *tas
 		return ev, nil, nil
 	}
 	// Checks 2, 2a, 3, 4, 6, 7.
-	ev.verdict, err = d.prechecks(ctx, t, so, ev.oraw, session, height)
+	ev.verdict, ev.anchor, err = d.prechecks(ctx, t, so, ev.oraw, session, height)
 	return ev, nil, err
 }
 
@@ -439,6 +502,9 @@ func (d *Dispatcher) reject(ctx context.Context, enq DispatchEnqueuer, rec layou
 	}
 	if err != nil {
 		return builderclient.Retryable(fmt.Errorf("persist reject: %w", err))
+	}
+	if v.class == classAnchorAdmission {
+		d.cfg.AnchorAdmission.noteRefusedOffer()
 	}
 	d.cfg.Logger.Info("dispatch ticket rejected", "builder", rec.Builder, "ticket", rec.TicketHash.String(),
 		"reason", v.reason.String(), "class", v.class, "builder_side", v.builderSide, "detail", v.detail)

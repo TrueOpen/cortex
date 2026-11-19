@@ -20,6 +20,7 @@ const (
 	KindWorkerValueOpening   = "WORKER_VALUE_OPENING"
 	KindWorkerTokenOpening   = "WORKER_TOKEN_OPENING"
 	KindVerifierValueOpening = "VERIFIER_VALUE_OPENING"
+	KindWorkerAnchorOpening  = "WORKER_ANCHOR_OPENING"
 )
 
 // ArtifactGenerationParams is the A-level artifact holding the task's exact
@@ -32,6 +33,7 @@ var artifactsV3 = map[string][]string{
 	KindWorkerTokenOpening:   {"generated_token_ids", ArtifactGenerationParams, "input_token_ids"},
 	KindWorkerValueOpening:   {"worker_values"},
 	KindVerifierValueOpening: {"aggregate_proof"},
+	KindWorkerAnchorOpening:  {"anchor_commit"},
 }
 
 // Validate applies the scope and artifact rules plus the bundle rules: the evidence kind must match the producer, and the artifacts must be
@@ -41,7 +43,7 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("invalid manifest scope")
 	}
 	switch {
-	case m.ProducerKind == "WORKER" && m.VerifyRound == 1 && (m.EvidenceKind == KindWorkerTokenOpening || m.EvidenceKind == KindWorkerValueOpening):
+	case m.ProducerKind == "WORKER" && m.VerifyRound == 1 && (m.EvidenceKind == KindWorkerTokenOpening || m.EvidenceKind == KindWorkerValueOpening || m.EvidenceKind == KindWorkerAnchorOpening):
 	case m.ProducerKind == "VERIFIER" && (m.VerifyRound == 1 || m.VerifyRound == 2) && m.EvidenceKind == KindVerifierValueOpening:
 	default:
 		return fmt.Errorf("evidence_kind %q does not match producer %q in round %d", m.EvidenceKind, m.ProducerKind, m.VerifyRound)
@@ -128,6 +130,8 @@ func KindToken(kind nodewire.EvidenceKind) string {
 		return KindWorkerTokenOpening
 	case nodewire.EvidenceKindVerifierValueOpening:
 		return KindVerifierValueOpening
+	case nodewire.EvidenceKindWorkerAnchorOpening:
+		return KindWorkerAnchorOpening
 	default:
 		return ""
 	}

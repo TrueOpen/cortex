@@ -94,6 +94,70 @@ type DispatchConfig struct {
 	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
 	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`
 	Omission                  DispatchOmissionConfig `yaml:"omission"`
+	AnchorAdmission           AnchorAdmissionConfig  `yaml:"anchor_admission"`
+}
+
+// DefaultAnchorAdmissionMaxAgeS is how old the anchor sidecar's admission
+// signal may be before it counts as absent. It is three write periods of the
+// anchor sidecar, which rewrites the signal every 15 s from a thread of its
+// own: two late or lost writes are ridden out without closing the gate, and
+// a sidecar that wrote "accept" and then died stops admitting within 45 s,
+// well inside the minutes one opening takes.
+const DefaultAnchorAdmissionMaxAgeS = 45
+
+// maxAnchorAdmissionMaxAgeS is one day: a signal older than that says nothing
+// about a sidecar whose deadlines are counted in blocks.
+const maxAnchorAdmissionMaxAgeS = 86400
+
+// AnchorAdmissionConfig is the ADR-0040 audit admission gate. A Worker that
+// serves a Profile requiring WORKER_ANCHOR_OPENING owes the chain an opening
+// (and a proof) for every sampled task, by a deadline; its anchor sidecar
+// knows how many such obligations it can still discharge and says so in File.
+// While the signal says no, is missing, unreadable or older than MaxAgeS, the
+// node takes no new task under such a Profile. Unset, there is no gate.
+type AnchorAdmissionConfig struct {
+	// File is the sidecar's signal: a JSON object
+	// {"accept": bool, "reason": string, "updated": unix seconds}.
+	File string `yaml:"file"`
+	// MaxAgeS bounds the age of "updated"; 0 takes
+	// DefaultAnchorAdmissionMaxAgeS. Keep it at three or more of the
+	// sidecar's write periods: at one period every late write closes the
+	// gate, and each closing withdraws the standing handraise. Its upper
+	// bound is what a dead sidecar may cost: for up to MaxAgeS the node goes
+	// on admitting on the last "accept".
+	MaxAgeS uint64 `yaml:"max_age_s"`
+	// ReserveTTLS bounds how long an audit slot is held for a ticket the
+	// sidecar never lists as seen (slot signals only); 0 takes
+	// DefaultAnchorAdmissionReserveTTLS. It must cover the longest time from
+	// accepting an offer to the sidecar listing the task as seen (the claim,
+	// the inference, the receipt, its commitment on chain, and one write of
+	// the signal), or a task still in flight would stop being counted and the
+	// node would take more tasks than the sidecar granted. It may not be
+	// below max_age_s.
+	ReserveTTLS uint64 `yaml:"reserve_ttl_s"`
+}
+
+// DefaultAnchorAdmissionReserveTTLS is the safety net under a slot that was
+// never given back.
+const DefaultAnchorAdmissionReserveTTLS = 1800
+
+// ReserveTTL is how long a slot is held at most.
+func (a AnchorAdmissionConfig) ReserveTTL() time.Duration {
+	if a.ReserveTTLS == 0 {
+		return DefaultAnchorAdmissionReserveTTLS * time.Second
+	}
+	return time.Duration(a.ReserveTTLS) * time.Second
+}
+
+// Enabled reports whether the gate is configured.
+func (a AnchorAdmissionConfig) Enabled() bool { return strings.TrimSpace(a.File) != "" }
+
+// MaxAge is the oldest signal the gate still trusts.
+func (a AnchorAdmissionConfig) MaxAge() time.Duration {
+	if a.MaxAgeS == 0 {
+		return DefaultAnchorAdmissionMaxAgeS * time.Second
+	}
+	return time.Duration(a.MaxAgeS) * time.Second
 }
 
 // DispatchStreamConfig times every Builder's DispatchStream (CD §4.2.0
@@ -185,6 +249,15 @@ func (d DispatchConfig) problems() []string {
 	var problems []string
 	if d.Handraise.RootHistory < 0 || d.Handraise.RootHistory > 4096 {
 		problems = append(problems, "dispatch.handraise.root_history must be 0 (default) or 1–4096")
+	}
+	if d.AnchorAdmission.MaxAgeS > maxAnchorAdmissionMaxAgeS {
+		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.max_age_s must be at most %d", maxAnchorAdmissionMaxAgeS))
+	}
+	if d.AnchorAdmission.ReserveTTLS > maxAnchorAdmissionMaxAgeS {
+		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.reserve_ttl_s must be at most %d", maxAnchorAdmissionMaxAgeS))
+	} else if ttl, age := d.AnchorAdmission.ReserveTTL(), d.AnchorAdmission.MaxAge(); ttl < age {
+		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.reserve_ttl_s (%.0f) must be at least max_age_s (%.0f): a slot released before the sidecar can list its task lets the node take more tasks than the sidecar granted",
+			ttl.Seconds(), age.Seconds()))
 	}
 	keys := make([]string, 0, len(d.MinPriceBid))
 	for key := range d.MinPriceBid {
@@ -364,12 +437,24 @@ type ModelManagementConfig struct {
 	// ProbeTimeoutMs bounds /health, /v1/models, and /metrics probes. It should
 	// stay short so readiness decisions do not stall on a stuck vLLM.
 	ProbeTimeoutMs uint32 `yaml:"probe_timeout_ms"`
+	// AnchorCommitTimeoutMs bounds how long a Worker waits, after the
+	// generation has ended, for the engine's anchor sidecar to serve the
+	// ADR-0040 AnchorCommitV1 of a task whose Profile requires
+	// WORKER_ANCHOR_OPENING. It is separate from InferTimeoutMs and from the
+	// max_output_duration grace. Zero means the model service default (120 s).
+	AnchorCommitTimeoutMs uint32 `yaml:"anchor_commit_timeout_ms"`
 }
 
 // InferTimeout returns the inference timeout as a time.Duration. A value of
 // zero means "use the model service default".
 func (m ModelManagementConfig) InferTimeout() time.Duration {
 	return time.Duration(m.InferTimeoutMs) * time.Millisecond
+}
+
+// AnchorCommitTimeout returns the anchor commitment window as a
+// time.Duration. A value of zero means "use the model service default".
+func (m ModelManagementConfig) AnchorCommitTimeout() time.Duration {
+	return time.Duration(m.AnchorCommitTimeoutMs) * time.Millisecond
 }
 
 // ProbeTimeout returns the probe timeout as a time.Duration. A value of zero
@@ -883,6 +968,8 @@ var deploymentEnvironment = map[string]string{
 	"CORTEX_MODEL_SERVICE_ID":                   "model_service_id",
 	"CORTEX_HEALTH_BIND":                        "health_bind",
 	"CORTEX_DISPATCH_BUILDERS":                  "dispatch_builders",
+	"CORTEX_ANCHOR_ADMISSION_FILE":              "anchor_admission_file",
+	"CORTEX_ANCHOR_ADMISSION_MAX_AGE_S":         "anchor_admission_max_age_s",
 }
 
 func setDeploymentValue(cfg *Config, key, value string) error {
@@ -1012,6 +1099,14 @@ func setDeploymentValue(cfg *Config, key, value string) error {
 		cfg.Health.Bind = value
 	case "dispatch_builders":
 		cfg.Dispatch.Builders = splitCSV(value)
+	case "anchor_admission_file":
+		cfg.Dispatch.AnchorAdmission.File = value
+	case "anchor_admission_max_age_s":
+		parsed, err := parseEnvUint(value)
+		if err != nil {
+			return err
+		}
+		cfg.Dispatch.AnchorAdmission.MaxAgeS = parsed
 	default:
 		return fmt.Errorf("unknown deployment override %q", key)
 	}

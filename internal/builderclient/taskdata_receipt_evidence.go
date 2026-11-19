@@ -49,16 +49,40 @@ func WorkerEvidenceRequirementsV3() []InferEvidenceRequirement {
 // size bound. Code that indexes the two Worker commitments checks this first.
 func ValidateWorkerEvidenceRequirementsV3(requirements []InferEvidenceRequirement) error {
 	want := WorkerEvidenceRequirementsV3()
+	// ADR-0040: a Profile may require the C-level anchor opening as a third
+	// element, after the two v0.3.0 openings.
+	if len(requirements) == 3 {
+		want = append(want, WorkerAnchorEvidenceRequirementV1())
+	}
 	if len(requirements) != len(want) {
-		return fmt.Errorf("locked profile must require exactly the Worker value and token openings, got %d requirements", len(requirements))
+		return fmt.Errorf("locked profile must require the Worker value and token openings, optionally followed by the anchor opening; got %d requirements", len(requirements))
 	}
 	for i, requirement := range requirements {
 		if requirement.EvidenceKind != want[i].EvidenceKind || requirement.CommitmentSchemaVersion != want[i].CommitmentSchemaVersion ||
 			requirement.MaxEncodedSizeBytes == 0 {
-			return fmt.Errorf("locked profile must require the Worker value opening (schema 3) then the token opening (schema 1), each with a size bound")
+			return fmt.Errorf("locked profile must require the Worker value opening (schema 3) then the token opening (schema 1), optionally then the anchor opening (schema 1), each with a size bound")
 		}
 	}
 	return nil
+}
+
+// WorkerAnchorEvidenceRequirementV1 is the shape of the optional third
+// requirement (ADR-0040): the C-level anchor opening (kind 5, commitment
+// schema 1). As with WorkerEvidenceRequirementsV3 the size bound is the
+// contract-wide ceiling, not the locked Profile's.
+func WorkerAnchorEvidenceRequirementV1() InferEvidenceRequirement {
+	return InferEvidenceRequirement{EvidenceKind: nodewire.EvidenceKindWorkerAnchorOpening, CommitmentSchemaVersion: nodewire.WorkerAnchorCommitmentSchemaVersionV1, MaxEncodedSizeBytes: nodewire.MaxEvidenceEncodedSizeBytesV1}
+}
+
+// ProfileRequiresAnchorOpening reports whether the locked Profile requires the
+// C-level anchor opening. It assumes ValidateWorkerEvidenceRequirementsV3 passed.
+func ProfileRequiresAnchorOpening(requirements []InferEvidenceRequirement) bool {
+	for _, requirement := range requirements {
+		if requirement.EvidenceKind == nodewire.EvidenceKindWorkerAnchorOpening {
+			return true
+		}
+	}
+	return false
 }
 
 // WorkerEvidenceFacts are the inputs of both Worker evidence commitments. The
@@ -96,6 +120,11 @@ type WorkerEvidenceFacts struct {
 	// WorkerValuesEncodedSizeBytes the exact size of that artifact.
 	WorkerValueRoot              codec.Hash
 	WorkerValuesEncodedSizeBytes uint64
+	// AnchorCommitHash is the SHA-256 of the anchor_commit artifact and
+	// AnchorCommitSizeBytes its exact size (ADR-0040). Both are zero when the
+	// locked Profile does not require the anchor opening.
+	AnchorCommitHash      codec.Hash
+	AnchorCommitSizeBytes uint64
 }
 
 // inferReceiptHashUnavailable treats an unset field and an all-zero hash as the
@@ -127,7 +156,63 @@ func WorkerEvidenceCommitments(facts WorkerEvidenceFacts) ([]EvidenceCommitment,
 	if err != nil {
 		return nil, err
 	}
-	return []EvidenceCommitment{value, token}, nil
+	if facts.AnchorCommitSizeBytes == 0 {
+		return []EvidenceCommitment{value, token}, nil
+	}
+	anchor, err := WorkerAnchorEvidenceCommitment(facts)
+	if err != nil {
+		return nil, err
+	}
+	return []EvidenceCommitment{value, token, anchor}, nil
+}
+
+// WorkerAnchorEvidenceCommitment derives the C-level commitment alone (ADR-0040).
+// It reads the scope, the evidence schema hash and the anchor_commit artifact
+// hash and size.
+func WorkerAnchorEvidenceCommitment(facts WorkerEvidenceFacts) (EvidenceCommitment, error) {
+	scope, err := workerEvidenceScope(facts, false)
+	if err != nil {
+		return EvidenceCommitment{}, err
+	}
+	if facts.AnchorCommitHash == (codec.Hash{}) {
+		return EvidenceCommitment{}, fmt.Errorf("worker evidence commitment anchor_commit_hash must not be 32 zero bytes: " +
+			"no artifact hashes to zero, so this is an unhashed artifact rather than a value")
+	}
+	digest, size, err := nodewire.WorkerAnchorCommitmentV1Digest(nodewire.WorkerAnchorCommitmentV1{
+		SchemaVersion:         nodewire.WorkerAnchorCommitmentSchemaVersionV1,
+		ChainID:               facts.ChainID,
+		TaskID:                scope.taskID,
+		AcceptedTaskHash:      scope.acceptedTaskHash,
+		WorkerOperatorAddress: facts.WorkerOperatorAddress,
+		EvidenceSchemaHash:    scope.evidenceSchemaHash,
+		AnchorCommitHash:      facts.AnchorCommitHash[:],
+		AnchorCommitSizeBytes: facts.AnchorCommitSizeBytes,
+	})
+	if err != nil {
+		return EvidenceCommitment{}, fmt.Errorf("derive worker anchor commitment: %w", err)
+	}
+	return EvidenceCommitment{EvidenceKind: nodewire.EvidenceKindWorkerAnchorOpening, EvidenceHashOrRoot: digest, EncodedSizeBytes: size}, nil
+}
+
+// ConfirmWorkerAnchorEvidence proves that a downloaded anchor_commit artifact
+// is the one a signed receipt's anchor commitment covers.
+func ConfirmWorkerAnchorEvidence(facts WorkerEvidenceFacts, committed EvidenceCommitment) error {
+	if committed.EvidenceKind != nodewire.EvidenceKindWorkerAnchorOpening || committed.EvidenceHashOrRoot == (codec.Hash{}) {
+		return fmt.Errorf("worker anchor confirmation requires a set WORKER_ANCHOR_OPENING commitment")
+	}
+	derived, err := WorkerAnchorEvidenceCommitment(facts)
+	if err != nil {
+		return err
+	}
+	if derived.EvidenceHashOrRoot != committed.EvidenceHashOrRoot {
+		return fmt.Errorf("downloaded anchor_commit does not reproduce the committed anchor commitment %s: anchor_commit_hash=%s (%d bytes)",
+			committed.EvidenceHashOrRoot, facts.AnchorCommitHash, facts.AnchorCommitSizeBytes)
+	}
+	if derived.EncodedSizeBytes != committed.EncodedSizeBytes {
+		return fmt.Errorf("anchor_commit reproduces the committed digest but encoded_size_bytes is %d, not the committed %d",
+			derived.EncodedSizeBytes, committed.EncodedSizeBytes)
+	}
+	return nil
 }
 
 // WorkerValueEvidenceCommitment derives the B-level commitment alone. It reads
@@ -324,11 +409,16 @@ func ConfirmWorkerTokenEvidence(facts WorkerEvidenceFacts, committed EvidenceCom
 // ConfirmWorkerEvidence confirms both commitments of a V3 receipt, value then
 // token, and returns the resolved finish_reason.
 func ConfirmWorkerEvidence(facts WorkerEvidenceFacts, committed []EvidenceCommitment) (nodewire.FinishReasonV1, error) {
-	if len(committed) != 2 || committed[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening || committed[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
-		return nodewire.FinishReasonV1Unspecified, fmt.Errorf("worker evidence confirmation requires the WORKER_VALUE_OPENING and WORKER_TOKEN_OPENING commitments, in that order")
+	if (len(committed) != 2 && len(committed) != 3) || committed[0].EvidenceKind != nodewire.EvidenceKindWorkerValueOpening || committed[1].EvidenceKind != nodewire.EvidenceKindWorkerTokenOpening {
+		return nodewire.FinishReasonV1Unspecified, fmt.Errorf("worker evidence confirmation requires the WORKER_VALUE_OPENING and WORKER_TOKEN_OPENING commitments, in that order, optionally followed by WORKER_ANCHOR_OPENING")
 	}
 	if err := ConfirmWorkerValueEvidence(facts, committed[0]); err != nil {
 		return nodewire.FinishReasonV1Unspecified, err
+	}
+	if len(committed) == 3 {
+		if err := ConfirmWorkerAnchorEvidence(facts, committed[2]); err != nil {
+			return nodewire.FinishReasonV1Unspecified, err
+		}
 	}
 	return ConfirmWorkerTokenEvidence(facts, committed[1])
 }
@@ -364,13 +454,14 @@ func ValidateProfileEvidenceCommitments(requirements []InferEvidenceRequirement,
 				index, commitment.EvidenceKind, requirement.EvidenceKind)
 		}
 		supported := requirement.EvidenceKind == nodewire.EvidenceKindWorkerValueOpening && requirement.CommitmentSchemaVersion == nodewire.WorkerValueCommitmentSchemaVersionV3 ||
-			requirement.EvidenceKind == nodewire.EvidenceKindWorkerTokenOpening && requirement.CommitmentSchemaVersion == nodewire.WorkerTokenCommitmentSchemaVersionV1
+			requirement.EvidenceKind == nodewire.EvidenceKindWorkerTokenOpening && requirement.CommitmentSchemaVersion == nodewire.WorkerTokenCommitmentSchemaVersionV1 ||
+			requirement.EvidenceKind == nodewire.EvidenceKindWorkerAnchorOpening && requirement.CommitmentSchemaVersion == nodewire.WorkerAnchorCommitmentSchemaVersionV1
 		if !supported {
 			return fmt.Errorf(
 				"required_evidence_commitments[%d] uses an unsupported commitment schema %d for evidence_kind %d: "+
-					"wire v0.3.0 defines WORKER_VALUE_OPENING at schema %d and WORKER_TOKEN_OPENING at schema %d",
+					"wire v0.3.0 defines WORKER_VALUE_OPENING at schema %d and WORKER_TOKEN_OPENING at schema %d; ADR-0040 defines WORKER_ANCHOR_OPENING at schema %d",
 				index, requirement.CommitmentSchemaVersion, requirement.EvidenceKind,
-				nodewire.WorkerValueCommitmentSchemaVersionV3, nodewire.WorkerTokenCommitmentSchemaVersionV1)
+				nodewire.WorkerValueCommitmentSchemaVersionV3, nodewire.WorkerTokenCommitmentSchemaVersionV1, nodewire.WorkerAnchorCommitmentSchemaVersionV1)
 		}
 		if commitment.EncodedSizeBytes == 0 || commitment.EncodedSizeBytes > requirement.MaxEncodedSizeBytes {
 			return fmt.Errorf(

@@ -200,7 +200,22 @@ type chatRespTopLogprob struct {
 // carrying a "messages" field is a chat request served over /v1/chat/completions;
 // anything else is the legacy raw-text prompt served by inferV0. (Capability-based
 // routing via a dedicated llm_chat_v1 is the eventual mechanism.)
+//
+// When req.RequireAnchorCommit is set, the engine's ADR-0040 AnchorCommitV1 of
+// the completion is fetched after the generation, under its own timeout
+// (attachAnchorCommit); otherwise the engine sidecar is never asked.
 func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferResponse, error) {
+	resp, err := s.inferGenerate(ctx, req)
+	if err != nil {
+		return InferResponse{}, err
+	}
+	// ctx here is the caller's: none of the generation's deadlines (budget
+	// grace, request deadline, infer timeout) applies to the commitment fetch.
+	return s.attachAnchorCommit(ctx, req, resp)
+}
+
+// inferGenerate is the generation itself, routed by input shape.
+func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (InferResponse, error) {
 	if err := validateCapability(req.Capability); err != nil {
 		return InferResponse{}, err
 	}
@@ -262,6 +277,8 @@ func (s *LocalService) Infer(ctx context.Context, req InferRequest) (InferRespon
 			jobID:     req.JobID,
 			taskID:    req.TaskID,
 			modelID:   profile.ModelID,
+			// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
+			budgetStopNeedsToken: req.RequireAnchorCommit,
 		}
 		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident, budgetAt, profile.OutputDecoding); err != nil {
 			return InferResponse{}, err
@@ -482,6 +499,7 @@ func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmani
 	// localGenerationFinishReason maps an id in eos_token_ids to EOS and refuses
 	// any other.
 	return completionResponse{
+		ID: chatResp.ID,
 		Choices: []completionChoice{{
 			Text:           text,
 			FinishReason:   finishReason,
@@ -499,10 +517,19 @@ func projectChatToCompletion(chatResp chatCompletionResponse, decoding modelmani
 // is in decoding.EOSTokenIDs. It also verifies that content[i]'s token id equals
 // tokenIDs[i] (under return_tokens_as_token_ids=true content[i].Token is the
 // "token_id:X" form), so the bytes being decoded provably belong to the token_ids
-// the Verifier scores. A length or per-position mismatch fails closed. Special
+// the Verifier scores. A length or per-position mismatch fails closed; no
+// token and no logprobs entry is not a mismatch. Special
 // tokens are decoded like any other; an EOS token anywhere but the last position
 // is kept.
 func decodeTokensFromLogprobs(tokenIDs []int, lp *chatRespLogprobs, decoding modelmanifest.OutputDecoding) (string, error) {
+	if len(tokenIDs) == 0 && (lp == nil || len(lp.Content) == 0) {
+		// No token was generated, so there is no logprobs entry either and
+		// the two agree: the committed output is empty. A stream cut at
+		// max_output_duration before its first token arrives here with no
+		// logprobs object at all. Whether an empty generation is legal is
+		// the finish-reason check's to say, as on the completions path.
+		return "", nil
+	}
 	if lp == nil || len(lp.Content) != len(tokenIDs) {
 		n := 0
 		if lp != nil {
@@ -769,8 +796,12 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 			}
 		}
 		// After the frame is folded in, never mid-frame: what the budget
-		// truncates is the generation, not a token.
-		if overBudget() && out.Choices[0].FinishReason == "" {
+		// truncates is the generation, not a token. Under a Profile that
+		// requires the anchor commitment the stop is not taken at a frame
+		// that leaves no generated token delivered -- the role preamble a
+		// chat stream opens with is such a frame, and it is followed at once
+		// by the first token (inferStreamIdentity.budgetStopNeedsToken).
+		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break
 		}

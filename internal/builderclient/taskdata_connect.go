@@ -302,7 +302,9 @@ func (c *ConnectTaskDataClient) UploadTaskResultObject(ctx context.Context, endp
 		return TaskDataMetadata{}, err
 	}
 	if metadata.Key != request.Key || metadata.SizeBytes != request.SizeBytes || metadata.MediaType != request.MediaType || metadata.Readiness != TaskDataStored {
-		return TaskDataMetadata{}, fmt.Errorf("upload response does not describe the stored object")
+		return TaskDataMetadata{}, fmt.Errorf("upload response does not describe the stored object: key_match=%t size=%d/%d media=%q/%q readiness=%v (kind=%d evidence_kind=%d/%d)",
+			metadata.Key == request.Key, metadata.SizeBytes, request.SizeBytes, metadata.MediaType, request.MediaType, metadata.Readiness,
+			request.Key.Kind, metadata.Key.EvidenceKind, request.Key.EvidenceKind)
 	}
 	return metadata, nil
 }

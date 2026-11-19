@@ -14,6 +14,7 @@ import (
 	"github.com/TrueOpen/cortex/internal/config"
 	"github.com/TrueOpen/cortex/internal/dispatchstream"
 	"github.com/TrueOpen/cortex/internal/dispatchwire"
+	"github.com/TrueOpen/cortex/internal/modelservice"
 	"github.com/TrueOpen/cortex/internal/store"
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
@@ -53,6 +54,15 @@ type StandingHandraiseConfig struct {
 	Logger   *slog.Logger
 	// Alert receives operator alerts in addition to the log line; optional.
 	Alert func(HandraiseAlert)
+
+	// Anchor probes the local engine for ADR-0040 anchor commitments. A
+	// Profile requiring WORKER_ANCHOR_OPENING is offered only when it reports
+	// a capable engine; nil means never.
+	Anchor modelservice.AnchorCommitProber
+	// AnchorAdmission is the anchor sidecar's admission signal: while it
+	// refuses, a Profile requiring WORKER_ANCHOR_OPENING is left out. Nil
+	// means no gate.
+	AnchorAdmission *AnchorAdmission
 }
 
 // StandingHandraiser keeps one current StandingHandraiseV1 per Builder and
@@ -153,6 +163,7 @@ func NewStandingHandraiser(ctx context.Context, cfg StandingHandraiseConfig) (*S
 	if err != nil {
 		return nil, err
 	}
+	gates.anchor, gates.admission = cfg.Anchor, cfg.AnchorAdmission
 	h := &StandingHandraiser{
 		cfg: cfg, gates: gates, db: handraiseStore{st: cfg.Store},
 		builders: slices.Sorted(maps.Keys(cfg.Builders)), wake: make(chan struct{}, 1),

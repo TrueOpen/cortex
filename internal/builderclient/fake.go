@@ -388,6 +388,11 @@ func (f *FakeClient) fakeConfirmWorkerCommitment(receipt SignedInferReceipt, man
 		}
 		facts.WorkerValuesEncodedSizeBytes = uint64(len(raw))
 		return ConfirmWorkerValueEvidence(facts, commitment)
+	case nodewire.EvidenceKindWorkerAnchorOpening:
+		raw := artifacts[EvidenceArtifactAnchorCommit]
+		facts.AnchorCommitHash = codec.HashBytes(raw)
+		facts.AnchorCommitSizeBytes = uint64(len(raw))
+		return ConfirmWorkerAnchorEvidence(facts, commitment)
 	default:
 		return fmt.Errorf("evidence kind %d is not a Worker bundle", commitment.EvidenceKind)
 	}

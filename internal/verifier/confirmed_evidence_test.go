@@ -22,10 +22,18 @@ import (
 // returned beside it: ADR-0023 hands them over only in REVEALING.
 func confirmedTaskWithValues(t *testing.T, h harness) (TaskState, []byte) {
 	t.Helper()
+	return confirmedTaskWithValuesUnder(t, h, fixtureLockedProfile(), nil)
+}
+
+// confirmedTaskWithValuesUnder is confirmedTaskWithValues under profile; a
+// non-empty anchorCommit makes the receipt carry the ADR-0040
+// WORKER_ANCHOR_OPENING commitment as its third element. The anchor bytes are
+// never handed to the Verifier: no TaskState field carries them.
+func confirmedTaskWithValuesUnder(t *testing.T, h harness, profile chainclient.CurrentModelProfileSnapshot, anchorCommit []byte) (TaskState, []byte) {
+	t.Helper()
 	ctx := context.Background()
 	h.verifier.cfg.FakeOutput = false
 	h.verifier.cfg.ResultSubmitter = testResultSubmitter(h.tx)
-	profile := fixtureLockedProfile()
 	requiredTopK := profile.Profile.RequiredTopK
 	state := h.validTask()
 	state.OpenVerifyAccepted = true
@@ -102,6 +110,7 @@ func confirmedTaskWithValues(t *testing.T, h harness) (TaskState, []byte) {
 		GeneratedTokenCount: uint64(len(ids.Generated)), InputTokenIDsHash: inputHash, GeneratedTokenIDsHash: generatedHash,
 		InputTokenIDsSizeBytes: uint64(len(inputIDs)), GeneratedTokenIDsSizeBytes: uint64(len(generatedIDs)),
 		WorkerValueRoot: valueRoot, WorkerValuesEncodedSizeBytes: uint64(len(workerValues)),
+		AnchorCommitHash: anchorHashOf(anchorCommit), AnchorCommitSizeBytes: uint64(len(anchorCommit)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +136,13 @@ func confirmedTaskWithValues(t *testing.T, h harness) (TaskState, []byte) {
 	state.ConfirmedGenerationParams = rawParams
 	state.ConfirmedInferReceipt, state.ConfirmedFinishReason = &receipt, result.FinishReason
 	return state, workerValues
+}
+
+func anchorHashOf(anchorCommit []byte) codec.Hash {
+	if len(anchorCommit) == 0 {
+		return codec.Hash{}
+	}
+	return codec.HashBytes(anchorCommit)
 }
 
 // confirmedTask is the commit-phase input: A-level only (ADR-0023).

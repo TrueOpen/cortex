@@ -252,6 +252,7 @@ func evidenceSchemaHash(profile evidenceSchemaProfile) (codec.Hash, error) {
 		kind := map[string]uint32{
 			"EVIDENCE_KIND_WORKER_VALUE_OPENING": 1, "EVIDENCE_KIND_VERIFIER_VALUE_OPENING": 2,
 			"EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING": 3, "EVIDENCE_KIND_WORKER_TOKEN_OPENING": 4,
+			"EVIDENCE_KIND_WORKER_ANCHOR_OPENING": 5,
 		}[requirement.Kind]
 		if kind == 0 || index > 0 && kind <= previous || requirement.CommitmentSchemaVersion == 0 ||
 			requirement.MaxEncodedSizeBytes == 0 || requirement.MaxEncodedSizeBytes > 1<<40 {
@@ -406,6 +407,8 @@ func evidenceKindStringFromInt32(kind int32) string {
 		return "EVIDENCE_KIND_SETTLEMENT_ROOT_OPENING"
 	case 4:
 		return "EVIDENCE_KIND_WORKER_TOKEN_OPENING"
+	case 5:
+		return "EVIDENCE_KIND_WORKER_ANCHOR_OPENING"
 	}
 	return ""
 }

@@ -1,0 +1,32 @@
+{
+  "domain": "TRUEOPEN_WORKER_ANCHOR_COMMITMENT_V1",
+  "note": "Digests of WorkerAnchorCommitmentV1 (H_FIELDS_V1 over the 8 fields in schema order). Both were computed with the Builder's implementation, nexus internal/nodecontract WorkerAnchorCommitmentV1.Digest, on the inputs below; the second was also computed independently by a Nexus reviewer with Nexus and Cortex code. Neither is yet a checked-in vector of wire: when wire publishes one, point TestWorkerAnchorCommitmentV1DigestVectors at that file (same field names) and drop this copy.",
+  "vectors": [
+    {
+      "name": "devnet",
+      "source": "nexus internal/nodecontract.WorkerAnchorCommitmentV1.Digest, computed on these inputs",
+      "schema_version": 1,
+      "chain_id": "trueopen-devnet-1",
+      "task_id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "accepted_task_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "worker_operator_address": "trueopen1crqu9s7ychrv0jxfet9uenwwelgdr5knutsmxe",
+      "evidence_schema_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "anchor_commit_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "anchor_commit_size_bytes": 1234,
+      "digest": "55c179b8d51b00fa00e8126d8c4d65a8ead6b99d2ed37ff184395314482d80dc"
+    },
+    {
+      "name": "localnet",
+      "source": "computed independently by a Nexus reviewer with Nexus and Cortex code on these inputs (review of the anchor evidence PR)",
+      "schema_version": 1,
+      "chain_id": "trueopen-localnet-1",
+      "task_id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "accepted_task_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "worker_operator_address": "trueopen15zs69gay5kn2029f4246etdw47ctrv4ns6facc",
+      "evidence_schema_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "anchor_commit_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "anchor_commit_size_bytes": 123456,
+      "digest": "88373eed3d4b9d71e658c40a49026da66c03c83604f4eb0ea78ec04dc5620a14"
+    }
+  ]
+}

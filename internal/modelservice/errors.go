@@ -75,6 +75,16 @@ const (
 	// one task hash. Raised by the Worker, not by a model call — the code lives
 	// here so every fault code an operator can see has one registry.
 	FaultCodeOutputFramesAlreadySigned = "OUTPUT_FRAMES_ALREADY_SIGNED"
+	// FaultCodeAnchorCommitTokenMismatch: the engine's AnchorCommitV1 names
+	// other tokens than the completion delivered (ErrAnchorCommitMismatch), so
+	// no receipt may be signed over it. Another generation cannot repair this
+	// completion's commitment.
+	FaultCodeAnchorCommitTokenMismatch = "ANCHOR_COMMIT_TOKEN_MISMATCH"
+	// FaultCodeAnchorCommitEmptyGeneration: the completion delivered no
+	// generated token (ErrAnchorCommitEmptyGeneration). The engine issues no
+	// anchor commitment over a prompt alone, so a task whose Profile requires
+	// WORKER_ANCHOR_OPENING ends without a receipt.
+	FaultCodeAnchorCommitEmptyGeneration = "ANCHOR_COMMIT_EMPTY_GENERATION"
 )
 
 // FaultField is one scalar diagnostic value carried by a Fault.
