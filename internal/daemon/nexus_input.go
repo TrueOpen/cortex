@@ -160,58 +160,9 @@ func (r *NexusTaskInputResolver) getMetadata(ctx context.Context, endpoint, buil
 }
 
 func (r *NexusTaskInputResolver) fetchTaskInput(ctx context.Context, endpoint, builderOperator string, key builderclient.TaskDataKey, ref TaskInputRef, sizeBytes uint64) ([]byte, error) {
-	input := make([]byte, int(sizeBytes))
-	confirmedOffset := uint64(0)
-	for confirmedOffset < sizeBytes {
-		remaining := sizeBytes - confirmedOffset
-		rangeLength := r.cfg.RangeBytes
-		if rangeLength > remaining {
-			rangeLength = remaining
-		}
-		rangeEnd := confirmedOffset + rangeLength
-
-		for confirmedOffset < rangeEnd {
-			attemptOffset := confirmedOffset
-			requestedRange := &builderclient.TaskDataRange{Offset: attemptOffset, Length: rangeEnd - attemptOffset}
-			auth, err := r.cfg.Auth.SignFetch(ctx, key, builderOperator, requestedRange)
-			if err != nil {
-				return nil, err
-			}
-			err = r.cfg.TaskData.FetchTaskData(ctx, endpoint, builderclient.FetchTaskDataRequest{Key: key, Range: requestedRange, Auth: auth}, func(chunk builderclient.TaskDataChunk) error {
-				if chunk.Offset != confirmedOffset {
-					return fmt.Errorf("task-data chunk offset %d does not match confirmed offset %d", chunk.Offset, confirmedOffset)
-				}
-				if len(chunk.Data) == 0 {
-					return fmt.Errorf("task-data chunk at offset %d is empty", chunk.Offset)
-				}
-				chunkBytes := uint64(len(chunk.Data))
-				if chunkBytes > sizeBytes-confirmedOffset || chunkBytes > rangeEnd-confirmedOffset {
-					return fmt.Errorf("task-data chunk at offset %d exceeds the declared input bounds", chunk.Offset)
-				}
-				chunkEnd := confirmedOffset + chunkBytes
-				if chunk.EOF != (chunkEnd == rangeEnd) {
-					return fmt.Errorf("task-data EOF at offset %d does not match the declared input boundary", chunkEnd)
-				}
-				copy(input[confirmedOffset:chunkEnd], chunk.Data)
-				confirmedOffset = chunkEnd
-				return nil
-			})
-			switch {
-			case err == nil && confirmedOffset != rangeEnd:
-				return nil, fmt.Errorf("task-data range ended at offset %d before requested offset %d", confirmedOffset, rangeEnd)
-			case err == nil:
-				// This signed range is complete.
-			case builderclient.IsRetryable(err) && confirmedOffset > attemptOffset && confirmedOffset < rangeEnd:
-				// Resume only bytes the callback confirmed. SignRange draws a fresh
-				// nonce and height-bound expiry for the remaining responsibility.
-				continue
-			default:
-				return nil, err
-			}
-		}
-	}
-	if confirmedOffset != sizeBytes || uint64(len(input)) != sizeBytes {
-		return nil, fmt.Errorf("task-data input size %d does not match declared size %d", confirmedOffset, sizeBytes)
+	input, err := fetchTaskDataRanges(ctx, r.cfg.TaskData, r.cfg.Auth, endpoint, builderOperator, key, sizeBytes, r.cfg.RangeBytes, make([]byte, 0, int(sizeBytes)))
+	if err != nil {
+		return nil, err
 	}
 	actualDigest := sha256.Sum256(input)
 	if actualDigest != codec.Hash(ref.PayloadHash) {

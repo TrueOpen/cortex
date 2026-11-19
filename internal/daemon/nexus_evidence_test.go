@@ -30,6 +30,10 @@ type evidenceTaskDataClient struct {
 	pins             []string
 	metadataMutation func(*builderclient.TaskDataMetadata)
 	frames           func(builderclient.TaskDataKey, []byte) []builderclient.TaskDataChunk
+	// maxRangeBytes, when set, is the Builder's task_data.max_range_bytes: a
+	// fetch whose range (a missing range meaning the whole object) is longer
+	// is refused the way Nexus refuses it.
+	maxRangeBytes uint64
 }
 
 func (c *evidenceTaskDataClient) GetTaskDataMetadata(ctx context.Context, _ string, request builderclient.GetTaskDataMetadataRequest) (builderclient.TaskDataMetadata, error) {
@@ -63,7 +67,15 @@ func (c *evidenceTaskDataClient) FetchTaskData(ctx context.Context, _ string, re
 	if !ok {
 		return fmt.Errorf("evidence object missing")
 	}
-	frames := []builderclient.TaskDataChunk{{Data: data, EOF: true}}
+	offset, length := uint64(0), uint64(len(data))
+	if request.Range != nil {
+		offset, length = request.Range.Offset, request.Range.Length
+	}
+	if length == 0 || offset > uint64(len(data)) || length > uint64(len(data))-offset || (c.maxRangeBytes != 0 && length > c.maxRangeBytes) {
+		return fmt.Errorf("/nexus.v1.IngressAPI/FetchTaskData: out_of_range: NEXUS_DATA_RANGE_INVALID")
+	}
+	data = data[offset : offset+length]
+	frames := []builderclient.TaskDataChunk{{Offset: offset, Data: data, EOF: true}}
 	if c.frames != nil {
 		frames = c.frames(request.Key, data)
 	}
@@ -312,8 +324,12 @@ func TestNexusEvidenceConfirmerFetchesManifestBeforeFullArtifactReferences(t *te
 	// the two token-id artifacts.
 	fetchOrder := []builderclient.TaskDataKey{keys[0], keys[1], keys[2], keys[3], keys[5], keys[4]}
 	for i, request := range client.metadataRequests {
-		if request.Key != fetchOrder[i] || client.fetches[i].Key != fetchOrder[i] || client.fetches[i].Range != nil {
+		if request.Key != fetchOrder[i] || client.fetches[i].Key != fetchOrder[i] {
 			t.Fatalf("object %d lost its full scoped reference", i)
+		}
+		// An object below the range size is one signed range over all of it.
+		if bounds := client.fetches[i].Range; bounds == nil || bounds.Offset != 0 || bounds.Length != uint64(len(client.objects[fetchOrder[i]])) {
+			t.Fatalf("object %d fetch range = %+v, want one range over its %d bytes", i, bounds, len(client.objects[fetchOrder[i]]))
 		}
 		if !strings.HasSuffix(request.Auth.Method, "/GetTaskDataMetadata") || request.Auth.BuilderAddress != inputTestBuilder || request.Auth.ChainID != outputTestChainID || len(request.Auth.Signature) != 64 || len(client.fetches[i].Auth.Signature) != 64 {
 			t.Fatal("unsigned evidence request")

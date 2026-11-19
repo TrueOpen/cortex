@@ -541,8 +541,8 @@ func TestNexusOutputConfirmerReadsTheOutputWhenNoPackageStoreIsConfigured(t *tes
 	if pkg.OutputRef != "" || pkg.TokenIDsRef != "" || pkg.PositionValuesRef != "" {
 		t.Fatalf("confirmed package carries locator refs %#v, want none", pkg)
 	}
-	if len(client.ranges) != 1 {
-		t.Fatalf("fetch ranges = %#v, want exactly one", client.ranges)
+	if len(client.ranges) != 1 || client.wholeObjectFetches != 0 {
+		t.Fatalf("fetches = %d (%d without a range), want exactly one signed range", len(client.ranges), client.wholeObjectFetches)
 	}
 	if got := client.ranges[0]; got.Range.Offset != 0 || got.Range.Length != outputConfirmationSizeBytes ||
 		got.Key.Kind != builderclient.DataKindOutput || got.Auth.BuilderAddress != inputTestBuilder {
@@ -583,7 +583,7 @@ func TestNexusOutputConfirmerRefusesTaskDataOutputThatBreaksItsCommitments(t *te
 					return receive(builderclient.TaskDataChunk{Offset: 0, Data: full[:16], EOF: true})
 				}
 			},
-			wantText: "of 4096 signed bytes",
+			wantText: "4096 signed bytes",
 		},
 	}
 	for _, tt := range tests {

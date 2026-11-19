@@ -347,27 +347,12 @@ func (c *NexusEvidenceConfirmer) evidenceMetadata(ctx context.Context, facts Evi
 }
 
 func (c *NexusEvidenceConfirmer) fetchEvidenceBytes(ctx context.Context, facts EvidenceCommitments, endpoint string, key builderclient.TaskDataKey, size uint64, expectedHash string) ([]byte, error) {
-	auth, err := c.cfg.Auth.SignFetch(ctx, key, facts.BuilderOperatorAddress, nil)
-	if err != nil {
-		return nil, err
-	}
 	// The buffer grows with the bytes that actually arrive; a declared size
 	// only reserves up to maxEvidencePrealloc.
-	data := make([]byte, 0, min(size, maxEvidencePrealloc))
-	ended := false
-	err = c.cfg.TaskData.FetchTaskData(ctx, endpoint, builderclient.FetchTaskDataRequest{Key: key, Auth: auth}, func(chunk builderclient.TaskDataChunk) error {
-		if ended || chunk.Offset != uint64(len(data)) || uint64(len(chunk.Data)) > size-uint64(len(data)) {
-			return fmt.Errorf("evidence stream offset, size or EOF mismatch")
-		}
-		data = append(data, chunk.Data...)
-		ended = chunk.EOF
-		return nil
-	})
+	data, err := fetchTaskDataRanges(ctx, c.cfg.TaskData, c.cfg.Auth, endpoint, facts.BuilderOperatorAddress, key, size, taskDataFetchRangeBytes,
+		make([]byte, 0, min(size, maxEvidencePrealloc)))
 	if err != nil {
 		return nil, err
-	}
-	if !ended || uint64(len(data)) != size {
-		return nil, fmt.Errorf("incomplete evidence stream")
 	}
 	hash := codec.HashBytes(data)
 	if key.Kind == builderclient.DataKindEvidenceManifest {
