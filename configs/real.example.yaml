@@ -192,7 +192,9 @@ dispatch:
   # holds one slot per accepted task the sidecar does not list as seen yet,
   # accepts only while slots are free, and advertises what is left. A slot is
   # given back when the task is seen or ends without a receipt, and at
-  # reserve_ttl_s (default 1800) at the latest.
+  # reserve_ttl_s (default 1800) at the latest. reserve_ttl_s must cover the
+  # time from the accept to the sidecar listing the task (claim, inference,
+  # receipt, commitment, one write of the signal) and be at least max_age_s.
   # anchor_admission:
   #   file: /var/lib/cortex/anchor_admission.json
   #   max_age_s: 45

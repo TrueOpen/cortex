@@ -128,9 +128,12 @@ type AnchorAdmissionConfig struct {
 	MaxAgeS uint64 `yaml:"max_age_s"`
 	// ReserveTTLS bounds how long an audit slot is held for a ticket the
 	// sidecar never lists as seen (slot signals only); 0 takes
-	// DefaultAnchorAdmissionReserveTTLS. It must exceed the longest time from
-	// accepting an offer to the receipt being visible to the sidecar, or a
-	// task still in flight would stop being counted.
+	// DefaultAnchorAdmissionReserveTTLS. It must cover the longest time from
+	// accepting an offer to the sidecar listing the task as seen (the claim,
+	// the inference, the receipt, its commitment on chain, and one write of
+	// the signal), or a task still in flight would stop being counted and the
+	// node would take more tasks than the sidecar granted. It may not be
+	// below max_age_s.
 	ReserveTTLS uint64 `yaml:"reserve_ttl_s"`
 }
 
@@ -252,6 +255,9 @@ func (d DispatchConfig) problems() []string {
 	}
 	if d.AnchorAdmission.ReserveTTLS > maxAnchorAdmissionMaxAgeS {
 		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.reserve_ttl_s must be at most %d", maxAnchorAdmissionMaxAgeS))
+	} else if ttl, age := d.AnchorAdmission.ReserveTTL(), d.AnchorAdmission.MaxAge(); ttl < age {
+		problems = append(problems, fmt.Sprintf("dispatch.anchor_admission.reserve_ttl_s (%.0f) must be at least max_age_s (%.0f): a slot released before the sidecar can list its task lets the node take more tasks than the sidecar granted",
+			ttl.Seconds(), age.Seconds()))
 	}
 	keys := make([]string, 0, len(d.MinPriceBid))
 	for key := range d.MinPriceBid {

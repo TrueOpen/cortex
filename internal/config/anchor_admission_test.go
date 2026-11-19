@@ -93,6 +93,27 @@ dispatch:
 			t.Fatalf("err = %v, want the field named", err)
 		}
 	})
+	t.Run("a slot TTL shorter than the max age is refused", func(t *testing.T) {
+		for _, block := range []string{
+			"{file: /run/a.json, reserve_ttl_s: 1}",                  // against the default max age
+			"{file: /run/a.json, max_age_s: 120, reserve_ttl_s: 60}", // against the one set
+			"{file: /run/a.json, max_age_s: 3600}",                   // the default TTL against the one set
+		} {
+			_, err := LoadFileWithOverrides(writeConfig(t, anchorAdmissionTestConfig+`
+dispatch:
+  anchor_admission: `+block+`
+`), nil)
+			if err == nil || !strings.Contains(err.Error(), "dispatch.anchor_admission.reserve_ttl_s") || !strings.Contains(err.Error(), "max_age_s") {
+				t.Fatalf("%s: err = %v, want reserve_ttl_s refused against max_age_s", block, err)
+			}
+		}
+		if _, err := LoadFileWithOverrides(writeConfig(t, anchorAdmissionTestConfig+`
+dispatch:
+  anchor_admission: {file: /run/a.json, max_age_s: 60, reserve_ttl_s: 60}
+`), nil); err != nil {
+			t.Fatalf("reserve_ttl_s equal to max_age_s: %v", err)
+		}
+	})
 	t.Run("a max age beyond a day is refused", func(t *testing.T) {
 		_, err := LoadFileWithOverrides(writeConfig(t, anchorAdmissionTestConfig+`
 dispatch:
