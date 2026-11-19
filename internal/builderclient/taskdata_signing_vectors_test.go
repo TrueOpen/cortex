@@ -272,3 +272,62 @@ func TestStorageConfirmationV2ReproducesPublishedVectors(t *testing.T) {
 		t.Fatal("a Worker bundle confirmation accepted VERIFIER_VALUE_OPENING")
 	}
 }
+
+// wire v0.6.1 publishes the WORKER_ANCHOR_OPENING (kind 5) reference through
+// the metadata body, the unranged fetch body and a ranged fetch body. Kind 5
+// belongs to Worker evidence only, so the same reference marked
+// Verifier-produced must be refused before any digest is computed.
+func TestTaskDataBodiesV2ReproduceWorkerAnchorOpeningVectors(t *testing.T) {
+	vectors := v2Vectors(t, "task/task_data_auth_v1.json")
+	cases := []struct {
+		name   string
+		digest func(TaskDataKey, []v2Node) (codec.Hash, error)
+	}{
+		{"task_data_metadata_body_v2_worker_anchor_opening", func(key TaskDataKey, _ []v2Node) (codec.Hash, error) {
+			return TaskDataMetadataBodyDigest(key)
+		}},
+		{"task_data_fetch_body_v2_worker_anchor_opening", func(key TaskDataKey, f []v2Node) (codec.Hash, error) {
+			if r := v2Field(t, f, 1, "range"); r.Present == nil || *r.Present {
+				t.Fatal("the unranged anchor fetch vector publishes a range")
+			}
+			return TaskDataFetchBodyDigest(key, nil)
+		}},
+		{"task_data_fetch_body_v2_worker_anchor_opening_range", func(key TaskDataKey, f []v2Node) (codec.Hash, error) {
+			bounds := v2Field(t, f, 1, "range").Fields[0].Fields
+			return TaskDataFetchBodyDigest(key, &TaskDataRange{
+				Offset: v2Field(t, bounds, 0, "offset").u64(t), Length: v2Field(t, bounds, 1, "length").u64(t),
+			})
+		}},
+	}
+	for _, tc := range cases {
+		v, ok := vectors[tc.name]
+		if !ok {
+			t.Fatalf("task_data_auth_v1.json publishes no %s vector", tc.name)
+		}
+		key, kind := objectRef(t, v2Field(t, v.Fields, 0, "object_ref"))
+		if kind != nodewire.EvidenceKindWorkerAnchorOpening || key.EvidenceProducerKind != EvidenceProducerWorker {
+			t.Fatalf("%s is not a Worker WORKER_ANCHOR_OPENING reference", tc.name)
+		}
+		got, err := tc.digest(key, v.Fields)
+		assertDigest(t, tc.name, got, err, v.DigestHex)
+
+		found := false
+		for _, m := range v.Mutations {
+			if m.FieldPath != "object_ref.evidence_producer_kind" {
+				continue
+			}
+			found = true
+			if m.Expect != "reject_before_hash" || m.DigestHex != "" || m.Reason == "" {
+				t.Fatalf("%s %s: published as %q with digest %q; want reject_before_hash with a reason", tc.name, m.FieldPath, m.Expect, m.DigestHex)
+			}
+			bad := key
+			bad.EvidenceProducerKind = EvidenceProducerVerifier
+			if _, err := tc.digest(bad, v.Fields); err == nil {
+				t.Fatalf("%s: a Verifier-produced WORKER_ANCHOR_OPENING reference was hashed instead of refused", tc.name)
+			}
+		}
+		if !found {
+			t.Fatalf("%s publishes no evidence_producer_kind mutation", tc.name)
+		}
+	}
+}
