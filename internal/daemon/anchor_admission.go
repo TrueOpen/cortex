@@ -39,7 +39,8 @@ import (
 // While the last signal that was parsed is itself inside max_age_s, its
 // verdict stands, so the gate (and with it the standing handraise) does not
 // close and reopen between two good writes. Every parsed signal is taken as
-// it is.
+// it is, except one whose read was overtaken by a later read of a newer
+// signal (see adopt).
 //
 // What the gate cannot see. The signal is the sidecar's estimate, written
 // every 15 s, and the sidecar only learns of a task when its receipt is on
@@ -109,6 +110,8 @@ type AnchorAdmission struct {
 	reserveTTL time.Duration
 	// seenWarnedAt is when malformed "seen" entries were last logged.
 	seenWarnedAt time.Time
+	// reads counts the reads of the file, to order them (see adopt).
+	reads uint64
 }
 
 // anchorReservation is one slot held by a ticket this node accepted.
@@ -330,6 +333,8 @@ func (a *AnchorAdmission) restore(ticket, taskID layout.StoredHash) {
 type parsedAnchorAdmission struct {
 	updated time.Time
 	verdict error
+	// read orders the reads: it is taken before the file is opened.
+	read uint64
 	// slots is nil for a boolean signal.
 	slots  *int
 	seen   map[string]struct{}
@@ -339,6 +344,10 @@ type parsedAnchorAdmission struct {
 // read returns the verdict of the signal, or of the last parsed one while the
 // file cannot be read or parsed and that signal is inside max_age.
 func (a *AnchorAdmission) read() error {
+	a.mu.Lock()
+	a.reads++
+	seq := a.reads
+	a.mu.Unlock()
 	sig, err := a.parse()
 	if err != nil {
 		a.mu.Lock()
@@ -349,7 +358,7 @@ func (a *AnchorAdmission) read() error {
 		}
 		return err
 	}
-	parsed := &parsedAnchorAdmission{updated: time.Unix(0, int64(sig.Updated*float64(time.Second)))}
+	parsed := &parsedAnchorAdmission{updated: time.Unix(0, int64(sig.Updated*float64(time.Second))), read: seq}
 	parsed.verdict = a.judge(sig, parsed.updated)
 	if sig.Slots != nil {
 		n := *sig.Slots
@@ -368,9 +377,25 @@ func (a *AnchorAdmission) read() error {
 			a.noteMalformedSeen(bad)
 		}
 	}
+	return a.adopt(parsed)
+}
+
+// adopt makes parsed the last parsed signal and returns its verdict. read
+// parses outside the lock, so two reads may finish out of order: a read
+// that started before the one that gave the last signal, and found an older
+// signal, keeps the last one, which is judged instead (its "seen" may have
+// released slots the older one still counts). A read that started later is
+// taken as it is, even if its signal is older: the file was rewritten.
+func (a *AnchorAdmission) adopt(parsed *parsedAnchorAdmission) error {
 	a.mu.Lock()
+	defer a.mu.Unlock()
+	if last := a.last; last != nil && parsed.read < last.read && parsed.updated.Before(last.updated) {
+		if err := a.fresh(last.updated); err != nil {
+			return err
+		}
+		return last.verdict
+	}
 	a.last = parsed
-	a.mu.Unlock()
 	return parsed.verdict
 }
 

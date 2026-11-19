@@ -622,3 +622,36 @@ func TestDispatchOfferBeyondTheAuditSlotsIsRefused(t *testing.T) {
 		t.Fatalf("%d leases and %d slots held after the accept", x.leaseCount(t), reservedSlots(a))
 	}
 }
+
+// Two reads that overlap may finish out of order: the one that parsed the
+// older file must not replace the newer signal, whose "seen" may already
+// have released a slot the older one still counts.
+func TestAnchorAdmissionKeepsTheNewerSignal(t *testing.T) {
+	at := admissionAt.Unix()
+	a, _, _ := newTestAdmission(t, slotSignal(at, 1, slotTask(1)))
+	if err := a.Refusal(); err != nil {
+		t.Fatal(err)
+	}
+	one := 1
+	// A read that started before the one above (read 0 < 1) and found the
+	// file as it was ten seconds earlier.
+	older := &parsedAnchorAdmission{updated: time.Unix(at-10, 0), verdict: fmt.Errorf("the older verdict"), slots: &one, seen: map[string]struct{}{}}
+	if err := a.adopt(older); err != nil {
+		t.Fatalf("an older signal read late gave the verdict %v, want the newer signal's", err)
+	}
+	a.mu.Lock()
+	last := a.last
+	a.mu.Unlock()
+	if !last.updated.Equal(time.Unix(at, 0)) {
+		t.Fatalf("last signal updated %s, want the newer one (%s)", last.updated, time.Unix(at, 0))
+	}
+	if _, seen := last.seen[anchorAdmissionKey(slotTask(1))]; !seen {
+		t.Fatal("the newer signal's seen list was lost")
+	}
+	// A read that started later and found an older signal was given a
+	// rewritten file: it is taken as it is.
+	older.read = last.read + 1
+	if err := a.adopt(older); err == nil || err.Error() != "the older verdict" {
+		t.Fatalf("a later read of an older signal gave %v, want its own verdict", err)
+	}
+}
