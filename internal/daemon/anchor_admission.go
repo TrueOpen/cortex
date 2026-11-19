@@ -62,7 +62,8 @@ import (
 //
 //	"slots": n      tasks this node may have in flight beyond those in "seen"
 //	"seen":  [...]  the tasks the sidecar accounts for or has settled, each by
-//	                the first 16 lowercase hex characters of its task id
+//	                the first 16 lowercase hex characters of its task id (a
+//	                longer id, 0x or upper case is read the same way)
 //
 // is read by those instead of "accept". The node takes a slot when it
 // accepts an offer (Reserve, in the same step as the lease) and holds it
@@ -106,6 +107,8 @@ type AnchorAdmission struct {
 	// does not list as seen yet (see the slot protocol above).
 	reserved   map[layout.StoredHash]anchorReservation
 	reserveTTL time.Duration
+	// seenWarnedAt is when malformed "seen" entries were last logged.
+	seenWarnedAt time.Time
 }
 
 // anchorReservation is one slot held by a ticket this node accepted.
@@ -144,7 +147,8 @@ type anchorAdmissionSignal struct {
 	Updated float64 `json:"updated"`
 	// Slots, when present, makes this a slot signal: how many tasks beyond
 	// those listed in Seen this node may have in flight. Seen lists the tasks
-	// the sidecar accounts for or has settled, by anchorAdmissionKey. A
+	// the sidecar accounts for or has settled, by anchorAdmissionKey (read
+	// by anchorAdmissionSeenKey). A
 	// sidecar that does not publish Slots is read by Accept alone.
 	Slots *int     `json:"slots"`
 	Seen  []string `json:"seen"`
@@ -351,14 +355,56 @@ func (a *AnchorAdmission) read() error {
 		n := *sig.Slots
 		parsed.slots, parsed.reason = &n, sig.Reason
 		parsed.seen = make(map[string]struct{}, len(sig.Seen))
+		var bad []string
 		for _, id := range sig.Seen {
-			parsed.seen[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+			key, ok := anchorAdmissionSeenKey(id)
+			if !ok {
+				bad = append(bad, id)
+				continue
+			}
+			parsed.seen[key] = struct{}{}
+		}
+		if len(bad) > 0 {
+			a.noteMalformedSeen(bad)
 		}
 	}
 	a.mu.Lock()
 	a.last = parsed
 	a.mu.Unlock()
 	return parsed.verdict
+}
+
+// anchorAdmissionSeenKey reads one entry of "seen" as anchorAdmissionKey: a
+// task id in hex, in either case, with or without 0x, of at least 16
+// characters (a full 64-character id included), of which the first 16
+// count. ok is false for anything else; such an entry matches no task, and
+// the slot it was meant to release waits for the TTL.
+func anchorAdmissionSeenKey(id string) (key string, ok bool) {
+	id = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(id)), "0x")
+	if len(id) < 16 {
+		return "", false
+	}
+	for _, c := range id {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", false
+		}
+	}
+	return id[:16], true
+}
+
+// noteMalformedSeen logs the entries of "seen" that are not task ids, at
+// most once per anchorAdmissionLogEvery: the sidecar rewrites the file every
+// few seconds and would repeat them.
+func (a *AnchorAdmission) noteMalformedSeen(bad []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	if !a.seenWarnedAt.IsZero() && now.Sub(a.seenWarnedAt) < anchorAdmissionLogEvery {
+		return
+	}
+	a.seenWarnedAt = now
+	a.log.Warn("anchor admission signal lists malformed seen entries: they release no slot (want the task id in hex, at least its first 16 characters)",
+		"entries", len(bad), "first", bad[0], "signal", a.path)
 }
 
 func (a *AnchorAdmission) parse() (anchorAdmissionSignal, error) {

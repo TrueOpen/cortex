@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -169,6 +170,32 @@ func TestAnchorAdmissionSlotTTLAndStaleSignal(t *testing.T) {
 	}
 	if got := (config.AnchorAdmissionConfig{}).ReserveTTL(); got != config.DefaultAnchorAdmissionReserveTTLS*time.Second {
 		t.Fatalf("default TTL %s", got)
+	}
+}
+
+// A sidecar may list a task by its full id, with or without 0x, in either
+// case: each is read by its first 16 hex characters. An entry that is not
+// such an id releases nothing and is logged, once a minute at most.
+func TestAnchorAdmissionSeenEntryForms(t *testing.T) {
+	at := admissionAt.Unix()
+	a, path, logs := newTestAdmission(t, slotSignal(at, 3))
+	for i := 1; i <= 3; i++ {
+		if taken, err := a.Reserve(slotTicket(i), slotTask(i)); err != nil || !taken {
+			t.Fatal(i, taken, err)
+		}
+	}
+	full := func(id layout.StoredHash) string { return hex.EncodeToString(id[:]) }
+	task3 := anchorAdmissionKey(slotTask(3))
+	writeAdmission(t, path, fmt.Sprintf(`{"accept":true,"slots":3,"seen":[%q,%q,%q,%q,%q,"",%q],"updated":%d}`,
+		"0x"+full(slotTask(1)), strings.ToUpper(full(slotTask(2))),
+		"0x"+task3[:15], task3[:15], "zz"+task3[2:], " not hex at all ", at))
+	for range 2 {
+		if st, _ := a.Status(); st.Reserved != 1 {
+			t.Fatalf("%d slots held, want task 3's alone: the full ids release theirs, the malformed entries nothing", st.Reserved)
+		}
+	}
+	if n := strings.Count(logs.String(), "malformed"); n != 1 {
+		t.Fatalf("%d warnings about malformed seen entries, want one:\n%s", n, logs)
 	}
 }
 
