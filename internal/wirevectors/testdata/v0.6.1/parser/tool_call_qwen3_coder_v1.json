@@ -1,0 +1,440 @@
+{
+  "schema": "trueopen-parser-tool-call-v1",
+  "source": "docs/TOOL_CALL_PARSER_V1.md, qwen3_coder@1",
+  "parser": "qwen3_coder@1",
+  "notes": [
+    "input_utf8 is committed output (or, for a tool-call file, the tool stage's input). Positions, splits and matching are on its UTF-8 bytes.",
+    "finish_reason, when present, is the verified finish reason from the signed Fin (TRUEOPEN_OUTPUT_FIN_V1), written as its FinishReasonV1 enum name. Absent means no verified finish reason.",
+    "stream_splits lists frame boundaries as byte offsets into input_utf8; each list cuts the input into frames at those offsets, and feeding the frames in order must give exactly expected. A boundary may fall inside a marker or inside a multi-byte UTF-8 sequence.",
+    "tool_calls compares name and arguments only, byte for byte; id, type and index are synthesised by the Provider and are not part of the vectors.",
+    "reasoning_parser \"unsupported@1\" names a reserved reasoning parser that no SDK supports, to exercise the Support rule."
+  ],
+  "vectors": [
+    {
+      "name": "template_one_parameter",
+      "input_utf8": "<tool_call>\n<function=get_weather>\n<parameter=city>\nParis\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "get_weather",
+            "arguments": "{\"city\":\"Paris\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "multiple_parameters_in_order",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=b>\n2\n</parameter>\n<parameter=a>\n1\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"b\":\"2\",\"a\":\"1\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no_parameter",
+      "input_utf8": "<tool_call>\n<function=f>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two_functions_one_block",
+      "input_utf8": "<tool_call>\n<function=a>\n<parameter=x>\n1\n</parameter>\n</function>\n<function=b>\n<parameter=y>\n2\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{\"x\":\"1\"}"
+          },
+          {
+            "name": "b",
+            "arguments": "{\"y\":\"2\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two_blocks_layout_dropped",
+      "input_utf8": "<tool_call>\n<function=a>\n</function>\n</tool_call>\n<tool_call>\n<function=b>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          },
+          {
+            "name": "b",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "text_before_block_kept",
+      "input_utf8": "Let me check.\n<tool_call>\n<function=f>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "Let me check.\n",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "value_inner_newlines_kept",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=v>\n\nx\n\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"v\":\"\\nx\\n\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "value_spaces_and_cr_kept",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=v>\n  x\r \n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"v\":\"  x\\r \"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "value_without_wrapping_lf",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=v>x</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"v\":\"x\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "numeric_and_boolean_stay_strings",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=n>\n42\n</parameter>\n<parameter=b>\ntrue\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"n\":\"42\",\"b\":\"true\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "json_text_value_is_one_string",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=o>\n{\"k\": [1, 2]}\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"o\":\"{\\\"k\\\": [1, 2]}\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "value_markup_verbatim",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=v>\n<a> & &lt; <parameter=x </function>\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"v\":\"<a> & &lt; <parameter=x </function>\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "value_encoding",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=v>\na\nb\"\\\b\f\t\u0001\u007f\u2028é/\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"v\":\"a\\nb\\\"\\\\\\b\\f\\t\\u0001\u007f\u2028é/\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "name_leading_space_kept",
+      "input_utf8": "<tool_call>\n<function= f>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": " f",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty_name_malformed",
+      "input_utf8": "<tool_call>\n<function=>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "empty_key_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=>\n1\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=>\n1\n</parameter>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "name_with_lt_malformed",
+      "input_utf8": "<tool_call>\n<function=a<b>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=a<b>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "key_with_lf_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a\nb>\n1\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a\nb>\n1\n</parameter>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "duplicate_key_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n<parameter=a>\n2\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n<parameter=a>\n2\n</parameter>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "missing_close_parameter_value_runs_on",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n<parameter=b>\n2\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"a\":\"1\\n<parameter=b>\\n2\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no_close_parameter_at_all_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "missing_close_function_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "text_between_elements_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\noops\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\noops\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "space_inside_tag_malformed",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter = a>\n1\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter = a>\n1\n</parameter>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "block_with_no_function_malformed",
+      "input_utf8": "<tool_call>\n\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "function_without_wrapper_is_content",
+      "input_utf8": "<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "expected": {
+        "content": "<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "close_marker_inside_value",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=v>\nx</tool_call>y\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=v>\nx</tool_call>y\n</parameter>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "good_and_malformed_block",
+      "input_utf8": "<tool_call>\n<function=a>\n</function>\n</tool_call>\n<tool_call>\njunk</tool_call>",
+      "expected": {
+        "content": "<tool_call>\njunk</tool_call>",
+        "tool_calls": [
+          {
+            "name": "a",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_eos",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "finish_reason": "FINISH_REASON_V1_EOS_TOKEN",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_stop_sequence",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "finish_reason": "FINISH_REASON_V1_STOP_SEQUENCE",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_stop_token",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "finish_reason": "FINISH_REASON_V1_STOP_TOKEN",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_max_output_tokens",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "finish_reason": "FINISH_REASON_V1_MAX_OUTPUT_TOKENS",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_max_output_duration",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "finish_reason": "FINISH_REASON_V1_MAX_OUTPUT_DURATION",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_user_stop",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "finish_reason": "FINISH_REASON_V1_USER_STOP",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unclosed_no_recovery_no_finish_reason",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+      "expected": {
+        "content": "<tool_call>\n<function=f>\n<parameter=a>\n1\n</parameter>\n</function>\n",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "unsupported_reasoning_parser",
+      "input_utf8": "r</think><tool_call>\n<function=f>\n</function>\n</tool_call>",
+      "reasoning_parser": "unsupported@1",
+      "expected": {
+        "content": "r</think><tool_call>\n<function=f>\n</function>\n</tool_call>",
+        "tool_calls": []
+      }
+    },
+    {
+      "name": "stream_split_parameter_tags",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=city>\nParis\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"city\":\"Paris\"}"
+          }
+        ]
+      },
+      "stream_splits": [
+        [
+          30
+        ],
+        [
+          50,
+          56
+        ]
+      ]
+    },
+    {
+      "name": "stream_split_wrapping_lf_and_multibyte",
+      "input_utf8": "<tool_call>\n<function=f>\n<parameter=city>\nSão\n</parameter>\n</function>\n</tool_call>",
+      "expected": {
+        "content": "",
+        "tool_calls": [
+          {
+            "name": "f",
+            "arguments": "{\"city\":\"São\"}"
+          }
+        ]
+      },
+      "stream_splits": [
+        [
+          42
+        ],
+        [
+          44
+        ]
+      ]
+    }
+  ]
+}

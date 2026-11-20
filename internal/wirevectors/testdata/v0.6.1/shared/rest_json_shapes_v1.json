@@ -826,6 +826,184 @@
     },
     {
       "body": {
+        "params": {
+          "batch": {
+            "max_batch_commit_bytes": "524288",
+            "max_batch_commit_items": 512,
+            "max_batch_result_bytes": "524288",
+            "max_batch_result_items": 512
+          },
+          "challenge": {
+            "assignment_delay_blocks": "1",
+            "candidate_window_delay_blocks": "1",
+            "challenge_fault_slash_bps": 0,
+            "challenge_inconclusive_bond_slash_bps": 0,
+            "challenge_open_bond": {
+              "atomic_units": "0"
+            },
+            "challenge_verifier_count": 3,
+            "commit_window_blocks": "20",
+            "handraise_window_blocks": "1",
+            "max_open_round_per_task": 1,
+            "max_round_effect_items_per_block": 1024,
+            "max_verify_round": 2,
+            "reveal_window_blocks": "10"
+          },
+          "cleanup": {
+            "max_epoch_task_summary_bytes": "1048576",
+            "max_epoch_task_summary_items_per_block": 1024,
+            "max_epoch_task_summary_support_candidates": 1024,
+            "max_task_cleanup_items_per_block": 1024,
+            "max_task_failure_class_prune_items_per_block": 256,
+            "max_task_terminal_summary_prune_items_per_block": 256,
+            "task_terminal_summary_retention_blocks": "60480"
+          },
+          "deadlines": {
+            "collection_window_blocks": "100200",
+            "commit_window_blocks": "100000",
+            "max_deadline_sweep_per_block": 1024,
+            "reveal_window_blocks": "120",
+            "self_rescue_margin_blocks": "10",
+            "settle_margin_blocks": "20",
+            "verify_open_deadline_blocks": "150000"
+          },
+          "dispatch": {
+            "builder_compensation_account_min_balance": {
+              "atomic_units": "100"
+            },
+            "builder_max_inflight_per_session": 1,
+            "dispatch_challenge_gas_cap_by_kind": [
+              {
+                "gas_cap": "1",
+                "kind": 1
+              }
+            ],
+            "dispatch_challenge_response_blocks": "8",
+            "dispatch_challenge_window_blocks": "32",
+            "dispatch_compensation_claim_window_blocks": "64",
+            "dispatch_compensation_rebuttal_blocks": "8",
+            "dispatch_evidence_retention_blocks": "128",
+            "dispatch_fault_penalty_by_kind": [
+              {
+                "amount": {
+                  "atomic_units": "100"
+                },
+                "kind": 1
+              }
+            ],
+            "dispatch_record_retention_blocks": "128",
+            "max_dispatch_entries_per_record": 32,
+            "max_dispatch_record_bytes": "1048576",
+            "max_dispatch_roster_bytes": "1048576",
+            "max_pending_per_session": 1,
+            "max_prerecord_output_tokens": "1024",
+            "max_skips": 1,
+            "order_freshness_margin_blocks": "2",
+            "prefill_compensation_by_model_tier": [
+              {
+                "amount": {
+                  "atomic_units": "100"
+                },
+                "resource_tier": 1
+              }
+            ],
+            "record_deadline_blocks": "4",
+            "sticky_max_orders": 1,
+            "sticky_window_blocks": "1",
+            "worker_dispatch_contradiction_slash_bps": 1
+          },
+          "evidence": {
+            "encryption_activation_height": "0",
+            "evidence_schema_version_supported": [],
+            "leaf_ordering_version_supported": [],
+            "max_evidence_retention_blocks": "1000",
+            "max_infer_evidence_commitments_per_receipt": 32,
+            "max_infer_receipt_commitment_bytes": "8192",
+            "max_output_mmr_leaves": "65536",
+            "max_supported_evidence_schema_versions": 16,
+            "max_supported_leaf_ordering_versions": 16,
+            "max_verifier_value_evidence_bytes": "262144",
+            "max_verifier_value_evidence_positions": 8,
+            "max_worker_evidence_bytes_v1": "1048576",
+            "min_output_stream_frame_bytes": 256,
+            "verifier_value_evidence_window_blocks": "0"
+          },
+          "fee": {
+            "fee_policy_version": "1",
+            "fee_rule_version": "2",
+            "maintenance_rate_bps": 0,
+            "max_reimbursable_fee_per_gas_denominator": "1",
+            "max_reimbursable_fee_per_gas_numerator": "0",
+            "max_reimbursement_per_task": {
+              "atomic_units": "0"
+            },
+            "max_reimbursement_per_tx": {
+              "atomic_units": "0"
+            }
+          },
+          "generation": {
+            "max_output_tokens": "131072",
+            "stop_sequence_max_bytes_each": 128,
+            "stop_sequence_max_items": 16,
+            "stop_sequence_max_total_bytes": 1024,
+            "stop_token_max_items": 64,
+            "top_k_max": 1000
+          },
+          "proposals": {
+            "max_candidate_accepted_proposals_per_stage": 16,
+            "max_candidate_handraises_per_proposal": 210,
+            "max_candidate_proposal_bytes": "524288",
+            "max_candidate_stage_finalize_members_per_block": 4096,
+            "max_candidate_stage_finalize_tasks_per_block": 16,
+            "max_candidate_union_members_per_stage": 4096
+          },
+          "schema_version": 1,
+          "session": {
+            "cancel_order_min_gas": "50000",
+            "max_active_sessions_per_account": 1,
+            "max_order_sequences_per_active_session": 4096,
+            "max_session_history_prune_items_per_block": 256,
+            "max_session_key_blocks": "604800",
+            "max_session_sweep_per_block": 1024,
+            "max_session_terminal_summary_prune_items_per_block": 256,
+            "session_change_delay_blocks": "6",
+            "session_close_ttl_blocks": "400000",
+            "session_idle_ttl_blocks": "100",
+            "session_min_prefund": {
+              "atomic_units": "100"
+            },
+            "session_order_retention_blocks": "60480",
+            "session_terminal_summary_retention_blocks": "60480",
+            "session_withdraw_delay_blocks": "6"
+          },
+          "verification": {
+            "builder_fault_slash_bps": 0,
+            "result_reveal_missing_slash_bps": 0,
+            "worker_infer_timeout_slash_bps": 0
+          },
+          "weights": {
+            "candidate_weight_ppm_max": 1000000,
+            "k_stake": 3,
+            "max_weighted_draw_attempts_per_selection": 64,
+            "selected_verifier_count": 3,
+            "verifier_candidate_ratio_ppm": 100000,
+            "verifier_candidate_window_max": 21,
+            "verifier_candidate_window_min": 4,
+            "verifier_performance_weight_ppm": 800000,
+            "verifier_stake_weight_ppm": 200000,
+            "worker_performance_weight_ppm": 700000,
+            "worker_stake_weight_ppm": 300000
+          }
+        },
+        "params_version": "0"
+      },
+      "message": "task.v1.QueryTaskFrozenParamsResponse",
+      "name": "task_v1_querytaskfrozenparamsresponse_default",
+      "note": "Phase 1 conformance example for a Task bound to parameter version 0, not approved network defaults.",
+      "route": "GET /TrueOpen/task/v1/task/{task_id}/params"
+    },
+    {
+      "body": {
         "node": {
           "active_task_liability_count": 1,
           "current_descriptor_version": "1",
