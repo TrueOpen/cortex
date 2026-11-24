@@ -117,6 +117,9 @@ type DispatcherConfig struct {
 	// MaxInputBytes bounds input_size_bytes (check 7); default and ceiling
 	// are NexusTaskInputResolver's 64 MiB.
 	MaxInputBytes uint64
+	// MaxOutputTokens bounds the order's max_output_tokens (check 7); 0 sets
+	// no limit (config dispatch.max_output_tokens).
+	MaxOutputTokens uint64
 	// AcceptSignMargin is how much of the accept window must remain to sign
 	// (C4). Local, default 0.
 	AcceptSignMargin time.Duration
@@ -199,6 +202,7 @@ type Dispatcher struct {
 
 	mu       sync.Mutex
 	deadline map[layout.StoredHash]time.Time // C4 accept deadlines seen by this process
+	received map[layout.StoredHash]time.Time // when each of those offers first reached this process
 	rebound  map[string]bool
 	recent   map[[32]byte]time.Time // Sessions RunWarm reads ahead (noteSession)
 	wake     chan struct{}
@@ -291,7 +295,7 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	}
 	d := &Dispatcher{
 		cfg: cfg, chain: newDispatchFacts(cfg.Chain), work: make(chan struct{}, 1),
-		profiles: profiles, deadline: map[layout.StoredHash]time.Time{},
+		profiles: profiles, deadline: map[layout.StoredHash]time.Time{}, received: map[layout.StoredHash]time.Time{},
 		rebound: map[string]bool{}, wake: make(chan struct{}, 1),
 		conflictAlerted: map[layout.StoredHash]bool{},
 	}
@@ -358,7 +362,25 @@ func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, deadlineMs uint64, re
 		}
 	}
 	d.deadline[ticket] = at
+	d.received[ticket] = d.cfg.Now().Round(0)
 	return at
+}
+
+// lateAccept describes, for the C4 drop of an offer that was evaluated but
+// could not be signed in time, where its accept window went: how much of it
+// was left when the offer reached this process, and how long the answer took
+// from there. A window that was already short on arrival is the Builder's
+// accept timeout against this link's latency; a long answer is this node's
+// chain reads.
+func (d *Dispatcher) lateAccept(ticket layout.StoredHash, deadline time.Time) string {
+	d.mu.Lock()
+	at, ok := d.received[ticket]
+	d.mu.Unlock()
+	if !ok {
+		return "accept deadline passed before the accept was signed (C4)"
+	}
+	return fmt.Sprintf("accept deadline passed before the accept was signed (C4): the offer arrived with %d ms of its accept window left and the answer took %d ms",
+		deadline.Sub(at).Milliseconds(), d.cfg.Now().Round(0).Sub(at).Milliseconds())
 }
 
 func (d *Dispatcher) acceptDeadline(rec layout.DispatchRecord) time.Time {
@@ -380,6 +402,7 @@ func (d *Dispatcher) forgetDeadline(ticket layout.StoredHash) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.deadline, ticket)
+	delete(d.received, ticket)
 }
 
 // drop logs an offer that is not answered (CD §5.1 check 1, or nothing left

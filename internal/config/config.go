@@ -88,8 +88,15 @@ type DispatchConfig struct {
 	// MinPriceBid is the local min_price_bid per profile, keyed
 	// "<model_id hex>@<profile_version>" (CD §15.2, §5.1 H4). Real mode
 	// requires one above zero for every supported profile (CD §15.3).
-	MinPriceBid map[string]uint64    `yaml:"min_price_bid"`
-	Stream      DispatchStreamConfig `yaml:"stream"`
+	MinPriceBid map[string]uint64 `yaml:"min_price_bid"`
+	// MaxOutputTokens is the largest generation_params.max_output_tokens this
+	// node takes an offer for; 0 sets no local limit. Set it below the context
+	// length the model service actually runs with (vLLM --max-model-len) when
+	// that is smaller than what the registered model allows: an order above
+	// it is refused NO_CAPACITY at the offer instead of being accepted and
+	// then failing at the engine.
+	MaxOutputTokens uint64               `yaml:"max_output_tokens"`
+	Stream          DispatchStreamConfig `yaml:"stream"`
 	// ReceiptRescueMarginBlocks: blocks before infer_deadline_height an
 	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
 	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`

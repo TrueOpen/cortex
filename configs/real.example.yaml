@@ -169,6 +169,12 @@ dispatch:
   # one above zero for every supported profile.
   min_price_bid:
     "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1": 1000
+  # Largest max_output_tokens this node takes an offer for; 0 or absent sets no
+  # local limit. Set it when the model service runs with a shorter context
+  # than the registered model allows (vLLM --max-model-len): the engine
+  # refuses a request whose output budget does not fit, so such an order is
+  # better refused at the offer (a signed NO_CAPACITY reject).
+  # max_output_tokens: 4096
   stream:
     # Deployment settings, no defaults. A Builder must tolerate at least two
     # missed probes: one Handler may hold the stream for handler_timeout_ms.

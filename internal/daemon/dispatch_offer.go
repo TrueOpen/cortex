@@ -543,8 +543,8 @@ func (d *Dispatcher) sendReject(ctx context.Context, enq DispatchEnqueuer, rec l
 
 func (d *Dispatcher) accept(ctx context.Context, enq DispatchEnqueuer, rec layout.DispatchRecord, t *taskv1.DispatchTicketV1, nonce uint64) error {
 	// W4: never sign after the deadline (C4); the lease taken for it goes back.
-	if !d.cfg.Now().Add(d.cfg.AcceptSignMargin).Before(d.acceptDeadline(rec)) {
-		return d.drop(ctx, rec.Builder, rec.TicketHash, errors.New("accept deadline passed before the accept was signed (C4)"))
+	if deadline := d.acceptDeadline(rec); !d.cfg.Now().Add(d.cfg.AcceptSignMargin).Before(deadline) {
+		return d.drop(ctx, rec.Builder, rec.TicketHash, errors.New(d.lateAccept(rec.TicketHash, deadline)))
 	}
 	m := &taskv1.DispatchAcceptV1{
 		SchemaVersion: dispatchMessageSchemaVersion, ChainId: d.cfg.ChainID,

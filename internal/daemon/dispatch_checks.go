@@ -46,6 +46,7 @@ const (
 	classPriceBelowMin          = "price_below_min"
 	classInputMismatch          = "input_metadata_mismatch"
 	classInputTooLarge          = "input_too_large"
+	classOutputBudgetTooLarge   = "output_budget_too_large"
 	classNoFreeSlot             = "no_free_slot"
 	classBuilderRetiring        = "builder_retiring"
 	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
@@ -315,6 +316,13 @@ func (d *Dispatcher) checkInput(t *taskv1.DispatchTicketV1, o *taskv1.TaskOrderV
 	}
 	if o.GetInputSizeBytes() > d.cfg.MaxInputBytes {
 		return refuse(reasonNoCapacity, classInputTooLarge, "input_size_bytes %d exceeds the local limit %d", o.GetInputSizeBytes(), d.cfg.MaxInputBytes)
+	}
+	// The engine refuses a request whose output budget does not fit its
+	// context length, however short the answer would have been; an offer for
+	// one is turned down here, while the Builder can still give the order to
+	// another Worker, rather than accepted and failed.
+	if limit, budget := d.cfg.MaxOutputTokens, o.GetGenerationParams().GetMaxOutputTokens(); limit != 0 && uint64(budget) > limit {
+		return refuse(reasonNoCapacity, classOutputBudgetTooLarge, "max_output_tokens %d exceeds the local limit %d", budget, limit)
 	}
 	return nil
 }

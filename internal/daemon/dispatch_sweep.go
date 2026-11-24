@@ -181,6 +181,7 @@ func (d *Dispatcher) pruneDeadlines(now time.Time) {
 	for ticket, at := range d.deadline {
 		if now.Sub(at) > deadlineMemory {
 			delete(d.deadline, ticket)
+			delete(d.received, ticket)
 		}
 	}
 }
