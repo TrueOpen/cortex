@@ -1015,3 +1015,174 @@ func TestBudgetStopAllowed(t *testing.T) {
 		}
 	}
 }
+
+// shortBudgetGrace shortens the silent-engine backstop for a test.
+func shortBudgetGrace(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := budgetGrace
+	budgetGrace = d
+	t.Cleanup(func() { budgetGrace = old })
+}
+
+// The engine's first token comes later than the budget plus its grace (a long
+// prefill, a queued engine, a GPU lent to an audit opening, against an order
+// with a very short max_output_duration). Under a Profile requiring the anchor
+// commitment the stop cannot be taken before that token, so the wait for it
+// must not be cut by the backstop that sits behind the budget: the call would
+// fail with no receipt, and so would every regeneration. The generation ends
+// at the first token, with its commitment.
+func TestAnAnchorProfileOutwaitsTheBudgetGraceForItsFirstToken(t *testing.T) {
+	shortBudgetGrace(t, 60*time.Millisecond)
+	const gap = 150 * time.Millisecond // first frame at 150 ms, first token at 300 ms; budget + grace = 100 ms
+	budget := func(t *testing.T, req InferRequest) InferRequest {
+		t.Helper()
+		req.Generation.Params.MaxOutputDuration = 40
+		digest, err := req.Generation.Digest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.GenerationParamsDigest = digest[:]
+		req.RequireAnchorCommit = true
+		return req
+	}
+	for _, p := range []struct {
+		name, completion string
+		engine           func(t *testing.T) *httptest.Server
+		req              func(t *testing.T) InferRequest
+	}{
+		{"raw", "cmpl-test", func(t *testing.T) *httptest.Server { return lateTokenRawEngine(t, gap) }, func(t *testing.T) InferRequest {
+			return budget(t, localGenerationInfer(t, localTestGeneration(testQwenModelID(), 1)))
+		}},
+		{"chat", "chatcmpl-test", func(t *testing.T) *httptest.Server { return lateTokenChatEngine(t, gap) }, func(t *testing.T) InferRequest {
+			return budget(t, chatInferReq(t))
+		}},
+	} {
+		t.Run(p.name, func(t *testing.T) {
+			commit := fmt.Sprintf(`{"request_id":%q,"roots":["00"],"token_ids":[1,2,3,10],"prompt_tokens":3,"rows":3}`, p.completion)
+			a := &anchorSidecar{
+				info: func() int { return http.StatusOK }, infoBody: `{"commit_prefix":["generated","rows"]}`,
+				commitAt: func(_ int, _, generated string) (int, string) {
+					if generated != "1" {
+						return http.StatusConflict, `{"error":"a commitment needs at least one generated token"}`
+					}
+					return http.StatusOK, commit
+				},
+			}
+			svc := newBoundLocalService(a.front(t, p.engine(t)).URL, "local", 4, 0, 0)
+			svc.anchorCommitBackoff = time.Millisecond
+			resp, err := svc.Infer(context.Background(), p.req(t))
+			if err != nil {
+				t.Fatalf("Infer() error = %v, want the one-token MAX_OUTPUT_DURATION generation", err)
+			}
+			if resp.GeneratedTokenCount != 1 || resp.FinishReason != nodewire.FinishReasonV1MaxOutputDuration || resp.AnchorCommitRef == "" {
+				t.Fatalf("response = %+v, want exactly one token, MAX_OUTPUT_DURATION and an anchor ref", resp)
+			}
+		})
+	}
+}
+
+// Once a token is in hand the backstop is armed as before: an engine that goes
+// silent after it fails the call a grace period behind the budget instead of
+// holding it until the infer timeout.
+func TestAnAnchorProfileStillFailsASilentEngineAfterTheFirstToken(t *testing.T) {
+	shortBudgetGrace(t, 80*time.Millisecond)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "Qwen/Qwen3-8B"}}})
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"cmpl-test","choices":[{"text":"","prompt_token_ids":[1,2,3],"token_ids":[]}]}`)
+		frame := map[string]any{"id": "cmpl-test", "choices": []map[string]any{{"text": "x", "token_ids": []int{10},
+			"logprobs": map[string]any{"token_logprobs": []float64{-0.1},
+				"top_logprobs": []TopLogprobRow{fullTopRow(TopLogprob{Token: "token_id:10", Logprob: -0.1})}}}}}
+		payload, _ := json.Marshal(frame)
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+		<-r.Context().Done() // then nothing, ever
+	}))
+	t.Cleanup(srv.Close)
+	a := &anchorSidecar{info: func() int { return http.StatusOK }, infoBody: `{"commit_prefix":["generated","rows"]}`}
+	svc := newBoundLocalService(a.front(t, srv).URL, "local", 4, 0, 0)
+	req := localGenerationInfer(t, localTestGeneration(testQwenModelID(), 1))
+	req.Generation.Params.MaxOutputDuration = 300
+	digest, err := req.Generation.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.GenerationParamsDigest = digest[:]
+	req.RequireAnchorCommit = true
+	start := time.Now()
+	if _, err := svc.Infer(context.Background(), req); err == nil {
+		t.Fatal("Infer() succeeded against an engine that went silent after one token")
+	}
+	if took := time.Since(start); took < 300*time.Millisecond || took > 3*time.Second {
+		t.Fatalf("the silent engine was given up after %s, want about budget + grace (380 ms)", took)
+	}
+}
+
+// A streamed completion whose anchor commitment the engine does not serve
+// (unknown past the grace period, refused, still not ready when the window
+// ends) is not followed by another generation: its frames are signed, so the
+// failure is classified as one that forbids regenerating and names itself,
+// instead of ending at OUTPUT_FRAMES_ALREADY_SIGNED after the retry budget.
+// Without streaming nothing of the completion is signed and the error stays
+// unclassified, as before.
+func TestAnAnchorCommitTheEngineDoesNotServeForbidsRegenerating(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		status int
+		is     error
+	}{
+		{"unknown completion", http.StatusNotFound, ErrAnchorCommitNotFound},
+		{"refused", http.StatusConflict, nil},
+		{"never ready", http.StatusServiceUnavailable, nil},
+	} {
+		sidecar := func() *anchorSidecar {
+			return &anchorSidecar{
+				info: func() int { return http.StatusOK }, infoBody: `{"commit_prefix":["generated","rows"]}`,
+				commitAt: func(int, string, string) (int, string) { return c.status, `{"error":"no"}` },
+			}
+		}
+		t.Run(c.name+", streamed", func(t *testing.T) {
+			svc := newBoundLocalService(sidecar().front(t, lateTokenChatEngine(t, 20*time.Millisecond)).URL, "local", 4, 0, 0)
+			svc.anchorCommitBackoff = time.Millisecond
+			svc.anchorCommitNotFoundGrace = 5 * time.Millisecond
+			svc.SetAnchorCommitTimeout(60 * time.Millisecond)
+			req := chatInferReq(t)
+			req.Generation.Params.MaxOutputDuration = 1 // the stream ends at its first token
+			digest, derr := req.Generation.Digest()
+			if derr != nil {
+				t.Fatal(derr)
+			}
+			req.GenerationParamsDigest = digest[:]
+			req.RequireAnchorCommit = true
+			_, err := svc.Infer(context.Background(), req)
+			if err == nil {
+				t.Fatal("Infer() succeeded without an anchor commitment")
+			}
+			if ClassOf(err) != FaultRegenerationForbidden || FaultCode(err) != FaultCodeAnchorCommitUnavailable {
+				t.Fatalf("class %v, code %q for %v; want regeneration forbidden, %s", ClassOf(err), FaultCode(err), err, FaultCodeAnchorCommitUnavailable)
+			}
+			if c.is != nil && !errors.Is(err, c.is) {
+				t.Fatalf("err = %v, want it to wrap %v", err, c.is)
+			}
+		})
+		t.Run(c.name+", not streamed", func(t *testing.T) {
+			svc := anchorTestService(t, &anchorSidecar{commit: func(int, string) (int, string) { return c.status, `{"error":"no"}` }})
+			svc.anchorCommitBackoff = time.Millisecond
+			svc.anchorCommitNotFoundGrace = 5 * time.Millisecond
+			svc.SetAnchorCommitTimeout(60 * time.Millisecond)
+			req := chatInferReq(t)
+			req.RequireAnchorCommit = true
+			_, err := svc.Infer(context.Background(), req)
+			if err == nil {
+				t.Fatal("Infer() succeeded without an anchor commitment")
+			}
+			if ClassOf(err) == FaultRegenerationForbidden {
+				t.Fatalf("an unstreamed completion was classified as forbidding regeneration: %v", err)
+			}
+		})
+	}
+}

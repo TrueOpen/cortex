@@ -261,7 +261,7 @@ func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (Inf
 	// honour it, and the context deadline sits budgetGrace behind so a silent
 	// engine still fails.
 	budgetAt := time.Now().Add(duration)
-	ctx, cancel := context.WithDeadline(ctx, budgetAt.Add(budgetGrace))
+	ctx, firstToken, cancel := budgetBackstop(ctx, budgetAt, req.RequireAnchorCommit && streaming)
 	defer cancel()
 	if req.DeadlineMS > 0 {
 		var deadlineCancel context.CancelFunc
@@ -279,6 +279,7 @@ func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (Inf
 			modelID:   profile.ModelID,
 			// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
 			budgetStopNeedsToken: req.RequireAnchorCommit,
+			firstToken:           firstToken,
 		}
 		if err := s.postStreamingChat(ctx, "/v1/chat/completions", chatReq, &chatResp, ident, budgetAt, profile.OutputDecoding); err != nil {
 			return InferResponse{}, err
@@ -801,6 +802,7 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 		// that leaves no generated token delivered -- the role preamble a
 		// chat stream opens with is such a frame, and it is followed at once
 		// by the first token (inferStreamIdentity.budgetStopNeedsToken).
+		ident.tokenDelivered(len(out.Choices[0].TokenIDs))
 		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break

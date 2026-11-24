@@ -116,6 +116,11 @@ type LocalService struct {
 
 	mu        sync.RWMutex
 	artifacts map[string][]byte
+	// artifactAt is when each artifact was last stored; artifactsPrunedAt is
+	// the last sweep. See pruneArtifactsLocked.
+	artifactAt        map[string]time.Time
+	artifactsPrunedAt time.Time
+	artifactRetention time.Duration
 	// detokenizeCalibrated remembers, per served model, that /detokenize
 	// round-tripped the cleanup-sensitive calibration probe byte-exactly, so
 	// its decodes may be compared against committed outputs. See
@@ -180,6 +185,7 @@ func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTime
 		maxConcurrency:  maxConcurrency,
 		http:            &http.Client{},
 		artifacts:       make(map[string][]byte),
+		artifactAt:      make(map[string]time.Time),
 		models:          make(map[string]string),
 		profiles:        make(map[string]localModelProfile),
 		inferTimeout:    inferTimeout,
@@ -325,10 +331,70 @@ type inferStreamIdentity struct {
 	// commitment, so no receipt, and the task runs into the infer deadline as
 	// a Worker timeout. A frame that carries no token (the role preamble of a
 	// chat stream, an empty keep-alive delta) is therefore not a stopping
-	// point under such a Profile. The wait for the first token stays bounded
-	// by the context deadline budgetGrace behind the budget. Requests of every
-	// other Profile stop exactly as before.
+	// point under such a Profile. The wait for the first token is bounded by
+	// the infer timeout and the request deadline, not by budgetGrace: the
+	// silent-engine backstop is armed at the first token (budgetBackstop), so
+	// a budget shorter than the engine's time to first token still ends in a
+	// one-token generation with its commitment and a receipt. Requests of
+	// every other Profile stop exactly as before.
 	budgetStopNeedsToken bool
+	// firstToken, when set, is called at every frame boundary that leaves a
+	// generated token delivered; it arms the backstop once.
+	firstToken func()
+}
+
+// tokenDelivered tells the backstop that delivered generated tokens are in
+// hand after a frame.
+func (i inferStreamIdentity) tokenDelivered(delivered int) {
+	if i.firstToken != nil && delivered > 0 {
+		i.firstToken()
+	}
+}
+
+// budgetBackstop returns the context a generation with an output budget runs
+// under and the hook its stream reader calls once a token is delivered.
+//
+// Without the anchor requirement it is the old rule: a context deadline
+// budgetGrace behind the budget, so an engine that has gone silent fails
+// instead of hanging.
+//
+// Under a Profile that requires the anchor commitment the stop may not be
+// taken before the first generated token, so a deadline fixed at
+// budget + budgetGrace would turn every order whose budget is shorter than the
+// engine's time to first token (a long prefill, a queued engine, a GPU lent to
+// an audit opening) into a failed call with no receipt, repeated on each
+// regeneration. There the backstop is armed only once a token is in hand, at
+// the later of budget + budgetGrace and budgetGrace from that moment; until
+// then the wait is bounded by the infer timeout and the request deadline the
+// caller layers on top.
+func budgetBackstop(parent context.Context, budgetAt time.Time, needsToken bool) (context.Context, func(), context.CancelFunc) {
+	if !needsToken {
+		ctx, cancel := context.WithDeadline(parent, budgetAt.Add(budgetGrace))
+		return ctx, nil, cancel
+	}
+	ctx, cancel := context.WithCancelCause(parent)
+	var once sync.Once
+	var timer *time.Timer
+	var mu sync.Mutex
+	arm := func() {
+		once.Do(func() {
+			wait := time.Until(budgetAt.Add(budgetGrace))
+			if wait < budgetGrace {
+				wait = budgetGrace
+			}
+			mu.Lock()
+			timer = time.AfterFunc(wait, func() { cancel(context.DeadlineExceeded) })
+			mu.Unlock()
+		})
+	}
+	return ctx, arm, func() {
+		mu.Lock()
+		if timer != nil {
+			timer.Stop()
+		}
+		mu.Unlock()
+		cancel(context.Canceled)
+	}
 }
 
 // budgetStopAllowed reports whether a max_output_duration stop may be taken
@@ -1020,7 +1086,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	// checked between frames, so the clean stop wins whenever frames are still
 	// arriving.
 	budgetAt := time.Now().Add(duration)
-	ctx, cancel := context.WithDeadline(ctx, budgetAt.Add(budgetGrace))
+	ctx, firstToken, cancel := budgetBackstop(ctx, budgetAt, req.RequireAnchorCommit && streaming)
 	defer cancel()
 	if req.DeadlineMS > 0 {
 		var deadlineCancel context.CancelFunc
@@ -1039,6 +1105,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 				modelID:   profile.ModelID,
 				// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
 				budgetStopNeedsToken: req.RequireAnchorCommit,
+				firstToken:           firstToken,
 			}
 			if err := s.postStreamingCompletion(ctx, "/v1/completions", genReq, &resp, ident, budgetAt); err != nil {
 				return InferResponse{}, err
@@ -1405,10 +1472,52 @@ func (s *LocalService) PutArtifactForTest(data []byte) string {
 
 func (s *LocalService) putArtifact(data []byte) string {
 	ref := NewArtifactRef(s.serviceID, data)
+	now := time.Now()
 	s.mu.Lock()
 	s.artifacts[ref.ArtifactID] = append([]byte(nil), data...)
+	s.artifactAt[ref.ArtifactID] = now
+	s.pruneArtifactsLocked(now)
 	s.mu.Unlock()
 	return ref.String()
+}
+
+// defaultArtifactRetention is how long an artifact stays fetchable after it
+// was last stored. Every reader takes its artifacts within the task that
+// produced them: the Worker right after Infer (and persists them), a Verifier
+// by its reveal deadline. Half a day is far past both.
+const defaultArtifactRetention = 12 * time.Hour
+
+// artifactPruneInterval bounds how often a store sweeps the whole map.
+const artifactPruneInterval = time.Minute
+
+// SetArtifactRetention sets how long an artifact stays fetchable after it was
+// last stored. Zero or negative restores the default.
+func (s *LocalService) SetArtifactRetention(d time.Duration) {
+	s.mu.Lock()
+	s.artifactRetention = d
+	s.mu.Unlock()
+}
+
+// pruneArtifactsLocked drops artifacts stored longer ago than the retention.
+// The map used to grow for the life of the process: with a Profile that
+// requires the anchor commitment every task adds a document of up to
+// maxAnchorCommitBytes, and a process killed for memory loses every artifact
+// of every task in flight. Caller holds s.mu for writing.
+func (s *LocalService) pruneArtifactsLocked(now time.Time) {
+	if now.Sub(s.artifactsPrunedAt) < artifactPruneInterval {
+		return
+	}
+	s.artifactsPrunedAt = now
+	retention := s.artifactRetention
+	if retention <= 0 {
+		retention = defaultArtifactRetention
+	}
+	for id, at := range s.artifactAt {
+		if now.Sub(at) > retention {
+			delete(s.artifactAt, id)
+			delete(s.artifacts, id)
+		}
+	}
 }
 
 func (s *LocalService) resolveServedModel(ctx context.Context, modelID string) (string, error) {
@@ -1641,7 +1750,7 @@ func isEventStream(contentType string) bool {
 // while leaving the clean between-frames truncation to win in every case where
 // frames are still arriving. It is deliberately short: it is a backstop for a
 // dead connection, not additional generation time.
-const budgetGrace = 5 * time.Second
+var budgetGrace = 5 * time.Second
 
 // finishReasonMaxOutputDuration is the finish_reason this node fills in when it
 // stops a generation at max_output_duration. It is spelled the same way the
@@ -1770,6 +1879,7 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 		// budget truncates the generation, not a token. Under a Profile that
 		// requires the anchor commitment it is not taken before the first
 		// generated token (inferStreamIdentity.budgetStopNeedsToken).
+		ident.tokenDelivered(len(out.Choices[0].TokenIDs))
 		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break

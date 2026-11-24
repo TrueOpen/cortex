@@ -85,6 +85,15 @@ const (
 	// anchor commitment over a prompt alone, so a task whose Profile requires
 	// WORKER_ANCHOR_OPENING ends without a receipt.
 	FaultCodeAnchorCommitEmptyGeneration = "ANCHOR_COMMIT_EMPTY_GENERATION"
+	// FaultCodeAnchorCommitUnavailable: a streamed completion was delivered
+	// but the engine did not serve its anchor commitment: it no longer knows
+	// the completion (404 past the grace period), refuses to finalise it (409
+	// or another answer that is not a commitment), or was still not ready when
+	// the commitment window ended. The output frames of this completion are
+	// already signed, so generating again cannot repair it: the scheduler
+	// stops at this reason instead of re-running the model and ending at
+	// OUTPUT_FRAMES_ALREADY_SIGNED with the cause hidden.
+	FaultCodeAnchorCommitUnavailable = "ANCHOR_COMMIT_UNAVAILABLE"
 	// FaultCodeRequestRefused: the model service refused the request itself as
 	// invalid (HTTP 400, 413 or 422; gRPC InvalidArgument or OutOfRange) -- an
 	// output budget above the engine's context length, most of all. The request

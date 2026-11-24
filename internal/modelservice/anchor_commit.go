@@ -252,9 +252,21 @@ func (s *LocalService) attachAnchorCommit(ctx context.Context, req InferRequest,
 	data, err := s.fetchAnchorCommit(ctx, resp.EngineRequestID, len(ids.Generated))
 	if err != nil {
 		if errors.Is(err, ErrAnchorCommitNotFound) {
-			return InferResponse{}, fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING: %w", err)
+			err = fmt.Errorf("modelservice local: the locked Profile requires WORKER_ANCHOR_OPENING: %w", err)
 		}
-		return InferResponse{}, err
+		if ctx.Err() != nil || !s.streamInferenceEnabled() {
+			// The caller gave up (shutdown, its own deadline), or nothing of
+			// this completion was streamed and signed: left unclassified, as
+			// before.
+			return InferResponse{}, err
+		}
+		// The fetch was already retried for the whole commitment window. What
+		// must not follow is another generation: this completion's frames
+		// are signed, a second run would stop at
+		// OUTPUT_FRAMES_ALREADY_SIGNED after the retry budget, and the reason
+		// reported would be that one instead of this.
+		return InferResponse{}, RegenerationForbidden(FaultCodeAnchorCommitUnavailable, err,
+			FaultStr("completion_id", resp.EngineRequestID), FaultInt("generated", len(ids.Generated)))
 	}
 	if err := checkAnchorCommitTokens(data, ids); err != nil {
 		// Deterministic: retrying spends another generation (and on the
