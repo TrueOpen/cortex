@@ -24,6 +24,7 @@ func wireDispatchRunnerConfig(cfg *daemon.TaskRunnerConfig, rt *daemon.Runtime) 
 	link := daemon.NewDispatchLink()
 	cfg.VerifierSender, cfg.VerifyNotices = rt.Dispatch.Fanout(), rt.Dispatch.Fanout()
 	cfg.DispatchRecords, cfg.DispatchEvents, cfg.ReleaseDispatchLease = link, link, link.ReleaseTaskLease
+	cfg.ReleaseFailedInferLease = link.ReleaseFailedInferLease
 	cfg.TaskBuilders = rt.SelectedTaskBuilders
 	if r, ok := rt.Dependencies.Keeper.(chainclient.VerifyCommitReader); ok {
 		cfg.VerifyCommitReader = r

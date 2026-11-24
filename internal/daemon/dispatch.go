@@ -574,6 +574,47 @@ func (d *Dispatcher) ReleaseTaskLease(ctx context.Context, taskID layout.StoredH
 	return nil
 }
 
+// ReleaseFailedInferLease returns the lease of ticket once the inference it
+// stands for has failed for good on this node, wherever the lease is: on the
+// task key (the chain record landed and moved it) or still on the ticket key
+// (the failure came first: an engine refusal returns in milliseconds, the
+// Builder's record takes a block or more). ReleaseTaskLease alone returns only
+// the first and the ticket leases of recorded tickets, so a refusal that beat
+// the record kept the slot until the chain closed the task. The record that
+// lands afterwards finds no lease to move and creates none (recordedWinner).
+// It takes no Dispatcher lock (TaskRunnerConfig.ReleaseFailedInferLease).
+func (d *Dispatcher) ReleaseFailedInferLease(ctx context.Context, taskID, ticket layout.StoredHash) error {
+	if err := d.ReleaseTaskLease(ctx, taskID); err != nil {
+		return err
+	}
+	if ticket.IsZero() {
+		return nil
+	}
+	dropped, err := d.cfg.Leases.Release(ctx, ticket)
+	if err != nil {
+		return err
+	}
+	if dropped {
+		d.cfg.Handraise.Notify()
+	}
+	return nil
+}
+
+// inferFailedHere reports whether this node's inference for rec's ticket has
+// failed for good: the infer record of the task is failed and names the
+// ticket. A missing record is not a failure (the input may still be on its
+// way).
+func (d *Dispatcher) inferFailedHere(ctx context.Context, rec layout.DispatchRecord) (bool, error) {
+	infer, err := layout.GetInferRecord(ctx, d.cfg.Store, rec.TaskHash)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return infer.Stage == layout.StageFailed && infer.DispatchTicketHash == rec.TicketHash, nil
+}
+
 // enqueueErr classifies an Enqueue failure: a message the outbox refuses as
 // invalid can never be sent (permanent); anything else is a failure to persist
 // it (retryable).

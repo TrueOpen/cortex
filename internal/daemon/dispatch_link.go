@@ -54,6 +54,16 @@ func (l *DispatchLink) ReleaseTaskLease(ctx context.Context, taskID layout.Store
 	return p.dispatcher.ReleaseTaskLease(ctx, taskID)
 }
 
+// ReleaseFailedInferLease is TaskRunnerConfig.ReleaseFailedInferLease; it
+// takes no runner lock.
+func (l *DispatchLink) ReleaseFailedInferLease(ctx context.Context, taskID, ticket layout.StoredHash) error {
+	p, err := l.bound()
+	if err != nil {
+		return err
+	}
+	return p.dispatcher.ReleaseFailedInferLease(ctx, taskID, ticket)
+}
+
 var (
 	_ DispatchRecordObserver = (*DispatchLink)(nil)
 	_ DispatchEventObserver  = (*DispatchLink)(nil)

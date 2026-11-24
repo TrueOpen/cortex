@@ -125,6 +125,12 @@ type TaskRunnerConfig struct {
 	// (cortexd: Dispatcher.ReleaseTaskLease). It is called under the runner
 	// lock, so it must not take it.
 	ReleaseDispatchLease func(ctx context.Context, taskID layout.StoredHash) error
+	// ReleaseFailedInferLease returns the lease of a dispatched inference
+	// that failed for good, on the task key or still on its ticket key
+	// (cortexd: Dispatcher.ReleaseFailedInferLease). Same locking rule. Nil:
+	// ReleaseDispatchLease alone, which misses a lease not yet moved to the
+	// task.
+	ReleaseFailedInferLease func(ctx context.Context, taskID, ticket layout.StoredHash) error
 	// DispatchWaitInterval spaces re-runs of an infer waiting for its record
 	// or paused by a REJECTED notice. Default 1s.
 	DispatchWaitInterval time.Duration

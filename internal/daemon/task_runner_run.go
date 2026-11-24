@@ -384,7 +384,7 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 			return err
 		}
 		if failed {
-			if err := r.releaseDispatchLease(ctx, updated.TaskID); err != nil {
+			if err := r.releaseFailedInferLease(ctx, updated.TaskID, layout.StoredHash(updated.DispatchTicketHash)); err != nil {
 				return err
 			}
 			r.cfg.Trace.Event("failed_infer_lease_released",
@@ -1203,7 +1203,7 @@ func retentionStartHeight(effect ReconcilerEffect) uint64 {
 // own concurrency bound; the node then serves one task more than its handraise
 // counted until that task ends.
 func (r *TaskRunner) releaseFailedInferLeases(ctx context.Context) error {
-	if r.cfg.ReleaseDispatchLease == nil || r.failedLeasesSwept.Load() {
+	if (r.cfg.ReleaseDispatchLease == nil && r.cfg.ReleaseFailedInferLease == nil) || r.failedLeasesSwept.Load() {
 		return nil
 	}
 	_, records, err := layout.ListInferRecords(ctx, r.cfg.Store)
@@ -1214,7 +1214,7 @@ func (r *TaskRunner) releaseFailedInferLeases(ctx context.Context) error {
 		if rec.Stage != layout.StageFailed || rec.DispatchTicketHash.IsZero() || rec.TaskID == "" {
 			continue
 		}
-		if err := r.releaseDispatchLease(ctx, rec.TaskID); err != nil {
+		if err := r.releaseFailedInferLease(ctx, rec.TaskID, rec.DispatchTicketHash); err != nil {
 			return err
 		}
 		r.cfg.Trace.Event("failed_infer_lease_released",
@@ -1222,6 +1222,24 @@ func (r *TaskRunner) releaseFailedInferLeases(ctx context.Context) error {
 			tasktrace.Str("last_error", rec.LastError))
 	}
 	r.failedLeasesSwept.Store(true)
+	return nil
+}
+
+// releaseFailedInferLease returns the lease of a dispatched inference that
+// failed for good, in whichever state it is: moved to the task key by the
+// chain record, or still on the ticket key because the failure came before
+// the record.
+func (r *TaskRunner) releaseFailedInferLease(ctx context.Context, taskID string, ticket layout.StoredHash) error {
+	if r.cfg.ReleaseFailedInferLease == nil {
+		return r.releaseDispatchLease(ctx, taskID)
+	}
+	raw, err := hex.DecodeString(taskID)
+	if err != nil || len(raw) != 32 {
+		return nil // not a Phase 1 task id
+	}
+	if err := r.cfg.ReleaseFailedInferLease(ctx, layout.StoredHash(raw), ticket); err != nil {
+		return fmt.Errorf("release the dispatch lease of failed task %s: %w", taskID, err)
+	}
 	return nil
 }
 
