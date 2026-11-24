@@ -228,6 +228,8 @@ func mapGRPCError(err error) error {
 	switch st.Code() {
 	case codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted:
 		return retryableError{err: wrapped}
+	case codes.InvalidArgument, codes.OutOfRange:
+		return Deterministic(FaultCodeRequestRefused, wrapped, FaultStr("grpc_code", st.Code().String()))
 	default:
 		return wrapped
 	}

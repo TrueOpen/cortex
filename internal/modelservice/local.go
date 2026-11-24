@@ -1552,8 +1552,9 @@ func (s *LocalService) getJSON(ctx context.Context, path string, out any) error 
 
 // doPost issues the JSON POST and returns the response on a 2xx. The caller owns
 // resp.Body and must close it. Transport failures and non-2xx statuses are mapped
-// to the same (retryable) errors post has always returned, with the body drained
-// and closed before returning.
+// to errors with the body drained and closed before returning: 429 and 5xx are
+// retryable, a request the service refused as invalid (400, 413, 422) is a
+// deterministic fault, anything else stays unclassified.
 func (s *LocalService) doPost(ctx context.Context, path string, body any) (*http.Response, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -1580,6 +1581,9 @@ func (s *LocalService) doPost(ctx context.Context, path string, body any) (*http
 		err := fmt.Errorf("modelservice local: %s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(detail)))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, retryableError{err: err}
+		}
+		if requestRefusedStatus(resp.StatusCode) {
+			return nil, refusedRequest(err, path, resp.StatusCode)
 		}
 		return nil, err
 	}

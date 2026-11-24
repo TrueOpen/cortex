@@ -233,6 +233,9 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		if r.executing(responsibilityKey{role: "infer", hash: hash}) {
 			continue
 		}
+		if err := r.releaseFailedInferLease(ctx, hash, task); err != nil {
+			return batch, err
+		}
 		deadline := inferDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
 			r.reportStoppedResponsibility("infer", task.TaskID, hash, tip, deadline, task.RetryCount, reason)
@@ -365,8 +368,23 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 				return err
 			}
 		}
+		// A dispatched infer that failed for good (auto-halted, out of
+		// retries, past its deadline) gives the lease back as well: this node
+		// will not run the model for it again, and a lease held until the
+		// chain closes the task keeps the standing handraise at zero free
+		// slots for the whole infer window. The record is written first, so a
+		// crash in between leaves a failed record whose lease the next start
+		// returns (releaseFailedInferLease).
+		failed := updated.Stage == "failed" && current.Stage != "failed" && updated.DispatchTicketHash != (codec.Hash{})
 		r.infer[outcome.hash] = updated
-		return r.persistInferTaskToLayout(ctx, outcome.hash, updated)
+		if err := r.persistInferTaskToLayout(ctx, outcome.hash, updated); err != nil {
+			return err
+		}
+		if failed {
+			r.noteFailedInferLeaseReleased(outcome.hash)
+			return r.releaseDispatchLease(ctx, updated.TaskID)
+		}
+		return nil
 	}
 	current, ok := r.verify[outcome.hash]
 	if !ok {
@@ -1164,6 +1182,39 @@ func retentionStartHeight(effect ReconcilerEffect) uint64 {
 		return effect.FinalityHeight
 	}
 	return effect.Event.Height
+}
+
+// releaseFailedInferLease returns, once per process, the lease of a dispatched
+// infer this pass found already failed: a record that failed before a restart,
+// or under a build that kept the lease until the chain closed the task.
+// Releasing a lease that is not held is a no-op, so the transition path
+// (applyOutcome) and this one never disagree. An operator who requeues a failed
+// responsibility runs it under the runner's own concurrency bound; the node
+// then serves one task more than its handraise counted until that task ends.
+func (r *TaskRunner) releaseFailedInferLease(ctx context.Context, hash codec.Hash, task store.InferTask) error {
+	if task.Stage != "failed" || task.DispatchTicketHash == (codec.Hash{}) {
+		return nil
+	}
+	r.failedLeaseMu.Lock()
+	_, done := r.failedLeaseReleased[hash]
+	r.failedLeaseMu.Unlock()
+	if done {
+		return nil
+	}
+	if err := r.releaseDispatchLease(ctx, task.TaskID); err != nil {
+		return err
+	}
+	r.noteFailedInferLeaseReleased(hash)
+	return nil
+}
+
+func (r *TaskRunner) noteFailedInferLeaseReleased(hash codec.Hash) {
+	r.failedLeaseMu.Lock()
+	defer r.failedLeaseMu.Unlock()
+	if r.failedLeaseReleased == nil {
+		r.failedLeaseReleased = make(map[codec.Hash]struct{})
+	}
+	r.failedLeaseReleased[hash] = struct{}{}
 }
 
 // releaseDispatchLease returns a recorded task's (task_id, WORKER) lease. The
