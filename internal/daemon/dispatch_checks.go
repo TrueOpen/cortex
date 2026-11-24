@@ -314,6 +314,12 @@ func (d *Dispatcher) checkInput(t *taskv1.DispatchTicketV1, o *taskv1.TaskOrderV
 	if !bytes.Equal(t.GetInputHash(), o.GetInputHash()) {
 		return refuse(reasonInvalid, classInputMismatch, "ticket input_hash differs from the order's")
 	}
+	return d.localLimits(o)
+}
+
+// localLimits is the part of check 7 that reads no chain state: this node's
+// own bounds on the order's input size and output budget.
+func (d *Dispatcher) localLimits(o *taskv1.TaskOrderV3) *verdict {
 	if o.GetInputSizeBytes() > d.cfg.MaxInputBytes {
 		return refuse(reasonNoCapacity, classInputTooLarge, "input_size_bytes %d exceeds the local limit %d", o.GetInputSizeBytes(), d.cfg.MaxInputBytes)
 	}

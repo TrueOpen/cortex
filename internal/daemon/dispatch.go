@@ -366,20 +366,20 @@ func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, deadlineMs uint64, re
 	return at
 }
 
-// lateAccept describes, for the C4 drop of an offer that was evaluated but
-// could not be signed in time, where its accept window went: how much of it
-// was left when the offer reached this process, and how long the answer took
-// from there. A window that was already short on arrival is the Builder's
-// accept timeout against this link's latency; a long answer is this node's
-// chain reads.
-func (d *Dispatcher) lateAccept(ticket layout.StoredHash, deadline time.Time) string {
+// answerTiming says, for an offer whose answer missed the accept deadline,
+// where its accept window went: how much of it was left when the offer reached
+// this process, and how long the answer took from there. A window that was
+// already short on arrival is the Builder's accept timeout against this link's
+// latency; a long answer is this node's chain reads. Empty for an offer this
+// process did not time (a redelivery answered from its record).
+func (d *Dispatcher) answerTiming(ticket layout.StoredHash, deadline time.Time) string {
 	d.mu.Lock()
 	at, ok := d.received[ticket]
 	d.mu.Unlock()
 	if !ok {
-		return "accept deadline passed before the accept was signed (C4)"
+		return ""
 	}
-	return fmt.Sprintf("accept deadline passed before the accept was signed (C4): the offer arrived with %d ms of its accept window left and the answer took %d ms",
+	return fmt.Sprintf(": the offer arrived with %d ms of its accept window left and the answer took %d ms",
 		deadline.Sub(at).Milliseconds(), d.cfg.Now().Round(0).Sub(at).Milliseconds())
 }
 
