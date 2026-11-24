@@ -95,8 +95,21 @@ type DispatchConfig struct {
 	// that is smaller than what the registered model allows: an order above
 	// it is refused NO_CAPACITY at the offer instead of being accepted and
 	// then failing at the engine.
-	MaxOutputTokens uint64               `yaml:"max_output_tokens"`
-	Stream          DispatchStreamConfig `yaml:"stream"`
+	MaxOutputTokens uint64 `yaml:"max_output_tokens"`
+	// MaxInputBytes is the largest input_size_bytes this node takes an offer
+	// for; 0 leaves the built-in ceiling (64 MiB), and a larger value is
+	// capped at it. Set it when the model service's context is shorter than
+	// the registered model's: an order whose prompt does not fit is refused by
+	// the engine after acceptance, which ends the task in a Worker timeout.
+	// The order carries the size of the input in bytes, not in tokens, and
+	// this node does not tokenize at the offer, so the bound is in bytes: a
+	// prompt of N bytes is at most N tokens plus the chat template, and
+	// usually three to four times fewer. A bound low enough to be certain
+	// refuses prompts the engine could serve; one sized on the usual ratio
+	// leaves the rare dense prompt to fail at the engine (stopped at once,
+	// slot returned).
+	MaxInputBytes uint64               `yaml:"max_input_bytes"`
+	Stream        DispatchStreamConfig `yaml:"stream"`
 	// ReceiptRescueMarginBlocks: blocks before infer_deadline_height an
 	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
 	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`

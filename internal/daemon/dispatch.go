@@ -114,8 +114,9 @@ type DispatcherConfig struct {
 	FeeDenom    string
 	Profiles    []config.ModelProfileRef // local_identity.supported_model_profiles
 	MinPriceBid map[string]uint64        // dispatch.min_price_bid (check 6)
-	// MaxInputBytes bounds input_size_bytes (check 7); default and ceiling
-	// are NexusTaskInputResolver's 64 MiB.
+	// MaxInputBytes bounds input_size_bytes (check 7; config
+	// dispatch.max_input_bytes); default and ceiling are
+	// NexusTaskInputResolver's 64 MiB.
 	MaxInputBytes uint64
 	// MaxOutputTokens bounds the order's max_output_tokens (check 7); 0 sets
 	// no limit (config dispatch.max_output_tokens).

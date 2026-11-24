@@ -105,7 +105,7 @@ func NewDispatchPlane(ctx context.Context, cfg DispatchPlaneConfig) (*DispatchPl
 		return nil, err
 	}
 	disp, err := NewDispatcher(ctx, DispatcherConfig{
-		ChainID: cfg.ChainID, Operator: cfg.Operator, FeeDenom: cfg.FeeDenom, Profiles: cfg.Profiles, MinPriceBid: d.MinPriceBid, MaxOutputTokens: d.MaxOutputTokens,
+		ChainID: cfg.ChainID, Operator: cfg.Operator, FeeDenom: cfg.FeeDenom, Profiles: cfg.Profiles, MinPriceBid: d.MinPriceBid, MaxOutputTokens: d.MaxOutputTokens, MaxInputBytes: d.MaxInputBytes,
 		SweepEvery: cfg.SweepEvery, Chain: cfg.DispatchChain, Local: cfg.Local, Anchor: cfg.Anchor, AnchorAdmission: cfg.AnchorAdmission, Handraise: hr, Leases: leases,
 		Infer: cfg.Runner, Inputs: cfg.Evidence, Evidence: cfg.Evidence, Sign: cfg.Sign, Store: cfg.Store, Builders: dEnq,
 		Submitter: cfg.Submitter, ReceiptRescueMarginBlocks: d.ReceiptRescueMarginBlocks, Retiring: s.retiring,

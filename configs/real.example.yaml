@@ -175,6 +175,17 @@ dispatch:
   # refuses a request whose output budget does not fit, so such an order is
   # better refused at the offer (a signed NO_CAPACITY reject).
   # max_output_tokens: 4096
+  # Largest input_size_bytes this node takes an offer for; 0 or absent leaves
+  # the built-in 64 MiB ceiling. The order states the input size in bytes, not
+  # tokens: a prompt of N bytes is at most N tokens plus the chat template and
+  # usually three to four times fewer, so a bound sized on that ratio (for a
+  # 4096-token context and a 2048-token output budget, about 8192) keeps
+  # nearly every prompt the engine would refuse from being accepted.
+  # max_input_bytes: 8192
+  # A signed refusal counts in a Builder's reject rate unless the order is
+  # above the bounds its network exempts (the Builder's
+  # reject_rate_exempt_output_tokens / reject_rate_exempt_input_bytes): keep
+  # both limits at or above those bounds.
   stream:
     # Deployment settings, no defaults. A Builder must tolerate at least two
     # missed probes: one Handler may hold the stream for handler_timeout_ms.
