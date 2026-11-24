@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -215,10 +216,9 @@ type TaskRunner struct {
 	// work already in the model (S6). Guarded by inflightMu.
 	cancels map[responsibilityKey]context.CancelFunc
 
-	// failedLeaseReleased marks the failed dispatched infers whose lease this
-	// process has already given back (releaseFailedInferLease).
-	failedLeaseMu       sync.Mutex
-	failedLeaseReleased map[codec.Hash]struct{}
+	// failedLeasesSwept is set once this process has returned the leases of
+	// the infer records it found failed in the store (releaseFailedInferLeases).
+	failedLeasesSwept atomic.Bool
 	// executions counts every executor goroutine this runner has started, across
 	// all passes. Run waits on it before returning so that a cancelled context
 	// still drains in-flight work rather than leaving a task mid-commit while the

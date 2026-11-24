@@ -103,31 +103,71 @@ func TestStoppedInferFreesTheSlot(t *testing.T) {
 	}
 }
 
-// A record that failed before this process started (or under a build that
-// kept the lease until the chain closed the task) still holds its lease in the
-// store. The first pass returns it, once.
-func TestFailedInferFoundAtStartReturnsItsLease(t *testing.T) {
+// The state an earlier build leaves behind: an infer record that failed by the
+// retry bound, its lease still on the task key. Failed records are not part of
+// the active set a pass loads, so the release has to come from the store. A new
+// process finds the record on its first pass, returns the lease, and the slot
+// is advertised again; later passes do not release it a second time.
+func TestFailedInferLeftByAnEarlierBuildReturnsItsLeaseAtStart(t *testing.T) {
 	ctx := context.Background()
-	x, r, hash, task := leasedInfer(t, 1, TaskRunnerConfig{})
-	task.Stage = "failed"
-	r.infer[hash] = task
-	released := 0
-	inner := r.cfg.ReleaseDispatchLease
-	r.cfg.ReleaseDispatchLease = func(ctx context.Context, id layout.StoredHash) error {
-		released++
-		return inner(ctx, id)
+	x, old, hash, task := leasedInfer(t, 1, TaskRunnerConfig{})
+	failed := layout.InferRecord{TaskID: task.TaskID, DispatchTicketHash: layout.StoredHash(task.DispatchTicketHash),
+		Stage: layout.StageFailed, RetryCount: 346, LastError: "task retry count 346 reached the bound 120"}
+	if err := layout.MergeInfer(ctx, x.st, layout.StoredHash(hash), failed); err != nil {
+		t.Fatal(err)
 	}
+	_ = old // the process that failed the task is gone
+	if x.leaseCount(t) != 1 || freeSlots(t, x) != 0 {
+		t.Fatal("setup: the failed record still holds the only slot")
+	}
+	x.open() // restart: the ledger counts the lease from the store again
+	if freeSlots(t, x) != 0 {
+		t.Fatal("setup: the restarted ledger still counts the lease")
+	}
+	released := 0
+	r := NewTaskRunner(TaskRunnerConfig{Store: x.st, ReleaseDispatchLease: func(ctx context.Context, id layout.StoredHash) error {
+		released++
+		return x.d.ReleaseTaskLease(ctx, id)
+	}})
 	for i := 0; i < 3; i++ {
-		if err := r.releaseFailedInferLease(ctx, hash, task); err != nil {
+		if err := r.RunOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if released != 1 || x.leaseCount(t) != 0 {
-		t.Fatalf("released %d times, %d leases left", released, x.leaseCount(t))
+	if released != 1 {
+		t.Fatalf("released %d times, want once per process", released)
 	}
-	running := task
-	running.Stage = "running"
-	if err := r.releaseFailedInferLease(ctx, codec.Hash{0xee}, running); err != nil || released != 1 {
-		t.Fatal("a live responsibility keeps its lease")
+	if x.leaseCount(t) != 0 || freeSlots(t, x) != 1 {
+		t.Fatalf("%d leases, %d free slots after the start: the failed task still holds the slot", x.leaseCount(t), freeSlots(t, x))
+	}
+}
+
+// A release that fails (the dispatch plane is not bound yet, a store error) is
+// not counted as done: the next pass sweeps again.
+func TestFailedInferLeaseSweepRetriesAfterAFailedRelease(t *testing.T) {
+	ctx := context.Background()
+	x, _, hash, task := leasedInfer(t, 1, TaskRunnerConfig{})
+	if err := layout.MergeInfer(ctx, x.st, layout.StoredHash(hash), layout.InferRecord{TaskID: task.TaskID,
+		DispatchTicketHash: layout.StoredHash(task.DispatchTicketHash), Stage: layout.StageFailed}); err != nil {
+		t.Fatal(err)
+	}
+	fail := true
+	r := NewTaskRunner(TaskRunnerConfig{Store: x.st, ReleaseDispatchLease: func(ctx context.Context, id layout.StoredHash) error {
+		if fail {
+			return errors.New("not bound")
+		}
+		return x.d.ReleaseTaskLease(ctx, id)
+	}})
+	var reported []string
+	r.cfg.Diagnostic = func(d TaskRunnerDiagnostic) { reported = append(reported, d.Source+": "+d.Error) }
+	if err := r.RunOnce(ctx); err != nil {
+		t.Fatalf("a failed release must not fail the pass (that stops the daemon): %v", err)
+	}
+	if len(reported) != 1 || x.leaseCount(t) != 1 {
+		t.Fatalf("reported %v, %d leases: a failed release is reported and leaves the lease", reported, x.leaseCount(t))
+	}
+	fail = false
+	if err := r.RunOnce(ctx); err != nil || x.leaseCount(t) != 0 {
+		t.Fatalf("err %v, %d leases: the sweep runs again after a failure", err, x.leaseCount(t))
 	}
 }

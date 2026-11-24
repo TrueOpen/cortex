@@ -118,6 +118,12 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 	// whose execution finished and released its claim in the meantime.
 	r.drainVerifierInbox(ctx, tip)
 
+	// Not fatal: a pass that returns an error stops the daemon, and a slot
+	// that stays held one more pass is the state the node was already in. The
+	// sweep is not marked done, so the next pass tries again.
+	if err := r.releaseFailedInferLeases(ctx); err != nil && r.cfg.Diagnostic != nil {
+		r.cfg.Diagnostic(TaskRunnerDiagnostic{Source: "failed_infer_lease_sweep", Error: err.Error()})
+	}
 	r.mu.Lock()
 	infer, verify, err := r.loadActiveTasks(ctx)
 	if err != nil {
@@ -232,9 +238,6 @@ func (r *TaskRunner) dispatch(ctx context.Context) (*sync.WaitGroup, error) {
 		// attempt is in the middle of replacing.
 		if r.executing(responsibilityKey{role: "infer", hash: hash}) {
 			continue
-		}
-		if err := r.releaseFailedInferLease(ctx, hash, task); err != nil {
-			return batch, err
 		}
 		deadline := inferDeadline(task)
 		if reason := r.taskTerminalReason(tip, task.Stage, deadline, task.RetryCount); reason != "" {
@@ -374,15 +377,19 @@ func (r *TaskRunner) applyOutcome(ctx context.Context, outcome taskOutcome) erro
 		// chain closes the task keeps the standing handraise at zero free
 		// slots for the whole infer window. The record is written first, so a
 		// crash in between leaves a failed record whose lease the next start
-		// returns (releaseFailedInferLease).
+		// returns (releaseFailedInferLeases).
 		failed := updated.Stage == "failed" && current.Stage != "failed" && updated.DispatchTicketHash != (codec.Hash{})
 		r.infer[outcome.hash] = updated
 		if err := r.persistInferTaskToLayout(ctx, outcome.hash, updated); err != nil {
 			return err
 		}
 		if failed {
-			r.noteFailedInferLeaseReleased(outcome.hash)
-			return r.releaseDispatchLease(ctx, updated.TaskID)
+			if err := r.releaseDispatchLease(ctx, updated.TaskID); err != nil {
+				return err
+			}
+			r.cfg.Trace.Event("failed_infer_lease_released",
+				tasktrace.Str("task", updated.TaskID), tasktrace.Str("when", "failure"),
+				tasktrace.Str("last_error", updated.LastError))
 		}
 		return nil
 	}
@@ -1184,37 +1191,38 @@ func retentionStartHeight(effect ReconcilerEffect) uint64 {
 	return effect.Event.Height
 }
 
-// releaseFailedInferLease returns, once per process, the lease of a dispatched
-// infer this pass found already failed: a record that failed before a restart,
-// or under a build that kept the lease until the chain closed the task.
-// Releasing a lease that is not held is a no-op, so the transition path
-// (applyOutcome) and this one never disagree. An operator who requeues a failed
-// responsibility runs it under the runner's own concurrency bound; the node
-// then serves one task more than its handraise counted until that task ends.
-func (r *TaskRunner) releaseFailedInferLease(ctx context.Context, hash codec.Hash, task store.InferTask) error {
-	if task.Stage != "failed" || task.DispatchTicketHash == (codec.Hash{}) {
+// releaseFailedInferLeases returns, once per process, the dispatch lease of
+// every infer record the store holds as failed: one that failed before a
+// restart, between the failed write and the release (applyOutcome), or under a
+// build that kept the lease until the chain closed the task. It reads the
+// store rather than the pass's task set, because loadActiveTasks leaves failed
+// records out. Releasing a lease that is not held is a no-op. A failed read or
+// release is returned and the sweep runs again on the next pass.
+//
+// An operator who requeues a failed responsibility runs it under the runner's
+// own concurrency bound; the node then serves one task more than its handraise
+// counted until that task ends.
+func (r *TaskRunner) releaseFailedInferLeases(ctx context.Context) error {
+	if r.cfg.ReleaseDispatchLease == nil || r.failedLeasesSwept.Load() {
 		return nil
 	}
-	r.failedLeaseMu.Lock()
-	_, done := r.failedLeaseReleased[hash]
-	r.failedLeaseMu.Unlock()
-	if done {
-		return nil
+	_, records, err := layout.ListInferRecords(ctx, r.cfg.Store)
+	if err != nil {
+		return fmt.Errorf("list infer records for the failed-lease sweep: %w", err)
 	}
-	if err := r.releaseDispatchLease(ctx, task.TaskID); err != nil {
-		return err
+	for _, rec := range records {
+		if rec.Stage != layout.StageFailed || rec.DispatchTicketHash.IsZero() || rec.TaskID == "" {
+			continue
+		}
+		if err := r.releaseDispatchLease(ctx, rec.TaskID); err != nil {
+			return err
+		}
+		r.cfg.Trace.Event("failed_infer_lease_released",
+			tasktrace.Str("task", rec.TaskID), tasktrace.Str("when", "start"),
+			tasktrace.Str("last_error", rec.LastError))
 	}
-	r.noteFailedInferLeaseReleased(hash)
+	r.failedLeasesSwept.Store(true)
 	return nil
-}
-
-func (r *TaskRunner) noteFailedInferLeaseReleased(hash codec.Hash) {
-	r.failedLeaseMu.Lock()
-	defer r.failedLeaseMu.Unlock()
-	if r.failedLeaseReleased == nil {
-		r.failedLeaseReleased = make(map[codec.Hash]struct{})
-	}
-	r.failedLeaseReleased[hash] = struct{}{}
 }
 
 // releaseDispatchLease returns a recorded task's (task_id, WORKER) lease. The
