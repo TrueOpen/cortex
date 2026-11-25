@@ -104,9 +104,10 @@ func NewDispatchPlane(ctx context.Context, cfg DispatchPlaneConfig) (*DispatchPl
 	if err != nil {
 		return nil, err
 	}
+	warnAnchorSequenceLimit(cfg.Logger, d.AnchorMaxSequenceTokens, d.MaxOutputTokens, d.MaxInputBytes, cfg.AnchorAdmission)
 	disp, err := NewDispatcher(ctx, DispatcherConfig{
 		ChainID: cfg.ChainID, Operator: cfg.Operator, FeeDenom: cfg.FeeDenom, Profiles: cfg.Profiles, MinPriceBid: d.MinPriceBid, MaxOutputTokens: d.MaxOutputTokens, MaxInputBytes: d.MaxInputBytes,
-		AnchorMaxSequenceTokens: d.AnchorMaxSequenceTokens, AnchorInputBytesPerToken: d.AnchorInputBytesPerToken,
+		AnchorMaxSequenceTokens: d.AnchorMaxSequenceTokens, AnchorInputBytesPerToken: d.AnchorInputBytesPerToken, AnchorRequireSequenceLimit: true,
 		SweepEvery: cfg.SweepEvery, Chain: cfg.DispatchChain, Local: cfg.Local, Anchor: cfg.Anchor, AnchorAdmission: cfg.AnchorAdmission, Handraise: hr, Leases: leases,
 		Infer: cfg.Runner, Inputs: cfg.Evidence, Evidence: cfg.Evidence, Sign: cfg.Sign, Store: cfg.Store, Builders: dEnq,
 		Submitter: cfg.Submitter, ReceiptRescueMarginBlocks: d.ReceiptRescueMarginBlocks, Retiring: s.retiring,
@@ -235,5 +236,30 @@ func (p *DispatchPlane) retire(ctx context.Context, stop context.CancelFunc, b s
 		p.cfg.Logger.Info("Builder retired: stream closed; delete it from dispatch.retiring_builders", "builder", b)
 		stop()
 		return
+	}
+}
+
+// warnAnchorSequenceLimit says at start what protects this node's bond from an
+// audit opening that is too large to submit, and what its local order limits
+// cost it. Orders of a Profile that requires the anchor commitment are
+// refused while no sequence limit is known; that must not come as a surprise.
+// A signed refusal counts in a Builder's reject rate unless the Builder
+// exempts orders above a bound for the Profile version, and this node cannot
+// read a Builder's configuration, so the operator is told to compare.
+func warnAnchorSequenceLimit(log *slog.Logger, sequenceTokens, maxOutputTokens, maxInputBytes uint64, admission *AnchorAdmission) {
+	if log == nil {
+		return
+	}
+	if sequenceTokens == 0 {
+		if _, ok := admission.MaxRows(); ok {
+			log.Info("anchor sequence limit comes from max_rows of the anchor admission signal; dispatch.anchor_max_sequence_tokens is not set")
+		} else {
+			log.Warn("no sequence limit for anchor audits is known: every order of a Profile that requires WORKER_ANCHOR_OPENING is refused until dispatch.anchor_max_sequence_tokens is set or the anchor sidecar publishes max_rows in its admission signal",
+				"alert", "anchor_sequence_limit_unknown")
+		}
+	}
+	if sequenceTokens != 0 || maxOutputTokens != 0 || maxInputBytes != 0 {
+		log.Warn("local order limits are set: a signed refusal counts in a Builder's reject rate unless that Builder exempts orders above a bound for the Profile version; compare with gpu_reject_rate.exempt in each Builder's /v1/dispatch/stats and keep these limits at or above its bounds",
+			"anchor_max_sequence_tokens", sequenceTokens, "max_output_tokens", maxOutputTokens, "max_input_bytes", maxInputBytes)
 	}
 }

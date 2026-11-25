@@ -127,6 +127,12 @@ type DispatcherConfig struct {
 	// is assumed to take in that estimate; 0 is 1.
 	AnchorMaxSequenceTokens  uint64
 	AnchorInputBytesPerToken uint64
+	// AnchorRequireSequenceLimit refuses every order of a Profile that
+	// requires the anchor commitment while no sequence limit is known
+	// (neither AnchorMaxSequenceTokens nor the sidecar's max_rows). cortexd
+	// always sets it: a node must not serve such a Profile unprotected by
+	// omission. Off, an unknown limit is no limit.
+	AnchorRequireSequenceLimit bool
 	// AcceptSignMargin is how much of the accept window must remain to sign
 	// (C4). Local, default 0.
 	AcceptSignMargin time.Duration

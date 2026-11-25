@@ -117,7 +117,10 @@ type DispatchConfig struct {
 	// for the timeout, so set this to the sequence length whose opening still
 	// fits, as measured on this deployment's engine. The order is compared by
 	// the largest sequence it allows: ceil(input_size_bytes /
-	// anchor_input_bytes_per_token) + max_output_tokens.
+	// anchor_input_bytes_per_token) + max_output_tokens. The anchor sidecar
+	// may publish the same limit as "max_rows" in its admission signal; the
+	// smaller of the two binds, and with neither known every order of such a
+	// Profile is refused.
 	AnchorMaxSequenceTokens uint64 `yaml:"anchor_max_sequence_tokens"`
 	// AnchorInputBytesPerToken is the bytes one prompt token is assumed to
 	// take in that comparison; 0 is 1, the bound that is certain.

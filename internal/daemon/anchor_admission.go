@@ -155,6 +155,28 @@ type anchorAdmissionSignal struct {
 	// sidecar that does not publish Slots is read by Accept alone.
 	Slots *int     `json:"slots"`
 	Seen  []string `json:"seen"`
+	// MaxRows, when present and positive, is the longest sequence (prompt
+	// plus generated tokens) whose audit opening the sidecar has measured to
+	// fit the network's opening bound on this engine. See MaxRows.
+	MaxRows *uint64 `json:"max_rows"`
+}
+
+// MaxRows returns the sidecar's "max_rows": the longest sequence, in tokens
+// (prompt plus generated), whose opening fits the bound validators accept.
+// ok is false when no gate is configured, the signal is missing, unreadable
+// or stale, or it carries no positive max_rows.
+func (a *AnchorAdmission) MaxRows() (rows uint64, ok bool) {
+	if a == nil {
+		return 0, false
+	}
+	sig, err := a.parse()
+	if err != nil || sig.MaxRows == nil || *sig.MaxRows == 0 {
+		return 0, false
+	}
+	if a.fresh(time.Unix(int64(sig.Updated), 0)) != nil {
+		return 0, false
+	}
+	return *sig.MaxRows, true
 }
 
 // Refusal is nil when a new audit obligation may be taken, and otherwise says
