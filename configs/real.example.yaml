@@ -182,6 +182,19 @@ dispatch:
   # 4096-token context and a 2048-token output budget, about 8192) keeps
   # nearly every prompt the engine would refuse from being accepted.
   # max_input_bytes: 8192
+  # For Profiles that require the anchor commitment only: the longest
+  # sequence (prompt plus generated tokens) of an order this node takes. An
+  # audit opening grows with the sequence and is bounded by the chain and the
+  # validators; a sampled task whose opening is above the bound cannot be
+  # opened and is slashed for the timeout. Set it to the sequence length whose
+  # opening still fits the bound on this engine (measure it; the openings of
+  # short tasks on the reference engine were about 0.5 GB for the two sampled
+  # positions, and the growth per sequence token was estimated, not measured,
+  # at under 1 MB). The order is compared by the largest sequence it allows:
+  # ceil(input_size_bytes / anchor_input_bytes_per_token) + max_output_tokens;
+  # anchor_input_bytes_per_token defaults to 1, the bound that is certain.
+  # anchor_max_sequence_tokens: 1500
+  # anchor_input_bytes_per_token: 1
   # A signed refusal counts in a Builder's reject rate unless the order is
   # above the bounds its network exempts (the Builder's
   # reject_rate_exempt_output_tokens / reject_rate_exempt_input_bytes): keep

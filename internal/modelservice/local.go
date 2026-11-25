@@ -351,6 +351,18 @@ func (i inferStreamIdentity) tokenDelivered(delivered int) {
 	}
 }
 
+// budgetCtxErr is ctx.Err() for a context that may have been ended by the
+// backstop budgetBackstop arms at the first token: that one is cancelled with
+// a deadline cause, and is reported as the deadline it is rather than as a
+// cancellation.
+func budgetCtxErr(ctx context.Context) error {
+	err := ctx.Err()
+	if err != nil && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return err
+}
+
 // budgetBackstop returns the context a generation with an output budget runs
 // under and the hook its stream reader calls once a token is delivered.
 //
@@ -1114,7 +1126,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 			return InferResponse{}, err
 		}
 	}
-	if err := ctx.Err(); err != nil && !budgetStopped(&resp) {
+	if err := budgetCtxErr(ctx); err != nil && !budgetStopped(&resp) {
 		return InferResponse{}, err
 	}
 	if err := checkRawTextCommittedOutput(resp, profile.OutputDecoding); err != nil {
@@ -1890,7 +1902,7 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 	}
 	// A budget stop is a result, so it must not be overwritten by the context
 	// error that the abandoned response body produces as it is closed.
-	if err := ctx.Err(); err != nil && !budgetStopped(out) {
+	if err := budgetCtxErr(ctx); err != nil && !budgetStopped(out) {
 		return err
 	}
 	if len(out.Choices) == 0 || out.Choices[0].FinishReason == "" {

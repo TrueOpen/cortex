@@ -47,6 +47,7 @@ const (
 	classInputMismatch          = "input_metadata_mismatch"
 	classInputTooLarge          = "input_too_large"
 	classOutputBudgetTooLarge   = "output_budget_too_large"
+	classAnchorSequenceTooLong  = "anchor_sequence_too_long"
 	classNoFreeSlot             = "no_free_slot"
 	classBuilderRetiring        = "builder_retiring"
 	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
@@ -93,6 +94,11 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 		return v, false, err
 	}
 	anchor = profileRequiresAnchorOpening(scope.Profile)
+	if anchor {
+		if v := d.anchorSequenceLimit(o); v != nil {
+			return v, anchor, nil
+		}
+	}
 	if v := d.checkPrice(o, modelHex, version); v != nil {
 		return v, anchor, nil
 	}
@@ -291,6 +297,45 @@ func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version 
 		}
 	}
 	return nil, nil
+}
+
+// anchorSequenceLimit refuses an order of a Profile that requires the anchor
+// commitment whose sequence could be longer than this node can open an audit
+// for. An opening carries the history of every earlier position, so its size
+// grows with the sequence (prompt plus generated tokens), and the chain and
+// the validators bound it: an honest task whose opening is above the bound
+// cannot be opened and ends in the timeout slash. The Worker has to keep such
+// an order out at the offer.
+//
+// What is known at the offer is max_output_tokens and the input size in
+// bytes, not the prompt's token count. The estimate is therefore the largest
+// sequence the order allows: ceil(input_size_bytes / AnchorInputBytesPerToken)
+// + max_output_tokens, with AnchorInputBytesPerToken 1 by default (a prompt of
+// N bytes is at most N tokens before the chat template). It errs towards
+// refusing: the generation may stop far short of its budget, and a prompt is
+// usually three to four bytes per token; a larger AnchorInputBytesPerToken
+// trades that margin for orders taken.
+func (d *Dispatcher) anchorSequenceLimit(o *taskv1.TaskOrderV3) *verdict {
+	limit := d.cfg.AnchorMaxSequenceTokens
+	if limit == 0 {
+		return nil
+	}
+	per := d.cfg.AnchorInputBytesPerToken
+	if per == 0 {
+		per = 1
+	}
+	in := o.GetInputSizeBytes()
+	prompt := in / per
+	if in%per != 0 {
+		prompt++
+	}
+	out := uint64(o.GetGenerationParams().GetMaxOutputTokens())
+	if total := prompt + out; total < prompt || total > limit {
+		return refuse(reasonNoCapacity, classAnchorSequenceTooLong,
+			"an anchor audit of this order could need an opening over up to %d prompt + %d generated tokens, above the local limit %d",
+			prompt, out, limit)
+	}
+	return nil
 }
 
 // checkPrice is check 6's hard part: price_bid >= local min_price_bid.

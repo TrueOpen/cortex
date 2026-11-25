@@ -287,7 +287,7 @@ func (s *LocalService) inferGenerate(ctx context.Context, req InferRequest) (Inf
 	} else if err := s.post(ctx, "/v1/chat/completions", chatReq, &chatResp); err != nil {
 		return InferResponse{}, err
 	}
-	if err := ctx.Err(); err != nil && !chatBudgetStopped(&chatResp) {
+	if err := budgetCtxErr(ctx); err != nil && !chatBudgetStopped(&chatResp) {
 		return InferResponse{}, err
 	}
 	projected, err := projectChatToCompletion(chatResp, profile.OutputDecoding)
@@ -811,7 +811,7 @@ func (s *LocalService) reassembleChatStream(ctx context.Context, r io.Reader, ou
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("modelservice local chat: read completion stream: %w", err)
 	}
-	if err := ctx.Err(); err != nil && !chatBudgetStopped(out) {
+	if err := budgetCtxErr(ctx); err != nil && !chatBudgetStopped(out) {
 		return err
 	}
 	if !sawChoice || out.Choices[0].FinishReason == "" {

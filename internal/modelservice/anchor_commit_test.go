@@ -1117,8 +1117,12 @@ func TestAnAnchorProfileStillFailsASilentEngineAfterTheFirstToken(t *testing.T) 
 	if _, err := svc.Infer(context.Background(), req); err == nil {
 		t.Fatal("Infer() succeeded against an engine that went silent after one token")
 	}
-	if took := time.Since(start); took < 300*time.Millisecond || took > 3*time.Second {
-		t.Fatalf("the silent engine was given up after %s, want about budget + grace (380 ms)", took)
+	_, err = svc.Infer(context.Background(), req)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a backstop that ran out is reported as %v, want a deadline", err)
+	}
+	if took := time.Since(start); took < 300*time.Millisecond || took > 6*time.Second {
+		t.Fatalf("the silent engine was given up after %s, want about budget + grace (380 ms) per call", took)
 	}
 }
 

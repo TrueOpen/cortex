@@ -135,10 +135,10 @@ dispatch:
 // The two local order limits are read from the dispatch section.
 func TestDispatchLocalOrderLimitsAreRead(t *testing.T) {
 	var d DispatchConfig
-	if err := yaml.Unmarshal([]byte("max_output_tokens: 2048\nmax_input_bytes: 8192\n"), &d); err != nil {
+	if err := yaml.Unmarshal([]byte("max_output_tokens: 2048\nmax_input_bytes: 8192\nanchor_max_sequence_tokens: 1500\nanchor_input_bytes_per_token: 3\n"), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.MaxOutputTokens != 2048 || d.MaxInputBytes != 8192 {
-		t.Fatalf("limits = %d tokens, %d bytes", d.MaxOutputTokens, d.MaxInputBytes)
+	if d.MaxOutputTokens != 2048 || d.MaxInputBytes != 8192 || d.AnchorMaxSequenceTokens != 1500 || d.AnchorInputBytesPerToken != 3 {
+		t.Fatalf("limits = %+v", d)
 	}
 }

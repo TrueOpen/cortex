@@ -121,6 +121,12 @@ type DispatcherConfig struct {
 	// MaxOutputTokens bounds the order's max_output_tokens (check 7); 0 sets
 	// no limit (config dispatch.max_output_tokens).
 	MaxOutputTokens uint64
+	// AnchorMaxSequenceTokens bounds, for a Profile that requires the anchor
+	// commitment, the longest sequence the order allows (anchorSequenceLimit);
+	// 0 sets no limit. AnchorInputBytesPerToken is the bytes one prompt token
+	// is assumed to take in that estimate; 0 is 1.
+	AnchorMaxSequenceTokens  uint64
+	AnchorInputBytesPerToken uint64
 	// AcceptSignMargin is how much of the accept window must remain to sign
 	// (C4). Local, default 0.
 	AcceptSignMargin time.Duration

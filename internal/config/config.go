@@ -108,8 +108,21 @@ type DispatchConfig struct {
 	// refuses prompts the engine could serve; one sized on the usual ratio
 	// leaves the rare dense prompt to fail at the engine (stopped at once,
 	// slot returned).
-	MaxInputBytes uint64               `yaml:"max_input_bytes"`
-	Stream        DispatchStreamConfig `yaml:"stream"`
+	MaxInputBytes uint64 `yaml:"max_input_bytes"`
+	// AnchorMaxSequenceTokens is, for a Profile that requires the anchor
+	// commitment, the longest sequence (prompt plus generated tokens) of an
+	// order this node takes; 0 sets no limit. An audit opening grows with the
+	// sequence and is bounded by the chain and by the validators; an honest
+	// task whose opening is above the bound cannot be opened and is slashed
+	// for the timeout, so set this to the sequence length whose opening still
+	// fits, as measured on this deployment's engine. The order is compared by
+	// the largest sequence it allows: ceil(input_size_bytes /
+	// anchor_input_bytes_per_token) + max_output_tokens.
+	AnchorMaxSequenceTokens uint64 `yaml:"anchor_max_sequence_tokens"`
+	// AnchorInputBytesPerToken is the bytes one prompt token is assumed to
+	// take in that comparison; 0 is 1, the bound that is certain.
+	AnchorInputBytesPerToken uint64               `yaml:"anchor_input_bytes_per_token"`
+	Stream                   DispatchStreamConfig `yaml:"stream"`
 	// ReceiptRescueMarginBlocks: blocks before infer_deadline_height an
 	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
 	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`
