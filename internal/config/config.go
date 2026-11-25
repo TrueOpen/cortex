@@ -62,6 +62,29 @@ type Config struct {
 	Health            HealthConfig            `yaml:"health"`
 	ModelManifest     ModelManifestConfig     `yaml:"model_manifest"`
 	Dispatch          DispatchConfig          `yaml:"dispatch"`
+	Verifier          VerifierConfig          `yaml:"verifier"`
+}
+
+// VerifierConfig groups the Verifier duties that need no model service.
+type VerifierConfig struct {
+	Audit AuditDutyConfig `yaml:"audit"`
+}
+
+// AuditDutyConfig is the audit capability: the node takes the anchor audit
+// panel rounds the chain assigns to it and hands them to the local Verifier
+// program through a spool directory (assignments in, one of three votes out).
+// It needs no engine and no GPU. Off by default.
+type AuditDutyConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// SpoolDir holds assignments/, votes/ and the ledger of votes. The
+	// Verifier program reads the first and writes the second.
+	SpoolDir string `yaml:"spool_dir"`
+	// PollMS paces the read of the chain's assignments; 0 is 10000.
+	PollMS uint64 `yaml:"poll_ms"`
+	// NodeHomes are additional chain node home directories to check for a
+	// block producer's key material. The node refuses to start with the audit
+	// capability on a machine where any is found.
+	NodeHomes []string `yaml:"node_homes"`
 }
 
 // DefaultHandraiseRootHistory bounds HeldRootDigests per Builder. It is a
@@ -1234,6 +1257,9 @@ func (c *Config) Validate() error {
 	}
 	if problem := retiredDutiesProblem(c.LocalIdentity.Duties); problem != "" {
 		problems = append(problems, problem)
+	}
+	if c.Verifier.Audit.Enabled && strings.TrimSpace(c.Verifier.Audit.SpoolDir) == "" {
+		problems = append(problems, "verifier.audit.spool_dir is required when verifier.audit.enabled is true")
 	}
 	// Backward compatibility: the deprecated evidence.* keys are accepted for one
 	// release. Any value set under evidence.* is copied into artifacts.* only

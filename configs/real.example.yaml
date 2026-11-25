@@ -243,3 +243,18 @@ dispatch:
   #   reserve_ttl_s: 1800
 health:
   bind: 127.0.0.1:8081
+
+# Audit capability: serve as a Verifier of anchor audits without a model
+# service. The node reads the panel rounds the chain assigned to it and hands
+# each one to the local Verifier program through a spool directory:
+#   <spool_dir>/assignments/<task_id>-<panel_round>.json   written by this node
+#   <spool_dir>/votes/<task_id>-<panel_round>.json         written by the program
+# A vote is PASS, REJECT or UNAVAILABLE and is final once read. The node
+# refuses to start with this enabled on a machine that holds a block
+# producer's key material (priv_validator_key.json and the like). Off by default.
+# verifier:
+#   audit:
+#     enabled: false
+#     spool_dir: /var/lib/cortex/audit-spool
+#     poll_ms: 10000
+#     node_homes: []
