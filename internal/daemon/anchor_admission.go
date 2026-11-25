@@ -155,28 +155,36 @@ type anchorAdmissionSignal struct {
 	// sidecar that does not publish Slots is read by Accept alone.
 	Slots *int     `json:"slots"`
 	Seen  []string `json:"seen"`
-	// MaxRows, when present and positive, is the longest sequence (prompt
-	// plus generated tokens) whose audit opening the sidecar has measured to
-	// fit the network's opening bound on this engine. See MaxRows.
-	MaxRows *uint64 `json:"max_rows"`
+	// OpeningMaxRows, when present and positive, is the largest number of
+	// rows (prompt tokens + generated tokens - 1) whose audit opening fits
+	// the network's opening bound on this engine, as the sidecar computes it
+	// from OpeningSizeSrc: "estimate" (its configured, conservative size
+	// model) until enough real openings calibrate it, then measured. Both
+	// are valid. MaxRows is an earlier name of the same field. See MaxRows.
+	OpeningMaxRows *uint64 `json:"opening_max_rows"`
+	MaxRows        *uint64 `json:"max_rows"`
+	OpeningSizeSrc string  `json:"opening_size_src"`
 }
 
-// MaxRows returns the sidecar's "max_rows": the longest sequence, in tokens
-// (prompt plus generated), whose opening fits the bound validators accept.
-// ok is false when no gate is configured, the signal is missing, unreadable
-// or stale, or it carries no positive max_rows.
+// MaxRows returns the sidecar's "opening_max_rows" ("max_rows" is read as an
+// alias; the smaller binds when both are present): the largest number of rows,
+// prompt tokens + generated tokens - 1, whose opening fits the bound
+// validators accept. ok is false when no gate is configured, the signal is
+// missing, unreadable or stale, or it carries no positive value.
 func (a *AnchorAdmission) MaxRows() (rows uint64, ok bool) {
 	if a == nil {
 		return 0, false
 	}
 	sig, err := a.parse()
-	if err != nil || sig.MaxRows == nil || *sig.MaxRows == 0 {
+	if err != nil || a.fresh(time.Unix(int64(sig.Updated), 0)) != nil {
 		return 0, false
 	}
-	if a.fresh(time.Unix(int64(sig.Updated), 0)) != nil {
-		return 0, false
+	for _, v := range []*uint64{sig.OpeningMaxRows, sig.MaxRows} {
+		if v != nil && *v != 0 && (rows == 0 || *v < rows) {
+			rows = *v
+		}
 	}
-	return *sig.MaxRows, true
+	return rows, rows != 0
 }
 
 // Refusal is nil when a new audit obligation may be taken, and otherwise says

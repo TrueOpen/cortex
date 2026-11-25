@@ -85,10 +85,10 @@ func TestAnchorSequenceLimitFromTheAdmissionSignalAndRefusalWithoutOne(t *testin
 		require bool
 		class   string
 	}{
-		{"max_rows one below the order", true, func(in uint64) string { return signal(fmt.Sprintf(`,"max_rows":%d`, in+out-1)) }, nil, true, classAnchorSequenceTooLong},
-		{"max_rows at the order", true, func(in uint64) string { return signal(fmt.Sprintf(`,"max_rows":%d`, in+out)) }, nil, true, ""},
+		{"max_rows one below the order", true, func(in uint64) string { return signal(fmt.Sprintf(`,"max_rows":%d`, in+out-2)) }, nil, true, classAnchorSequenceTooLong},
+		{"max_rows at the order", true, func(in uint64) string { return signal(fmt.Sprintf(`,"opening_max_rows":%d`, in+out-1)) }, nil, true, ""},
 		{"the smaller of the two binds: configuration", true, func(in uint64) string { return signal(`,"max_rows":1000000`) }, func(in uint64) uint64 { return in + out - 1 }, true, classAnchorSequenceTooLong},
-		{"the smaller of the two binds: signal", true, func(in uint64) string { return signal(fmt.Sprintf(`,"max_rows":%d`, in+out-1)) }, func(uint64) uint64 { return 1000000 }, true, classAnchorSequenceTooLong},
+		{"the smaller of the two binds: signal", true, func(in uint64) string { return signal(fmt.Sprintf(`,"max_rows":%d`, in+out-2)) }, func(uint64) uint64 { return 1000000 }, true, classAnchorSequenceTooLong},
 		{"neither known", true, func(uint64) string { return signal("") }, nil, true, classAnchorSequenceLimitUnknown},
 		{"max_rows zero is not a limit", true, func(uint64) string { return signal(`,"max_rows":0`) }, nil, true, classAnchorSequenceLimitUnknown},
 		{"a stale signal is not a limit", true, func(in uint64) string {
@@ -163,5 +163,58 @@ func TestStartUpSaysWhatBoundsAnchorSequences(t *testing.T) {
 	}
 	if got := run(1500, 2048, 0, plain); strings.Contains(got, "anchor_sequence_limit_unknown") || !strings.Contains(got, "reject rate") {
 		t.Fatalf("configured: %s", got)
+	}
+}
+
+// The admission signal as the anchor sidecar writes it: the opening bound, its
+// size model and opening_max_rows, with opening_size_src "estimate" before any
+// real opening has calibrated the model. Rows are prompt + generated - 1, so
+// the fixture order (worst case len(input) + 128 tokens) is taken when its
+// rows equal opening_max_rows and refused one below; the estimate is as valid
+// as a measurement.
+func TestSidecarAdmissionSignalBoundsAnchorSequences(t *testing.T) {
+	sample := func(rows uint64, src string) string {
+		return fmt.Sprintf(`{"accept": true, "reason": "", "queue": 0, "undecided": 0, "inflight": 1, "rate": 0.05,
+ "slots_total": 24, "services": 1, "slots": 24, "seen": [],
+ "opening_bound_bytes": 2147483648, "opening_bytes_per_row": 1048576.0, "opening_fixed_bytes": 0.0,
+ "opening_max_rows": %d, "opening_size_src": %q, "opening_size_samples": 0,
+ "updated": %d.2034073, "height": 1144395}`, rows, src, admissionAt.Unix())
+	}
+	a, _, _ := newTestAdmission(t, sample(2047, "estimate"))
+	if rows, ok := a.MaxRows(); !ok || rows != 2047 {
+		t.Fatalf("MaxRows() = %d, %v from the sidecar's signal", rows, ok)
+	}
+	for _, c := range []struct {
+		name  string
+		delta int64 // opening_max_rows relative to the order's worst-case rows
+		src   string
+		class string
+	}{
+		{"rows at the bound, estimate", 0, "estimate", ""},
+		{"rows one above the bound, estimate", -1, "estimate", classAnchorSequenceTooLong},
+		{"rows at the bound, measured", 0, "measured", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			x := newDispatchHarness(t, 2, nil)
+			x.chain.with(func(f *fakeDispatchChain) {
+				key := config.MinPriceBidKey(hrModelAB, 1)
+				f.scopes[key] = requireAnchor(f.scopes[key])
+			})
+			rows := uint64(int64(len(x.fx.input)) + 128 - 1 + c.delta)
+			adm, _, _ := newTestAdmission(t, sample(rows, c.src))
+			x.reconfigure(func(cfg *DispatcherConfig) {
+				cfg.Anchor, cfg.AnchorAdmission, cfg.AnchorRequireSequenceLimit = &fakeAnchorProbe{}, adm, true
+			})
+			if err := x.handle(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			rec := x.record(t)
+			if c.class == "" && rec.State != layout.DispatchAccepted {
+				t.Fatalf("ticket is %s (%s), want accepted", rec.State, rec.RejectClass)
+			}
+			if c.class != "" && (rec.State != layout.DispatchRejected || rec.RejectClass != c.class) {
+				t.Fatalf("ticket is %s, class %q; want rejected as %s", rec.State, rec.RejectClass, c.class)
+			}
+		})
 	}
 }

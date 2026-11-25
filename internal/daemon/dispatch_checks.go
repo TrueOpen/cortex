@@ -329,7 +329,7 @@ func (d *Dispatcher) anchorSequenceLimit(o *taskv1.TaskOrderV3) *verdict {
 		// how long a sequence this engine can open an audit for. Taking the
 		// order would bet the bond on its opening fitting.
 		return refuse(reasonNoCapacity, classAnchorSequenceLimitUnknown,
-			"no sequence limit for anchor audits is known: set dispatch.anchor_max_sequence_tokens or run an anchor sidecar that publishes max_rows in its admission signal")
+			"no sequence limit for anchor audits is known: set dispatch.anchor_max_sequence_tokens or run an anchor sidecar that publishes opening_max_rows in its admission signal")
 	}
 	per := d.cfg.AnchorInputBytesPerToken
 	if per == 0 {
@@ -350,13 +350,18 @@ func (d *Dispatcher) anchorSequenceLimit(o *taskv1.TaskOrderV3) *verdict {
 }
 
 // anchorSequenceBound is the sequence limit in effect and where it comes
-// from: the smaller of dispatch.anchor_max_sequence_tokens and the max_rows
-// the anchor sidecar publishes in its admission signal, whichever are known;
-// 0 when neither is.
+// from, in sequence tokens: the smaller of dispatch.anchor_max_sequence_tokens
+// and opening_max_rows + 1 from the anchor sidecar's admission signal,
+// whichever are known; 0 when neither is. The order is refused when its
+// worst-case prompt + max output - 1 rows exceed opening_max_rows.
 func (d *Dispatcher) anchorSequenceBound() (limit uint64, source string) {
 	limit, source = d.cfg.AnchorMaxSequenceTokens, "dispatch.anchor_max_sequence_tokens"
-	if rows, ok := d.cfg.AnchorAdmission.MaxRows(); ok && (limit == 0 || rows < limit) {
-		limit, source = rows, "max_rows of the anchor admission signal"
+	if rows, ok := d.cfg.AnchorAdmission.MaxRows(); ok {
+		// Rows are prompt + generated - 1, so rows R allow a sequence of
+		// R + 1 tokens.
+		if seq := rows + 1; seq > rows && (limit == 0 || seq < limit) {
+			limit, source = seq, "opening_max_rows of the anchor admission signal"
+		}
 	}
 	return limit, source
 }

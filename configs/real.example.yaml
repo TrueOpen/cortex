@@ -193,7 +193,7 @@ dispatch:
   # at under 1 MB). The order is compared by the largest sequence it allows:
   # ceil(input_size_bytes / anchor_input_bytes_per_token) + max_output_tokens;
   # anchor_input_bytes_per_token defaults to 1, the bound that is certain.
-  # The anchor sidecar may publish the same limit as "max_rows" in its
+  # The anchor sidecar may publish the same limit as "opening_max_rows" (rows = prompt + generated tokens - 1) in its
   # admission signal (dispatch.anchor_admission.file); the smaller of the two
   # binds. With neither, every order of such a Profile is refused
   # (anchor_sequence_limit_unknown) and a warning is logged at start: a node

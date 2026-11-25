@@ -252,9 +252,9 @@ func warnAnchorSequenceLimit(log *slog.Logger, sequenceTokens, maxOutputTokens, 
 	}
 	if sequenceTokens == 0 {
 		if _, ok := admission.MaxRows(); ok {
-			log.Info("anchor sequence limit comes from max_rows of the anchor admission signal; dispatch.anchor_max_sequence_tokens is not set")
+			log.Info("anchor sequence limit comes from opening_max_rows of the anchor admission signal; dispatch.anchor_max_sequence_tokens is not set")
 		} else {
-			log.Warn("no sequence limit for anchor audits is known: every order of a Profile that requires WORKER_ANCHOR_OPENING is refused until dispatch.anchor_max_sequence_tokens is set or the anchor sidecar publishes max_rows in its admission signal",
+			log.Warn("no sequence limit for anchor audits is known: every order of a Profile that requires WORKER_ANCHOR_OPENING is refused until dispatch.anchor_max_sequence_tokens is set or the anchor sidecar publishes opening_max_rows in its admission signal",
 				"alert", "anchor_sequence_limit_unknown")
 		}
 	}
