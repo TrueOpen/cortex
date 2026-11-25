@@ -4,6 +4,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestValidateDispatchHeartbeatMustBeBelowTTL(t *testing.T) {
@@ -127,5 +129,16 @@ dispatch:
 	if d.EvidenceRetentionBlocks != 200_000 || d.Handraise.HeartbeatMS != 10_000 || d.Handraise.TTLMS != 30_000 ||
 		d.Handraise.MinChangeIntervalMS != 500 || d.MinPriceBid[MinPriceBidKey(model, 1)] != 25 {
 		t.Fatalf("Dispatch = %+v", d)
+	}
+}
+
+// The two local order limits are read from the dispatch section.
+func TestDispatchLocalOrderLimitsAreRead(t *testing.T) {
+	var d DispatchConfig
+	if err := yaml.Unmarshal([]byte("max_output_tokens: 2048\nmax_input_bytes: 8192\nanchor_max_sequence_tokens: 1500\nanchor_input_bytes_per_token: 3\n"), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.MaxOutputTokens != 2048 || d.MaxInputBytes != 8192 || d.AnchorMaxSequenceTokens != 1500 || d.AnchorInputBytesPerToken != 3 {
+		t.Fatalf("limits = %+v", d)
 	}
 }

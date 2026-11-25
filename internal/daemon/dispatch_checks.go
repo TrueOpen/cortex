@@ -46,8 +46,13 @@ const (
 	classPriceBelowMin          = "price_below_min"
 	classInputMismatch          = "input_metadata_mismatch"
 	classInputTooLarge          = "input_too_large"
-	classNoFreeSlot             = "no_free_slot"
-	classBuilderRetiring        = "builder_retiring"
+	classOutputBudgetTooLarge   = "output_budget_too_large"
+	classAnchorSequenceTooLong  = "anchor_sequence_too_long"
+	// classAnchorSequenceLimitUnknown: no bound on the sequence an audit can
+	// be opened for is known to this node.
+	classAnchorSequenceLimitUnknown = "anchor_sequence_limit_unknown"
+	classNoFreeSlot                 = "no_free_slot"
+	classBuilderRetiring            = "builder_retiring"
 	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
 	// right now (ADR-0040); a moment, like no_free_slot.
 	classAnchorAdmission = "anchor_admission"
@@ -92,6 +97,11 @@ func (d *Dispatcher) prechecks(ctx context.Context, t *taskv1.DispatchTicketV1, 
 		return v, false, err
 	}
 	anchor = profileRequiresAnchorOpening(scope.Profile)
+	if anchor {
+		if v := d.anchorSequenceLimit(o); v != nil {
+			return v, anchor, nil
+		}
+	}
 	if v := d.checkPrice(o, modelHex, version); v != nil {
 		return v, anchor, nil
 	}
@@ -292,6 +302,70 @@ func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version 
 	return nil, nil
 }
 
+// anchorSequenceLimit refuses an order of a Profile that requires the anchor
+// commitment whose sequence could be longer than this node can open an audit
+// for. An opening carries the history of every earlier position, so its size
+// grows with the sequence (prompt plus generated tokens), and the chain and
+// the validators bound it: an honest task whose opening is above the bound
+// cannot be opened and ends in the timeout slash. The Worker has to keep such
+// an order out at the offer.
+//
+// What is known at the offer is max_output_tokens and the input size in
+// bytes, not the prompt's token count. The estimate is therefore the largest
+// sequence the order allows: ceil(input_size_bytes / AnchorInputBytesPerToken)
+// + max_output_tokens against the bound in effect (anchorSequenceBound), with
+// AnchorInputBytesPerToken 1 by default (a prompt of
+// N bytes is at most N tokens before the chat template). It errs towards
+// refusing: the generation may stop far short of its budget, and a prompt is
+// usually three to four bytes per token; a larger AnchorInputBytesPerToken
+// trades that margin for orders taken.
+func (d *Dispatcher) anchorSequenceLimit(o *taskv1.TaskOrderV3) *verdict {
+	limit, source := d.anchorSequenceBound()
+	if limit == 0 {
+		if !d.cfg.AnchorRequireSequenceLimit {
+			return nil
+		}
+		// No bound is known: neither the operator nor the sidecar has said
+		// how long a sequence this engine can open an audit for. Taking the
+		// order would bet the bond on its opening fitting.
+		return refuse(reasonNoCapacity, classAnchorSequenceLimitUnknown,
+			"no sequence limit for anchor audits is known: set dispatch.anchor_max_sequence_tokens or run an anchor sidecar that publishes opening_max_rows in its admission signal")
+	}
+	per := d.cfg.AnchorInputBytesPerToken
+	if per == 0 {
+		per = 1
+	}
+	in := o.GetInputSizeBytes()
+	prompt := in / per
+	if in%per != 0 {
+		prompt++
+	}
+	out := uint64(o.GetGenerationParams().GetMaxOutputTokens())
+	if total := prompt + out; total < prompt || total > limit {
+		return refuse(reasonNoCapacity, classAnchorSequenceTooLong,
+			"an anchor audit of this order could need an opening over up to %d prompt + %d generated tokens, above the limit %d (%s)",
+			prompt, out, limit, source)
+	}
+	return nil
+}
+
+// anchorSequenceBound is the sequence limit in effect and where it comes
+// from, in sequence tokens: the smaller of dispatch.anchor_max_sequence_tokens
+// and opening_max_rows + 1 from the anchor sidecar's admission signal,
+// whichever are known; 0 when neither is. The order is refused when its
+// worst-case prompt + max output - 1 rows exceed opening_max_rows.
+func (d *Dispatcher) anchorSequenceBound() (limit uint64, source string) {
+	limit, source = d.cfg.AnchorMaxSequenceTokens, "dispatch.anchor_max_sequence_tokens"
+	if rows, ok := d.cfg.AnchorAdmission.MaxRows(); ok {
+		// Rows are prompt + generated - 1, so rows R allow a sequence of
+		// R + 1 tokens.
+		if seq := rows + 1; seq > rows && (limit == 0 || seq < limit) {
+			limit, source = seq, "opening_max_rows of the anchor admission signal"
+		}
+	}
+	return limit, source
+}
+
 // checkPrice is check 6's hard part: price_bid >= local min_price_bid.
 func (d *Dispatcher) checkPrice(o *taskv1.TaskOrderV3, modelHex string, version uint32) *verdict {
 	floor := d.cfg.MinPriceBid[config.MinPriceBidKey(modelHex, version)]
@@ -313,8 +387,21 @@ func (d *Dispatcher) checkInput(t *taskv1.DispatchTicketV1, o *taskv1.TaskOrderV
 	if !bytes.Equal(t.GetInputHash(), o.GetInputHash()) {
 		return refuse(reasonInvalid, classInputMismatch, "ticket input_hash differs from the order's")
 	}
+	return d.localLimits(o)
+}
+
+// localLimits is the part of check 7 that reads no chain state: this node's
+// own bounds on the order's input size and output budget.
+func (d *Dispatcher) localLimits(o *taskv1.TaskOrderV3) *verdict {
 	if o.GetInputSizeBytes() > d.cfg.MaxInputBytes {
 		return refuse(reasonNoCapacity, classInputTooLarge, "input_size_bytes %d exceeds the local limit %d", o.GetInputSizeBytes(), d.cfg.MaxInputBytes)
+	}
+	// The engine refuses a request whose output budget does not fit its
+	// context length, however short the answer would have been; an offer for
+	// one is turned down here, while the Builder can still give the order to
+	// another Worker, rather than accepted and failed.
+	if limit, budget := d.cfg.MaxOutputTokens, o.GetGenerationParams().GetMaxOutputTokens(); limit != 0 && uint64(budget) > limit {
+		return refuse(reasonNoCapacity, classOutputBudgetTooLarge, "max_output_tokens %d exceeds the local limit %d", budget, limit)
 	}
 	return nil
 }

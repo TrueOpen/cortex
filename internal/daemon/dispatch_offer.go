@@ -214,7 +214,17 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 	// may predate the Session or a change of key or bond.
 	d.noteSession(so.GetOrder().GetSessionId())
 	if h := d.warmHeight(); h != 0 {
-		if ev, drop, err := d.evaluateOfferAt(ctx, builder, t, so, h); err == nil && drop == nil && ev.verdict == nil {
+		// An order above this node's own limits is refused whatever the
+		// chain says about its Session, so that reject is decided here too,
+		// from the held set alone: the Session read it skips is the one read
+		// of a first order that is never read ahead, and on a slow link it
+		// can outlast the accept window, turning a reject the Builder could
+		// have acted on into a timeout.
+		if v := d.localLimits(so.GetOrder()); v != nil {
+			if ev, ok := d.refuseLocallyAt(ctx, builder, t, so, h, v); ok {
+				return ev, nil, nil
+			}
+		} else if ev, drop, err := d.evaluateOfferAt(ctx, builder, t, so, h); err == nil && drop == nil && ev.verdict == nil {
 			return ev, nil, nil
 		}
 	}
@@ -223,6 +233,35 @@ func (d *Dispatcher) evaluateOffer(ctx context.Context, builder string, t *taskv
 		return ev, nil, builderclient.Retryable(fmt.Errorf("committed height: %w", err))
 	}
 	return d.evaluateOfferAt(ctx, builder, t, so, height)
+}
+
+// refuseLocallyAt prepares the reject of an order above this node's local
+// limits (v) at the held read-ahead height: check 1 and this node's nonce,
+// both from facts the held set carries, and nothing about the Session. ok is
+// false whenever that is not enough to sign a reject -- the ticket does not
+// pass check 1 there, a read failed, either side's key is rotating -- and the
+// offer is then evaluated in full at the committed height, as before.
+func (d *Dispatcher) refuseLocallyAt(ctx context.Context, builder string, t *taskv1.DispatchTicketV1, so *taskv1.SignedOrderV2, height uint64, v *verdict) (ev offerEval, ok bool) {
+	ev.height = height
+	if err := d.checkHandraise(builder, height); err != nil {
+		return ev, false
+	}
+	tc, builderPendingAt, err := d.ticketContext(ctx, builder, t, so.GetOrder(), height)
+	if err != nil || builderPendingAt != 0 || dispatchwire.CheckTicket(t, tc) != nil {
+		return ev, false
+	}
+	if ev.traw, err = dispatchwire.Raw(t); err != nil {
+		return ev, false
+	}
+	if ev.oraw, err = dispatchwire.Raw(so); err != nil {
+		return ev, false
+	}
+	key, err := d.chain.CurrentServiceKey(ctx, chainclient.ParticipantTypeCortexNode, d.cfg.Operator, height)
+	if err != nil || key.Status != "ACTIVE" || key.HasPendingRotation {
+		return ev, false
+	}
+	ev.nonce, ev.verdict = key.AuthorizationNonce.Uint64(), v
+	return ev, true
 }
 
 // evaluateOfferAt runs checks 1-7 with every chain read pinned to height.
@@ -477,8 +516,8 @@ func (d *Dispatcher) resume(ctx context.Context, enq DispatchEnqueuer, rec layou
 }
 
 func (d *Dispatcher) reject(ctx context.Context, enq DispatchEnqueuer, rec layout.DispatchRecord, t *taskv1.DispatchTicketV1, nonce uint64, v *verdict) error {
-	if !d.cfg.Now().Before(d.acceptDeadline(rec)) {
-		return d.drop(ctx, rec.Builder, rec.TicketHash, fmt.Errorf("%s, but the accept deadline passed; nothing is signed", v.detail))
+	if deadline := d.acceptDeadline(rec); !d.cfg.Now().Before(deadline) {
+		return d.drop(ctx, rec.Builder, rec.TicketHash, fmt.Errorf("%s, but the accept deadline passed; nothing is signed%s", v.detail, d.answerTiming(rec.TicketHash, deadline)))
 	}
 	m := &taskv1.DispatchRejectV1{
 		SchemaVersion: dispatchMessageSchemaVersion, ChainId: d.cfg.ChainID,
@@ -543,8 +582,8 @@ func (d *Dispatcher) sendReject(ctx context.Context, enq DispatchEnqueuer, rec l
 
 func (d *Dispatcher) accept(ctx context.Context, enq DispatchEnqueuer, rec layout.DispatchRecord, t *taskv1.DispatchTicketV1, nonce uint64) error {
 	// W4: never sign after the deadline (C4); the lease taken for it goes back.
-	if !d.cfg.Now().Add(d.cfg.AcceptSignMargin).Before(d.acceptDeadline(rec)) {
-		return d.drop(ctx, rec.Builder, rec.TicketHash, errors.New("accept deadline passed before the accept was signed (C4)"))
+	if deadline := d.acceptDeadline(rec); !d.cfg.Now().Add(d.cfg.AcceptSignMargin).Before(deadline) {
+		return d.drop(ctx, rec.Builder, rec.TicketHash, errors.New("accept deadline passed before the accept was signed (C4)"+d.answerTiming(rec.TicketHash, deadline)))
 	}
 	m := &taskv1.DispatchAcceptV1{
 		SchemaVersion: dispatchMessageSchemaVersion, ChainId: d.cfg.ChainID,

@@ -227,7 +227,14 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 		// redelivery finishes and a release gives back (releaseTaskLeaseOf).
 		// The reverse order left a recorded ticket with nothing to retry the
 		// move.
-		if err := d.rebindLease(ctx, rec, false); err != nil {
+		// An inference that already failed for good here gave its lease
+		// back from the ticket key (ReleaseFailedInferLease): there is
+		// nothing to move, and the record must not bring a lease back.
+		failed, err := d.inferFailedHere(ctx, rec)
+		if err != nil {
+			return builderclient.Retryable(fmt.Errorf("read the infer record of ticket %s: %w", rec.TicketHash, err))
+		}
+		if err := d.rebindLease(ctx, rec, failed); err != nil {
 			return err
 		}
 		recordHash, _ := hash32(snap.RecordHash)
@@ -254,6 +261,21 @@ func (d *Dispatcher) applyRecord(ctx context.Context, rec layout.DispatchRecord,
 	}
 	if err := d.cfg.Infer.RecordDispatchedInfer(ctx, rec.TaskHash, rec.TicketHash, rec.RecordedHeight, rec.InferDeadlineHeight); err != nil {
 		return builderclient.Retryable(fmt.Errorf("record the infer deadline: %w", err))
+	}
+	// The failure and this record can cross: the release found the lease on
+	// neither key yet, then the move above put it on the task key. A lease
+	// this ticket holds for an inference that has failed for good goes back
+	// here, whichever of the two ran first.
+	if failed, err := d.inferFailedHere(ctx, rec); err != nil {
+		return builderclient.Retryable(fmt.Errorf("read the infer record of ticket %s: %w", rec.TicketHash, err))
+	} else if failed {
+		dropped, err := d.cfg.Leases.ReleaseTaskOf(ctx, rec.TaskID, rec.TicketHash)
+		if err != nil {
+			return builderclient.Retryable(fmt.Errorf("release the lease of failed ticket %s: %w", rec.TicketHash, err))
+		}
+		if dropped {
+			d.cfg.Handraise.Notify()
+		}
 	}
 	return nil
 }

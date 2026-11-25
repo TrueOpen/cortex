@@ -1,8 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/TrueOpen/cortex/internal/store/layout"
 
 	taskv1 "github.com/TrueOpen/cortex/proto/task/v1"
 )
@@ -138,4 +142,56 @@ func TestDispatchWarmIsNotUsedWhenItTrails(t *testing.T) {
 		t.Fatalf("CommittedHeight read %d times for the offer, want 1", after-before)
 	}
 	x.lastIsAccept(t)
+}
+
+// An order above a local limit is refused from the held facts alone: no chain
+// read at all, the Session's included, even for the first order of a Session.
+// On a slow link that read is what turned a reject the Builder could act on
+// into a timeout.
+func TestDispatchWarmRefusesAnOrderAboveALocalLimitWithoutAChainRead(t *testing.T) {
+	ctx := context.Background()
+	x, slow := newWarmHarness(t)
+	x.d.cfg.MaxOutputTokens = 127 // the fixture order asks for 128
+	x.d.warmOnce(ctx)
+	before, sessions := slow.readCount(), x.chain.callCount("SessionAt")
+	if err := x.handle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := slow.readCount() - before; got != 0 {
+		t.Fatalf("the refusal made %d chain reads, want none", got)
+	}
+	if got := x.chain.callCount("SessionAt") - sessions; got != 0 {
+		t.Fatalf("the refusal read the Session %d times", got)
+	}
+	msgs := x.a.messages()
+	rj, ok := msgs[len(msgs)-1].(*taskv1.DispatchRejectV1)
+	if !ok || rj.GetRejectReason() != reasonNoCapacity || rj.GetServiceAuthorizationNonce() != 7 {
+		t.Fatalf("answer = %v, want a signed NO_CAPACITY reject", msgs[len(msgs)-1])
+	}
+	cortexSigned(t, rj, rj.GetServiceSignature())
+	if rec := x.record(t); rec.State != layout.DispatchRejected || rec.RejectClass != classOutputBudgetTooLarge {
+		t.Fatalf("record = %+v", rec)
+	}
+	if held, err := hasWorkerLease(ctx, x.st, layout.StoredHash(x.fx.ticketHash())); err != nil || held {
+		t.Fatal("a refused ticket holds no lease")
+	}
+}
+
+// The early refusal still needs check 1: a ticket that does not pass it at the
+// held height is not rejected from there. It goes to the full evaluation at
+// the committed height, which drops it without a signature.
+func TestDispatchWarmDoesNotRejectAnUnverifiedTicketEarly(t *testing.T) {
+	ctx := context.Background()
+	x, _ := newWarmHarness(t)
+	x.d.cfg.MaxOutputTokens = 127
+	x.d.warmOnce(ctx)
+	x.fx.ticket.BuilderServiceSignature = bytes.Repeat([]byte{1}, len(x.fx.ticket.BuilderServiceSignature))
+	if err := x.handle(ctx); !errors.Is(err, ErrOfferDropped) {
+		t.Fatalf("err = %v, want the offer dropped", err)
+	}
+	for _, m := range x.a.messages() {
+		if _, ok := m.(*taskv1.DispatchRejectV1); ok {
+			t.Fatal("a reject was signed for a ticket that fails check 1")
+		}
+	}
 }

@@ -114,9 +114,25 @@ type DispatcherConfig struct {
 	FeeDenom    string
 	Profiles    []config.ModelProfileRef // local_identity.supported_model_profiles
 	MinPriceBid map[string]uint64        // dispatch.min_price_bid (check 6)
-	// MaxInputBytes bounds input_size_bytes (check 7); default and ceiling
-	// are NexusTaskInputResolver's 64 MiB.
+	// MaxInputBytes bounds input_size_bytes (check 7; config
+	// dispatch.max_input_bytes); default and ceiling are
+	// NexusTaskInputResolver's 64 MiB.
 	MaxInputBytes uint64
+	// MaxOutputTokens bounds the order's max_output_tokens (check 7); 0 sets
+	// no limit (config dispatch.max_output_tokens).
+	MaxOutputTokens uint64
+	// AnchorMaxSequenceTokens bounds, for a Profile that requires the anchor
+	// commitment, the longest sequence the order allows (anchorSequenceLimit);
+	// 0 sets no limit. AnchorInputBytesPerToken is the bytes one prompt token
+	// is assumed to take in that estimate; 0 is 1.
+	AnchorMaxSequenceTokens  uint64
+	AnchorInputBytesPerToken uint64
+	// AnchorRequireSequenceLimit refuses every order of a Profile that
+	// requires the anchor commitment while no sequence limit is known
+	// (neither AnchorMaxSequenceTokens nor the sidecar's max_rows). cortexd
+	// always sets it: a node must not serve such a Profile unprotected by
+	// omission. Off, an unknown limit is no limit.
+	AnchorRequireSequenceLimit bool
 	// AcceptSignMargin is how much of the accept window must remain to sign
 	// (C4). Local, default 0.
 	AcceptSignMargin time.Duration
@@ -199,6 +215,7 @@ type Dispatcher struct {
 
 	mu       sync.Mutex
 	deadline map[layout.StoredHash]time.Time // C4 accept deadlines seen by this process
+	received map[layout.StoredHash]time.Time // when each of those offers first reached this process
 	rebound  map[string]bool
 	recent   map[[32]byte]time.Time // Sessions RunWarm reads ahead (noteSession)
 	wake     chan struct{}
@@ -291,7 +308,7 @@ func NewDispatcher(ctx context.Context, cfg DispatcherConfig) (*Dispatcher, erro
 	}
 	d := &Dispatcher{
 		cfg: cfg, chain: newDispatchFacts(cfg.Chain), work: make(chan struct{}, 1),
-		profiles: profiles, deadline: map[layout.StoredHash]time.Time{},
+		profiles: profiles, deadline: map[layout.StoredHash]time.Time{}, received: map[layout.StoredHash]time.Time{},
 		rebound: map[string]bool{}, wake: make(chan struct{}, 1),
 		conflictAlerted: map[layout.StoredHash]bool{},
 	}
@@ -358,7 +375,25 @@ func (d *Dispatcher) noteReceipt(ticket layout.StoredHash, deadlineMs uint64, re
 		}
 	}
 	d.deadline[ticket] = at
+	d.received[ticket] = d.cfg.Now().Round(0)
 	return at
+}
+
+// answerTiming says, for an offer whose answer missed the accept deadline,
+// where its accept window went: how much of it was left when the offer reached
+// this process, and how long the answer took from there. A window that was
+// already short on arrival is the Builder's accept timeout against this link's
+// latency; a long answer is this node's chain reads. Empty for an offer this
+// process did not time (a redelivery answered from its record).
+func (d *Dispatcher) answerTiming(ticket layout.StoredHash, deadline time.Time) string {
+	d.mu.Lock()
+	at, ok := d.received[ticket]
+	d.mu.Unlock()
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf(": the offer arrived with %d ms of its accept window left and the answer took %d ms",
+		deadline.Sub(at).Milliseconds(), d.cfg.Now().Round(0).Sub(at).Milliseconds())
 }
 
 func (d *Dispatcher) acceptDeadline(rec layout.DispatchRecord) time.Time {
@@ -380,6 +415,7 @@ func (d *Dispatcher) forgetDeadline(ticket layout.StoredHash) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.deadline, ticket)
+	delete(d.received, ticket)
 }
 
 // drop logs an offer that is not answered (CD §5.1 check 1, or nothing left
@@ -548,6 +584,47 @@ func (d *Dispatcher) ReleaseTaskLease(ctx context.Context, taskID layout.StoredH
 		d.cfg.Handraise.Notify()
 	}
 	return nil
+}
+
+// ReleaseFailedInferLease returns the lease of ticket once the inference it
+// stands for has failed for good on this node, wherever the lease is: on the
+// task key (the chain record landed and moved it) or still on the ticket key
+// (the failure came first: an engine refusal returns in milliseconds, the
+// Builder's record takes a block or more). ReleaseTaskLease alone returns only
+// the first and the ticket leases of recorded tickets, so a refusal that beat
+// the record kept the slot until the chain closed the task. The record that
+// lands afterwards finds no lease to move and creates none (recordedWinner).
+// It takes no Dispatcher lock (TaskRunnerConfig.ReleaseFailedInferLease).
+func (d *Dispatcher) ReleaseFailedInferLease(ctx context.Context, taskID, ticket layout.StoredHash) error {
+	if err := d.ReleaseTaskLease(ctx, taskID); err != nil {
+		return err
+	}
+	if ticket.IsZero() {
+		return nil
+	}
+	dropped, err := d.cfg.Leases.Release(ctx, ticket)
+	if err != nil {
+		return err
+	}
+	if dropped {
+		d.cfg.Handraise.Notify()
+	}
+	return nil
+}
+
+// inferFailedHere reports whether this node's inference for rec's ticket has
+// failed for good: the infer record of the task is failed and names the
+// ticket. A missing record is not a failure (the input may still be on its
+// way).
+func (d *Dispatcher) inferFailedHere(ctx context.Context, rec layout.DispatchRecord) (bool, error) {
+	infer, err := layout.GetInferRecord(ctx, d.cfg.Store, rec.TaskHash)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return infer.Stage == layout.StageFailed && infer.DispatchTicketHash == rec.TicketHash, nil
 }
 
 // enqueueErr classifies an Enqueue failure: a message the outbox refuses as

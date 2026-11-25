@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TrueOpen/cortex/internal/builderclient"
@@ -124,6 +125,12 @@ type TaskRunnerConfig struct {
 	// (cortexd: Dispatcher.ReleaseTaskLease). It is called under the runner
 	// lock, so it must not take it.
 	ReleaseDispatchLease func(ctx context.Context, taskID layout.StoredHash) error
+	// ReleaseFailedInferLease returns the lease of a dispatched inference
+	// that failed for good, on the task key or still on its ticket key
+	// (cortexd: Dispatcher.ReleaseFailedInferLease). Same locking rule. Nil:
+	// ReleaseDispatchLease alone, which misses a lease not yet moved to the
+	// task.
+	ReleaseFailedInferLease func(ctx context.Context, taskID, ticket layout.StoredHash) error
 	// DispatchWaitInterval spaces re-runs of an infer waiting for its record
 	// or paused by a REJECTED notice. Default 1s.
 	DispatchWaitInterval time.Duration
@@ -214,6 +221,10 @@ type TaskRunner struct {
 	// cancels holds the cancel of each in-flight execution, so a stop reaches
 	// work already in the model (S6). Guarded by inflightMu.
 	cancels map[responsibilityKey]context.CancelFunc
+
+	// failedLeasesSwept is set once this process has returned the leases of
+	// the infer records it found failed in the store (releaseFailedInferLeases).
+	failedLeasesSwept atomic.Bool
 	// executions counts every executor goroutine this runner has started, across
 	// all passes. Run waits on it before returning so that a cancelled context
 	// still drains in-flight work rather than leaving a task mid-commit while the
