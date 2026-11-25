@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/TrueOpen/cortex/internal/adminapi"
+	"github.com/TrueOpen/cortex/internal/auditduty"
 	"github.com/TrueOpen/cortex/internal/buildinfo"
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/codec"
@@ -340,6 +341,18 @@ func runDaemon(ctx context.Context, cfg config.Config) error {
 	// runner that needs the model registry, which is built in this function.
 	if renewer := newSupportRenewer(cfg, runtime, registry); renewer != nil {
 		runners = append(runners, renewer.Run)
+	}
+	auditRunner, err := newAuditDuty(cfg, runtime, auditduty.OSHost())
+	if err != nil {
+		cleanupRuntime()
+		stopRuntime()
+		close(runtimeDone)
+		_ = adminServer.Close()
+		_ = server.Shutdown(context.Background())
+		return err
+	}
+	if auditRunner != nil {
+		runners = append(runners, auditRunner.Run)
 	}
 	if len(runners) > 0 {
 		go func() {

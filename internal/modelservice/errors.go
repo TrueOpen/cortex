@@ -85,7 +85,40 @@ const (
 	// anchor commitment over a prompt alone, so a task whose Profile requires
 	// WORKER_ANCHOR_OPENING ends without a receipt.
 	FaultCodeAnchorCommitEmptyGeneration = "ANCHOR_COMMIT_EMPTY_GENERATION"
+	// FaultCodeAnchorCommitUnavailable: a streamed completion was delivered
+	// but the engine did not serve its anchor commitment: it no longer knows
+	// the completion (404 past the grace period), refuses to finalise it (409
+	// or another answer that is not a commitment), or was still not ready when
+	// the commitment window ended. The output frames of this completion are
+	// already signed, so generating again cannot repair it: the scheduler
+	// stops at this reason instead of re-running the model and ending at
+	// OUTPUT_FRAMES_ALREADY_SIGNED with the cause hidden.
+	FaultCodeAnchorCommitUnavailable = "ANCHOR_COMMIT_UNAVAILABLE"
+	// FaultCodeRequestRefused: the model service refused the request itself as
+	// invalid (HTTP 400, 413 or 422; gRPC InvalidArgument or OutOfRange) -- an
+	// output budget above the engine's context length, most of all. The request
+	// is built from the task's frozen inputs, so sending it again is refused
+	// again.
+	FaultCodeRequestRefused = "MODEL_SERVICE_REQUEST_REFUSED"
 )
+
+// requestRefusedStatus reports whether an HTTP status means the model service
+// rejected the request as invalid, as opposed to failing to serve it. 401, 403
+// and 404 are left unclassified on purpose: they describe this node's
+// configuration (a key, a model not loaded yet), which an operator can repair
+// while the task waits, so they keep the bounded retries.
+func requestRefusedStatus(status int) bool {
+	switch status {
+	case 400, 413, 422:
+		return true
+	}
+	return false
+}
+
+// refusedRequest classifies a request the model service rejected as invalid.
+func refusedRequest(err error, path string, status int) error {
+	return Deterministic(FaultCodeRequestRefused, err, FaultStr("path", path), FaultInt("status", status))
+}
 
 // FaultField is one scalar diagnostic value carried by a Fault.
 //

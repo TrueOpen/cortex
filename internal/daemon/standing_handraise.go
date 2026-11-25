@@ -63,6 +63,10 @@ type StandingHandraiseConfig struct {
 	// refuses, a Profile requiring WORKER_ANCHOR_OPENING is left out. Nil
 	// means no gate.
 	AnchorAdmission *AnchorAdmission
+	// ChainPause is the chain's pause of dispatch to this Worker: while it is
+	// set every Builder's handraise is withdrawn, with ChainPausedReason. Nil
+	// means the chain is not asked.
+	ChainPause *ChainPause
 }
 
 // StandingHandraiser keeps one current StandingHandraiseV1 per Builder and
@@ -375,6 +379,7 @@ func (h *StandingHandraiser) evaluate(ctx context.Context) error {
 	_, known := h.clock.interval()
 	g := h.gates.evaluate(ctx, height, known)
 	tm := handraiseTiming{Heartbeat: h.cfg.Heartbeat, MinChange: h.cfg.MinChange}
+	paused := h.cfg.ChainPause.Refusal(ctx)
 	var errs []error
 	for _, b := range h.builders {
 		h.mu.Lock()
@@ -390,6 +395,9 @@ func (h *StandingHandraiser) evaluate(ctx context.Context) error {
 		want, canWithdraw, why := g.offer(prev)
 		if h.cfg.Retiring[b] {
 			want, canWithdraw, why = nil, true, "Builder is being removed (dispatch.retiring_builders)"
+		}
+		if paused != nil {
+			want, canWithdraw, why = nil, true, paused.Error()
 		}
 		if want != nil {
 			if err := h.gates.builder(ctx, height, b); err != nil {

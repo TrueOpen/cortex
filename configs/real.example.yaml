@@ -169,6 +169,48 @@ dispatch:
   # one above zero for every supported profile.
   min_price_bid:
     "6d120a31a3858346e04517111eb3e1e03c4a5a9757b12cd3d2acb27c6bc9d6a2@1": 1000
+  # Largest max_output_tokens this node takes an offer for; 0 or absent sets no
+  # local limit. Set it when the model service runs with a shorter context
+  # than the registered model allows (vLLM --max-model-len): the engine
+  # refuses a request whose output budget does not fit, so such an order is
+  # better refused at the offer (a signed NO_CAPACITY reject).
+  # max_output_tokens: 4096
+  # Largest input_size_bytes this node takes an offer for; 0 or absent leaves
+  # the built-in 64 MiB ceiling. The order states the input size in bytes, not
+  # tokens: a prompt of N bytes is at most N tokens plus the chat template and
+  # usually three to four times fewer, so a bound sized on that ratio (for a
+  # 4096-token context and a 2048-token output budget, about 8192) keeps
+  # nearly every prompt the engine would refuse from being accepted.
+  # max_input_bytes: 8192
+  # For Profiles that require the anchor commitment only: the longest
+  # sequence (prompt plus generated tokens) of an order this node takes. An
+  # audit opening grows with the sequence and is bounded by the chain and the
+  # validators; a sampled task whose opening is above the bound cannot be
+  # opened and is slashed for the timeout. Set it to the sequence length whose
+  # opening still fits the bound on this engine (measure it; the openings of
+  # short tasks on the reference engine were about 0.5 GB for the two sampled
+  # positions, and the growth per sequence token was estimated, not measured,
+  # at under 1 MB). The order is compared by the largest sequence it allows:
+  # ceil(input_size_bytes / anchor_input_bytes_per_token) + max_output_tokens;
+  # anchor_input_bytes_per_token defaults to 1, the bound that is certain.
+  # The anchor sidecar may publish the same limit as "opening_max_rows" (rows = prompt + generated tokens - 1) in its
+  # admission signal (dispatch.anchor_admission.file); the smaller of the two
+  # binds. With neither, every order of such a Profile is refused
+  # (anchor_sequence_limit_unknown) and a warning is logged at start: a node
+  # does not serve these Profiles without a bound.
+  # anchor_max_sequence_tokens: 1500
+  # anchor_input_bytes_per_token: 1
+  # Ask the chain whether dispatch to this Worker is paused (late submission
+  # pending, unbonding, jailed). While it is, the standing handraise is
+  # withdrawn and offers are refused with the reason dispatch_paused; both
+  # resume when the chain clears it. Also logs when the period's order quota
+  # is used up. Off by default; no effect on a chain without the query.
+  # honour_chain_pause: false
+  # chain_pause_refresh_ms: 5000
+  # A signed refusal counts in a Builder's reject rate unless the order is
+  # above the bounds its network exempts (the Builder's
+  # reject_rate_exempt_output_tokens / reject_rate_exempt_input_bytes): keep
+  # both limits at or above those bounds.
   stream:
     # Deployment settings, no defaults. A Builder must tolerate at least two
     # missed probes: one Handler may hold the stream for handler_timeout_ms.
@@ -201,3 +243,18 @@ dispatch:
   #   reserve_ttl_s: 1800
 health:
   bind: 127.0.0.1:8081
+
+# Audit capability: serve as a Verifier of anchor audits without a model
+# service. The node reads the panel rounds the chain assigned to it and hands
+# each one to the local Verifier program through a spool directory:
+#   <spool_dir>/assignments/<task_id>-<panel_round>.json   written by this node
+#   <spool_dir>/votes/<task_id>-<panel_round>.json         written by the program
+# A vote is PASS, REJECT or UNAVAILABLE and is final once read. The node
+# refuses to start with this enabled on a machine that holds a block
+# producer's key material (priv_validator_key.json and the like). Off by default.
+# verifier:
+#   audit:
+#     enabled: false
+#     spool_dir: /var/lib/cortex/audit-spool
+#     poll_ms: 10000
+#     node_homes: []

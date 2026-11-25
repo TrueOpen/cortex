@@ -116,6 +116,11 @@ type LocalService struct {
 
 	mu        sync.RWMutex
 	artifacts map[string][]byte
+	// artifactAt is when each artifact was last stored; artifactsPrunedAt is
+	// the last sweep. See pruneArtifactsLocked.
+	artifactAt        map[string]time.Time
+	artifactsPrunedAt time.Time
+	artifactRetention time.Duration
 	// detokenizeCalibrated remembers, per served model, that /detokenize
 	// round-tripped the cleanup-sensitive calibration probe byte-exactly, so
 	// its decodes may be compared against committed outputs. See
@@ -180,6 +185,7 @@ func NewLocalService(baseURL, serviceID string, maxConcurrency uint32, inferTime
 		maxConcurrency:  maxConcurrency,
 		http:            &http.Client{},
 		artifacts:       make(map[string][]byte),
+		artifactAt:      make(map[string]time.Time),
 		models:          make(map[string]string),
 		profiles:        make(map[string]localModelProfile),
 		inferTimeout:    inferTimeout,
@@ -325,10 +331,82 @@ type inferStreamIdentity struct {
 	// commitment, so no receipt, and the task runs into the infer deadline as
 	// a Worker timeout. A frame that carries no token (the role preamble of a
 	// chat stream, an empty keep-alive delta) is therefore not a stopping
-	// point under such a Profile. The wait for the first token stays bounded
-	// by the context deadline budgetGrace behind the budget. Requests of every
-	// other Profile stop exactly as before.
+	// point under such a Profile. The wait for the first token is bounded by
+	// the infer timeout and the request deadline, not by budgetGrace: the
+	// silent-engine backstop is armed at the first token (budgetBackstop), so
+	// a budget shorter than the engine's time to first token still ends in a
+	// one-token generation with its commitment and a receipt. Requests of
+	// every other Profile stop exactly as before.
 	budgetStopNeedsToken bool
+	// firstToken, when set, is called at every frame boundary that leaves a
+	// generated token delivered; it arms the backstop once.
+	firstToken func()
+}
+
+// tokenDelivered tells the backstop that delivered generated tokens are in
+// hand after a frame.
+func (i inferStreamIdentity) tokenDelivered(delivered int) {
+	if i.firstToken != nil && delivered > 0 {
+		i.firstToken()
+	}
+}
+
+// budgetCtxErr is ctx.Err() for a context that may have been ended by the
+// backstop budgetBackstop arms at the first token: that one is cancelled with
+// a deadline cause, and is reported as the deadline it is rather than as a
+// cancellation.
+func budgetCtxErr(ctx context.Context) error {
+	err := ctx.Err()
+	if err != nil && errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return err
+}
+
+// budgetBackstop returns the context a generation with an output budget runs
+// under and the hook its stream reader calls once a token is delivered.
+//
+// Without the anchor requirement it is the old rule: a context deadline
+// budgetGrace behind the budget, so an engine that has gone silent fails
+// instead of hanging.
+//
+// Under a Profile that requires the anchor commitment the stop may not be
+// taken before the first generated token, so a deadline fixed at
+// budget + budgetGrace would turn every order whose budget is shorter than the
+// engine's time to first token (a long prefill, a queued engine, a GPU lent to
+// an audit opening) into a failed call with no receipt, repeated on each
+// regeneration. There the backstop is armed only once a token is in hand, at
+// the later of budget + budgetGrace and budgetGrace from that moment; until
+// then the wait is bounded by the infer timeout and the request deadline the
+// caller layers on top.
+func budgetBackstop(parent context.Context, budgetAt time.Time, needsToken bool) (context.Context, func(), context.CancelFunc) {
+	if !needsToken {
+		ctx, cancel := context.WithDeadline(parent, budgetAt.Add(budgetGrace))
+		return ctx, nil, cancel
+	}
+	ctx, cancel := context.WithCancelCause(parent)
+	var once sync.Once
+	var timer *time.Timer
+	var mu sync.Mutex
+	arm := func() {
+		once.Do(func() {
+			wait := time.Until(budgetAt.Add(budgetGrace))
+			if wait < budgetGrace {
+				wait = budgetGrace
+			}
+			mu.Lock()
+			timer = time.AfterFunc(wait, func() { cancel(context.DeadlineExceeded) })
+			mu.Unlock()
+		})
+	}
+	return ctx, arm, func() {
+		mu.Lock()
+		if timer != nil {
+			timer.Stop()
+		}
+		mu.Unlock()
+		cancel(context.Canceled)
+	}
 }
 
 // budgetStopAllowed reports whether a max_output_duration stop may be taken
@@ -1020,7 +1098,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 	// checked between frames, so the clean stop wins whenever frames are still
 	// arriving.
 	budgetAt := time.Now().Add(duration)
-	ctx, cancel := context.WithDeadline(ctx, budgetAt.Add(budgetGrace))
+	ctx, firstToken, cancel := budgetBackstop(ctx, budgetAt, req.RequireAnchorCommit && streaming)
 	defer cancel()
 	if req.DeadlineMS > 0 {
 		var deadlineCancel context.CancelFunc
@@ -1039,6 +1117,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 				modelID:   profile.ModelID,
 				// ADR-0040: see inferStreamIdentity.budgetStopNeedsToken.
 				budgetStopNeedsToken: req.RequireAnchorCommit,
+				firstToken:           firstToken,
 			}
 			if err := s.postStreamingCompletion(ctx, "/v1/completions", genReq, &resp, ident, budgetAt); err != nil {
 				return InferResponse{}, err
@@ -1047,7 +1126,7 @@ func (s *LocalService) inferV0(ctx context.Context, req InferRequest) (InferResp
 			return InferResponse{}, err
 		}
 	}
-	if err := ctx.Err(); err != nil && !budgetStopped(&resp) {
+	if err := budgetCtxErr(ctx); err != nil && !budgetStopped(&resp) {
 		return InferResponse{}, err
 	}
 	if err := checkRawTextCommittedOutput(resp, profile.OutputDecoding); err != nil {
@@ -1405,10 +1484,52 @@ func (s *LocalService) PutArtifactForTest(data []byte) string {
 
 func (s *LocalService) putArtifact(data []byte) string {
 	ref := NewArtifactRef(s.serviceID, data)
+	now := time.Now()
 	s.mu.Lock()
 	s.artifacts[ref.ArtifactID] = append([]byte(nil), data...)
+	s.artifactAt[ref.ArtifactID] = now
+	s.pruneArtifactsLocked(now)
 	s.mu.Unlock()
 	return ref.String()
+}
+
+// defaultArtifactRetention is how long an artifact stays fetchable after it
+// was last stored. Every reader takes its artifacts within the task that
+// produced them: the Worker right after Infer (and persists them), a Verifier
+// by its reveal deadline. Half a day is far past both.
+const defaultArtifactRetention = 12 * time.Hour
+
+// artifactPruneInterval bounds how often a store sweeps the whole map.
+const artifactPruneInterval = time.Minute
+
+// SetArtifactRetention sets how long an artifact stays fetchable after it was
+// last stored. Zero or negative restores the default.
+func (s *LocalService) SetArtifactRetention(d time.Duration) {
+	s.mu.Lock()
+	s.artifactRetention = d
+	s.mu.Unlock()
+}
+
+// pruneArtifactsLocked drops artifacts stored longer ago than the retention.
+// The map used to grow for the life of the process: with a Profile that
+// requires the anchor commitment every task adds a document of up to
+// maxAnchorCommitBytes, and a process killed for memory loses every artifact
+// of every task in flight. Caller holds s.mu for writing.
+func (s *LocalService) pruneArtifactsLocked(now time.Time) {
+	if now.Sub(s.artifactsPrunedAt) < artifactPruneInterval {
+		return
+	}
+	s.artifactsPrunedAt = now
+	retention := s.artifactRetention
+	if retention <= 0 {
+		retention = defaultArtifactRetention
+	}
+	for id, at := range s.artifactAt {
+		if now.Sub(at) > retention {
+			delete(s.artifactAt, id)
+			delete(s.artifacts, id)
+		}
+	}
 }
 
 func (s *LocalService) resolveServedModel(ctx context.Context, modelID string) (string, error) {
@@ -1552,8 +1673,9 @@ func (s *LocalService) getJSON(ctx context.Context, path string, out any) error 
 
 // doPost issues the JSON POST and returns the response on a 2xx. The caller owns
 // resp.Body and must close it. Transport failures and non-2xx statuses are mapped
-// to the same (retryable) errors post has always returned, with the body drained
-// and closed before returning.
+// to errors with the body drained and closed before returning: 429 and 5xx are
+// retryable, a request the service refused as invalid (400, 413, 422) is a
+// deterministic fault, anything else stays unclassified.
 func (s *LocalService) doPost(ctx context.Context, path string, body any) (*http.Response, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -1580,6 +1702,9 @@ func (s *LocalService) doPost(ctx context.Context, path string, body any) (*http
 		err := fmt.Errorf("modelservice local: %s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(detail)))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, retryableError{err: err}
+		}
+		if requestRefusedStatus(resp.StatusCode) {
+			return nil, refusedRequest(err, path, resp.StatusCode)
 		}
 		return nil, err
 	}
@@ -1637,7 +1762,7 @@ func isEventStream(contentType string) bool {
 // while leaving the clean between-frames truncation to win in every case where
 // frames are still arriving. It is deliberately short: it is a backstop for a
 // dead connection, not additional generation time.
-const budgetGrace = 5 * time.Second
+var budgetGrace = 5 * time.Second
 
 // finishReasonMaxOutputDuration is the finish_reason this node fills in when it
 // stops a generation at max_output_duration. It is spelled the same way the
@@ -1766,6 +1891,7 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 		// budget truncates the generation, not a token. Under a Profile that
 		// requires the anchor commitment it is not taken before the first
 		// generated token (inferStreamIdentity.budgetStopNeedsToken).
+		ident.tokenDelivered(len(out.Choices[0].TokenIDs))
 		if overBudget() && out.Choices[0].FinishReason == "" && ident.budgetStopAllowed(len(out.Choices[0].TokenIDs)) {
 			out.Choices[0].FinishReason = finishReasonMaxOutputDuration
 			break
@@ -1776,7 +1902,7 @@ func (s *LocalService) reassembleCompletionStream(ctx context.Context, r io.Read
 	}
 	// A budget stop is a result, so it must not be overwritten by the context
 	// error that the abandoned response body produces as it is closed.
-	if err := ctx.Err(); err != nil && !budgetStopped(out) {
+	if err := budgetCtxErr(ctx); err != nil && !budgetStopped(out) {
 		return err
 	}
 	if len(out.Choices) == 0 || out.Choices[0].FinishReason == "" {

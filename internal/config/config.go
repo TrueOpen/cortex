@@ -62,6 +62,29 @@ type Config struct {
 	Health            HealthConfig            `yaml:"health"`
 	ModelManifest     ModelManifestConfig     `yaml:"model_manifest"`
 	Dispatch          DispatchConfig          `yaml:"dispatch"`
+	Verifier          VerifierConfig          `yaml:"verifier"`
+}
+
+// VerifierConfig groups the Verifier duties that need no model service.
+type VerifierConfig struct {
+	Audit AuditDutyConfig `yaml:"audit"`
+}
+
+// AuditDutyConfig is the audit capability: the node takes the anchor audit
+// panel rounds the chain assigns to it and hands them to the local Verifier
+// program through a spool directory (assignments in, one of three votes out).
+// It needs no engine and no GPU. Off by default.
+type AuditDutyConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// SpoolDir holds assignments/, votes/ and the ledger of votes. The
+	// Verifier program reads the first and writes the second.
+	SpoolDir string `yaml:"spool_dir"`
+	// PollMS paces the read of the chain's assignments; 0 is 10000.
+	PollMS uint64 `yaml:"poll_ms"`
+	// NodeHomes are additional chain node home directories to check for a
+	// block producer's key material. The node refuses to start with the audit
+	// capability on a machine where any is found.
+	NodeHomes []string `yaml:"node_homes"`
 }
 
 // DefaultHandraiseRootHistory bounds HeldRootDigests per Builder. It is a
@@ -88,8 +111,53 @@ type DispatchConfig struct {
 	// MinPriceBid is the local min_price_bid per profile, keyed
 	// "<model_id hex>@<profile_version>" (CD §15.2, §5.1 H4). Real mode
 	// requires one above zero for every supported profile (CD §15.3).
-	MinPriceBid map[string]uint64    `yaml:"min_price_bid"`
-	Stream      DispatchStreamConfig `yaml:"stream"`
+	MinPriceBid map[string]uint64 `yaml:"min_price_bid"`
+	// MaxOutputTokens is the largest generation_params.max_output_tokens this
+	// node takes an offer for; 0 sets no local limit. Set it below the context
+	// length the model service actually runs with (vLLM --max-model-len) when
+	// that is smaller than what the registered model allows: an order above
+	// it is refused NO_CAPACITY at the offer instead of being accepted and
+	// then failing at the engine.
+	MaxOutputTokens uint64 `yaml:"max_output_tokens"`
+	// MaxInputBytes is the largest input_size_bytes this node takes an offer
+	// for; 0 leaves the built-in ceiling (64 MiB), and a larger value is
+	// capped at it. Set it when the model service's context is shorter than
+	// the registered model's: an order whose prompt does not fit is refused by
+	// the engine after acceptance, which ends the task in a Worker timeout.
+	// The order carries the size of the input in bytes, not in tokens, and
+	// this node does not tokenize at the offer, so the bound is in bytes: a
+	// prompt of N bytes is at most N tokens plus the chat template, and
+	// usually three to four times fewer. A bound low enough to be certain
+	// refuses prompts the engine could serve; one sized on the usual ratio
+	// leaves the rare dense prompt to fail at the engine (stopped at once,
+	// slot returned).
+	MaxInputBytes uint64 `yaml:"max_input_bytes"`
+	// AnchorMaxSequenceTokens is, for a Profile that requires the anchor
+	// commitment, the longest sequence (prompt plus generated tokens) of an
+	// order this node takes; 0 sets no limit. An audit opening grows with the
+	// sequence and is bounded by the chain and by the validators; an honest
+	// task whose opening is above the bound cannot be opened and is slashed
+	// for the timeout, so set this to the sequence length whose opening still
+	// fits, as measured on this deployment's engine. The order is compared by
+	// the largest sequence it allows: ceil(input_size_bytes /
+	// anchor_input_bytes_per_token) + max_output_tokens. The anchor sidecar
+	// may publish the same limit as "opening_max_rows" (rows = prompt + generated tokens - 1) in its admission signal; the
+	// smaller of the two binds, and with neither known every order of such a
+	// Profile is refused.
+	AnchorMaxSequenceTokens uint64 `yaml:"anchor_max_sequence_tokens"`
+	// AnchorInputBytesPerToken is the bytes one prompt token is assumed to
+	// take in that comparison; 0 is 1, the bound that is certain.
+	AnchorInputBytesPerToken uint64 `yaml:"anchor_input_bytes_per_token"`
+	// HonourChainPause makes the node ask the chain whether dispatch to it is
+	// paused (a late submission is pending, the bond is unbonding, the node
+	// is jailed) and, while it is, withdraw the standing handraise and refuse
+	// offers with the reason dispatch_paused; both resume when the chain
+	// clears the pause. It also logs when the period's order quota is used
+	// up. Off by default; on a chain without the query it changes nothing.
+	HonourChainPause bool `yaml:"honour_chain_pause"`
+	// ChainPauseRefreshMS is how old the chain's answer may be; 0 is 5000.
+	ChainPauseRefreshMS uint64               `yaml:"chain_pause_refresh_ms"`
+	Stream              DispatchStreamConfig `yaml:"stream"`
 	// ReceiptRescueMarginBlocks: blocks before infer_deadline_height an
 	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
 	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`
@@ -1189,6 +1257,9 @@ func (c *Config) Validate() error {
 	}
 	if problem := retiredDutiesProblem(c.LocalIdentity.Duties); problem != "" {
 		problems = append(problems, problem)
+	}
+	if c.Verifier.Audit.Enabled && strings.TrimSpace(c.Verifier.Audit.SpoolDir) == "" {
+		problems = append(problems, "verifier.audit.spool_dir is required when verifier.audit.enabled is true")
 	}
 	// Backward compatibility: the deprecated evidence.* keys are accepted for one
 	// release. Any value set under evidence.* is copied into artifacts.* only

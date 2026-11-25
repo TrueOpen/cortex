@@ -208,6 +208,9 @@ func TestDispatchOfferRejectsWithTheClosedReasonSet(t *testing.T) {
 		{"input above the local limit", func(x *dispatchHarness) {
 			x.reconfigure(func(c *DispatcherConfig) { c.MaxInputBytes = 8 })
 		}, noCapacity, classInputTooLarge, false},
+		{"output budget above the local limit", func(x *dispatchHarness) {
+			x.reconfigure(func(c *DispatcherConfig) { c.MaxOutputTokens = 127 })
+		}, noCapacity, classOutputBudgetTooLarge, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			ctx := context.Background()
