@@ -124,8 +124,17 @@ type DispatchConfig struct {
 	AnchorMaxSequenceTokens uint64 `yaml:"anchor_max_sequence_tokens"`
 	// AnchorInputBytesPerToken is the bytes one prompt token is assumed to
 	// take in that comparison; 0 is 1, the bound that is certain.
-	AnchorInputBytesPerToken uint64               `yaml:"anchor_input_bytes_per_token"`
-	Stream                   DispatchStreamConfig `yaml:"stream"`
+	AnchorInputBytesPerToken uint64 `yaml:"anchor_input_bytes_per_token"`
+	// HonourChainPause makes the node ask the chain whether dispatch to it is
+	// paused (a late submission is pending, the bond is unbonding, the node
+	// is jailed) and, while it is, withdraw the standing handraise and refuse
+	// offers with the reason dispatch_paused; both resume when the chain
+	// clears the pause. It also logs when the period's order quota is used
+	// up. Off by default; on a chain without the query it changes nothing.
+	HonourChainPause bool `yaml:"honour_chain_pause"`
+	// ChainPauseRefreshMS is how old the chain's answer may be; 0 is 5000.
+	ChainPauseRefreshMS uint64               `yaml:"chain_pause_refresh_ms"`
+	Stream              DispatchStreamConfig `yaml:"stream"`
 	// ReceiptRescueMarginBlocks: blocks before infer_deadline_height an
 	// unaccepted receipt is self-submitted (CD §8.5, S5 Q11).
 	ReceiptRescueMarginBlocks uint64                 `yaml:"receipt_rescue_margin_blocks"`

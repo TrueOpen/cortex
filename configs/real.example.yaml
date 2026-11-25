@@ -200,6 +200,13 @@ dispatch:
   # does not serve these Profiles without a bound.
   # anchor_max_sequence_tokens: 1500
   # anchor_input_bytes_per_token: 1
+  # Ask the chain whether dispatch to this Worker is paused (late submission
+  # pending, unbonding, jailed). While it is, the standing handraise is
+  # withdrawn and offers are refused with the reason dispatch_paused; both
+  # resume when the chain clears it. Also logs when the period's order quota
+  # is used up. Off by default; no effect on a chain without the query.
+  # honour_chain_pause: false
+  # chain_pause_refresh_ms: 5000
   # A signed refusal counts in a Builder's reject rate unless the order is
   # above the bounds its network exempts (the Builder's
   # reject_rate_exempt_output_tokens / reject_rate_exempt_input_bytes): keep

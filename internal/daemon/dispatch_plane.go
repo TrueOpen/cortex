@@ -59,6 +59,9 @@ type DispatchPlaneConfig struct {
 	// AnchorAdmission is the anchor sidecar's admission signal (nil: no
 	// gate); see StandingHandraiseConfig.AnchorAdmission.
 	AnchorAdmission *AnchorAdmission
+	// ChainPause is the chain's pause of dispatch to this Worker (nil: not
+	// asked); see StandingHandraiseConfig.ChainPause.
+	ChainPause *ChainPause
 }
 
 // DispatchPlane is the Phase 1 business side over the Builder streams.
@@ -98,7 +101,7 @@ func NewDispatchPlane(ctx context.Context, cfg DispatchPlaneConfig) (*DispatchPl
 		ChainID: cfg.ChainID, Operator: cfg.Operator, Profiles: cfg.Profiles, MinPriceBid: d.MinPriceBid,
 		Heartbeat: ms(d.Handraise.HeartbeatMS), TTL: ms(d.Handraise.TTLMS), MinChange: ms(d.Handraise.MinChangeIntervalMS),
 		RetentionBlocks: d.EvidenceRetentionBlocks, RootHistory: d.Handraise.RootHistory, EvalEvery: cfg.EvalEvery,
-		Chain: cfg.HandraiseChain, Local: WithLeaseSlots(cfg.Local, leases), Anchor: cfg.Anchor, AnchorAdmission: cfg.AnchorAdmission, Sign: cfg.Sign, Store: cfg.Store,
+		Chain: cfg.HandraiseChain, Local: WithLeaseSlots(cfg.Local, leases), Anchor: cfg.Anchor, AnchorAdmission: cfg.AnchorAdmission, ChainPause: cfg.ChainPause, Sign: cfg.Sign, Store: cfg.Store,
 		Builders: hEnq, Retiring: s.retiring, Now: cfg.Now, Logger: cfg.Logger,
 	})
 	if err != nil {
@@ -108,7 +111,7 @@ func NewDispatchPlane(ctx context.Context, cfg DispatchPlaneConfig) (*DispatchPl
 	disp, err := NewDispatcher(ctx, DispatcherConfig{
 		ChainID: cfg.ChainID, Operator: cfg.Operator, FeeDenom: cfg.FeeDenom, Profiles: cfg.Profiles, MinPriceBid: d.MinPriceBid, MaxOutputTokens: d.MaxOutputTokens, MaxInputBytes: d.MaxInputBytes,
 		AnchorMaxSequenceTokens: d.AnchorMaxSequenceTokens, AnchorInputBytesPerToken: d.AnchorInputBytesPerToken, AnchorRequireSequenceLimit: true,
-		SweepEvery: cfg.SweepEvery, Chain: cfg.DispatchChain, Local: cfg.Local, Anchor: cfg.Anchor, AnchorAdmission: cfg.AnchorAdmission, Handraise: hr, Leases: leases,
+		SweepEvery: cfg.SweepEvery, Chain: cfg.DispatchChain, Local: cfg.Local, Anchor: cfg.Anchor, AnchorAdmission: cfg.AnchorAdmission, ChainPause: cfg.ChainPause, Handraise: hr, Leases: leases,
 		Infer: cfg.Runner, Inputs: cfg.Evidence, Evidence: cfg.Evidence, Sign: cfg.Sign, Store: cfg.Store, Builders: dEnq,
 		Submitter: cfg.Submitter, ReceiptRescueMarginBlocks: d.ReceiptRescueMarginBlocks, Retiring: s.retiring,
 		Now: cfg.Now, Logger: cfg.Logger,

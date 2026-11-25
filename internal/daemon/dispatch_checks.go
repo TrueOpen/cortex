@@ -56,6 +56,10 @@ const (
 	// classAnchorAdmission: the anchor sidecar admits no new audit obligation
 	// right now (ADR-0040); a moment, like no_free_slot.
 	classAnchorAdmission = "anchor_admission"
+	// classChainPaused: the chain has paused dispatch to this Worker; the
+	// Builder should not have offered, so this answers an offer routed before
+	// it saw the pause.
+	classChainPaused = ChainPausedReason
 )
 
 // verdict is one signed-reject decision.
@@ -294,6 +298,9 @@ func (d *Dispatcher) checkProfile(ctx context.Context, modelHex string, version 
 	// that was routed before the Builder saw it. Nothing is reserved here:
 	// the slot is taken with the lease (HandleOffer), and this only spares
 	// an offer that cannot get one the rest of the way.
+	if err := d.cfg.ChainPause.Refusal(ctx); err != nil {
+		return refuse(reasonNoCapacity, classChainPaused, "%v", err), nil
+	}
 	if d.cfg.AnchorAdmission != nil && profileRequiresAnchorOpening(scope.Profile) {
 		if err := d.cfg.AnchorAdmission.RefusalForTask(taskID); err != nil {
 			return refuse(reasonNoCapacity, classAnchorAdmission, "%v", err), nil

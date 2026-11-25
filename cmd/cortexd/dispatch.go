@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/TrueOpen/cortex/internal/chainclient"
 	"github.com/TrueOpen/cortex/internal/config"
@@ -51,11 +52,20 @@ func newDispatchPlane(cfg config.Config, rt *daemon.Runtime, runner *daemon.Task
 		slog.Warn("dispatch is configured but tx.enabled is false: compensation claims, receipt rescue and omission challenges are off on this node",
 			"builders", cfg.Dispatch.AllBuilders())
 	}
+	var pause *daemon.ChainPause
+	if cfg.Dispatch.HonourChainPause {
+		reader, ok := rt.Dependencies.Keeper.(daemon.WorkerQuotaReader)
+		if !ok {
+			return nil, fmt.Errorf("dispatch.honour_chain_pause needs a Keeper client that reads the Worker quota")
+		}
+		pause = daemon.NewChainPause(reader, cfg.LocalIdentity.OperatorAddress,
+			time.Duration(cfg.Dispatch.ChainPauseRefreshMS)*time.Millisecond, nil, slog.Default())
+	}
 	return daemon.NewDispatchPlane(context.Background(), daemon.DispatchPlaneConfig{
 		Streams: rt.Dispatch, Runner: runner, Evidence: ev, Store: rt.Store,
 		ChainID: cfg.ChainID, Operator: cfg.LocalIdentity.OperatorAddress, FeeDenom: cfg.Tx.FeeDenom,
 		Profiles: profiles, Dispatch: cfg.Dispatch, Capacity: cfg.ModelManagement.MaxConcurrency,
-		Local: rt.HandraiseLocal(), Anchor: daemon.AnchorProberOf(rt.Dependencies.Model), AnchorAdmission: rt.AnchorAdmission(),
+		Local: rt.HandraiseLocal(), Anchor: daemon.AnchorProberOf(rt.Dependencies.Model), AnchorAdmission: rt.AnchorAdmission(), ChainPause: pause,
 		Sign: rt.DispatchSigner(), Submitter: submitter,
 		HandraiseChain: chain, DispatchChain: chain, VerifierChain: chain, OmissionChain: chain,
 		Rosters: rt.DispatchRosters(),
